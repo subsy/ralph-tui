@@ -3,8 +3,26 @@
  * Defines structures for storing and retrieving iteration logs from disk.
  */
 
-import type { IterationStatus } from '../engine/types.js';
+import type { IterationStatus, ActiveAgentReason } from '../engine/types.js';
 import type { SubagentEvent, SubagentState } from '../plugins/agents/tracing/types.js';
+
+/**
+ * Entry recording an agent switch during an iteration.
+ * Tracks when and why the engine switched between primary and fallback agents.
+ */
+export interface AgentSwitchEntry {
+  /** ISO 8601 timestamp when the switch occurred */
+  at: string;
+
+  /** Plugin identifier of the agent being switched from */
+  from: string;
+
+  /** Plugin identifier of the agent being switched to */
+  to: string;
+
+  /** Reason for the switch */
+  reason: ActiveAgentReason;
+}
 
 /**
  * Directory where iteration logs are stored (relative to cwd).
@@ -58,6 +76,12 @@ export interface IterationLogMetadata {
 
   /** Epic ID (for beads trackers) */
   epicId?: string;
+
+  /** Agent switches that occurred during this iteration */
+  agentSwitches?: AgentSwitchEntry[];
+
+  /** Summary of how iteration completed (e.g., 'Completed on fallback (opencode) due to rate limit') */
+  completionSummary?: string;
 }
 
 /**

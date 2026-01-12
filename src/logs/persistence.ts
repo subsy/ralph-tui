@@ -13,6 +13,7 @@ import {
   stat,
 } from 'node:fs/promises';
 import type {
+  AgentSwitchEntry,
   IterationLog,
   IterationLogMetadata,
   IterationLogSummary,
@@ -79,12 +80,41 @@ export async function ensureIterationsDir(cwd: string, customDir?: string): Prom
 }
 
 /**
+ * Options for building iteration metadata.
+ */
+export interface BuildMetadataOptions {
+  /** Ralph config (for agent plugin, model, epicId) */
+  config?: Partial<RalphConfig>;
+
+  /** Agent switches that occurred during this iteration */
+  agentSwitches?: AgentSwitchEntry[];
+
+  /** Summary of how iteration completed */
+  completionSummary?: string;
+}
+
+/**
  * Build metadata from an iteration result and config.
  */
 export function buildMetadata(
   result: IterationResult,
-  config?: Partial<RalphConfig>
+  configOrOptions?: Partial<RalphConfig> | BuildMetadataOptions
 ): IterationLogMetadata {
+  // Handle both old signature (config only) and new signature (options object)
+  let config: Partial<RalphConfig> | undefined;
+  let agentSwitches: AgentSwitchEntry[] | undefined;
+  let completionSummary: string | undefined;
+
+  if (configOrOptions && 'agentSwitches' in configOrOptions) {
+    // New options object
+    config = configOrOptions.config;
+    agentSwitches = configOrOptions.agentSwitches;
+    completionSummary = configOrOptions.completionSummary;
+  } else {
+    // Old config-only signature for backward compatibility
+    config = configOrOptions as Partial<RalphConfig> | undefined;
+  }
+
   return {
     iteration: result.iteration,
     taskId: result.task.id,
@@ -100,6 +130,8 @@ export function buildMetadata(
     agentPlugin: config?.agent?.plugin,
     model: config?.model,
     epicId: config?.epicId,
+    agentSwitches: agentSwitches && agentSwitches.length > 0 ? agentSwitches : undefined,
+    completionSummary,
   };
 }
 
@@ -137,6 +169,22 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
   }
   if (metadata.epicId) {
     lines.push(`- **Epic**: ${metadata.epicId}`);
+  }
+
+  // Add completion summary if present
+  if (metadata.completionSummary) {
+    lines.push(`- **Completion Summary**: ${metadata.completionSummary}`);
+  }
+
+  // Add agent switches section if any occurred
+  if (metadata.agentSwitches && metadata.agentSwitches.length > 0) {
+    lines.push('');
+    lines.push('## Agent Switches');
+    lines.push('');
+    for (const sw of metadata.agentSwitches) {
+      const switchType = sw.reason === 'fallback' ? 'Switched to fallback' : 'Recovered to primary';
+      lines.push(`- **${switchType}**: ${sw.from} → ${sw.to} at ${sw.at}`);
+    }
   }
 
   return lines.join('\n');
@@ -234,6 +282,12 @@ export interface SaveIterationLogOptions {
 
   /** Subagent trace data to persist (optional) */
   subagentTrace?: SubagentTrace;
+
+  /** Agent switches that occurred during this iteration */
+  agentSwitches?: AgentSwitchEntry[];
+
+  /** Summary of how iteration completed (e.g., 'Completed on fallback (opencode) due to rate limit') */
+  completionSummary?: string;
 }
 
 /**
@@ -256,11 +310,16 @@ export async function saveIterationLog(
   // New signature: saveIterationLog(cwd, result, stdout, stderr, options)
   let config: Partial<RalphConfig> | undefined;
   let subagentTrace: SubagentTrace | undefined;
+  let agentSwitches: AgentSwitchEntry[] | undefined;
+  let completionSummary: string | undefined;
 
   if (options && 'subagentTrace' in options) {
     // New options object
-    config = options.config;
-    subagentTrace = options.subagentTrace;
+    const saveOptions = options as SaveIterationLogOptions;
+    config = saveOptions.config;
+    subagentTrace = saveOptions.subagentTrace;
+    agentSwitches = saveOptions.agentSwitches;
+    completionSummary = saveOptions.completionSummary;
   } else {
     // Old config-only signature for backward compatibility
     config = options as Partial<RalphConfig> | undefined;
@@ -269,7 +328,11 @@ export async function saveIterationLog(
   const outputDir = config?.outputDir;
   await ensureIterationsDir(cwd, outputDir);
 
-  const metadata = buildMetadata(result, config);
+  const metadata = buildMetadata(result, {
+    config,
+    agentSwitches,
+    completionSummary,
+  });
   const filename = generateLogFilename(result.iteration, result.task.id);
   const filePath = join(getIterationsDir(cwd, outputDir), filename);
 

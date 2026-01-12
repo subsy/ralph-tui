@@ -36,6 +36,7 @@ import type { SubagentEvent } from '../plugins/agents/tracing/types.js';
 import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
 import { updateSessionIteration, updateSessionStatus } from '../session/index.js';
 import { saveIterationLog, buildSubagentTrace, createProgressEntry, appendProgress, getRecentProgressSummary } from '../logs/index.js';
+import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 
 /**
@@ -121,6 +122,8 @@ export class ExecutionEngine {
   private rateLimitedAgents: Set<string> = new Set();
   /** Primary agent instance - preserved when switching to fallback for recovery attempts */
   private primaryAgentInstance: AgentPlugin | null = null;
+  /** Track agent switches during the current iteration for logging */
+  private currentIterationAgentSwitches: AgentSwitchEntry[] = [];
 
   constructor(config: RalphConfig) {
     this.config = config;
@@ -666,6 +669,9 @@ export class ExecutionEngine {
     this.state.subagents.clear();
     this.subagentParser.reset();
 
+    // Reset agent switch tracking for this iteration
+    this.currentIterationAgentSwitches = [];
+
     const startedAt = new Date();
     const iteration = this.state.currentIteration;
 
@@ -888,9 +894,14 @@ export class ExecutionEngine {
       const subagentTrace =
         events.length > 0 ? buildSubagentTrace(events, states) : undefined;
 
+      // Build completion summary if agent switches occurred
+      const completionSummary = this.buildCompletionSummary(result);
+
       await saveIterationLog(this.config.cwd, result, agentResult.stdout, agentResult.stderr ?? this.state.currentStderr, {
         config: this.config,
         subagentTrace,
+        agentSwitches: this.currentIterationAgentSwitches.length > 0 ? [...this.currentIterationAgentSwitches] : undefined,
+        completionSummary,
       });
 
       // Append progress entry for cross-iteration context
@@ -918,7 +929,7 @@ export class ExecutionEngine {
       // by runIterationWithErrorHandling which determines the action.
       // This keeps the error handling logic centralized.
 
-      return {
+      const failedResult: IterationResult = {
         iteration,
         status: 'failed',
         task,
@@ -929,6 +940,16 @@ export class ExecutionEngine {
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
       };
+
+      // Append progress entry for failed iterations too
+      try {
+        const progressEntry = createProgressEntry(failedResult);
+        await appendProgress(this.config.cwd, progressEntry);
+      } catch {
+        // Don't fail iteration if progress append fails
+      }
+
+      return failedResult;
     } finally {
       this.state.currentTask = null;
     }
@@ -1192,6 +1213,26 @@ export class ExecutionEngine {
       };
     }
 
+    // Record the agent switch for iteration logging
+    const switchEntry: AgentSwitchEntry = {
+      at: now,
+      from: previousAgent,
+      to: newAgentPlugin,
+      reason,
+    };
+    this.currentIterationAgentSwitches.push(switchEntry);
+
+    // Log the switch to console for visibility
+    if (reason === 'fallback') {
+      console.log(
+        `[agent-switch] Switching to fallback: ${previousAgent} → ${newAgentPlugin} (rate limit)`
+      );
+    } else {
+      console.log(
+        `[agent-switch] Recovering to primary: ${previousAgent} → ${newAgentPlugin}`
+      );
+    }
+
     // Emit agent switched event
     const event: AgentSwitchedEvent = {
       type: 'agent:switched',
@@ -1439,6 +1480,42 @@ export class ExecutionEngine {
       this.rateLimitedAgents.add(nextFallback);
       return this.tryFallbackAgent(task, iteration, startedAt);
     }
+  }
+
+  /**
+   * Build a completion summary string for the iteration.
+   * Returns a human-readable summary when agent switches occurred.
+   *
+   * @param result - The iteration result
+   * @returns Completion summary string or undefined if no switches occurred
+   */
+  private buildCompletionSummary(result: IterationResult): string | undefined {
+    // No switches during this iteration - no special summary needed
+    if (this.currentIterationAgentSwitches.length === 0) {
+      return undefined;
+    }
+
+    const currentAgent = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+    const statusWord = result.taskCompleted ? 'Completed' : result.status === 'failed' ? 'Failed' : 'Finished';
+
+    // Check if we're on a fallback agent
+    const lastSwitch = this.currentIterationAgentSwitches[this.currentIterationAgentSwitches.length - 1];
+    if (lastSwitch && lastSwitch.reason === 'fallback') {
+      return `${statusWord} on fallback (${currentAgent}) due to rate limit`;
+    }
+
+    // Check if we recovered to primary during this iteration
+    if (lastSwitch && lastSwitch.reason === 'primary') {
+      const fallbackSwitches = this.currentIterationAgentSwitches.filter(s => s.reason === 'fallback');
+      if (fallbackSwitches.length > 0) {
+        const fallbackAgent = fallbackSwitches[0].to;
+        return `${statusWord} on primary after recovering from fallback (${fallbackAgent})`;
+      }
+      return `${statusWord} on primary (${currentAgent}) after recovery`;
+    }
+
+    // Generic summary for other cases
+    return `${statusWord} with ${this.currentIterationAgentSwitches.length} agent switch(es)`;
   }
 
   /**

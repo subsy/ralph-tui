@@ -5,6 +5,7 @@
  */
 
 export type {
+  AgentSwitchEntry,
   IterationLog,
   IterationLogMetadata,
   IterationLogSummary,
