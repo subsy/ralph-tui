@@ -557,18 +557,11 @@ export function RunApp({
           }
           break;
 
-        case 'i':
+        case 'v':
           // Toggle between tasks and iterations view (only if not in detail view)
           if (viewMode !== 'task-detail' && viewMode !== 'iteration-detail') {
             setViewMode((prev) => (prev === 'tasks' ? 'iterations' : 'tasks'));
           }
-          break;
-
-        case 't':
-          // Switch to tasks view (from any view)
-          setViewMode('tasks');
-          setDetailTask(null);
-          setDetailIteration(null);
           break;
 
         case 'd':
@@ -677,6 +670,31 @@ export function RunApp({
   // Get selected task from filtered list
   const selectedTask = displayedTasks[selectedIndex] ?? null;
 
+  // Compute the iteration output to show for the selected task
+  // - If selected task is currently executing: show live currentOutput
+  // - If selected task has a completed iteration: show that iteration's output
+  // - Otherwise: undefined (will show "waiting" or appropriate message)
+  const selectedTaskIteration = useMemo(() => {
+    if (!selectedTask) return { iteration: currentIteration, output: undefined };
+
+    // Check if this task is currently being executed
+    if (currentTaskId === selectedTask.id) {
+      return { iteration: currentIteration, output: currentOutput };
+    }
+
+    // Look for a completed iteration for this task
+    const taskIteration = iterations.find((iter) => iter.task.id === selectedTask.id);
+    if (taskIteration) {
+      return {
+        iteration: taskIteration.iteration,
+        output: taskIteration.agentResult?.stdout ?? '',
+      };
+    }
+
+    // Task hasn't been run yet
+    return { iteration: 0, output: undefined };
+  }, [selectedTask, currentTaskId, currentIteration, currentOutput, iterations]);
+
   return (
     <box
       style={{
@@ -747,8 +765,8 @@ export function RunApp({
             <LeftPanel tasks={displayedTasks} selectedIndex={selectedIndex} />
             <RightPanel
               selectedTask={selectedTask}
-              currentIteration={currentIteration}
-              iterationOutput={currentOutput}
+              currentIteration={selectedTaskIteration.iteration}
+              iterationOutput={selectedTaskIteration.output}
             />
           </>
         ) : (
@@ -762,8 +780,8 @@ export function RunApp({
             />
             <RightPanel
               selectedTask={selectedTask}
-              currentIteration={currentIteration}
-              iterationOutput={currentOutput}
+              currentIteration={selectedTaskIteration.iteration}
+              iterationOutput={selectedTaskIteration.output}
             />
           </>
         )}
