@@ -2,6 +2,7 @@
  * ABOUTME: Parses agent output to extract readable content.
  * Handles JSONL format from Claude Code and other agents to extract
  * the meaningful result text while filtering out usage stats and metadata.
+ * Includes streaming parser for real-time output processing.
  */
 
 /**
@@ -164,4 +165,154 @@ export function formatOutputForDisplay(output: string, maxLines?: number): strin
   }
 
   return formatted;
+}
+
+/**
+ * Maximum size for the parsed output buffer (in characters).
+ * Older content is trimmed when this limit is exceeded.
+ * 100KB should be plenty for display while preventing memory issues.
+ */
+const MAX_PARSED_OUTPUT_SIZE = 100_000;
+
+/**
+ * Streaming output parser for real-time JSONL processing.
+ * Extracts readable content from chunks as they arrive, keeping
+ * only meaningful text to prevent memory bloat.
+ *
+ * Usage:
+ *   const parser = new StreamingOutputParser();
+ *   onChunk(data) { parser.push(data); }
+ *   getOutput() { return parser.getOutput(); }
+ */
+export class StreamingOutputParser {
+  private buffer = '';
+  private parsedOutput = '';
+  private lastResultText = '';
+
+  /**
+   * Push a chunk of raw output data.
+   * Parses complete JSONL lines and extracts readable content.
+   * @returns The newly extracted readable text (if any)
+   */
+  push(chunk: string): string {
+    this.buffer += chunk;
+    let newContent = '';
+
+    // Process complete lines
+    let newlineIndex: number;
+    while ((newlineIndex = this.buffer.indexOf('\n')) !== -1) {
+      const line = this.buffer.slice(0, newlineIndex);
+      this.buffer = this.buffer.slice(newlineIndex + 1);
+
+      const extracted = this.extractReadableContent(line);
+      if (extracted) {
+        newContent += extracted + '\n';
+      }
+    }
+
+    // Append new content to parsed output
+    if (newContent) {
+      this.parsedOutput += newContent;
+
+      // Trim if exceeding max size (keep the end, trim the start)
+      if (this.parsedOutput.length > MAX_PARSED_OUTPUT_SIZE) {
+        const trimPoint = this.parsedOutput.length - MAX_PARSED_OUTPUT_SIZE + 1000;
+        this.parsedOutput = '[...output trimmed...]\n' + this.parsedOutput.slice(trimPoint);
+      }
+    }
+
+    return newContent;
+  }
+
+  /**
+   * Extract readable content from a single JSONL line.
+   * Only returns content for events we want to display.
+   */
+  private extractReadableContent(line: string): string | undefined {
+    const trimmed = line.trim();
+    if (!trimmed) return undefined;
+
+    // Not JSON - return as plain text if it's not just whitespace
+    if (!trimmed.startsWith('{')) {
+      return trimmed;
+    }
+
+    try {
+      const event = JSON.parse(trimmed) as AgentEvent;
+
+      // Result event - contains final output (save for later, don't show yet)
+      if (event.type === 'result') {
+        const resultEvent = event as ClaudeCodeResultEvent;
+        if (resultEvent.result) {
+          this.lastResultText = resultEvent.result;
+          // Don't return result here - it will be shown when getOutput() is called
+          // This prevents duplicate display of the final result
+        }
+        return undefined;
+      }
+
+      // Assistant message with content - show the text
+      if (event.type === 'assistant') {
+        const assistantEvent = event as AssistantEvent;
+        const content = assistantEvent.message?.content;
+        if (typeof content === 'string' && content.trim()) {
+          return content;
+        }
+        if (Array.isArray(content)) {
+          const textParts = content
+            .filter((c): c is { type: string; text: string } => c.type === 'text' && !!c.text)
+            .map((c) => c.text);
+          if (textParts.length > 0) {
+            return textParts.join('');
+          }
+        }
+      }
+
+      // User message (tool results returning to Claude) - skip these
+      if (event.type === 'user') {
+        return undefined;
+      }
+
+      // System messages - could show but usually not interesting
+      if (event.type === 'system') {
+        return undefined;
+      }
+
+      // Skip tool_use and tool_result events - too verbose
+      // Users can see these in the full logs if needed
+
+      return undefined;
+    } catch {
+      // Not valid JSON - return as plain text if meaningful
+      if (trimmed.length > 0 && !trimmed.startsWith('{')) {
+        return trimmed;
+      }
+      return undefined;
+    }
+  }
+
+  /**
+   * Get the accumulated parsed output.
+   * This is the readable content extracted from all chunks so far.
+   */
+  getOutput(): string {
+    return this.parsedOutput;
+  }
+
+  /**
+   * Get the final result text (from the 'result' event).
+   * This is typically the most complete output at the end.
+   */
+  getResultText(): string {
+    return this.lastResultText;
+  }
+
+  /**
+   * Reset the parser state for a new iteration.
+   */
+  reset(): void {
+    this.buffer = '';
+    this.parsedOutput = '';
+    this.lastResultText = '';
+  }
 }

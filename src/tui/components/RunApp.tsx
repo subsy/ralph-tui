@@ -6,7 +6,7 @@
 
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode } from 'react';
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { colors, layout } from '../theme.js';
 import type { RalphStatus, TaskStatus } from '../theme.js';
 import type { TaskItem, BlockerInfo, DetailsViewMode, IterationTimingInfo, SubagentTreeNode } from '../types.js';
@@ -30,6 +30,7 @@ import type { AgentPluginMeta } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
 import type { SubagentTraceStats, SubagentHierarchyNode } from '../../logs/types.js';
+import { StreamingOutputParser } from '../output-parser.js';
 
 /**
  * View modes for the RunApp component
@@ -300,6 +301,8 @@ export function RunApp({
   const [status, setStatus] = useState<RalphStatus>(onStart ? 'ready' : 'running');
   const [currentIteration, setCurrentIteration] = useState(0);
   const [currentOutput, setCurrentOutput] = useState('');
+  // Streaming parser for live output - extracts readable content and prevents memory bloat
+  const outputParserRef = useRef(new StreamingOutputParser());
   const [elapsedTime, setElapsedTime] = useState(0);
   const [epicName] = useState('Ralph');
   // Derive agent/tracker names from config - these are displayed in the header
@@ -446,6 +449,8 @@ export function RunApp({
         case 'iteration:started':
           setCurrentIteration(event.iteration);
           setCurrentOutput('');
+          // Reset the streaming parser for the new iteration
+          outputParserRef.current.reset();
           // Clear subagent state for new iteration
           setSubagentTree([]);
           setCollapsedSubagents(new Set());
@@ -537,7 +542,9 @@ export function RunApp({
 
         case 'agent:output':
           if (event.stream === 'stdout') {
-            setCurrentOutput((prev) => prev + event.data);
+            // Use streaming parser to extract readable content (filters out verbose JSONL)
+            outputParserRef.current.push(event.data);
+            setCurrentOutput(outputParserRef.current.getOutput());
           }
           // Refresh subagent tree from engine (subagent events are processed in engine)
           // Only refresh if subagent tracing is enabled to avoid unnecessary work
