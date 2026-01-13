@@ -7,5 +7,7 @@
 export * from './types.js';
 export * from './resources.js';
 export * from './coordinator-types.js';
+export * from './lock-types.js';
 export { WorktreePoolManager } from './manager.js';
 export { Coordinator } from './coordinator.js';
+export { ResourceLockManager } from './lock-manager.js';
