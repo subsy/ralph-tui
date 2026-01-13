@@ -389,7 +389,13 @@ export class MergeEngine {
   }
 
   async rollback(options: RollbackOptions): Promise<RollbackResult> {
-    const { targetRef, cleanupMergeBranches = false, force = false } = options;
+    const {
+      targetRef,
+      cleanupMergeBranches = false,
+      force = false,
+      preserveMergeAttemptBranch = false,
+      preservedBranchName,
+    } = options;
 
     this.emit({ type: 'rollback_started', targetRef });
 
@@ -402,6 +408,17 @@ export class MergeEngine {
         if (status.stdout.trim()) {
           throw new Error('Working directory has uncommitted changes. Use force=true to override.');
         }
+      }
+
+      let preservedBranch: string | undefined;
+      let preservedSha: string | undefined;
+
+      if (preserveMergeAttemptBranch) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        preservedBranch = preservedBranchName || `debug/failed-merge-${timestamp}`;
+        preservedSha = fromSha;
+
+        await execGit(['branch', preservedBranch, fromSha], this.config.projectRoot);
       }
 
       await execGit(['reset', '--hard', targetRef], this.config.projectRoot);
@@ -426,6 +443,8 @@ export class MergeEngine {
         fromSha,
         toSha,
         deletedBranches: deletedBranches.length > 0 ? deletedBranches : undefined,
+        preservedBranch,
+        preservedSha,
       };
 
       this.emit({ type: 'rollback_completed', result });

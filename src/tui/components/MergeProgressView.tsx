@@ -13,6 +13,7 @@ import type {
 } from '../merge-progress-types.js';
 import { WorktreeMergeCard } from './WorktreeMergeCard.js';
 import { ConflictResolutionPanel } from './ConflictResolutionPanel.js';
+import { RollbackPromptPanel } from './RollbackPromptPanel.js';
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
@@ -27,6 +28,11 @@ export function MergeProgressView({
   isResolvingConflict,
   currentConflicts,
   selectedConflictIndex = 0,
+  isShowingRollbackPrompt = false,
+  validationResult,
+  backupRef,
+  isRollingBack = false,
+  rollbackResult,
   onAcceptResolution,
   onRejectResolution,
   onUseOurs,
@@ -36,18 +42,27 @@ export function MergeProgressView({
   onSelectWorktree,
   onSelectConflict,
   onClose,
+  onRollback,
+  onRollbackPreserveDebug,
+  onContinueAnyway,
 }: MergeProgressViewProps): ReactNode {
-  const [viewMode, setViewMode] = useState<MergeProgressViewMode>(
-    isResolvingConflict ? 'conflict' : 'overview'
-  );
+  const getInitialViewMode = (): MergeProgressViewMode => {
+    if (isShowingRollbackPrompt) return 'rollback';
+    if (isResolvingConflict) return 'conflict';
+    return 'overview';
+  };
+
+  const [viewMode, setViewMode] = useState<MergeProgressViewMode>(getInitialViewMode);
   const [localSelectedIndex, setLocalSelectedIndex] = useState(selectedIndex);
   const [localConflictIndex, setLocalConflictIndex] = useState(selectedConflictIndex);
 
   useEffect(() => {
-    if (isResolvingConflict && viewMode !== 'conflict') {
+    if (isShowingRollbackPrompt && viewMode !== 'rollback') {
+      setViewMode('rollback');
+    } else if (isResolvingConflict && viewMode !== 'conflict' && !isShowingRollbackPrompt) {
       setViewMode('conflict');
     }
-  }, [isResolvingConflict, viewMode]);
+  }, [isResolvingConflict, isShowingRollbackPrompt, viewMode]);
 
   useEffect(() => {
     setLocalSelectedIndex(selectedIndex);
@@ -209,6 +224,22 @@ export function MergeProgressView({
           onSelectConflict?.(idx);
         }}
         onBack={handleBack}
+      />
+    );
+  }
+
+  if (viewMode === 'rollback' && validationResult && backupRef) {
+    return (
+      <RollbackPromptPanel
+        validationResult={validationResult}
+        backupBranch={backupBranch}
+        backupRef={backupRef}
+        onRollback={onRollback ?? (() => {})}
+        onRollbackPreserveDebug={onRollbackPreserveDebug ?? (() => {})}
+        onContinueAnyway={onContinueAnyway ?? (() => {})}
+        onAbort={onAbortAll ?? (() => {})}
+        isRollingBack={isRollingBack}
+        rollbackResult={rollbackResult}
       />
     );
   }

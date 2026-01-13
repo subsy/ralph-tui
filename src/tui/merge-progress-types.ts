@@ -9,6 +9,8 @@ import type {
   WorktreeMergeResult,
   MergeSessionResult,
   BackupBranchInfo,
+  PostMergeValidationResult,
+  RollbackResult,
 } from '../worktree/merge-engine-types.js';
 import type {
   FileResolutionResult,
@@ -126,6 +128,21 @@ export interface MergeProgressViewProps {
   /** Currently selected conflict index */
   selectedConflictIndex?: number;
 
+  /** Whether showing rollback prompt after validation failure */
+  isShowingRollbackPrompt?: boolean;
+
+  /** Validation result when rollback prompt is shown */
+  validationResult?: PostMergeValidationResult;
+
+  /** Backup ref for rollback */
+  backupRef?: string;
+
+  /** Whether rollback is in progress */
+  isRollingBack?: boolean;
+
+  /** Rollback result after completion */
+  rollbackResult?: RollbackResult;
+
   /** Callback when user accepts AI resolution */
   onAcceptResolution?: (fileIndex: number) => void;
 
@@ -155,6 +172,15 @@ export interface MergeProgressViewProps {
 
   /** Callback to close the view */
   onClose?: () => void;
+
+  /** Callback when user chooses to rollback */
+  onRollback?: () => void;
+
+  /** Callback when user chooses to rollback with debug branch preserved */
+  onRollbackPreserveDebug?: () => void;
+
+  /** Callback when user chooses to continue despite validation failure */
+  onContinueAnyway?: () => void;
 }
 
 /**
@@ -217,7 +243,8 @@ export interface ConflictResolutionPanelProps {
  */
 export type MergeProgressViewMode =
   | 'overview'    // Shows all worktrees and their status
-  | 'conflict';   // Shows conflict resolution for selected worktree
+  | 'conflict'    // Shows conflict resolution for selected worktree
+  | 'rollback';   // Shows rollback prompt after validation failure
 
 /**
  * Events for merge progress updates.
@@ -409,3 +436,23 @@ export const mergeProgressShortcuts = [
   { key: '\u2191\u2193', description: 'Navigate' },
   { key: 'Enter', description: 'View conflicts' },
 ] as const;
+
+export interface RollbackPromptPanelProps {
+  validationResult: PostMergeValidationResult;
+  backupBranch?: BackupBranchInfo;
+  backupRef: string;
+  onRollback: () => void;
+  onRollbackPreserveDebug: () => void;
+  onContinueAnyway: () => void;
+  onAbort: () => void;
+  isRollingBack?: boolean;
+  rollbackResult?: RollbackResult;
+}
+
+export type RollbackPromptEvent =
+  | { type: 'rollback_requested'; preserveDebugBranch: boolean }
+  | { type: 'rollback_completed'; result: RollbackResult }
+  | { type: 'continue_anyway' }
+  | { type: 'abort' };
+
+export { RollbackPromptChoice } from '../worktree/merge-engine-types.js';

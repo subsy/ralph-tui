@@ -162,6 +162,16 @@ export interface RollbackOptions {
 
   /** Whether to force the rollback even if there are uncommitted changes */
   force?: boolean;
+
+  /**
+   * Whether to preserve the merge attempt on a debug branch before rolling back.
+   * If true, creates a branch named `debug/failed-merge-{timestamp}` pointing
+   * to the current state before resetting, so the merge result can be analyzed later.
+   */
+  preserveMergeAttemptBranch?: boolean;
+
+  /** Custom name for the preserved merge attempt branch (if preserveMergeAttemptBranch is true) */
+  preservedBranchName?: string;
 }
 
 /**
@@ -185,7 +195,34 @@ export interface RollbackResult {
 
   /** List of branches deleted during cleanup */
   deletedBranches?: string[];
+
+  /** Name of preserved merge attempt branch (if preserveMergeAttemptBranch was used) */
+  preservedBranch?: string;
+
+  /** SHA of the preserved merge attempt (same as fromSha, for debugging reference) */
+  preservedSha?: string;
 }
+
+/**
+ * Result of post-merge validation.
+ */
+export interface PostMergeValidationResult {
+  success: boolean;
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+}
+
+/**
+ * User's choice when prompted about rollback after validation failure.
+ */
+export type RollbackPromptChoice =
+  | 'rollback'
+  | 'rollback_preserve_debug'
+  | 'continue_anyway'
+  | 'abort';
 
 /**
  * Events emitted by the merge engine.
@@ -203,6 +240,10 @@ export type MergeEngineEvent =
   | { type: 'session_aborted'; reason: string; partialResult: Partial<MergeSessionResult> }
   | { type: 'rollback_started'; targetRef: string }
   | { type: 'rollback_completed'; result: RollbackResult }
+  | { type: 'validation_started'; command: string }
+  | { type: 'validation_completed'; result: PostMergeValidationResult }
+  | { type: 'validation_failed'; result: PostMergeValidationResult }
+  | { type: 'rollback_prompt_required'; validationResult: PostMergeValidationResult; backupRef: string }
   | { type: 'error'; error: Error; context?: string };
 
 /**
