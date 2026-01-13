@@ -166,6 +166,8 @@ export class TaskGraphAnalyzer {
 
     const reasoning = this.generateReasoning(workUnits, planOutput, insightsOutput);
 
+    this.lastDataHash = planOutput.data_hash;
+
     return {
       analyzedAt: new Date(),
       totalTasks: tasks.length,

@@ -74,6 +74,7 @@ export type LockAcquisitionFailureReason =
   | 'write_lock_blocked_by_readers'
   | 'timeout_waiting'
   | 'agent_not_registered'
+  | 'max_locks_exceeded'
   | 'invalid_resource';
 
 /**

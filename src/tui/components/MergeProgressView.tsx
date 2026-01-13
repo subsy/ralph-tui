@@ -312,10 +312,6 @@ export function MergeProgressView({
             key={wt.worktree.id}
             progress={wt}
             isSelected={index === localSelectedIndex}
-            onSelect={() => {
-              setLocalSelectedIndex(index);
-              onSelectWorktree?.(index);
-            }}
           />
         ))}
       </scrollbox>

@@ -4,6 +4,8 @@
  */
 
 import type { ReactNode } from 'react';
+import { useCallback } from 'react';
+import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
 import type { ConflictResolutionPanelProps } from '../merge-progress-types.js';
 import { getConfidenceDisplay } from '../merge-progress-types.js';
@@ -32,18 +34,57 @@ export function ConflictResolutionPanel({
   worktree,
   conflicts,
   selectedIndex,
-  onAccept: _onAccept,
-  onReject: _onReject,
-  onUseOurs: _onUseOurs,
-  onUseTheirs: _onUseTheirs,
-  onManualResolve: _onManualResolve,
-  onAbortAll: _onAbortAll,
-  onSelectConflict: _onSelectConflict,
-  onBack: _onBack,
+  onAccept,
+  onReject,
+  onUseOurs,
+  onUseTheirs,
+  onManualResolve,
+  onAbortAll,
+  onSelectConflict,
+  onBack,
 }: ConflictResolutionPanelProps): ReactNode {
   const selectedConflict = conflicts[selectedIndex];
   const resolvedCount = conflicts.filter(c => c.resolved).length;
   const pendingCount = conflicts.filter(c => c.requiresUserInput && !c.resolved).length;
+
+  const handleKeyboard = useCallback(
+    (key: { name: string }) => {
+      switch (key.name) {
+        case 'a':
+          if (selectedConflict?.suggestion && onAccept) onAccept(selectedIndex);
+          break;
+        case 'o':
+          onUseOurs?.(selectedIndex);
+          break;
+        case 't':
+          onUseTheirs?.(selectedIndex);
+          break;
+        case 'm':
+          onManualResolve?.(selectedIndex);
+          break;
+        case 'r':
+          onReject?.(selectedIndex);
+          break;
+        case 'up':
+        case 'k':
+          onSelectConflict?.(Math.max(0, selectedIndex - 1));
+          break;
+        case 'down':
+        case 'j':
+          onSelectConflict?.(Math.min(conflicts.length - 1, selectedIndex + 1));
+          break;
+        case 'escape':
+          onBack?.();
+          break;
+        case 'q':
+          onAbortAll?.();
+          break;
+      }
+    },
+    [selectedIndex, selectedConflict, conflicts.length, onAccept, onReject, onUseOurs, onUseTheirs, onManualResolve, onAbortAll, onSelectConflict, onBack]
+  );
+
+  useKeyboard(handleKeyboard);
 
   return (
     <box

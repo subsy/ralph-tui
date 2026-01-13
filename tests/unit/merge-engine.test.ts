@@ -68,7 +68,7 @@ describe('MergeEngine', () => {
       expect(result.skippedCount).toBe(0);
     });
 
-    test('should emit session_started event', async () => {
+    test('should not emit events for empty worktrees array', async () => {
       const listener = mock(() => {});
       mergeEngine.addEventListener(listener);
       

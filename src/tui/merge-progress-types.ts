@@ -195,9 +195,6 @@ export interface WorktreeMergeCardProps {
 
   /** Whether to show compact view */
   compact?: boolean;
-
-  /** Callback when card is selected */
-  onSelect?: () => void;
 }
 
 /**
@@ -445,6 +442,7 @@ export interface RollbackPromptPanelProps {
   onRollbackPreserveDebug: () => void;
   onContinueAnyway: () => void;
   onAbort: () => void;
+  onDismissResult?: () => void;
   isRollingBack?: boolean;
   rollbackResult?: RollbackResult;
 }

@@ -828,7 +828,7 @@ When tasks fail in parallel mode:
 1. **Continue on Error**: By default, other tasks continue executing
 2. **Worktree Preservation**: Failed worktrees are preserved at `.worktrees/task-<id>-<uuid>`
 3. **Failure Report**: Detailed report with stdout/stderr, error phase, and attribution
-4. **Rollback Option**: After merge, you can rollback to pre-merge state if needed
+4. **Rollback Option**: After merge, you can roll back to pre-merge state if needed
 
 Example failure report:
 

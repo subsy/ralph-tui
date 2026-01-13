@@ -81,7 +81,7 @@ export class ResourceLockManager {
     if (agentLockCount >= this.config.maxLocksPerAgent) {
       return Promise.resolve({
         success: false,
-        reason: 'agent_not_registered',
+        reason: 'max_locks_exceeded',
       });
     }
 
@@ -232,7 +232,11 @@ export class ResourceLockManager {
           await cp(src, dest, { recursive: true });
         }
         cacheState.initialized = true;
-      } catch {
+      } catch (error) {
+        // Shared cache copy failed - log but continue with empty cache
+        console.error(
+          `[ResourceLockManager] Failed to initialize worktree cache from shared cache: ${error instanceof Error ? error.message : String(error)}`
+        );
         cacheState.initialized = true;
       }
     } else {

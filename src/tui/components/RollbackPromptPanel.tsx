@@ -20,6 +20,7 @@ export function RollbackPromptPanel({
   onRollbackPreserveDebug,
   onContinueAnyway,
   onAbort,
+  onDismissResult,
   isRollingBack = false,
   rollbackResult,
 }: RollbackPromptPanelProps): ReactNode {
@@ -71,6 +72,10 @@ export function RollbackPromptPanel({
 
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
+      if (rollbackResult) {
+        onDismissResult?.();
+        return;
+      }
       if (isRollingBack) return;
 
       const optionKeys = options.map(o => o.key);
@@ -104,7 +109,7 @@ export function RollbackPromptPanel({
           break;
       }
     },
-    [selectedOption, handleSelect, isRollingBack, options]
+    [selectedOption, handleSelect, isRollingBack, rollbackResult, onDismissResult, options]
   );
 
   useKeyboard(handleKeyboard);

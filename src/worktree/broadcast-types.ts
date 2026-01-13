@@ -234,7 +234,7 @@ export interface ConsumeBroadcastsResult {
   totalAvailable: number;
 
   /** Number of broadcasts that require action */
-  requireingAction: number;
+  requiringAction: number;
 
   /** Number of critical broadcasts */
   criticalCount: number;

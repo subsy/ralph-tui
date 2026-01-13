@@ -496,7 +496,7 @@ export class ParallelExecutor {
         worktreePath: result.worktree?.path ?? 'unknown',
         workUnitId: workUnit?.id ?? 'unknown',
         workUnitName: workUnit?.name ?? 'unknown',
-        error: result.error!,
+        error: result.error ?? { message: 'Unknown error', phase: 'unknown', occurredAt: new Date() },
         durationMs: result.durationMs ?? 0,
       };
     });
@@ -645,6 +645,7 @@ export class ParallelExecutor {
 
   async dispose(): Promise<void> {
     await this.shutdown();
+    await this.worktreeManager.cleanupAll({ force: true });
     await this.agentRunner.dispose();
   }
 }

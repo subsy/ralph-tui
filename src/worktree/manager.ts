@@ -57,6 +57,8 @@ export class WorktreePoolManager {
   private readonly worktreesPath: string;
   private readonly worktrees: Map<string, ManagedWorktree> = new Map();
   private readonly listeners: Set<WorktreePoolEventListener> = new Set();
+  private pendingAcquisitions = 0;
+  private mergeLock: Promise<void> = Promise.resolve();
 
   constructor(projectRoot: string, config: Partial<WorktreePoolConfig> = {}) {
     this.config = { ...DEFAULT_WORKTREE_POOL_CONFIG, ...config };
@@ -142,12 +144,18 @@ export class WorktreePoolManager {
           currentBranch = null;
         }
       }
-    } catch {
+    } catch (error) {
+      // Git worktree list failed - emit error event but continue with current state
+      this.emit({
+        type: 'worktree_error',
+        worktree: undefined as unknown as ManagedWorktree,
+        error: error instanceof Error ? error : new Error('Failed to sync with git'),
+      });
     }
   }
 
   async acquire(options: WorktreeCreateOptions): Promise<WorktreeAcquisitionResult> {
-    if (this.activeWorktreeCount >= this.config.maxWorktrees) {
+    if (this.activeWorktreeCount + this.pendingAcquisitions >= this.config.maxWorktrees) {
       this.emit({
         type: 'pool_exhausted',
         activeCount: this.activeWorktreeCount,
@@ -156,30 +164,33 @@ export class WorktreePoolManager {
       return { success: false, reason: 'pool_exhausted' };
     }
 
-    const resourceCheck = await checkResourceAvailability(
-      this.config.minFreeMemoryMB,
-      this.config.maxCpuUtilization
-    );
-
-    if (!resourceCheck.canProceed) {
-      this.emit({
-        type: 'resource_warning',
-        resources: resourceCheck.resources,
-        threshold:
-          resourceCheck.reason === 'insufficient_memory'
-            ? `minFreeMemoryMB: ${this.config.minFreeMemoryMB}`
-            : `maxCpuUtilization: ${this.config.maxCpuUtilization}%`,
-      });
-      return { success: false, reason: resourceCheck.reason! };
-    }
-
+    this.pendingAcquisitions++;
     try {
+      const resourceCheck = await checkResourceAvailability(
+        this.config.minFreeMemoryMB,
+        this.config.maxCpuUtilization
+      );
+
+      if (!resourceCheck.canProceed) {
+        this.emit({
+          type: 'resource_warning',
+          resources: resourceCheck.resources,
+          threshold:
+            resourceCheck.reason === 'insufficient_memory'
+              ? `minFreeMemoryMB: ${this.config.minFreeMemoryMB}`
+              : `maxCpuUtilization: ${this.config.maxCpuUtilization}%`,
+        });
+        return { success: false, reason: resourceCheck.reason! };
+      }
+
       const worktree = await this.createWorktree(options);
       return { success: true, worktree };
     } catch (error) {
       const isGitError =
         error instanceof Error && error.message.toLowerCase().includes('git');
       return { success: false, reason: isGitError ? 'git_error' : 'filesystem_error' };
+    } finally {
+      this.pendingAcquisitions--;
     }
   }
 
@@ -248,10 +259,19 @@ export class WorktreePoolManager {
 
     try {
       if (options.mergeBefore) {
-        const mergeTarget = options.mergeTarget || (await this.getDefaultBranch());
-        worktree.status = 'merging';
-        await execGit(['checkout', mergeTarget], this.projectRoot);
-        await execGit(['merge', worktree.branch, '--no-edit'], this.projectRoot);
+        await this.mergeLock;
+        let releaseLock: () => void = () => {};
+        this.mergeLock = new Promise<void>((resolve) => {
+          releaseLock = resolve;
+        });
+        try {
+          const mergeTarget = options.mergeTarget || (await this.getDefaultBranch());
+          worktree.status = 'merging';
+          await execGit(['checkout', mergeTarget], this.projectRoot);
+          await execGit(['merge', worktree.branch, '--no-edit'], this.projectRoot);
+        } finally {
+          releaseLock();
+        }
       }
 
       await execGit(['worktree', 'remove', worktree.path, options.force ? '--force' : ''].filter(Boolean), this.projectRoot);

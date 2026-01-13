@@ -239,13 +239,13 @@ export class BroadcastManager {
       }
     }
 
-    const requireingAction = limited.filter((b) => b.requiresAction).length;
+    const requiringAction = limited.filter((b) => b.requiresAction).length;
     const criticalCount = limited.filter((b) => b.payload.priority === 'critical').length;
 
     return {
       broadcasts: limited,
       totalAvailable,
-      requireingAction,
+      requiringAction,
       criticalCount,
     };
   }
