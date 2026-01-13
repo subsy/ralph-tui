@@ -25,6 +25,7 @@ Ralph TUI connects your AI coding assistant (Claude Code, OpenCode) to your task
 - [Agent & Tracker Plugins](#agent--tracker-plugins)
 - [Best Practices](#best-practices)
 - [How It Works](#how-it-works)
+- [Parallel Execution Mode](#parallel-execution-mode)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [License](#license)
@@ -649,6 +650,221 @@ Ralph watches for this token in stdout. When detected:
 1. Task is marked as completed in the tracker
 2. Session state is updated
 3. Next iteration begins
+
+---
+
+## Parallel Execution Mode
+
+Ralph TUI supports **parallel execution** for running multiple independent tasks simultaneously using git worktrees. This dramatically speeds up work on epics with many parallelizable tasks.
+
+### How Parallel Execution Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PARALLEL EXECUTION FLOW                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   ┌──────────────────┐                                                       │
+│   │  TASK GRAPH      │  Analyze dependencies with bv                        │
+│   │  ANALYZER        │  → Identify parallelizable work streams               │
+│   └────────┬─────────┘                                                       │
+│            │                                                                 │
+│            ▼                                                                 │
+│   ┌──────────────────┐                                                       │
+│   │  WORKTREE POOL   │  Create isolated git worktrees                        │
+│   │  MANAGER         │  → Resource-aware spawning (CPU/memory limits)        │
+│   └────────┬─────────┘                                                       │
+│            │                                                                 │
+│            ▼                                                                 │
+│   ┌────────────────────────────────────────────────────────────────┐        │
+│   │                    PARALLEL EXECUTOR                            │        │
+│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │        │
+│   │  │ Worktree │  │ Worktree │  │ Worktree │  │ Worktree │       │        │
+│   │  │   #1     │  │   #2     │  │   #3     │  │   #4     │       │        │
+│   │  │ Task A   │  │ Task B   │  │ Task C   │  │ Task D   │       │        │
+│   │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘       │        │
+│   │       │             │             │             │              │        │
+│   │       └─────────────┴──────┬──────┴─────────────┘              │        │
+│   │                            │                                    │        │
+│   │                   ┌────────┴─────────┐                         │        │
+│   │                   │   COORDINATOR    │                         │        │
+│   │                   │  Agent-to-Agent  │                         │        │
+│   │                   │   Messaging      │                         │        │
+│   │                   └──────────────────┘                         │        │
+│   └────────────────────────────────────────────────────────────────┘        │
+│            │                                                                 │
+│            ▼                                                                 │
+│   ┌──────────────────┐                                                       │
+│   │  MERGE ENGINE    │  Consolidate branches back to main                    │
+│   │                  │  → AI-powered conflict resolution                     │
+│   │                  │  → Rollback capability if needed                      │
+│   └──────────────────┘                                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+| Component | Description |
+|-----------|-------------|
+| **Task Graph Analyzer** | Uses `bv` to analyze task dependencies and identify independent work streams |
+| **Worktree Pool Manager** | Manages git worktrees with resource-aware spawning (CPU/memory limits) |
+| **Parallel Executor** | Orchestrates concurrent task execution with continue-on-error semantics |
+| **Coordinator** | Message broker for agent-to-agent communication during parallel runs |
+| **Merge Engine** | Consolidates worktree branches with AI-powered conflict resolution |
+| **Conflict Resolver** | AI-driven resolution of merge conflicts |
+| **Broadcast Manager** | Shares discoveries between parallel agents |
+
+### Starting Parallel Execution
+
+```bash
+# Start in parallel mode
+ralph-tui run --prd ./prd.json --parallel
+
+# With concurrency limit
+ralph-tui run --prd ./prd.json --parallel --max-concurrency 4
+
+# With Beads tracker
+ralph-tui run --epic my-epic --parallel
+```
+
+### Parallel Execution Configuration
+
+Add these options to your `.ralph-tui/config.toml`:
+
+```toml
+# .ralph-tui/config.toml
+
+# Enable parallel execution by default
+parallelMode = true
+
+[parallel]
+# Maximum concurrent task executions (default: 4)
+maxConcurrency = 4
+
+# Continue executing remaining tasks when one fails (default: true)
+continueOnError = true
+
+# Preserve failed worktree state for debugging (default: true)
+preserveFailedWorktrees = true
+
+# Timeout for individual task execution (default: 600000 = 10 minutes)
+taskTimeoutMs = 600000
+
+# Generate detailed failure reports (default: true)
+generateDetailedReports = true
+
+# Maximum output size to capture per task in bytes (default: 1MB)
+maxOutputSizeBytes = 1048576
+
+# Enable subagent tracing (default: true)
+enableSubagentTracing = true
+
+[parallel.worktreePool]
+# Maximum worktrees in pool (default: matches maxConcurrency)
+maxWorktrees = 4
+
+# Minimum free memory required in MB (default: 512)
+minFreeMemoryMB = 512
+
+# Maximum CPU utilization percentage (default: 80)
+maxCpuUtilization = 80
+
+# Worktree directory relative to project root (default: ".worktrees")
+worktreeDir = ".worktrees"
+
+# Cleanup worktrees on successful merge (default: true)
+cleanupOnSuccess = true
+
+[parallel.merge]
+# Create backup branch before merging (default: true)
+createBackupBranch = true
+
+# Backup branch prefix (default: "backup/pre-parallel-merge-")
+backupBranchPrefix = "backup/pre-parallel-merge-"
+
+# Delete worktree branches after successful merge (default: false)
+deleteWorktreeBranchesOnSuccess = false
+
+# Abort all merges on first conflict (default: false)
+abortOnConflict = false
+
+[parallel.merge.conflictResolution]
+# Enable AI-powered conflict resolution (default: true)
+autoResolve = true
+
+# Maximum retries for AI resolution (default: 3)
+maxRetries = 3
+
+# Agent to use for conflict resolution
+agentId = "claude"
+```
+
+### Parallel Mode Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `P` (Shift+P) | Toggle parallel execution mode |
+| `m` | Open merge progress view |
+| `M` (Shift+M) | Start merge session |
+| `R` (Shift+R) | Rollback merge (if conflicts) |
+| `w` | Toggle worktree status panel |
+| `c` | View coordinator/messaging stats |
+| `f` | View failure report (if any failures) |
+
+### Understanding Parallel Execution Results
+
+After parallel execution completes, you'll see:
+
+1. **Success Summary**: Tasks completed, failed, and cancelled
+2. **Merge Results**: Which worktree branches were merged successfully
+3. **Conflict Report**: Any conflicts encountered with AI resolution attempts
+4. **Preserved Worktrees**: Failed worktrees preserved for debugging
+
+### Failure Handling
+
+When tasks fail in parallel mode:
+
+1. **Continue on Error**: By default, other tasks continue executing
+2. **Worktree Preservation**: Failed worktrees are preserved at `.worktrees/task-<id>-<uuid>`
+3. **Failure Report**: Detailed report with stdout/stderr, error phase, and attribution
+4. **Rollback Option**: After merge, you can rollback to pre-merge state if needed
+
+Example failure report:
+
+```markdown
+# Parallel Execution Failure Report
+
+## Summary
+- **Total Tasks**: 5
+- **Completed**: 4
+- **Failed**: 1
+- **Success Rate**: 80.0%
+- **Total Duration**: 45.32s
+
+## Failure Details
+
+### Task: Implement user auth
+- **Task ID**: US-003
+- **Agent ID**: agent-a1b2c3d4
+- **Error Phase**: agent_execution
+- **Error Message**: Type check failed
+- **Preserved Worktree**: `.worktrees/task-US-003-a1b2c3d4`
+```
+
+### Merge Conflict Resolution
+
+When merge conflicts occur:
+
+1. **AI Resolution**: Claude attempts to resolve conflicts automatically
+2. **User Prompt**: If AI cannot resolve, you'll be prompted
+3. **Skip Option**: Skip the conflicting branch and continue
+4. **Rollback**: Rollback all merges to pre-merge state
+
+The AI conflict resolver analyzes:
+- Both sides of the conflict
+- Git blame for context
+- Related file changes in the merge
 
 ---
 
