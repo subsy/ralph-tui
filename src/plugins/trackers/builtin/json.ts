@@ -58,7 +58,7 @@ interface PrdUserStory {
  * Root structure of a prd.json file.
  */
 interface PrdJson {
-  /** Name of the project or feature */
+  /** Name of the project or feature (also accepts 'project' as alias) */
   name: string;
 
   /** Project/feature description */
@@ -75,6 +75,163 @@ interface PrdJson {
     createdAt?: string;
     updatedAt?: string;
     version?: string;
+  };
+}
+
+/**
+ * Schema validation error with helpful message for fixing AI-generated files.
+ */
+export class PrdJsonSchemaError extends Error {
+  constructor(
+    message: string,
+    public readonly details: string[],
+    public readonly suggestion: string
+  ) {
+    super(message);
+    this.name = 'PrdJsonSchemaError';
+    Object.setPrototypeOf(this, PrdJsonSchemaError.prototype);
+  }
+}
+
+/**
+ * Log a PrdJsonSchemaError to console with formatted details.
+ */
+function logPrdSchemaError(err: PrdJsonSchemaError): void {
+  console.error(`\n${err.message}\n`);
+  console.error('Issues found:');
+  for (const detail of err.details) {
+    console.error(`  - ${detail}`);
+  }
+  console.error(`\nHow to fix:\n${err.suggestion}\n`);
+}
+
+/**
+ * Validate that a parsed JSON object conforms to the PrdJson schema.
+ * Returns the validated PrdJson or throws PrdJsonSchemaError with helpful messages.
+ */
+function validatePrdJsonSchema(data: unknown, filePath: string): PrdJson {
+  const errors: string[] = [];
+
+  if (!data || typeof data !== 'object') {
+    throw new PrdJsonSchemaError(
+      `Invalid prd.json: expected an object, got ${typeof data}`,
+      ['File content is not a valid JSON object'],
+      'Ensure the file contains a valid JSON object with "name" and "userStories" fields.'
+    );
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  // Check for common AI hallucination patterns and provide specific guidance
+  if ('prd' in obj || 'tasks' in obj) {
+    const wrongFields: string[] = [];
+    if ('prd' in obj) wrongFields.push('"prd"');
+    if ('tasks' in obj) wrongFields.push('"tasks"');
+
+    throw new PrdJsonSchemaError(
+      `Invalid prd.json schema: found ${wrongFields.join(' and ')} instead of expected structure`,
+      [
+        `Found fields: ${wrongFields.join(', ')}`,
+        'Expected fields: "name" (or "project"), "userStories", "branchName" (optional)',
+        'This appears to be an AI-generated file that did not follow the correct schema.',
+      ],
+      `The correct prd.json format is:
+{
+  "name": "Feature Name",
+  "branchName": "feature/my-feature",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Story title",
+      "description": "As a user, I want...",
+      "acceptanceCriteria": ["Criterion 1", "Criterion 2"],
+      "priority": 1,
+      "passes": false,
+      "dependsOn": []
+    }
+  ]
+}
+
+To fix: Regenerate the tasks using "ralph-tui convert --to json <prd-file.md>"
+or manually restructure the file to match the schema above.`
+    );
+  }
+
+  // Check for name field (accept 'project' as alias)
+  const name = 'name' in obj ? obj.name : obj.project;
+  if (!name || typeof name !== 'string') {
+    errors.push('Missing required field: "name" (string) - the project/feature name');
+  }
+
+  // Check for userStories array
+  if (!('userStories' in obj)) {
+    errors.push('Missing required field: "userStories" (array) - the list of tasks');
+  } else if (!Array.isArray(obj.userStories)) {
+    errors.push('"userStories" must be an array');
+  } else {
+    // Validate each user story
+    const stories = obj.userStories as unknown[];
+    for (let i = 0; i < stories.length; i++) {
+      const story = stories[i];
+      if (!story || typeof story !== 'object') {
+        errors.push(`userStories[${i}]: must be an object`);
+        continue;
+      }
+
+      const s = story as Record<string, unknown>;
+
+      if (!s.id || typeof s.id !== 'string') {
+        errors.push(`userStories[${i}]: missing required "id" field (string)`);
+      }
+
+      if (!s.title || typeof s.title !== 'string') {
+        errors.push(`userStories[${i}]: missing required "title" field (string)`);
+      }
+
+      if (typeof s.passes !== 'boolean') {
+        // Check for common wrong field names
+        if ('status' in s) {
+          errors.push(
+            `userStories[${i}]: found "status" field but expected "passes" (boolean). ` +
+              'Use "passes": false for incomplete, "passes": true for complete.'
+          );
+        } else {
+          errors.push(`userStories[${i}]: missing required "passes" field (boolean)`);
+        }
+      }
+
+      // Warn about unsupported fields that indicate hallucinated schema
+      const unsupportedFields = ['subtasks', 'estimated_hours', 'files', 'status'];
+      const foundUnsupported = unsupportedFields.filter((f) => f in s);
+      if (foundUnsupported.length > 0) {
+        errors.push(
+          `userStories[${i}]: contains unsupported fields: ${foundUnsupported.join(', ')}. ` +
+            'Remove these fields. The prd.json schema does not support subtasks or time estimates.'
+        );
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new PrdJsonSchemaError(
+      `Invalid prd.json schema in ${filePath}`,
+      errors,
+      'Run "ralph-tui convert --to json <prd-file.md>" to regenerate with correct schema, ' +
+        'or manually fix the issues listed above.'
+    );
+  }
+
+  // Normalize: accept 'project' as alias for 'name'
+  return {
+    name: name as string,
+    description: typeof obj.description === 'string' ? obj.description : undefined,
+    branchName: typeof obj.branchName === 'string' ? obj.branchName : undefined,
+    userStories: (obj.userStories as PrdUserStory[]).map((s) => ({
+      ...s,
+      // Ensure passes is a boolean (convert from status if needed as fallback)
+      passes: typeof s.passes === 'boolean' ? s.passes : false,
+    })),
+    metadata: obj.metadata as PrdJson['metadata'],
   };
 }
 
@@ -207,17 +364,18 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
 
   /**
    * Read and parse the prd.json file with caching.
+   * Validates the schema and throws PrdJsonSchemaError if invalid.
    */
   private async readPrd(): Promise<PrdJson> {
     const now = Date.now();
 
-    // Return cached version if still valid
     if (this.prdCache && now - this.cacheTime < this.CACHE_TTL_MS) {
       return this.prdCache;
     }
 
     const content = await readFile(this.filePath, 'utf-8');
-    this.prdCache = JSON.parse(content) as PrdJson;
+    const parsed = JSON.parse(content) as unknown;
+    this.prdCache = validatePrdJsonSchema(parsed, this.filePath);
     this.cacheTime = now;
 
     return this.prdCache;
@@ -253,10 +411,13 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
         storyToTask(story, prd.name)
       );
 
-      // Apply filtering from base class
       return this.filterTasks(tasks, filter);
     } catch (err) {
-      console.error('Failed to read prd.json:', err);
+      if (err instanceof PrdJsonSchemaError) {
+        logPrdSchemaError(err);
+      } else {
+        console.error('Failed to read prd.json:', err);
+      }
       return [];
     }
   }
@@ -434,11 +595,6 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
     return this.filePath;
   }
 
-  /**
-   * Get available "epics" from the JSON tracker.
-   * For prd.json, each file is essentially one epic (the project itself).
-   * Returns a single task representing the project/feature being tracked.
-   */
   override async getEpics(): Promise<TrackerTask[]> {
     if (!this.filePath) {
       return [];
@@ -447,7 +603,6 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
     try {
       const prd = await this.readPrd();
 
-      // Create a synthetic "epic" task representing the prd.json project
       const epic: TrackerTask = {
         id: `prd:${prd.name}`,
         title: prd.name,
@@ -465,7 +620,11 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
 
       return [epic];
     } catch (err) {
-      console.error('Failed to read prd.json for getEpics:', err);
+      if (err instanceof PrdJsonSchemaError) {
+        logPrdSchemaError(err);
+      } else {
+        console.error('Failed to read prd.json for getEpics:', err);
+      }
       return [];
     }
   }
@@ -477,3 +636,4 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
 const createJsonTracker: TrackerPluginFactory = () => new JsonTrackerPlugin();
 
 export default createJsonTracker;
+export { validatePrdJsonSchema };

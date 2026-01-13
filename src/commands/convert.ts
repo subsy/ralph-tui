@@ -19,6 +19,10 @@ import {
   printError,
   printInfo,
 } from '../setup/prompts.js';
+import {
+  validatePrdJsonSchema,
+  PrdJsonSchemaError,
+} from '../plugins/trackers/builtin/json.js';
 
 /**
  * Supported conversion target formats.
@@ -498,13 +502,23 @@ async function executeJsonConversion(
     }
   }
 
-  // Convert to GeneratedPrd format
   const generatedPrd = parsedPrdToGeneratedPrd(parsed, branchName);
-
-  // Convert to prd.json format
   const prdJson = convertToPrdJson(generatedPrd);
 
-  // Ensure output directory exists
+  try {
+    validatePrdJsonSchema(prdJson, outputPath);
+  } catch (err) {
+    if (err instanceof PrdJsonSchemaError) {
+      printError('Internal error: Generated prd.json failed schema validation.');
+      printError('This indicates a bug in the PRD parser. Please report this issue.');
+      for (const detail of err.details) {
+        console.error(`  - ${detail}`);
+      }
+      process.exit(1);
+    }
+    throw err;
+  }
+
   const outputDir = dirname(outputPath);
   try {
     await mkdir(outputDir, { recursive: true });

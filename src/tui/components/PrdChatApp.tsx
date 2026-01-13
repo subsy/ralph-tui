@@ -84,11 +84,46 @@ function getTrackerOptions(cwd: string): TrackerOption[] {
   const beadsDir = join(cwd, '.beads');
   const hasBeads = existsSync(beadsDir);
 
+  const jsonSchemaExample = `{
+  "name": "Feature Name",
+  "branchName": "feature/my-feature",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Story title",
+      "description": "As a user, I want...",
+      "acceptanceCriteria": ["Criterion 1"],
+      "priority": 1,
+      "passes": false,
+      "dependsOn": []
+    }
+  ]
+}`;
+
   return [
     {
       key: '1',
       name: 'JSON (prd.json)',
-      skillPrompt: 'Convert this PRD to prd.json format using the ralph-tui-create-json skill.',
+      skillPrompt: `Convert this PRD to prd.json format using the ralph-tui-create-json skill.
+
+CRITICAL: The output MUST use this EXACT schema:
+
+${jsonSchemaExample}
+
+Required fields for each userStory:
+- "id": string (e.g., "US-001")
+- "title": string
+- "passes": boolean (MUST be false for new tasks)
+- "dependsOn": array of story IDs
+
+DO NOT use:
+- "tasks" array (use "userStories" instead)
+- "prd" wrapper object
+- "status" field (use "passes": boolean instead)
+- "subtasks" (not supported)
+- "estimated_hours" (not supported)
+
+The output file MUST be saved to: tasks/prd.json`,
       available: true,
     },
     {
