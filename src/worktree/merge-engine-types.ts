@@ -5,6 +5,8 @@
  */
 
 import type { ManagedWorktree } from './types.js';
+import type { ConflictResolutionConfig } from '../config/types.js';
+import type { UserPromptCallback, ConflictResolutionResult } from './conflict-resolver-types.js';
 
 /**
  * Configuration for the merge engine.
@@ -24,6 +26,12 @@ export interface MergeEngineConfig {
 
   /** Whether to abort on first conflict or continue with remaining worktrees (default: true) */
   abortOnConflict: boolean;
+
+  /** AI-powered conflict resolution configuration */
+  conflictResolution?: ConflictResolutionConfig;
+
+  /** Callback for user prompts when AI confidence is low */
+  onUserPrompt?: UserPromptCallback;
 }
 
 /**
@@ -45,6 +53,8 @@ export type WorktreeMergeStatus =
   | 'merging'
   | 'merged'
   | 'conflict'
+  | 'conflict_resolved'
+  | 'conflict_pending_user'
   | 'skipped'
   | 'error';
 
@@ -66,6 +76,9 @@ export interface WorktreeMergeResult {
 
   /** List of conflicting files if conflict occurred */
   conflictingFiles?: string[];
+
+  /** AI conflict resolution result if auto-resolution was attempted */
+  aiResolution?: ConflictResolutionResult;
 
   /** Time taken to merge in milliseconds */
   durationMs: number;
@@ -183,6 +196,9 @@ export type MergeEngineEvent =
   | { type: 'worktree_merge_started'; worktree: ManagedWorktree; index: number; total: number }
   | { type: 'worktree_merge_completed'; result: WorktreeMergeResult; index: number; total: number }
   | { type: 'worktree_merge_conflict'; worktree: ManagedWorktree; conflictingFiles: string[] }
+  | { type: 'conflict_resolution_started'; worktree: ManagedWorktree; fileCount: number }
+  | { type: 'conflict_resolution_completed'; worktree: ManagedWorktree; result: ConflictResolutionResult }
+  | { type: 'conflict_user_prompt_required'; worktree: ManagedWorktree; pendingFileCount: number }
   | { type: 'session_completed'; result: MergeSessionResult }
   | { type: 'session_aborted'; reason: string; partialResult: Partial<MergeSessionResult> }
   | { type: 'rollback_started'; targetRef: string }

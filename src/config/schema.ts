@@ -69,6 +69,13 @@ export const ParallelConfigSchema = z.object({
   backupBranchPrefix: z.string().optional(),
 });
 
+export const ConflictResolutionConfigSchema = z.object({
+  autoResolve: z.boolean().optional(),
+  confidenceThreshold: z.number().min(0).max(1).optional(),
+  maxFilesPerConflict: z.number().int().min(1).max(100).optional(),
+  resolutionTimeoutMs: z.number().int().min(1000).max(300000).optional(),
+});
+
 /**
  * Agent plugin configuration schema
  */
@@ -148,6 +155,9 @@ export const StoredConfigSchema = z
 
     // Parallel execution configuration
     parallel: ParallelConfigSchema.optional(),
+
+    // AI-powered conflict resolution configuration
+    conflictResolution: ConflictResolutionConfigSchema.optional(),
   })
   .strict();
 

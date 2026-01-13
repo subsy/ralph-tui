@@ -1,7 +1,7 @@
 /**
  * ABOUTME: Merge Engine for consolidating worktree branches back to the original branch.
  * Provides automatic backup branch creation, sequential merge with conflict detection,
- * and reflog-based rollback to pre-merge state for safety during parallel execution.
+ * AI-powered conflict resolution, and reflog-based rollback to pre-merge state.
  */
 
 import { spawn } from 'node:child_process';
@@ -22,6 +22,7 @@ import {
   type ReflogEntry,
   DEFAULT_MERGE_ENGINE_CONFIG,
 } from './merge-engine-types.js';
+import { ConflictResolver } from './conflict-resolver.js';
 
 function execGit(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -264,6 +265,18 @@ export class MergeEngine {
       if (errorMessage.toLowerCase().includes('conflict') || errorMessage.includes('CONFLICT')) {
         const conflictingFiles = await this.getConflictingFiles();
 
+        if (config.conflictResolution?.autoResolve !== false && conflictingFiles.length > 0) {
+          const resolutionResult = await this.attemptAIResolution(
+            worktree,
+            conflictingFiles,
+            config
+          );
+
+          if (resolutionResult) {
+            return resolutionResult;
+          }
+        }
+
         await this.abortMerge();
 
         return {
@@ -281,6 +294,81 @@ export class MergeEngine {
         error: errorMessage,
         durationMs: Date.now() - startTime,
       };
+    }
+  }
+
+  private async attemptAIResolution(
+    worktree: ManagedWorktree,
+    conflictingFiles: string[],
+    config: MergeEngineConfig
+  ): Promise<WorktreeMergeResult | null> {
+    const startTime = Date.now();
+
+    this.emit({
+      type: 'conflict_resolution_started',
+      worktree,
+      fileCount: conflictingFiles.length,
+    });
+
+    try {
+      const resolver = new ConflictResolver({
+        projectRoot: config.projectRoot,
+        ...config.conflictResolution,
+        onUserPrompt: config.onUserPrompt,
+      });
+
+      const result = await resolver.resolveConflicts(conflictingFiles);
+
+      this.emit({
+        type: 'conflict_resolution_completed',
+        worktree,
+        result,
+      });
+
+      if (result.success && result.stats.successRate >= 0.85) {
+        await execGit(['commit', '-m', `Merge ${worktree.branch} (AI-resolved conflicts)`], config.projectRoot);
+        const mergeCommitSha = await this.getCurrentHeadSha();
+
+        if (config.deleteWorktreeBranchesOnSuccess) {
+          try {
+            await execGit(['branch', '-d', worktree.branch], config.projectRoot);
+          } catch {
+          }
+        }
+
+        return {
+          worktree,
+          status: 'conflict_resolved' as WorktreeMergeStatus,
+          mergeCommitSha,
+          aiResolution: result,
+          durationMs: Date.now() - startTime,
+        };
+      }
+
+      if (result.pendingFiles.length > 0) {
+        this.emit({
+          type: 'conflict_user_prompt_required',
+          worktree,
+          pendingFileCount: result.pendingFiles.length,
+        });
+
+        return {
+          worktree,
+          status: 'conflict_pending_user' as WorktreeMergeStatus,
+          conflictingFiles,
+          aiResolution: result,
+          durationMs: Date.now() - startTime,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      this.emit({
+        type: 'error',
+        error: error instanceof Error ? error : new Error(String(error)),
+        context: 'AI conflict resolution',
+      });
+      return null;
     }
   }
 

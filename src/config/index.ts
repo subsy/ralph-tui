@@ -189,6 +189,12 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
       },
     };
   }
+  if (project.conflictResolution !== undefined) {
+    merged.conflictResolution = {
+      ...merged.conflictResolution,
+      ...project.conflictResolution,
+    };
+  }
 
   return merged;
 }
@@ -633,8 +639,8 @@ export async function validateConfig(
 }
 
 // Re-export types
-export type { StoredConfig, RalphConfig, RuntimeOptions, ConfigValidationResult, SubagentDetailLevel, NotificationSoundMode, ParallelConfig, ResourceLimitsConfig } from './types.js';
-export { DEFAULT_CONFIG, DEFAULT_PARALLEL_CONFIG } from './types.js';
+export type { StoredConfig, RalphConfig, RuntimeOptions, ConfigValidationResult, SubagentDetailLevel, NotificationSoundMode, ParallelConfig, ResourceLimitsConfig, ConflictResolutionConfig } from './types.js';
+export { DEFAULT_CONFIG, DEFAULT_PARALLEL_CONFIG, DEFAULT_CONFLICT_RESOLUTION_CONFIG } from './types.js';
 
 // Export schema utilities
 export {
@@ -648,6 +654,7 @@ export {
   NotificationSoundModeSchema,
   ParallelConfigSchema,
   ResourceLimitsConfigSchema,
+  ConflictResolutionConfigSchema,
 } from './schema.js';
 export type {
   ConfigParseResult,

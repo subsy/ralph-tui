@@ -55,6 +55,31 @@ export interface ResourceLimitsConfig {
 }
 
 /**
+ * AI-powered conflict resolution configuration.
+ * Controls how merge conflicts are handled during parallel worktree merges.
+ */
+export interface ConflictResolutionConfig {
+  /** Whether to attempt AI-powered auto-resolution for merge conflicts (default: true) */
+  autoResolve?: boolean;
+  /** Confidence threshold (0.0-1.0) above which AI resolution is accepted (default: 0.8) */
+  confidenceThreshold?: number;
+  /** Maximum number of files to attempt AI resolution on per conflict (default: 10) */
+  maxFilesPerConflict?: number;
+  /** Timeout in milliseconds for AI resolution per file (default: 30000) */
+  resolutionTimeoutMs?: number;
+}
+
+/**
+ * Default conflict resolution configuration.
+ */
+export const DEFAULT_CONFLICT_RESOLUTION_CONFIG: Required<ConflictResolutionConfig> = {
+  autoResolve: true,
+  confidenceThreshold: 0.8,
+  maxFilesPerConflict: 10,
+  resolutionTimeoutMs: 30000,
+};
+
+/**
  * Parallel execution configuration.
  * Controls auto-parallelization of tasks using git worktrees.
  */
@@ -231,6 +256,9 @@ export interface StoredConfig {
 
   /** Parallel execution configuration */
   parallel?: ParallelConfig;
+
+  /** AI-powered conflict resolution configuration */
+  conflictResolution?: ConflictResolutionConfig;
 }
 
 /**
