@@ -76,6 +76,30 @@ export const ConflictResolutionConfigSchema = z.object({
   resolutionTimeoutMs: z.number().int().min(1000).max(300000).optional(),
 });
 
+export const BroadcastCategorySchema = z.enum([
+  'bug',
+  'pattern',
+  'blocker',
+  'api_change',
+  'schema_change',
+  'dependency_update',
+  'test_failure',
+  'security_issue',
+  'performance_issue',
+  'custom',
+]);
+
+export const BroadcastConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  enabledCategories: z.array(z.string().min(1)).optional(),
+  maxBroadcastHistory: z.number().int().min(1).max(10000).optional(),
+  broadcastTtlMs: z.number().int().min(1000).max(86400000).optional(),
+  autoConsume: z.boolean().optional(),
+  cleanupIntervalMs: z.number().int().min(1000).max(3600000).optional(),
+  requireAckForCritical: z.boolean().optional(),
+  customCategories: z.array(z.string().min(1)).optional(),
+});
+
 /**
  * Agent plugin configuration schema
  */
@@ -158,6 +182,9 @@ export const StoredConfigSchema = z
 
     // AI-powered conflict resolution configuration
     conflictResolution: ConflictResolutionConfigSchema.optional(),
+
+    // Agent broadcast system configuration
+    broadcast: BroadcastConfigSchema.optional(),
   })
   .strict();
 

@@ -6,6 +6,7 @@
 import type { AgentPluginConfig } from '../plugins/agents/types.js';
 import type { TrackerPluginConfig } from '../plugins/trackers/types.js';
 import type { ErrorHandlingConfig, ErrorHandlingStrategy } from '../engine/types.js';
+import type { BroadcastConfig } from '../worktree/broadcast-types.js';
 
 /**
  * Rate limit handling configuration for agents.
@@ -259,6 +260,9 @@ export interface StoredConfig {
 
   /** AI-powered conflict resolution configuration */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Agent broadcast system configuration */
+  broadcast?: Partial<BroadcastConfig>;
 }
 
 /**
