@@ -9,3 +9,4 @@ export * from './tui/index.js';
 export * from './plugins/agents/index.js';
 export * from './plugins/trackers/index.js';
 export * from './notifications.js';
+export * from './worktree/index.js';
