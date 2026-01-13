@@ -13,24 +13,14 @@ export type SessionStatus =
   | 'failed'
   | 'interrupted';
 
-/**
- * Lock file contents
- */
 export interface LockFile {
-  /** Process ID that holds the lock */
   pid: number;
-
-  /** Session ID */
   sessionId: string;
-
-  /** When the lock was acquired (ISO 8601) */
   acquiredAt: string;
-
-  /** Working directory */
   cwd: string;
-
-  /** Host name */
   hostname: string;
+  isParallelMode?: boolean;
+  activeWorktreeCount?: number;
 }
 
 /**
