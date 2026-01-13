@@ -181,6 +181,10 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--no-notify':
         options.notify = false;
         break;
+
+      case '--no-parallel':
+        options.noParallel = true;
+        break;
     }
   }
 
@@ -215,6 +219,7 @@ Options:
   --no-setup          Skip interactive setup even if no config exists
   --notify            Force enable desktop notifications
   --no-notify         Force disable desktop notifications
+  --no-parallel       Disable auto-parallelization (sequential execution)
 
 Log Output Format (--no-tui mode):
   [timestamp] [level] [component] message

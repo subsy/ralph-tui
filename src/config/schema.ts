@@ -55,6 +55,20 @@ export const NotificationsConfigSchema = z.object({
   sound: NotificationSoundModeSchema.optional(),
 });
 
+export const ResourceLimitsConfigSchema = z.object({
+  minFreeMemoryMB: z.number().int().min(0).optional(),
+  maxCpuUtilization: z.number().int().min(0).max(100).optional(),
+});
+
+export const ParallelConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  maxWorktrees: z.number().int().min(1).max(16).optional(),
+  resourceLimits: ResourceLimitsConfigSchema.optional(),
+  worktreeDir: z.string().optional(),
+  autoCleanup: z.boolean().optional(),
+  backupBranchPrefix: z.string().optional(),
+});
+
 /**
  * Agent plugin configuration schema
  */
@@ -131,6 +145,9 @@ export const StoredConfigSchema = z
 
     // Notifications configuration
     notifications: NotificationsConfigSchema.optional(),
+
+    // Parallel execution configuration
+    parallel: ParallelConfigSchema.optional(),
   })
   .strict();
 

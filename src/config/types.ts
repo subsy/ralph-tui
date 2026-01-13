@@ -45,6 +45,50 @@ export const DEFAULT_RATE_LIMIT_HANDLING: Required<RateLimitHandlingConfig> = {
 export type SubagentDetailLevel = 'off' | 'minimal' | 'moderate' | 'full';
 
 /**
+ * Resource limits configuration for parallel worktree execution.
+ */
+export interface ResourceLimitsConfig {
+  /** Minimum free memory in MB before spawning new worktrees (default: 1024) */
+  minFreeMemoryMB?: number;
+  /** Maximum CPU utilization percentage before throttling spawns (default: 80) */
+  maxCpuUtilization?: number;
+}
+
+/**
+ * Parallel execution configuration.
+ * Controls auto-parallelization of tasks using git worktrees.
+ */
+export interface ParallelConfig {
+  /** Whether auto-parallelization is enabled (default: true) */
+  enabled?: boolean;
+  /** Maximum number of concurrent worktrees (default: 4) */
+  maxWorktrees?: number;
+  /** Resource limits for spawning worktrees */
+  resourceLimits?: ResourceLimitsConfig;
+  /** Directory where worktrees are created (default: '.worktrees') */
+  worktreeDir?: string;
+  /** Whether to automatically clean up worktrees after successful merge (default: true) */
+  autoCleanup?: boolean;
+  /** Prefix for backup branches created during parallel execution (default: 'backup/') */
+  backupBranchPrefix?: string;
+}
+
+/**
+ * Default parallel configuration.
+ */
+export const DEFAULT_PARALLEL_CONFIG: Required<ParallelConfig> = {
+  enabled: true,
+  maxWorktrees: 4,
+  resourceLimits: {
+    minFreeMemoryMB: 1024,
+    maxCpuUtilization: 80,
+  },
+  worktreeDir: '.worktrees',
+  autoCleanup: true,
+  backupBranchPrefix: 'backup/',
+};
+
+/**
  * Sound mode for notifications.
  * - 'off': No sound (default)
  * - 'system': Use OS default notification sound
@@ -116,6 +160,9 @@ export interface RuntimeOptions {
 
   /** Override notifications enabled state (--notify or --no-notify CLI flags) */
   notify?: boolean;
+
+  /** Override parallel enabled state (--no-parallel CLI flag) */
+  noParallel?: boolean;
 }
 
 /**
@@ -181,6 +228,9 @@ export interface StoredConfig {
 
   /** Notifications configuration */
   notifications?: NotificationsConfig;
+
+  /** Parallel execution configuration */
+  parallel?: ParallelConfig;
 }
 
 /**

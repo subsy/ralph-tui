@@ -59,6 +59,7 @@ Run Options:
   --no-setup          Skip interactive setup even if no config exists
   --notify            Force enable desktop notifications
   --no-notify         Force disable desktop notifications
+  --no-parallel       Disable auto-parallelization (sequential execution)
 
 Resume Options:
   --cwd <path>        Working directory
