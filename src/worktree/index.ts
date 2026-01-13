@@ -21,3 +21,10 @@ export { MergeEngine } from './merge-engine.js';
 export { ConflictResolver } from './conflict-resolver.js';
 export { BroadcastManager } from './broadcast-manager.js';
 export { ParallelExecutor } from './parallel-executor.js';
+export {
+  ParallelAgentRunner,
+  DEFAULT_PARALLEL_AGENT_CONFIG,
+  type ParallelAgentConfig,
+  type ParallelAgentResult,
+  type ParallelAgentRunOptions,
+} from './parallel-agent-runner.js';

@@ -5,7 +5,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import type { ManagedWorktree } from './types.js';
 import type { ParallelWorkUnit, GraphTask } from './task-graph-types.js';
 import { WorktreePoolManager } from './manager.js';
@@ -26,6 +25,11 @@ import {
   type ParallelExecutorStats,
   DEFAULT_PARALLEL_EXECUTOR_CONFIG,
 } from './parallel-executor-types.js';
+import {
+  ParallelAgentRunner,
+  type ParallelAgentConfig,
+} from './parallel-agent-runner.js';
+import type { SubagentTraceSummary } from '../plugins/agents/tracing/types.js';
 
 interface TaskExecutionContext {
   task: GraphTask;
@@ -36,6 +40,7 @@ interface TaskExecutionContext {
   stderr: string;
   startedAt: Date;
   abortController: AbortController;
+  subagentSummary?: SubagentTraceSummary;
 }
 
 export class ParallelExecutor {
@@ -43,6 +48,7 @@ export class ParallelExecutor {
   private readonly listeners: Set<ParallelExecutorEventListener> = new Set();
   private readonly worktreeManager: WorktreePoolManager;
   private readonly coordinator: Coordinator;
+  private readonly agentRunner: ParallelAgentRunner;
   private readonly activeExecutions: Map<string, TaskExecutionContext> = new Map();
   private isShuttingDown = false;
   private stats: ParallelExecutorStats = {
@@ -63,6 +69,7 @@ export class ParallelExecutor {
       worktreeDir: '.worktrees',
     });
     this.coordinator = new Coordinator();
+    this.agentRunner = new ParallelAgentRunner();
   }
 
   addEventListener(listener: ParallelExecutorEventListener): void {
@@ -85,6 +92,7 @@ export class ParallelExecutor {
 
   async initialize(): Promise<void> {
     await this.worktreeManager.initialize();
+    await this.agentRunner.initialize();
     this.coordinator.start();
   }
 
@@ -267,6 +275,7 @@ export class ParallelExecutor {
         stderr: ctx.stderr,
         exitCode: agentResult.exitCode,
         error: agentResult.error,
+        subagentSummary: agentResult.subagentSummary,
       };
     } catch (error) {
       const endedAt = new Date();
@@ -305,87 +314,112 @@ export class ParallelExecutor {
 
   private async runAgentInWorktree(
     ctx: TaskExecutionContext
-  ): Promise<{ success: boolean; exitCode?: number; error?: TaskExecutionError }> {
-    return new Promise((resolve) => {
-      const { signal } = ctx.abortController;
-      let resolved = false;
+  ): Promise<{ success: boolean; exitCode?: number; error?: TaskExecutionError; subagentSummary?: SubagentTraceSummary }> {
+    const { signal } = ctx.abortController;
 
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          resolve({
-            success: false,
-            error: this.createExecutionError(
-              `Task execution timed out after ${this.config.taskTimeoutMs}ms`,
-              'agent_timeout'
-            ),
-          });
-        }
-      }, this.config.taskTimeoutMs);
+    if (!ctx.worktree) {
+      return {
+        success: false,
+        error: this.createExecutionError('No worktree available', 'worktree_acquisition'),
+      };
+    }
 
-      signal.addEventListener('abort', () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          resolve({
-            success: false,
-            error: this.createExecutionError('Task execution was cancelled', 'unknown'),
-          });
-        }
-      });
+    const agentConfig: ParallelAgentConfig = {
+      agentId: this.config.agentId,
+      model: this.config.agentModel,
+      enableSubagentTracing: this.config.enableSubagentTracing,
+      options: this.config.agentOptions,
+      timeout: this.config.taskTimeoutMs,
+    };
 
-      const proc = spawn('echo', ['Task simulation for:', ctx.task.title], {
-        cwd: ctx.worktree?.path ?? this.config.workingDir,
-        env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+    const prompt = this.buildPromptForTask(ctx.task);
 
-      proc.stdout.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        ctx.stdout += chunk;
-        if (ctx.stdout.length > this.config.maxOutputSizeBytes) {
-          ctx.stdout = ctx.stdout.slice(-this.config.maxOutputSizeBytes);
-        }
-      });
-
-      proc.stderr.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        ctx.stderr += chunk;
-        if (ctx.stderr.length > this.config.maxOutputSizeBytes) {
-          ctx.stderr = ctx.stderr.slice(-this.config.maxOutputSizeBytes);
-        }
-      });
-
-      proc.on('close', (code) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          if (code === 0) {
-            resolve({ success: true, exitCode: code });
-          } else {
-            resolve({
-              success: false,
-              exitCode: code ?? undefined,
-              error: this.createExecutionError(
-                `Agent exited with code ${code}`,
-                'agent_execution'
-              ),
-            });
+    try {
+      const result = await this.agentRunner.run({
+        prompt,
+        task: ctx.task,
+        worktree: ctx.worktree,
+        agentConfig,
+        onStdout: (chunk) => {
+          ctx.stdout += chunk;
+          if (ctx.stdout.length > this.config.maxOutputSizeBytes) {
+            ctx.stdout = ctx.stdout.slice(-this.config.maxOutputSizeBytes);
           }
-        }
+          this.emit({
+            type: 'task_output',
+            taskId: ctx.task.id,
+            agentId: ctx.agentId,
+            stream: 'stdout',
+            chunk,
+          });
+        },
+        onStderr: (chunk) => {
+          ctx.stderr += chunk;
+          if (ctx.stderr.length > this.config.maxOutputSizeBytes) {
+            ctx.stderr = ctx.stderr.slice(-this.config.maxOutputSizeBytes);
+          }
+          this.emit({
+            type: 'task_output',
+            taskId: ctx.task.id,
+            agentId: ctx.agentId,
+            stream: 'stderr',
+            chunk,
+          });
+        },
+        onSubagentEvent: (event) => {
+          this.emit({
+            type: 'subagent_event',
+            taskId: ctx.task.id,
+            agentId: ctx.agentId,
+            event,
+          });
+        },
+        signal,
+        maxOutputSizeBytes: this.config.maxOutputSizeBytes,
       });
 
-      proc.on('error', (err) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          resolve({
-            success: false,
-            error: this.createExecutionError(err.message, 'agent_spawn'),
-          });
-        }
-      });
-    });
+      if (result.success) {
+        return {
+          success: true,
+          exitCode: result.exitCode,
+          subagentSummary: result.subagentSummary,
+        };
+      } else {
+        return {
+          success: false,
+          exitCode: result.exitCode,
+          error: this.createExecutionError(
+            result.error ?? `Agent exited with code ${result.exitCode}`,
+            'agent_execution'
+          ),
+          subagentSummary: result.subagentSummary,
+        };
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        error: this.createExecutionError(message, 'agent_spawn'),
+      };
+    }
+  }
+
+  private buildPromptForTask(task: GraphTask): string {
+    const lines: string[] = [];
+    lines.push(`## Task: ${task.title}`);
+    lines.push('');
+    lines.push(`**Task ID**: ${task.id}`);
+    lines.push(`**Priority**: ${task.priority}`);
+    if (task.type) {
+      lines.push(`**Type**: ${task.type}`);
+    }
+    if (task.labels && task.labels.length > 0) {
+      lines.push(`**Labels**: ${task.labels.join(', ')}`);
+    }
+    lines.push('');
+    lines.push('When finished, signal completion with:');
+    lines.push('<promise>COMPLETE</promise>');
+    return lines.join('\n');
   }
 
   private createCancelledResult(ctx: TaskExecutionContext, reason: string): ParallelTaskResult {
@@ -611,5 +645,6 @@ export class ParallelExecutor {
 
   async dispose(): Promise<void> {
     await this.shutdown();
+    await this.agentRunner.dispose();
   }
 }

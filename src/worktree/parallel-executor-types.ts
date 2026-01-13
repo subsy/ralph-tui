@@ -6,6 +6,7 @@
 
 import type { ManagedWorktree } from './types.js';
 import type { ParallelWorkUnit, GraphTask } from './task-graph-types.js';
+import type { SubagentEvent, SubagentTraceSummary } from '../plugins/agents/tracing/types.js';
 
 /**
  * Status of a parallel task execution.
@@ -50,6 +51,9 @@ export interface ParallelTaskResult {
 
   /** Error details if failed */
   error?: TaskExecutionError;
+
+  /** Subagent trace summary (if tracing enabled) */
+  subagentSummary?: SubagentTraceSummary;
 }
 
 /**
@@ -270,6 +274,18 @@ export interface ParallelExecutorConfig {
 
   /** Maximum output size to capture per task in bytes (default: 1MB) */
   maxOutputSizeBytes: number;
+
+  /** Agent plugin ID to use (e.g., 'claude', 'opencode') - default: 'claude' */
+  agentId: string;
+
+  /** Model to use with the agent (e.g., 'sonnet', 'opus') */
+  agentModel?: string;
+
+  /** Enable subagent tracing for agents that support it (default: true) */
+  enableSubagentTracing: boolean;
+
+  /** Additional agent options */
+  agentOptions?: Record<string, unknown>;
 }
 
 /**
@@ -284,6 +300,8 @@ export const DEFAULT_PARALLEL_EXECUTOR_CONFIG: ParallelExecutorConfig = {
   workingDir: process.cwd(),
   captureFullOutput: true,
   maxOutputSizeBytes: 1024 * 1024, // 1MB
+  agentId: 'claude',
+  enableSubagentTracing: true,
 };
 
 /**
@@ -295,6 +313,8 @@ export type ParallelExecutorEvent =
   | { type: 'task_completed'; result: ParallelTaskResult }
   | { type: 'task_failed'; result: ParallelTaskResult; continueExecution: boolean }
   | { type: 'task_cancelled'; task: GraphTask; reason: string }
+  | { type: 'task_output'; taskId: string; agentId: string; stream: 'stdout' | 'stderr'; chunk: string }
+  | { type: 'subagent_event'; taskId: string; agentId: string; event: SubagentEvent }
   | { type: 'work_unit_completed'; workUnit: ParallelWorkUnit; results: ParallelTaskResult[] }
   | { type: 'execution_completed'; result: ParallelExecutionResult }
   | { type: 'failure_report_generated'; report: ParallelExecutionFailureReport }
