@@ -34,3 +34,8 @@ export { PrdChatApp } from './PrdChatApp.js';
 export type { PrdChatAppProps } from './PrdChatApp.js';
 export { SubagentTreePanel } from './SubagentTreePanel.js';
 export type { SubagentTreePanelProps } from './SubagentTreePanel.js';
+export { ParallelProgressSummary } from './ParallelProgressSummary.js';
+export { WorkStreamCard } from './WorkStreamCard.js';
+export { WorkStreamDrillDown } from './WorkStreamDrillDown.js';
+export { ParallelProgressView } from './ParallelProgressView.js';
+export type { ParallelProgressViewProps } from './ParallelProgressView.js';
