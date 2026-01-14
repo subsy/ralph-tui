@@ -163,14 +163,24 @@ The AI will:
 
 ### Step 3: Start Ralph
 
+**With prd.json (simplest - no external dependencies):**
 ```bash
-# With prd.json (simplest - no external dependencies)
+# If you selected JSON format in step 2, or created prd.json manually:
 ralph-tui run --prd ./prd.json
+```
 
-# With Beads tracker
-ralph-tui run --epic your-epic-id
+**With Beads tracker:**
+```bash
+# If you have a markdown PRD and want to use Beads:
+# First convert your PRD to Beads issues:
+ralph-tui convert --to beads ./tasks/prd-my-feature.md
 
-# Or launch the interactive TUI first
+# Then run with the epic ID shown above:
+ralph-tui run --epic <epic-id>
+```
+
+**Or launch the interactive TUI first:**
+```bash
 ralph-tui
 ```
 
@@ -252,7 +262,7 @@ Or convert manually:
 # Convert to prd.json
 ralph-tui convert --to json ./tasks/prd-my-feature.md
 
-# The conversion skill will:
+# The conversion will:
 # 1. Extract user stories from the PRD
 # 2. Extract quality gates from the "## Quality Gates" section
 # 3. Append quality gates to each story's acceptance criteria
@@ -260,10 +270,36 @@ ralph-tui convert --to json ./tasks/prd-my-feature.md
 # 5. Output to ./prd.json
 ```
 
+### From PRD to Beads: Next Steps
+
+**Note:** The `--prd` flag expects a JSON file, not markdown. If you have a markdown PRD and want to use Beads, you need to convert it first.
+
+#### Step 1: Convert PRD to Beads
+
+```bash
+ralph-tui convert --to beads ./prd-my-feature.md
+```
+
+This will:
+- Create an epic bead for your feature
+- Create child beads for each user story
+- Set up dependencies between beads
+- Show you the created epic ID
+
+#### Step 2: Run with the Epic
+
+```bash
+ralph-tui run --epic <epic-id-from-step-1>
+```
+
 ### Step 4: Run Ralph
 
 ```bash
+# With prd.json (simplest - no external dependencies)
 ralph-tui run --prd ./prd.json
+
+# With Beads tracker
+ralph-tui run --epic your-epic-id
 ```
 
 ### Quality Gates
@@ -662,6 +698,36 @@ Ralph watches for this token in stdout. When detected:
 - Check that your prd.json has tasks with `passes: false`
 - Ensure tasks aren't blocked by incomplete dependencies
 - For beads: check that your epic has open tasks: `bd list --epic your-epic`
+
+### "PRD file is not valid JSON" or "PRD file not found"
+
+**Error:** `ralph-tui run --prd ./my-prd.md` fails with:
+```
+Configuration errors:
+- PRD file is not valid JSON: /path/to/my-prd.md
+```
+
+**Solution:** The `--prd` flag expects a JSON file (`prd.json`), not a markdown PRD file.
+
+If you have a markdown PRD:
+
+```bash
+# Convert markdown to JSON first
+ralph-tui convert --to json ./my-prd.md
+
+# Then run with the generated JSON file
+ralph-tui run --prd ./prd.json
+```
+
+If you want to use Beads instead:
+
+```bash
+# Convert markdown to Beads issues
+ralph-tui convert --to beads ./my-prd.md
+
+# Run with the epic ID shown above
+ralph-tui run --epic <epic-id>
+```
 
 ### "Agent not found"
 

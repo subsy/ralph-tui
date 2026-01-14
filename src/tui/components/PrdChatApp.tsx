@@ -10,6 +10,7 @@ import { useKeyboard } from '@opentui/react';
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { ChatView } from './ChatView.js';
 import { ConfirmationDialog } from './ConfirmationDialog.js';
 import { ChatEngine, createPrdChatEngine, slugify } from '../../chat/engine.js';
@@ -74,14 +75,42 @@ interface TrackerOption {
   name: string;
   skillPrompt: string;
   available: boolean;
+  unavailableReason?: string;
+}
+
+/**
+ * Check if bd CLI is available
+ */
+async function isBdAvailable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const proc = spawn('bd', ['--version'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    proc.on('close', (code) => {
+      resolve(code === 0);
+    });
+
+    proc.on('error', () => {
+      resolve(false);
+    });
+
+    // Timeout after 2 seconds
+    setTimeout(() => {
+      proc.kill();
+      resolve(false);
+    }, 2000);
+  });
 }
 
 /**
  * Get available tracker options based on project setup
  */
-function getTrackerOptions(cwd: string): TrackerOption[] {
+async function getTrackerOptions(cwd: string): Promise<TrackerOption[]> {
   const beadsDir = join(cwd, '.beads');
-  const hasBeads = existsSync(beadsDir);
+  const hasBeadsDir = existsSync(beadsDir);
+  const hasBd = await isBdAvailable();
+  const beadsAvailable = hasBeadsDir && hasBd;
 
   return [
     {
@@ -94,7 +123,12 @@ function getTrackerOptions(cwd: string): TrackerOption[] {
       key: '2',
       name: 'Beads issues',
       skillPrompt: 'Convert this PRD to beads using the ralph-tui-create-beads skill.',
-      available: hasBeads,
+      available: beadsAvailable,
+      unavailableReason: !hasBeadsDir
+        ? 'Beads directory (.beads/) not found. Run "bd init" to set up Beads.'
+        : !hasBd
+          ? 'bd CLI not found. Install Beads to use this option.'
+          : undefined,
     },
   ];
 }
@@ -172,12 +206,21 @@ export function PrdChatApp({
   // Track which tracker format was selected for tasks
   const [selectedTrackerFormat, setSelectedTrackerFormat] = useState<'json' | 'beads' | null>(null);
 
+  // Tracker options (loaded asynchronously)
+  const [trackerOptions, setTrackerOptions] = useState<TrackerOption[]>([]);
+
   // Refs
   const engineRef = useRef<ChatEngine | null>(null);
   const isMountedRef = useRef(true);
 
-  // Get tracker options
-  const trackerOptions = getTrackerOptions(cwd);
+  // Load tracker options on mount
+  useEffect(() => {
+    void getTrackerOptions(cwd).then((options) => {
+      if (isMountedRef.current) {
+        setTrackerOptions(options);
+      }
+    });
+  }, [cwd]);
 
   // Initialize chat engine
   useEffect(() => {
@@ -241,11 +284,28 @@ export function PrdChatApp({
         setFeatureName(name);
         setPhase('review');
 
-        // Add tracker options message
-        const availableOptions = trackerOptions.filter((t) => t.available);
-        const optionsText = availableOptions
-          .map((t) => `  [${t.key}] ${t.name}`)
+        // Build tracker options text with unavailable reasons
+        const optionsText = trackerOptions
+          .map((t) => {
+            if (t.available) {
+              return `  [${t.key}] ${t.name}`;
+            } else {
+              return `  [${t.key}] ${t.name} (unavailable: ${t.unavailableReason})`;
+            }
+          })
           .join('\n');
+
+        // Check if Beads is available for custom message
+        const beadsOption = trackerOptions.find((t) => t.key === '2');
+        const hasBeads = beadsOption?.available ?? false;
+
+        let extraHelp = '';
+        if (hasBeads) {
+          extraHelp = `
+
+Tip: After selecting Beads, the epic ID will be shown. Run Ralph with:
+  ralph-tui run --epic <epic-id>`;
+        }
 
         const reviewMessage: ChatMessage = {
           role: 'assistant',
@@ -254,7 +314,7 @@ export function PrdChatApp({
 Would you like me to create tasks from this PRD?
 
 ${optionsText}
-  [3] Done - I'll create tasks later
+  [3] Done - I'll create tasks later${extraHelp}
 
 Press a number key to select, or continue chatting.`,
           timestamp: new Date(),
