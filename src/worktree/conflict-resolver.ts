@@ -482,27 +482,45 @@ export class ConflictResolver {
     let content = conflict.fullContent;
 
     for (const hunk of conflict.hunks) {
-      const conflictBlock = this.buildConflictMarkerBlock(hunk);
+      const conflictPattern = this.buildConflictMarkerPattern(hunk);
       const merged = [hunk.oursContent, hunk.theirsContent]
         .filter((c) => c.trim())
         .join('\n');
-      content = content.replace(conflictBlock, merged);
+      content = content.replace(conflictPattern, merged);
     }
 
     return content;
   }
 
-  private buildConflictMarkerBlock(hunk: ConflictHunk): string {
-    let block = `${CONFLICT_MARKER_OURS}`;
-    block += `\n${hunk.oursContent}`;
+  /**
+   * Build a regex pattern that matches a conflict block regardless of branch names.
+   * Git conflict markers include branch names (e.g., "<<<<<<< HEAD", ">>>>>>> feature/branch")
+   * so we need regex matching rather than exact string matching.
+   */
+  private buildConflictMarkerPattern(hunk: ConflictHunk): RegExp {
+    // Escape special regex characters in content
+    const escapeRegex = (str: string): string =>
+      str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Build pattern parts - markers may have trailing branch names
+    const oursMarker = `${CONFLICT_MARKER_OURS}[^\\n]*`;
+    const oursContent = escapeRegex(hunk.oursContent);
+
+    let pattern = `${oursMarker}\\n${oursContent}`;
+
     if (hunk.ancestorContent) {
-      block += `\n${CONFLICT_MARKER_ANCESTOR}`;
-      block += `\n${hunk.ancestorContent}`;
+      const ancestorMarker = `${CONFLICT_MARKER_ANCESTOR}[^\\n]*`;
+      const ancestorContent = escapeRegex(hunk.ancestorContent);
+      pattern += `\\n${ancestorMarker}\\n${ancestorContent}`;
     }
-    block += `\n${CONFLICT_MARKER_SEPARATOR}`;
-    block += `\n${hunk.theirsContent}`;
-    block += `\n${CONFLICT_MARKER_THEIRS}`;
-    return block;
+
+    const separatorMarker = `${escapeRegex(CONFLICT_MARKER_SEPARATOR)}`;
+    const theirsContent = escapeRegex(hunk.theirsContent);
+    const theirsMarker = `${CONFLICT_MARKER_THEIRS}[^\\n]*`;
+
+    pattern += `\\n${separatorMarker}\\n${theirsContent}\\n${theirsMarker}`;
+
+    return new RegExp(pattern);
   }
 
   private attemptSemanticMerge(conflict: FileConflict): string {
