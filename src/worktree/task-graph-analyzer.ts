@@ -292,7 +292,12 @@ export class TaskGraphAnalyzer {
       dependents?: Array<{ id: string; dependency_type: string }>;
     }
 
-    const beads = JSON.parse(result.stdout) as BdListItem[];
+    let beads: BdListItem[];
+    try {
+      beads = JSON.parse(result.stdout) as BdListItem[];
+    } catch (parseError) {
+      throw new Error(`Failed to parse bd list output: ${parseError instanceof Error ? parseError.message : 'Invalid JSON'}`);
+    }
     return beads.map(bead => ({
       id: bead.id,
       title: bead.title,
@@ -384,12 +389,15 @@ export class TaskGraphAnalyzer {
     const openIssues = track.issues.filter(i => i.status === 'open');
 
     return openIssues.map(issue => {
+      const criticalPathIndex = insightsOutput?.CriticalPath?.indexOf(issue.id);
       const metrics: TaskGraphMetrics = {
         unblockCount: track.unblocks?.length ?? 0,
         pagerank: insightsOutput?.PageRank?.[issue.id],
         betweenness: insightsOutput?.Betweenness?.[issue.id],
         slack: insightsOutput?.Slack?.[issue.id],
-        criticalPathPosition: insightsOutput?.CriticalPath?.indexOf(issue.id),
+        criticalPathPosition: criticalPathIndex !== undefined && criticalPathIndex >= 0
+          ? criticalPathIndex
+          : undefined,
       };
 
       return {

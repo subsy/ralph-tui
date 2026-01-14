@@ -54,6 +54,9 @@ export interface ParallelTaskResult {
 
   /** Subagent trace summary (if tracing enabled) */
   subagentSummary?: SubagentTraceSummary;
+
+  /** Agent ID that executed this task (for failure attribution) */
+  agentId?: string;
 }
 
 /**

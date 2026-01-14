@@ -276,6 +276,7 @@ export class ParallelExecutor {
         exitCode: agentResult.exitCode,
         error: agentResult.error,
         subagentSummary: agentResult.subagentSummary,
+        agentId,
       };
     } catch (error) {
       const endedAt = new Date();
@@ -308,6 +309,7 @@ export class ParallelExecutor {
         stdout: ctx.stdout,
         stderr: ctx.stderr,
         error: executionError,
+        agentId,
       };
     }
   }
@@ -485,13 +487,12 @@ export class ParallelExecutor {
 
     const failures: FailureAttribution[] = failedResults.map(result => {
       const workUnit = workUnits.find(wu => wu.tasks.some(t => t.id === result.task.id));
-      const ctx = this.activeExecutions.get(result.task.id);
       
       return {
         taskId: result.task.id,
         taskTitle: result.task.title,
-        agentId: ctx?.agentId ?? 'unknown',
-        agentName: ctx?.agentId,
+        agentId: result.agentId ?? 'unknown',
+        agentName: result.agentId,
         worktreeId: result.worktree?.id ?? 'unknown',
         worktreePath: result.worktree?.path ?? 'unknown',
         workUnitId: workUnit?.id ?? 'unknown',
@@ -622,8 +623,12 @@ export class ParallelExecutor {
     
     const tasksWithDuration = results.filter(r => r.durationMs !== undefined).length;
     if (tasksWithDuration > 0) {
-      const prevTotal = this.stats.avgTaskDurationMs * (this.stats.totalTasksExecuted - results.length);
-      this.stats.avgTaskDurationMs = (prevTotal + totalDurationFromTasks) / this.stats.totalTasksExecuted;
+      const completedTaskCount = this.stats.totalTasksCompleted + this.stats.totalTasksFailed;
+      const prevCompletedCount = completedTaskCount - results.length;
+      const prevTotal = this.stats.avgTaskDurationMs * Math.max(0, prevCompletedCount);
+      this.stats.avgTaskDurationMs = completedTaskCount > 0
+        ? (prevTotal + totalDurationFromTasks) / completedTaskCount
+        : 0;
     }
 
     this.stats.lastExecutionAt = new Date();
