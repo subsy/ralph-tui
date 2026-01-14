@@ -438,7 +438,8 @@ Read the PRD and create the appropriate tasks.`;
   }, [inputValue, isLoading]);
 
   /**
-   * Handle keyboard input
+   * Handle keyboard input (only for non-input keys like Escape and review phase shortcuts)
+   * Text editing is handled by the native OpenTUI input component
    */
   const handleKeyboard = useCallback(
     (key: KeyEvent) => {
@@ -477,53 +478,24 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
 
-      switch (key.name) {
-        case 'escape':
-          if (phase === 'review' && prdPath && featureName) {
-            // In review phase, escape completes (PRD already saved)
-            onComplete({ prdPath, featureName, selectedTracker: selectedTrackerFormat });
-          } else {
-            // In chat phase, show confirmation dialog
-            setShowQuitConfirm(true);
-          }
-          break;
-
-        case 'return':
-        case 'enter':
-          void sendMessage();
-          break;
-
-        case 'backspace':
-          setInputValue((prev) => prev.slice(0, -1));
-          break;
-
-        default:
-          // Handle regular character input
-          // Skip if any modifier key (except shift) is pressed - these are shortcuts
-          if (key.ctrl || key.meta || key.option || key.super || key.hyper) {
-            break;
-          }
-
-          if (key.sequence) {
-            const printableChars = key.sequence
-              .split('')
-              .filter((char) => char.charCodeAt(0) >= 32)
-              .join('');
-
-            if (printableChars.length > 0) {
-              setInputValue((prev) => prev + printableChars);
-            }
-          }
-          break;
+      // Handle escape key
+      if (key.name === 'escape') {
+        if (phase === 'review' && prdPath && featureName) {
+          // In review phase, escape completes (PRD already saved)
+          onComplete({ prdPath, featureName, selectedTracker: selectedTrackerFormat });
+        } else {
+          // In chat phase, show confirmation dialog
+          setShowQuitConfirm(true);
+        }
       }
     },
-    [showQuitConfirm, isLoading, phase, trackerOptions, handleTrackerSelect, prdPath, featureName, selectedTrackerFormat, onComplete, onCancel, sendMessage]
+    [showQuitConfirm, isLoading, phase, trackerOptions, handleTrackerSelect, prdPath, featureName, selectedTrackerFormat, onComplete, onCancel]
   );
 
   useKeyboard(handleKeyboard);
 
   // Handle paste events separately from keyboard input
-  // OpenTUI emits paste as a separate event type on the keyInput handler
+  // OpenTUI emits paste as a separate event type on the renderer's keyInput handler
   const renderer = useRenderer();
   useEffect(() => {
     const handlePaste = (event: PasteEvent) => {
@@ -574,6 +546,8 @@ Read the PRD and create the appropriate tasks.`;
             inputEnabled={!isLoading}
             hint={hint}
             agentName={agent.meta.name}
+            onInputChange={setInputValue}
+            onSubmit={sendMessage}
           />
         </box>
 
@@ -601,6 +575,8 @@ Read the PRD and create the appropriate tasks.`;
         inputEnabled={!isLoading && !showQuitConfirm}
         hint={hint}
         agentName={agent.meta.name}
+        onInputChange={setInputValue}
+        onSubmit={sendMessage}
       />
       <ConfirmationDialog
         visible={showQuitConfirm}

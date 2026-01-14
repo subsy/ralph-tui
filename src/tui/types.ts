@@ -94,6 +94,10 @@ export interface HeaderProps {
   activeAgentState?: ActiveAgentState | null;
   /** Rate limit state from engine (tracks primary agent rate limiting) */
   rateLimitState?: RateLimitState | null;
+  /** Current iteration number (for iteration progress display) */
+  currentIteration?: number;
+  /** Maximum iterations (0 = unlimited, for iteration progress display) */
+  maxIterations?: number;
 }
 
 /**

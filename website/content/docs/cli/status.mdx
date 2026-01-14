@@ -1,0 +1,157 @@
+---
+title: status
+description: Check the current Ralph TUI session status for monitoring and CI integration.
+---
+
+## Synopsis
+
+```bash
+ralph-tui status [options]
+```
+
+The `status` command displays the current session state without starting execution. It's designed for scripts, CI pipelines, and quick status checks.
+
+<Callout type="tip">
+Use `--json` for machine-readable output in automation scripts and CI/CD pipelines.
+</Callout>
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format for CI/scripts |
+| `--cwd <path>` | Working directory (where to find the session file) |
+
+## Examples
+
+### Basic Status Check
+
+```bash
+# Check status in current directory
+ralph-tui status
+```
+
+Example output:
+
+```
+Session Status: active
+Current Iteration: 7
+Tasks: 3/10 completed
+Active Task: US-005 - Implement user authentication
+Last Updated: 2024-01-15 14:32:00
+```
+
+### JSON Output for Scripts
+
+```bash
+# Get JSON output for parsing
+ralph-tui status --json
+```
+
+Example JSON output:
+
+```json
+{
+  "status": "active",
+  "iteration": 7,
+  "tasks": {
+    "total": 10,
+    "completed": 3,
+    "inProgress": 1,
+    "pending": 6
+  },
+  "activeTask": {
+    "id": "US-005",
+    "title": "Implement user authentication"
+  },
+  "lastUpdated": "2024-01-15T14:32:00.000Z",
+  "locked": true
+}
+```
+
+### Check Status in Different Directory
+
+```bash
+# Check status of a session in another project
+ralph-tui status --cwd /path/to/project
+```
+
+## Status Values
+
+The `status` field can be one of:
+
+| Status | Description |
+|--------|-------------|
+| `active` | Session is currently running or paused |
+| `completed` | All tasks are finished |
+| `no_session` | No session file found |
+| `stale` | Session appears abandoned (old lock) |
+
+## Use in CI/CD Pipelines
+
+The `--json` flag makes it easy to integrate with CI systems:
+
+```bash
+#!/bin/bash
+# Check if Ralph is done
+status=$(ralph-tui status --json | jq -r '.status')
+
+if [ "$status" = "completed" ]; then
+  echo "All tasks completed!"
+  exit 0
+elif [ "$status" = "active" ]; then
+  echo "Still running..."
+  exit 1
+fi
+```
+
+### GitHub Actions Example
+
+```yaml
+- name: Check Ralph Status
+  run: |
+    status=$(ralph-tui status --json | jq -r '.status')
+    completed=$(ralph-tui status --json | jq -r '.tasks.completed')
+    total=$(ralph-tui status --json | jq -r '.tasks.total')
+    echo "Ralph: $completed/$total tasks completed (status: $status)"
+```
+
+## Polling for Completion
+
+You can use `status` to poll for completion in scripts:
+
+```bash
+#!/bin/bash
+# Poll until completed or timeout
+timeout=3600  # 1 hour
+interval=60   # Check every minute
+elapsed=0
+
+while [ $elapsed -lt $timeout ]; do
+  status=$(ralph-tui status --json | jq -r '.status')
+
+  if [ "$status" = "completed" ]; then
+    echo "Done!"
+    exit 0
+  fi
+
+  sleep $interval
+  elapsed=$((elapsed + interval))
+done
+
+echo "Timeout waiting for completion"
+exit 1
+```
+
+## Session File Location
+
+The status command looks for `.ralph-tui-session.json` in:
+
+1. The directory specified by `--cwd`
+2. The current working directory (if `--cwd` not specified)
+
+## Related Commands
+
+- **[run](/docs/cli/run)** - Start a new execution session
+- **[resume](/docs/cli/resume)** - Continue an interrupted session
+- **[logs](/docs/cli/logs)** - View detailed iteration output

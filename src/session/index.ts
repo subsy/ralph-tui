@@ -301,6 +301,24 @@ export async function updateSessionIteration(
 }
 
 /**
+ * Update session maxIterations
+ */
+export async function updateSessionMaxIterations(
+  cwd: string,
+  maxIterations: number
+): Promise<SessionMetadata | null> {
+  const session = await readSessionMetadata(cwd);
+  if (!session) {
+    return null;
+  }
+
+  session.maxIterations = maxIterations;
+
+  await saveSession(session);
+  return session;
+}
+
+/**
  * End a session (release lock and update status)
  */
 export async function endSession(

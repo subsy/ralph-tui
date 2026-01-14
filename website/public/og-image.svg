@@ -1,0 +1,86 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3b82f6"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bgGradient)"/>
+
+  <!-- Decorative grid pattern -->
+  <g opacity="0.1">
+    <line x1="0" y1="0" x2="1200" y2="630" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="200" y1="0" x2="1200" y2="500" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="400" y1="0" x2="1200" y2="400" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="0" y1="130" x2="1000" y2="630" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="0" y1="330" x2="600" y2="630" stroke="#3b82f6" stroke-width="1"/>
+  </g>
+
+  <!-- Terminal window mockup -->
+  <g transform="translate(100, 140)">
+    <!-- Window frame -->
+    <rect x="0" y="0" width="400" height="350" rx="12" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+
+    <!-- Title bar -->
+    <rect x="0" y="0" width="400" height="40" rx="12" fill="#1e293b"/>
+    <rect x="0" y="28" width="400" height="12" fill="#1e293b"/>
+
+    <!-- Window buttons -->
+    <circle cx="24" cy="20" r="6" fill="#ef4444"/>
+    <circle cx="48" cy="20" r="6" fill="#eab308"/>
+    <circle cx="72" cy="20" r="6" fill="#22c55e"/>
+
+    <!-- Terminal text -->
+    <text x="20" y="80" fill="#64748b" font-family="monospace" font-size="14">$</text>
+    <text x="40" y="80" fill="#22c55e" font-family="monospace" font-size="14">ralph-tui run</text>
+
+    <text x="20" y="120" fill="#3b82f6" font-family="monospace" font-size="13">Starting agent loop...</text>
+
+    <text x="20" y="160" fill="#64748b" font-family="monospace" font-size="13">Task 1/5:</text>
+    <text x="100" y="160" fill="#f8fafc" font-family="monospace" font-size="13">Implement feature X</text>
+
+    <text x="20" y="190" fill="#22c55e" font-family="monospace" font-size="13">[COMPLETE]</text>
+    <text x="120" y="190" fill="#64748b" font-family="monospace" font-size="13">3m 24s</text>
+
+    <text x="20" y="230" fill="#64748b" font-family="monospace" font-size="13">Task 2/5:</text>
+    <text x="100" y="230" fill="#f8fafc" font-family="monospace" font-size="13">Write unit tests</text>
+
+    <text x="20" y="260" fill="#3b82f6" font-family="monospace" font-size="13">[IN PROGRESS]</text>
+    <text x="140" y="260" fill="#64748b" font-family="monospace" font-size="13">1m 12s</text>
+
+    <!-- Cursor -->
+    <rect x="20" y="300" width="10" height="18" fill="#3b82f6" opacity="0.8"/>
+  </g>
+
+  <!-- Main title -->
+  <text x="580" y="240" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="72" font-weight="700">Ralph TUI</text>
+
+  <!-- Tagline -->
+  <text x="580" y="310" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="28">AI Agent Loop Orchestrator</text>
+
+  <!-- Feature highlights -->
+  <g transform="translate(580, 360)">
+    <rect x="0" y="0" width="200" height="36" rx="18" fill="url(#accentGradient)" opacity="0.2"/>
+    <text x="20" y="24" fill="#60a5fa" font-family="system-ui, sans-serif" font-size="16" font-weight="500">Autonomous Agents</text>
+  </g>
+
+  <g transform="translate(800, 360)">
+    <rect x="0" y="0" width="180" height="36" rx="18" fill="url(#accentGradient)" opacity="0.2"/>
+    <text x="20" y="24" fill="#a78bfa" font-family="system-ui, sans-serif" font-size="16" font-weight="500">Task Orchestration</text>
+  </g>
+
+  <g transform="translate(580, 410)">
+    <rect x="0" y="0" width="160" height="36" rx="18" fill="url(#accentGradient)" opacity="0.2"/>
+    <text x="20" y="24" fill="#60a5fa" font-family="system-ui, sans-serif" font-size="16" font-weight="500">PRD Workflows</text>
+  </g>
+
+  <!-- URL -->
+  <text x="580" y="530" fill="#64748b" font-family="monospace" font-size="20">ralph-tui.dev</text>
+</svg>

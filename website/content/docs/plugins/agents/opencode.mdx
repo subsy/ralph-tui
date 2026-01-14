@@ -1,0 +1,316 @@
+---
+title: OpenCode Agent
+description: Use OpenCode CLI with multiple AI providers in Ralph TUI.
+---
+
+## OpenCode Agent
+
+The OpenCode agent plugin integrates with the `opencode` CLI, an open-source AI coding assistant that supports multiple providers including Anthropic, OpenAI, Google, xAI, and Ollama.
+
+<Callout type="tip">
+OpenCode lets you use any supported AI provider with Ralph TUI, including local models via Ollama.
+</Callout>
+
+## Prerequisites
+
+Install OpenCode CLI:
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+```
+
+Verify installation:
+
+```bash
+opencode --version
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with OpenCode">
+    Use the `--agent opencode` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent opencode
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Specify provider and model with `--model`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent opencode --model anthropic/claude-3-5-sonnet
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+Basic configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "opencode"
+
+[agentOptions]
+provider = "anthropic"
+model = "claude-3-5-sonnet"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-opencode"
+plugin = "opencode"
+default = true
+timeout = 300000
+
+[agents.options]
+provider = "anthropic"
+model = "claude-3-5-sonnet"
+agent = "general"
+format = "default"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `provider` | string | - | AI provider: `anthropic`, `openai`, `google`, `xai`, `ollama` |
+| `model` | string | - | Model name within the provider |
+| `agent` | string | `"general"` | Agent type: `general`, `build`, or `plan` |
+| `format` | string | `"default"` | Output format: `default` or `json` |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"opencode"` | Path to OpenCode CLI executable |
+
+## Providers and Models
+
+OpenCode supports multiple AI providers. Models are specified in `provider/model` format.
+
+### Anthropic
+
+```bash
+--model anthropic/claude-3-5-sonnet
+--model anthropic/claude-3-opus
+```
+
+### OpenAI
+
+```bash
+--model openai/gpt-4o
+--model openai/gpt-4-turbo
+```
+
+### Google
+
+```bash
+--model google/gemini-pro
+--model google/gemini-1.5-pro
+```
+
+### xAI
+
+```bash
+--model xai/grok-1
+```
+
+### Ollama (Local)
+
+```bash
+--model ollama/llama3
+--model ollama/codellama
+```
+
+<Callout type="info">
+Model names are validated by the provider's API. Invalid model names result in errors from OpenCode, not Ralph TUI.
+</Callout>
+
+## Agent Types
+
+OpenCode offers specialized agent personalities:
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| `general` | General-purpose coding agent | Most tasks (default) |
+| `build` | Focused on building and implementing | Implementation work |
+| `plan` | Planning and architecture focus | Design discussions |
+
+Configure in options:
+
+```toml
+[agentOptions]
+agent = "build"
+```
+
+<Callout type="warning">
+Using non-default agent types may trigger warning messages in OpenCode output. Ralph TUI filters these automatically, but you may see them if running OpenCode directly.
+</Callout>
+
+## File Context
+
+OpenCode supports attaching files via the `--file` flag. Ralph TUI extracts file paths from your task and adds them automatically:
+
+```bash
+opencode run --file /path/to/context.ts
+```
+
+Multiple files can be attached - each gets its own `--file` argument.
+
+## How It Works
+
+When Ralph TUI executes a task with OpenCode:
+
+1. **Build command**: Constructs `opencode run [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Filter metadata**: Removes OpenCode status lines from display
+5. **Detect completion**: Watches for `<promise>COMPLETE</promise>` token
+6. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+opencode run \
+  --model anthropic/claude-3-5-sonnet \  # If model specified
+  --agent general \                       # If not default
+  --format default \                      # If not default
+  --file /path/to/context.ts \           # From file context
+  < prompt.txt                           # Prompt via stdin
+```
+
+### Output Filtering
+
+OpenCode emits metadata lines during execution (tool calls, progress indicators). Ralph TUI filters these for cleaner output:
+
+- Lines starting with `| ` or `! ` (status lines)
+- Progress indicators like `[1/3]`
+- JSON event objects
+- Grep-style file matches
+
+The filtered output shows only the agent's actual responses.
+
+## No Subagent Tracing
+
+<Callout type="warning">
+Unlike Claude Code, OpenCode does not support subagent tracing. The tracing panel will be empty when using OpenCode.
+</Callout>
+
+If you need visibility into tool calls, consider using Claude Code instead or reviewing OpenCode's native output.
+
+## Rate Limit Handling
+
+Configure fallback when providers hit rate limits:
+
+```toml
+agent = "opencode"
+fallbackAgents = ["claude"]
+
+[agentOptions]
+provider = "anthropic"
+model = "claude-3-5-sonnet"
+
+[rateLimitHandling]
+enabled = true
+maxRetries = 3
+```
+
+## Using Local Models
+
+With Ollama, you can run models locally:
+
+<Steps>
+  <Step title="Install Ollama">
+    ```bash
+    # macOS
+    brew install ollama
+
+    # Linux
+    curl -fsSL https://ollama.ai/install.sh | sh
+    ```
+  </Step>
+
+  <Step title="Pull a Model">
+    ```bash
+    ollama pull llama3
+    # or
+    ollama pull codellama
+    ```
+  </Step>
+
+  <Step title="Configure Ralph TUI">
+    ```toml
+    agent = "opencode"
+
+    [agentOptions]
+    provider = "ollama"
+    model = "llama3"
+    ```
+  </Step>
+
+  <Step title="Run">
+    ```bash
+    ralph-tui run --prd ./prd.json
+    ```
+  </Step>
+</Steps>
+
+<Callout type="tip">
+Local models avoid API rate limits and costs, but may be slower and less capable for complex coding tasks.
+</Callout>
+
+## Troubleshooting
+
+### "OpenCode CLI not found"
+
+Ensure OpenCode is installed and in your PATH:
+
+```bash
+which opencode
+# Should output: /path/to/opencode
+
+# If not found, install:
+curl -fsSL https://opencode.ai/install | bash
+```
+
+### "Invalid provider in model"
+
+Ensure you're using the `provider/model` format:
+
+```bash
+# Wrong
+--model claude-3-5-sonnet
+
+# Correct
+--model anthropic/claude-3-5-sonnet
+```
+
+Valid providers: `anthropic`, `openai`, `google`, `xai`, `ollama`
+
+### "Task not completing"
+
+Ensure your prompt template includes instructions to output the completion token:
+
+```handlebars
+When finished (or if already complete), signal completion with:
+<promise>COMPLETE</promise>
+```
+
+### "Agent warning messages"
+
+If you see warnings about agent types, either:
+- Use `agent = "general"` (default, no warning)
+- Ignore the warnings (they're filtered from TUI display)
+
+## Next Steps
+
+- **[Claude Code Agent](/docs/plugins/agents/claude)** - Anthropic-specific with subagent tracing
+- **[Configuration](/docs/configuration/options)** - Full options reference
+- **[Prompt Templates](/docs/templates)** - Customize task prompts

@@ -1,0 +1,292 @@
+---
+title: Beads Tracker
+description: Git-backed issue tracking with hierarchy and dependencies using the bd CLI.
+---
+
+## Beads Tracker
+
+The Beads tracker integrates with [Beads](https://github.com/steveyegge/beads), a git-backed issue tracker. Issues are stored as JSONL in your repo and sync across team members via git.
+
+<Callout type="tip">
+Beads is ideal for team projects - everyone sees the same issues, and changes are tracked in git history.
+</Callout>
+
+## Prerequisites
+
+Install the Beads CLI (`bd`):
+
+```bash
+bun install -g beads-cli
+```
+
+Initialize Beads in your project:
+
+```bash
+cd your-project
+bd init
+```
+
+This creates a `.beads/` directory with your issue tracker.
+
+## Basic Usage
+
+<Steps>
+  <Step title="Create an Epic">
+    Epics group related tasks:
+
+    ```bash
+    bd create --title "User Authentication" --type epic
+    # Created: beads-abc123
+    ```
+  </Step>
+
+  <Step title="Add Tasks to Epic">
+    Create child tasks under the epic:
+
+    ```bash
+    bd create --title "Login form" --type task --parent beads-abc123
+    bd create --title "Auth API" --type task --parent beads-abc123
+    ```
+  </Step>
+
+  <Step title="Run Ralph TUI">
+    Run with the epic ID:
+
+    ```bash
+    ralph-tui run --tracker beads --epic beads-abc123
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### CLI Flags
+
+Run with epic and tracker:
+
+```bash
+ralph-tui run --tracker beads --epic beads-abc123
+```
+
+### Config File
+
+Set defaults in TOML:
+
+```toml
+# .ralph-tui/config.toml
+tracker = "beads"
+
+[trackerOptions]
+beadsDir = ".beads"
+labels = "ralph"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `beadsDir` | string | `.beads` | Path to .beads directory |
+| `epicId` | string | - | Epic ID to filter tasks |
+| `labels` | string | - | Comma-separated label filter |
+| `workingDir` | string | `.` | Working directory for bd commands |
+
+<Callout type="info">
+The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
+</Callout>
+
+## Beads Concepts
+
+### Epics
+
+Epics are top-level containers for related work:
+
+```bash
+# Create an epic
+bd create --title "Feature: Dark Mode" --type epic
+
+# List epics
+bd list --type epic
+```
+
+### Tasks
+
+Tasks are individual work items, optionally under an epic:
+
+```bash
+# Create standalone task
+bd create --title "Fix login bug" --type task
+
+# Create task under epic
+bd create --title "Add toggle switch" --type task --parent beads-xyz
+```
+
+### Dependencies
+
+Tasks can depend on (be blocked by) other tasks:
+
+```bash
+# Add dependency: task-b depends on task-a
+bd dep add beads-task-b beads-task-a
+
+# View dependencies
+bd show beads-task-b
+```
+
+### Statuses
+
+| Beads Status | Ralph TUI Status | Description |
+|--------------|------------------|-------------|
+| `open` | `open` | Ready to work |
+| `in_progress` | `in_progress` | Currently being worked on |
+| `closed` | `completed` | Finished |
+| `cancelled` | `cancelled` | Won't do |
+
+### Priorities
+
+Beads uses 0-4 priority scale (0 = critical):
+
+| Priority | Meaning |
+|----------|---------|
+| 0 | Critical |
+| 1 | High |
+| 2 | Medium (default) |
+| 3 | Low |
+| 4 | Backlog |
+
+## Task Selection
+
+The Beads tracker selects the next task by:
+
+1. Filter to tasks under the specified epic
+2. Filter to tasks with status `open`
+3. Filter to tasks with no unresolved dependencies
+4. Sort by priority (lowest number first)
+5. Return the first matching task
+
+## Git Sync
+
+Beads stores issues in `.beads/beads.jsonl`. Sync with your team:
+
+```bash
+# Pull latest changes
+bd sync
+
+# Or manually
+git pull
+```
+
+Ralph TUI calls `bd sync` automatically when you run.
+
+## Label Filtering
+
+Filter tasks by labels:
+
+```bash
+# CLI
+ralph-tui run --tracker beads --epic beads-xyz
+
+# With label filter in config
+[trackerOptions]
+labels = "ralph,frontend"
+```
+
+Only tasks with matching labels will be selected.
+
+## How It Works
+
+When Ralph TUI runs with the Beads tracker:
+
+1. **Detect**: Check for `.beads/` directory and `bd` CLI
+2. **Query**: Run `bd list --json --parent <epic>` to get tasks
+3. **Select**: Find next task (ready, highest priority)
+4. **Update**: Set task to `in_progress` via `bd update`
+5. **Execute**: Run agent with task prompt
+6. **Complete**: Set task to `closed` via `bd update`
+7. **Sync**: Run `bd sync` to push changes
+
+### bd Commands Used
+
+| Action | Command |
+|--------|---------|
+| List tasks | `bd list --json --parent <epic>` |
+| Get task | `bd show <id> --json` |
+| Start task | `bd update <id> --status in_progress` |
+| Complete task | `bd update <id> --status closed` |
+| Sync | `bd sync` |
+
+## Switching Epics
+
+Change epics mid-session by pressing `l` in the TUI:
+
+1. Press `l` to open epic selector
+2. Choose from available epics
+3. Task list updates to show new epic's tasks
+
+Or restart with a different `--epic` flag.
+
+## Troubleshooting
+
+### "Beads directory not found"
+
+Initialize Beads in your project:
+
+```bash
+bd init
+```
+
+### "bd binary not available"
+
+Install the Beads CLI:
+
+```bash
+bun install -g beads-cli
+```
+
+### "No tasks available"
+
+Check that:
+1. The epic has child tasks: `bd list --parent <epic>`
+2. Tasks are `open` status: `bd list --status open`
+3. Dependencies are met: `bd show <task-id>`
+
+### "Tasks not syncing"
+
+Run sync manually:
+
+```bash
+bd sync
+```
+
+Check for git conflicts in `.beads/beads.jsonl`.
+
+## Creating Tasks from PRDs
+
+Convert a PRD to Beads issues:
+
+```bash
+# Create PRD
+ralph-tui create-prd --chat
+
+# When prompted, choose "Beads" format
+# Or convert manually:
+ralph-tui convert --to beads ./tasks/my-prd.md
+```
+
+## Beads vs JSON Tracker
+
+| Feature | JSON | Beads |
+|---------|------|-------|
+| Setup complexity | Lowest | Medium |
+| External tools | None | `bd` CLI |
+| Git sync | Manual | Automatic |
+| Epic hierarchy | No | Yes |
+| Team collaboration | Limited | Full |
+| Offline support | Full | Full |
+
+Choose JSON for quick experiments, Beads for team projects.
+
+## Next Steps
+
+- **[Beads-BV Tracker](/docs/plugins/trackers/beads-bv)** - Smart task selection with graph analysis
+- **[JSON Tracker](/docs/plugins/trackers/json)** - Simple file-based tracking
+- **[Configuration](/docs/configuration/options)** - Full options reference

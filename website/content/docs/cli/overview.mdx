@@ -1,0 +1,95 @@
+---
+title: CLI Commands Overview
+description: Complete reference for all Ralph TUI command-line commands and their options.
+---
+
+## Command Reference
+
+Ralph TUI provides a comprehensive set of commands for managing autonomous AI agent execution. Each command serves a specific purpose in the workflow from setup to execution.
+
+<Callout type="tip">
+Use `ralph-tui help` to see all available commands, or `ralph-tui <command> --help` for detailed help on any specific command.
+</Callout>
+
+## Available Commands
+
+| Command | Description |
+|---------|-------------|
+| [`ralph-tui`](/docs/cli/run) | Launch the interactive TUI |
+| [`ralph-tui run`](/docs/cli/run) | Start Ralph execution |
+| [`ralph-tui resume`](/docs/cli/resume) | Resume an interrupted session |
+| [`ralph-tui status`](/docs/cli/status) | Check session status (headless, for CI/scripts) |
+| [`ralph-tui logs`](/docs/cli/logs) | View/manage iteration output logs |
+| [`ralph-tui setup`](/docs/cli/setup) | Run interactive project setup |
+| [`ralph-tui create-prd`](/docs/cli/create-prd) | Create a new PRD interactively |
+| [`ralph-tui convert`](/docs/cli/convert) | Convert PRD markdown to JSON format |
+
+## Additional Commands
+
+These commands help with configuration and plugin management:
+
+| Command | Description |
+|---------|-------------|
+| `ralph-tui config show` | Display merged configuration |
+| `ralph-tui template show` | Display current prompt template |
+| `ralph-tui template init` | Copy default template for customization |
+| `ralph-tui plugins agents` | List available agent plugins |
+| `ralph-tui plugins trackers` | List available tracker plugins |
+| `ralph-tui docs [section]` | Open documentation in browser |
+| `ralph-tui help` | Show help message |
+
+## Typical Workflow
+
+The commands are typically used in this order:
+
+<Steps>
+  <Step title="Setup">
+    Run `ralph-tui setup` to configure your project. This creates the necessary configuration files and installs skills.
+  </Step>
+
+  <Step title="Create Tasks">
+    Use `ralph-tui create-prd` to generate a PRD with AI assistance, or `ralph-tui convert` to convert an existing PRD to tasks.
+  </Step>
+
+  <Step title="Execute">
+    Start execution with `ralph-tui run`. Ralph will work through your tasks autonomously.
+  </Step>
+
+  <Step title="Monitor & Resume">
+    Check progress with `ralph-tui status`, review output with `ralph-tui logs`, and use `ralph-tui resume` if interrupted.
+  </Step>
+</Steps>
+
+## Command Categories
+
+### Execution Commands
+
+- **[run](/docs/cli/run)** - Main execution command with full options for agent, tracker, and iteration control
+- **[resume](/docs/cli/resume)** - Continue from a saved session state
+- **[status](/docs/cli/status)** - JSON-friendly status output for scripts and CI pipelines
+
+### PRD & Task Management
+
+- **[create-prd](/docs/cli/create-prd)** - AI-powered PRD creation with interactive chat mode
+- **[convert](/docs/cli/convert)** - Transform PRD markdown into executable task formats
+
+### Setup & Maintenance
+
+- **[setup](/docs/cli/setup)** - Interactive wizard for initial configuration
+- **[logs](/docs/cli/logs)** - View, filter, and clean up iteration logs
+
+## Global Options
+
+These options work with most commands:
+
+| Option | Description |
+|--------|-------------|
+| `--help`, `-h` | Show help for the command |
+| `--version`, `-v` | Show Ralph TUI version |
+| `--cwd <path>` | Set working directory |
+
+## Next Steps
+
+- **[run](/docs/cli/run)** - Learn about the main execution command
+- **[setup](/docs/cli/setup)** - Configure your project
+- **[create-prd](/docs/cli/create-prd)** - Create your first PRD

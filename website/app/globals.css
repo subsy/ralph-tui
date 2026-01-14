@@ -1,0 +1,153 @@
+/**
+ * ABOUTME: Global CSS styles with Tailwind directives and CSS variables for theming.
+ * Defines dark/light mode color schemes based on the Ralph TUI theme.
+ */
+
+@import 'tailwindcss';
+@config '../tailwind.config.ts';
+
+@layer base {
+  :root {
+    /* Light mode colors - optimized for contrast */
+    --background: 255 255 255;
+    --foreground: 26 27 38;
+
+    --bg-primary: 255 255 255;
+    --bg-secondary: 248 250 252;
+    --bg-tertiary: 241 245 249;
+    --bg-highlight: 226 232 240;
+
+    --fg-primary: 26 27 38;
+    --fg-secondary: 51 65 85;
+    --fg-muted: 100 116 139;
+    --fg-dim: 148 163 184;
+
+    --accent-primary: 59 130 246;
+    --accent-secondary: 147 51 234;
+    --accent-tertiary: 6 182 212;
+
+    --status-success: 22 163 74;
+    --status-warning: 202 138 4;
+    --status-error: 220 38 38;
+    --status-info: 59 130 246;
+
+    --border: 203 213 225;
+    --border-active: 59 130 246;
+    --border-muted: 226 232 240;
+  }
+
+  .dark {
+    /* Dark mode colors (Ralph TUI theme) */
+    --background: 26 27 38;
+    --foreground: 192 202 245;
+
+    --bg-primary: 26 27 38;
+    --bg-secondary: 36 40 59;
+    --bg-tertiary: 47 52 73;
+    --bg-highlight: 61 66 89;
+
+    --fg-primary: 192 202 245;
+    --fg-secondary: 169 177 214;
+    --fg-muted: 86 95 137;
+    --fg-dim: 65 72 104;
+
+    --accent-primary: 122 162 247;
+    --accent-secondary: 187 154 247;
+    --accent-tertiary: 125 207 255;
+
+    --status-success: 158 206 106;
+    --status-warning: 224 175 104;
+    --status-error: 247 118 142;
+    --status-info: 122 162 247;
+
+    --border: 61 66 89;
+    --border-active: 122 162 247;
+    --border-muted: 47 52 73;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-bg-primary text-fg-primary;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  /* Scrollbar styling for dark mode */
+  .dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .dark ::-webkit-scrollbar-track {
+    background: rgb(var(--bg-secondary));
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgb(var(--bg-highlight));
+    border-radius: 4px;
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--fg-muted));
+  }
+
+  /* Code block styling */
+  pre {
+    @apply overflow-x-auto rounded-lg p-4;
+  }
+
+  pre code {
+    @apply font-mono text-sm;
+  }
+
+  /*
+   * Code block backgrounds:
+   * - Light mode: white background
+   * - Dark mode: keep tokyo-night theme background (handled by rehype-pretty-code)
+   */
+  pre[data-theme],
+  [data-rehype-pretty-code-figure] pre {
+    background: #ffffff !important;
+  }
+
+  .dark pre[data-theme],
+  .dark [data-rehype-pretty-code-figure] pre {
+    background: #1a1b26 !important;
+  }
+
+  /* Inline code styling */
+  :not(pre) > code {
+    @apply rounded bg-bg-tertiary px-1.5 py-0.5 font-mono text-sm text-accent-tertiary;
+  }
+
+  /* Anchor link styling */
+  .anchor {
+    @apply no-underline hover:underline;
+  }
+
+  /* Selection styling */
+  ::selection {
+    @apply bg-accent-primary/30;
+  }
+}
+
+@layer utilities {
+  /* Gradient text utility */
+  .gradient-text {
+    @apply bg-gradient-to-r from-accent-primary via-accent-secondary to-accent-tertiary bg-clip-text text-transparent;
+  }
+
+  /* Focus ring utility */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 focus:ring-offset-bg-primary;
+  }
+
+  /* Glass effect utility */
+  .glass {
+    @apply bg-bg-secondary/80 backdrop-blur-sm;
+  }
+}

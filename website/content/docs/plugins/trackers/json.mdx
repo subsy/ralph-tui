@@ -1,0 +1,324 @@
+---
+title: JSON Tracker
+description: Track tasks with a simple prd.json file - no external dependencies required.
+---
+
+## JSON Tracker
+
+The JSON tracker is the simplest way to use Ralph TUI. It reads tasks from a local `prd.json` file with no external dependencies - perfect for getting started quickly.
+
+<Callout type="tip">
+The JSON tracker is ideal for single-developer projects or when you want to try Ralph TUI without installing additional tools.
+</Callout>
+
+## Prerequisites
+
+None! Just create a `prd.json` file.
+
+## Basic Usage
+
+<Steps>
+  <Step title="Create a prd.json">
+    Create a `prd.json` file in your project:
+
+    ```json
+    {
+      "name": "My Feature",
+      "branchName": "feature/my-feature",
+      "userStories": [
+        {
+          "id": "US-001",
+          "title": "Create user login form",
+          "description": "As a user, I want to log in to my account.",
+          "acceptanceCriteria": [
+            "Form has email and password fields",
+            "Validation shows errors for invalid input",
+            "Successful login redirects to dashboard"
+          ],
+          "priority": 1,
+          "passes": false
+        }
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Run Ralph TUI">
+    ```bash
+    ralph-tui run --prd ./prd.json
+    ```
+  </Step>
+
+  <Step title="Watch Progress">
+    As tasks complete, Ralph updates `passes: true` in your `prd.json`.
+  </Step>
+</Steps>
+
+## Configuration
+
+### CLI Flag
+
+The primary way to use the JSON tracker is via the `--prd` flag:
+
+```bash
+ralph-tui run --prd ./path/to/prd.json
+```
+
+This flag:
+- Selects the JSON tracker automatically
+- Sets the file path
+
+### Config File
+
+You can also configure the tracker in TOML:
+
+```toml
+# .ralph-tui/config.toml
+tracker = "json"
+
+[trackerOptions]
+path = "./prd.json"
+```
+
+<Callout type="warning">
+The `--prd` flag is recommended over config-file path because you likely have different prd.json files for different features.
+</Callout>
+
+## prd.json Schema
+
+The JSON tracker validates your file against a specific schema.
+
+### Root Object
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Project or feature name |
+| `description` | string | No | Project description |
+| `branchName` | string | No | Git branch for this work |
+| `userStories` | array | Yes | List of user stories/tasks |
+| `metadata` | object | No | Optional metadata |
+
+### User Story Object
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Unique identifier (e.g., "US-001") |
+| `title` | string | Yes | Short title |
+| `description` | string | No | Detailed description |
+| `acceptanceCriteria` | string[] | No | List of criteria |
+| `priority` | number | No | Priority (1 = highest, default: 2) |
+| `passes` | boolean | Yes | Whether task is complete |
+| `labels` | string[] | No | Tags for categorization |
+| `dependsOn` | string[] | No | IDs of blocking tasks |
+| `notes` | string | No | Additional notes |
+
+### Complete Example
+
+```json
+{
+  "name": "User Authentication",
+  "description": "Add user authentication to the application",
+  "branchName": "feature/auth",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create login page",
+      "description": "As a user, I want to see a login form so I can access my account.",
+      "acceptanceCriteria": [
+        "Form has email and password inputs",
+        "Form validates required fields",
+        "Submit button is disabled during submission"
+      ],
+      "priority": 1,
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "id": "US-002",
+      "title": "Implement authentication API",
+      "description": "As a developer, I need an API endpoint to verify credentials.",
+      "acceptanceCriteria": [
+        "POST /api/auth/login accepts email and password",
+        "Returns JWT token on success",
+        "Returns 401 on invalid credentials"
+      ],
+      "priority": 1,
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "id": "US-003",
+      "title": "Connect login form to API",
+      "description": "Wire up the login form to call the authentication API.",
+      "acceptanceCriteria": [
+        "Form submits to /api/auth/login",
+        "Success stores token and redirects",
+        "Error shows message to user"
+      ],
+      "priority": 2,
+      "passes": false,
+      "dependsOn": ["US-001", "US-002"]
+    }
+  ],
+  "metadata": {
+    "createdAt": "2024-01-15T10:00:00Z",
+    "version": "1.0"
+  }
+}
+```
+
+## Creating prd.json Files
+
+### AI-Powered Creation
+
+The recommended way to create a `prd.json`:
+
+```bash
+# Interactive PRD creation with AI
+ralph-tui create-prd --chat
+
+# When prompted, choose to convert to JSON format
+```
+
+This generates a PRD markdown file, then converts it to `prd.json` with the correct schema.
+
+### Manual Conversion
+
+Convert an existing PRD markdown to JSON:
+
+```bash
+ralph-tui convert --to json ./tasks/my-feature-prd.md
+```
+
+### From Scratch
+
+Create manually following the schema above. Start simple:
+
+```json
+{
+  "name": "My Task",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "First task",
+      "passes": false
+    }
+  ]
+}
+```
+
+## Dependencies
+
+Tasks can depend on other tasks via `dependsOn`:
+
+```json
+{
+  "id": "US-003",
+  "title": "Integration tests",
+  "dependsOn": ["US-001", "US-002"],
+  "passes": false
+}
+```
+
+Ralph TUI won't select a task until all its dependencies have `passes: true`.
+
+## Priority
+
+Lower priority numbers = higher priority (processed first):
+
+| Priority | Meaning |
+|----------|---------|
+| 1 | Highest priority |
+| 2 | Medium priority (default) |
+| 3 | Lower priority |
+| 4+ | Backlog |
+
+Tasks are selected by priority, then by order in the array.
+
+## Task Selection
+
+The JSON tracker selects the next task by:
+
+1. Filter to tasks with `passes: false`
+2. Filter to tasks with no unresolved dependencies
+3. Sort by priority (lowest number first)
+4. Return the first task
+
+## How It Works
+
+When Ralph TUI runs with the JSON tracker:
+
+1. **Load**: Read and parse `prd.json`
+2. **Validate**: Check schema, reject invalid files with helpful errors
+3. **Select**: Find next task (ready, highest priority)
+4. **Execute**: Run agent with task prompt
+5. **Update**: Set `passes: true` and write back to file
+6. **Repeat**: Continue until all tasks complete
+
+The file is updated after each task completion, so progress is persisted even if you interrupt.
+
+## Schema Validation
+
+The JSON tracker validates your file and provides helpful error messages:
+
+### Common Mistakes
+
+<Tabs
+  items={[
+    { label: "Wrong Field: tasks", value: "tasks", content: "```json\n// Wrong - AI often generates this\n{\n  \"prd\": { ... },\n  \"tasks\": [ ... ]\n}\n\n// Correct\n{\n  \"name\": \"...\",\n  \"userStories\": [ ... ]\n}\n```" },
+    { label: "Wrong Field: status", value: "status", content: "```json\n// Wrong - AI often uses status\n{\n  \"id\": \"US-001\",\n  \"title\": \"...\",\n  \"status\": \"open\"\n}\n\n// Correct - use passes boolean\n{\n  \"id\": \"US-001\",\n  \"title\": \"...\",\n  \"passes\": false\n}\n```" },
+    { label: "Unsupported Fields", value: "unsupported", content: "```json\n// Wrong - not supported\n{\n  \"id\": \"US-001\",\n  \"subtasks\": [ ... ],\n  \"estimated_hours\": 4\n}\n\n// Correct - keep it simple\n{\n  \"id\": \"US-001\",\n  \"title\": \"...\",\n  \"passes\": false\n}\n```" }
+  ]}
+/>
+
+### Fix Invalid Files
+
+If your file fails validation:
+
+```bash
+# Regenerate from PRD markdown
+ralph-tui convert --to json ./tasks/my-prd.md --force
+```
+
+## Limitations
+
+The JSON tracker is simple by design:
+
+| Feature | JSON | Beads |
+|---------|------|-------|
+| External CLI | None | Required |
+| Git sync | No | Yes |
+| Epic hierarchy | No | Yes |
+| Team collaboration | Limited | Full |
+| Graph analysis | No | With BV |
+
+For larger projects or team collaboration, consider the [Beads tracker](/docs/plugins/trackers/beads).
+
+## Troubleshooting
+
+### "Invalid prd.json schema"
+
+Your file doesn't match the expected schema. Common issues:
+- Using `tasks` instead of `userStories`
+- Using `status` instead of `passes`
+- Missing required fields (`id`, `title`, `passes`)
+
+Run `ralph-tui convert --to json` to regenerate.
+
+### "Task not found"
+
+Ensure the task ID exists in `userStories` and has `passes: false`.
+
+### "No tasks available"
+
+All tasks either:
+- Have `passes: true` (completed)
+- Are blocked by incomplete dependencies
+
+Check your `dependsOn` arrays.
+
+## Next Steps
+
+- **[Beads Tracker](/docs/plugins/trackers/beads)** - Git-backed tracking with hierarchy
+- **[create-prd Command](/docs/cli/create-prd)** - AI-powered PRD creation
+- **[convert Command](/docs/cli/convert)** - Convert PRD to JSON

@@ -1,0 +1,164 @@
+---
+title: logs
+description: View and manage iteration output logs from Ralph TUI sessions.
+---
+
+## Synopsis
+
+```bash
+ralph-tui logs [options]
+```
+
+The `logs` command lets you view, filter, and manage the output logs from Ralph's iterations. Each iteration's agent output is saved to a log file, making it easy to review what happened during execution.
+
+<Callout type="tip">
+Log files are stored in `.ralph-tui/iterations/` by default. Use the `--output-dir` flag on `run` to change this location.
+</Callout>
+
+## Options
+
+### Viewing Options
+
+| Option | Description |
+|--------|-------------|
+| `--iteration <n>` | View specific iteration number |
+| `--task <id>` | View logs for a specific task ID |
+| `--verbose` | Show full output (not truncated) |
+
+### Cleanup Options
+
+| Option | Description |
+|--------|-------------|
+| `--clean` | Clean up old log files |
+| `--keep <n>` | Number of recent logs to keep (with `--clean`) |
+| `--dry-run` | Preview cleanup without deleting |
+
+## Examples
+
+### View Specific Iteration
+
+```bash
+# View iteration 5
+ralph-tui logs --iteration 5
+
+# View with full output (no truncation)
+ralph-tui logs --iteration 5 --verbose
+```
+
+### View Logs for a Task
+
+```bash
+# Find all iterations that worked on a specific task
+ralph-tui logs --task US-005
+```
+
+### List All Logs
+
+```bash
+# View summary of all iterations
+ralph-tui logs
+```
+
+Example output:
+
+```
+Iteration Logs (.ralph-tui/iterations/)
+═══════════════════════════════════════
+
+#  Iteration  Task       Status     Duration   Size
+─  ─────────  ─────────  ─────────  ─────────  ─────
+1  iter-001   US-001     complete   2m 34s     12KB
+2  iter-002   US-002     complete   1m 45s     8KB
+3  iter-003   US-003     complete   3m 12s     15KB
+4  iter-004   US-004     failed     4m 01s     22KB
+5  iter-005   US-004     complete   2m 18s     11KB
+
+Total: 5 iterations, 4 completed, 1 failed
+```
+
+### Clean Up Old Logs
+
+```bash
+# Preview what would be deleted
+ralph-tui logs --clean --dry-run
+
+# Keep only the 10 most recent logs
+ralph-tui logs --clean --keep 10
+
+# Delete all but the last 5
+ralph-tui logs --clean --keep 5
+```
+
+<Callout type="warning">
+The `--clean` operation permanently deletes log files. Use `--dry-run` first to preview what will be removed.
+</Callout>
+
+## Log File Format
+
+Each iteration creates a log file with the following naming pattern:
+
+```
+.ralph-tui/iterations/
+├── iter-001-US-001-2024-01-15T10-30-00.log
+├── iter-002-US-002-2024-01-15T10-35-00.log
+└── iter-003-US-003-2024-01-15T10-42-00.log
+```
+
+The log files contain:
+
+- **Timestamp** - When the iteration started
+- **Task details** - ID, title, and description
+- **Prompt sent** - The full prompt built from the template
+- **Agent output** - Complete stdout/stderr from the agent
+- **Completion status** - Whether `<promise>COMPLETE</promise>` was detected
+- **Duration** - How long the iteration took
+
+## Debugging Failed Tasks
+
+When a task fails, the logs are essential for debugging:
+
+<Steps>
+  <Step title="Find the Failed Iteration">
+    ```bash
+    ralph-tui logs
+    ```
+    Look for iterations with "failed" status.
+  </Step>
+
+  <Step title="View Full Output">
+    ```bash
+    ralph-tui logs --iteration 4 --verbose
+    ```
+    Review the complete agent output for error messages.
+  </Step>
+
+  <Step title="Check the Prompt">
+    The log includes the prompt that was sent. Verify it contains the expected task details and context.
+  </Step>
+
+  <Step title="Fix and Retry">
+    Address the issue (fix code, update task, adjust prompt template) and resume execution.
+  </Step>
+</Steps>
+
+## Storage Considerations
+
+Logs can accumulate over time, especially with verbose agent output:
+
+```bash
+# Check total log size
+du -sh .ralph-tui/iterations/
+
+# Clean up periodically
+ralph-tui logs --clean --keep 20
+```
+
+<Callout type="info">
+Consider adding `.ralph-tui/iterations/` to your `.gitignore` to avoid committing large log files.
+</Callout>
+
+## Related Commands
+
+- **[run](/docs/cli/run)** - Start execution (use `--output-dir` to customize log location)
+- **[status](/docs/cli/status)** - Check current session status
+- **[resume](/docs/cli/resume)** - Continue from where you left off

@@ -5,6 +5,21 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+/** Debug log helper - writes to file to avoid TUI interference */
+function debugLog(msg: string): void {
+  if (process.env.RALPH_DEBUG) {
+    try {
+      const logPath = join(tmpdir(), 'ralph-agent-debug.log');
+      appendFileSync(logPath, `${new Date().toISOString()} ${msg}\n`);
+    } catch {
+      // Ignore write errors
+    }
+  }
+}
 import { randomUUID } from 'node:crypto';
 import type {
   AgentPlugin,
@@ -267,6 +282,11 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
     // Handle process exit
     proc.on('close', (code, signal) => {
+      // Debug: log close event
+      if (process.env.RALPH_DEBUG) {
+        debugLog(`[DEBUG] Process close: code=${code}, signal=${signal}, execId=${executionId}`);
+      }
+
       // Determine status
       let status: AgentExecutionStatus;
       if (execution.interrupted) {
@@ -280,6 +300,15 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       }
 
       this.completeExecution(executionId, status, code ?? undefined);
+    });
+
+    // Backup: also listen for 'exit' event in case 'close' doesn't fire
+    proc.on('exit', (code, signal) => {
+      if (process.env.RALPH_DEBUG) {
+        debugLog(`[DEBUG] Process exit: code=${code}, signal=${signal}, execId=${executionId}`);
+      }
+      // Note: We don't call completeExecution here to avoid double-completion
+      // 'close' should fire after 'exit' once stdio streams are closed
     });
 
     // Set up timeout if specified
@@ -317,7 +346,14 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   ): void {
     const execution = this.executions.get(executionId);
     if (!execution) {
+      if (process.env.RALPH_DEBUG) {
+        debugLog(`[DEBUG] completeExecution: execution not found for ${executionId}`);
+      }
       return;
+    }
+
+    if (process.env.RALPH_DEBUG) {
+      debugLog(`[DEBUG] completeExecution: status=${status}, exitCode=${exitCode}, execId=${executionId}`);
     }
 
     // Clear timeout if set
@@ -348,6 +384,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     }
 
     // Resolve the promise
+    if (process.env.RALPH_DEBUG) {
+      debugLog(`[DEBUG] Resolving promise for ${executionId}, stdout length=${result.stdout.length}`);
+    }
     execution.resolve(result);
   }
 

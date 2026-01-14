@@ -1,0 +1,101 @@
+---
+title: Introduction
+description: Ralph TUI is an AI Agent Loop Orchestrator - a terminal UI for running AI coding agents autonomously through task lists.
+---
+
+## What is Ralph TUI?
+
+Ralph TUI is an **AI Agent Loop Orchestrator** that automates the cycle of selecting tasks, building prompts, running AI agents, and detecting completion. Instead of manually copying task details into Claude Code or OpenCode, Ralph does it for you in a continuous loop.
+
+<Callout type="tip">
+Ralph TUI connects your AI coding assistant (Claude Code, OpenCode) to your task tracker (prd.json, Beads) and runs them in an autonomous loop, completing tasks one-by-one with intelligent selection, error handling, and full visibility.
+</Callout>
+
+## The Autonomous Loop
+
+Ralph TUI operates in a continuous execution cycle:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐   │
+│   │  1. SELECT   │────▶│  2. BUILD    │────▶│  3. EXECUTE  │   │
+│   │    TASK      │     │    PROMPT    │     │    AGENT     │   │
+│   └──────────────┘     └──────────────┘     └──────────────┘   │
+│          ▲                                         │            │
+│          │                                         ▼            │
+│   ┌──────────────┐                         ┌──────────────┐    │
+│   │  5. NEXT     │◀────────────────────────│  4. DETECT   │    │
+│   │    TASK      │                         │  COMPLETION  │    │
+│   └──────────────┘                         └──────────────┘    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Key Concepts
+
+Understanding these core concepts will help you get the most out of Ralph TUI:
+
+### Task Tracker
+
+Where your tasks live. Ralph TUI supports multiple tracker backends:
+
+- **prd.json** - Simple JSON file format with no external dependencies
+- **Beads** - Git-backed issue tracker with hierarchy and dependencies
+
+### Agent Plugin
+
+The AI CLI that executes tasks. Currently supported:
+
+- **Claude Code** - Anthropic's Claude with the `claude` CLI
+- **OpenCode** - Open-source alternative using the `opencode` CLI
+
+### Prompt Template
+
+Handlebars templates that transform task data into agent prompts. You can customize how tasks are presented to the AI, including context injection and quality gates.
+
+### Completion Detection
+
+When an agent outputs `<promise>COMPLETE</promise>`, Ralph TUI recognizes the task is done and moves to the next one. This token-based detection enables fully autonomous operation.
+
+### Session Persistence
+
+Ralph TUI saves state between runs. You can pause anytime, resume later, and even recover from crashes with work intact.
+
+## Architecture Overview
+
+The system consists of several components working together:
+
+- **TUI Interface** - Terminal-based dashboard for real-time monitoring
+- **Execution Engine** - Iteration loop managing task selection and agent execution
+- **Agent Plugins** - Connectors for Claude Code, OpenCode, and more
+- **Tracker Plugins** - Integrations with prd.json, Beads, and Beads+bv
+- **Prompt Templates** - Customizable Handlebars templates for agent instructions
+
+## Why Ralph TUI?
+
+<Callout type="info">
+Manual AI-assisted coding works well for single tasks, but becomes tedious when working through feature backlogs. Ralph TUI eliminates the copy-paste-wait cycle.
+</Callout>
+
+**Without Ralph TUI:**
+1. Open your task tracker
+2. Copy task details
+3. Paste into Claude Code
+4. Wait for completion
+5. Mark task done
+6. Repeat...
+
+**With Ralph TUI:**
+1. Start Ralph
+2. Watch the progress dashboard
+3. Coffee break ☕
+
+## Next Steps
+
+Ready to get started? Here's where to go next:
+
+- **[Quick Start](/docs/getting-started/quick-start)** - Get up and running in 2 minutes
+- **[Installation](/docs/getting-started/installation)** - Detailed installation options
+- **[CLI Commands](/docs/cli/overview)** - Learn all available commands
+- **[Configuration](/docs/configuration/overview)** - Customize Ralph TUI for your workflow

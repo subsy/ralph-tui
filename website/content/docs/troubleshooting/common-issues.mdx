@@ -1,0 +1,352 @@
+---
+title: Common Issues
+description: FAQ-style solutions for common Ralph TUI problems including task selection, agent errors, sessions, and rate limiting.
+---
+
+## Task Selection Issues
+
+### "No tasks available"
+
+This error occurs when Ralph TUI cannot find any tasks to execute.
+
+<Callout type="warning">
+Check your task source first - the cause differs depending on whether you're using prd.json or Beads.
+</Callout>
+
+**For prd.json users:**
+
+- Verify your prd.json file exists and has the correct structure
+- Check that tasks have `"passes": false` - completed tasks (`"passes": true`) are skipped
+- Ensure tasks aren't blocked by incomplete dependencies
+
+```bash
+# View your prd.json structure
+cat prd.json | jq '.userStories[] | {id, title, passes}'
+```
+
+**For Beads users:**
+
+- Check that your epic has open tasks:
+  ```bash
+  bd list --epic your-epic-id
+  ```
+- Verify tasks aren't blocked by dependencies:
+  ```bash
+  bd ready
+  ```
+- Ensure the epic ID matches what you specified in `--epic`
+
+### Tasks Stuck in "in_progress"
+
+If Ralph TUI crashed or was forcefully terminated, tasks may remain stuck in the `in_progress` state.
+
+**Solution:**
+
+```bash
+# Resume will automatically reset stale in_progress tasks
+ralph-tui resume
+
+# Or manually reset via Beads
+bd update TASK-ID --status open
+
+# For prd.json, edit the file directly
+# Change "status": "in_progress" to "status": "pending"
+```
+
+### Wrong Task Being Selected
+
+Ralph TUI selects tasks based on priority and dependency order. If an unexpected task is selected:
+
+1. **Check dependencies**: Tasks with blockers are skipped
+2. **Verify priorities**: Lower priority numbers are processed first
+3. **For beads-bv**: PageRank and critical path analysis influence selection
+
+```bash
+# For Beads - view task dependencies
+bd show TASK-ID
+
+# For beads-bv - see graph analysis
+bv --robot-triage | jq '.recommendations[0]'
+```
+
+---
+
+## Agent Issues
+
+### "Agent not found"
+
+Ralph TUI cannot locate your AI agent CLI executable.
+
+**Solutions:**
+
+1. Verify the agent is installed:
+   ```bash
+   which claude      # For Claude Code
+   which opencode    # For OpenCode
+   ```
+
+2. Check your PATH includes the agent:
+   ```bash
+   echo $PATH
+   ```
+
+3. See detected agents:
+   ```bash
+   ralph-tui plugins agents
+   ```
+
+4. Specify the agent explicitly:
+   ```bash
+   ralph-tui run --agent claude --prd ./prd.json
+   ```
+
+<Callout type="tip">
+If you installed an agent with a different package manager (npm, cargo, pip), you may need to add its bin directory to your PATH.
+</Callout>
+
+### Agent Output Not Streaming
+
+If you don't see real-time output from the agent:
+
+1. **Check subagent tracing settings**: High filtering may hide output
+   ```toml
+   # In .ralph-tui/config.toml
+   subagentTracingDetail = "full"  # Try "full" for maximum visibility
+   ```
+
+2. **Verify agent supports streaming**: Claude Code uses `--print` flag automatically
+
+3. **Check terminal compatibility**: Some terminals may buffer output
+
+### Agent Crashes or Exits Unexpectedly
+
+<Tabs
+  items={[
+    { label: "Rate Limiting", value: "rate-limit", content: "API rate limits can cause agent failures. See the [Rate Limiting](#rate-limiting) section below for solutions." },
+    { label: "Memory Issues", value: "memory", content: "Large codebases or long conversations can exhaust memory:\n- Keep user stories small and focused\n- Use `maxIterations` to limit session length\n- Consider breaking work into smaller batches" },
+    { label: "Auth Errors", value: "auth", content: "Verify your API credentials are configured:\n\n```bash\n# For Claude Code\nclaude config show\n\n# Check environment variables\necho $ANTHROPIC_API_KEY\n```" }
+  ]}
+/>
+
+---
+
+## Session Issues
+
+### "Session lock exists"
+
+Another Ralph TUI instance may be running, or a previous session didn't shut down cleanly.
+
+**Solutions:**
+
+1. **Check for running processes:**
+   ```bash
+   ps aux | grep ralph-tui
+   ```
+
+2. **Wait for the existing session** to complete
+
+3. **Force override the lock:**
+   ```bash
+   ralph-tui resume --force
+   ```
+
+4. **Manually remove the lock file:**
+   ```bash
+   rm .ralph-tui-session.json
+   ```
+
+<Callout type="warning">
+Force overriding or deleting the session file will lose any unsaved progress. Only do this if you're certain no other session is running.
+</Callout>
+
+### Session Won't Resume
+
+If `ralph-tui resume` fails:
+
+1. **Check session file exists:**
+   ```bash
+   ls -la .ralph-tui-session.json
+   ```
+
+2. **Verify session file is valid JSON:**
+   ```bash
+   cat .ralph-tui-session.json | jq .
+   ```
+
+3. **Check for stale locks:**
+   ```bash
+   ralph-tui status --json
+   ```
+
+4. **Start fresh if needed:**
+   ```bash
+   rm .ralph-tui-session.json
+   ralph-tui run --prd ./prd.json
+   ```
+
+### Progress Lost After Crash
+
+Ralph TUI saves progress after each iteration. If progress was lost:
+
+1. **Check iteration logs** for completed work:
+   ```bash
+   ralph-tui logs --iteration 1
+   ```
+
+2. **Review the progress file:**
+   ```bash
+   cat .ralph-tui/progress.md
+   ```
+
+3. **For Beads**, task status is persisted immediately:
+   ```bash
+   bd list --status completed
+   ```
+
+---
+
+## Rate Limiting
+
+### Handling API Rate Limits
+
+When using Claude Code or other API-based agents, you may hit rate limits during long sessions.
+
+<Callout type="info">
+Rate limiting is common with high-volume usage. Ralph TUI has built-in strategies to handle this gracefully.
+</Callout>
+
+**Configure rate limit handling:**
+
+```toml
+# .ralph-tui/config.toml
+
+[rateLimitHandling]
+strategy = "wait"           # wait | fallback | abort
+maxWaitTimeMs = 300000      # 5 minutes max wait
+backoffMultiplier = 2       # Exponential backoff
+
+# Optional: fallback to another agent
+fallbackAgents = ["opencode"]
+```
+
+**Strategy options:**
+
+| Strategy | Behavior |
+|----------|----------|
+| `wait` | Pause and retry with exponential backoff |
+| `fallback` | Switch to a fallback agent |
+| `abort` | Stop execution immediately |
+
+**Reducing rate limit issues:**
+
+1. **Use iteration delays:**
+   ```bash
+   ralph-tui run --delay 5000 --prd ./prd.json
+   ```
+
+2. **Limit concurrent sessions** - Don't run multiple Ralph TUI instances simultaneously
+
+3. **Consider using a lower-tier model** for less critical tasks:
+   ```bash
+   ralph-tui run --model haiku --prd ./prd.json
+   ```
+
+### Rate Limit with Beads Sync
+
+If rate limits occur during Beads synchronization:
+
+```bash
+# Check sync status
+bd sync --status
+
+# Retry sync manually
+bd sync
+```
+
+---
+
+## Completion Detection Issues
+
+### Task Not Marked Complete
+
+Ralph TUI detects completion when the agent outputs `<promise>COMPLETE</promise>`. If tasks aren't being marked complete:
+
+1. **Verify the agent outputs the token:**
+   ```bash
+   ralph-tui logs --iteration 5 --verbose | grep -i "promise"
+   ```
+
+2. **Check your prompt template** includes completion instructions:
+   ```bash
+   ralph-tui template show
+   ```
+
+3. **Ensure the agent follows instructions** - The prompt template should clearly instruct the agent to output the completion token
+
+### False Completion Detection
+
+If tasks are marked complete prematurely:
+
+1. **Review the iteration logs:**
+   ```bash
+   ralph-tui logs --task US-005 --verbose
+   ```
+
+2. **Check for early completion tokens** in agent output
+
+3. **Verify acceptance criteria** are being validated before completion
+
+---
+
+## Configuration Issues
+
+### Config File Not Found
+
+Ralph TUI looks for configuration in this order:
+1. CLI flags
+2. Project config: `.ralph-tui/config.toml`
+3. Global config: `~/.config/ralph-tui/config.toml`
+
+**Solutions:**
+
+```bash
+# Run setup to create config
+ralph-tui setup
+
+# Or view current effective config
+ralph-tui config show
+```
+
+### Config Options Not Taking Effect
+
+1. **Check config file syntax:**
+   ```bash
+   cat .ralph-tui/config.toml
+   ```
+
+2. **Verify TOML formatting** - TOML is sensitive to syntax
+
+3. **CLI flags override config** - Check your command line options
+
+4. **View merged configuration:**
+   ```bash
+   ralph-tui config show
+   ```
+
+---
+
+## Getting More Help
+
+If your issue isn't covered here:
+
+1. **Check the [Debugging Guide](/docs/troubleshooting/debugging)** for detailed diagnostic steps
+
+2. **Review iteration logs** for error details:
+   ```bash
+   ralph-tui logs --verbose
+   ```
+
+3. **Check GitHub Issues** for similar problems:
+   [github.com/subsy/ralph-tui/issues](https://github.com/subsy/ralph-tui/issues)
+
+4. **Enable verbose output** for more diagnostics

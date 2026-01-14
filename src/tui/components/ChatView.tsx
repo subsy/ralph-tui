@@ -65,11 +65,20 @@ export interface ChatViewProps {
   /** Whether input is enabled */
   inputEnabled?: boolean;
 
+  /** Cursor position in the input (0 = start, inputValue.length = end) */
+  cursorPosition?: number;
+
   /** Hint text for the footer */
   hint?: string;
 
   /** Name of the agent (for loading messages) */
   agentName?: string;
+
+  /** Callback when input value changes */
+  onInputChange?: (value: string) => void;
+
+  /** Callback when user submits (presses Enter) */
+  onSubmit?: () => void;
 }
 
 /**
@@ -130,8 +139,11 @@ export function ChatView({
   inputPlaceholder = 'Type a message...',
   error,
   inputEnabled = true,
+  cursorPosition: _cursorPosition, // Not used with native input
   hint = '[Enter] Send  [Esc] Cancel',
   agentName,
+  onInputChange,
+  onSubmit,
 }: ChatViewProps): ReactNode {
   // Generate dynamic loading text
   const loadingText = agentName
@@ -249,7 +261,7 @@ export function ChatView({
           paddingRight: 1,
         }}
       >
-        {/* Input field display */}
+        {/* Input field - using native OpenTUI input with cursor support */}
         <box
           style={{
             height: 2,
@@ -258,14 +270,23 @@ export function ChatView({
           }}
         >
           <text fg={colors.accent.primary}>{'>'} </text>
-          <text
-            fg={inputValue ? colors.fg.primary : colors.fg.muted}
-          >
-            {inputValue || inputPlaceholder}
-            {inputEnabled && !isLoading && (
-              <span fg={colors.accent.primary}>▎</span>
-            )}
-          </text>
+          <input
+            style={{
+              flexGrow: 1,
+              height: 1,
+              backgroundColor: 'transparent',
+              textColor: colors.fg.primary,
+              focusedBackgroundColor: 'transparent',
+              focusedTextColor: colors.fg.primary,
+              cursorColor: colors.accent.primary,
+              placeholderColor: colors.fg.muted,
+            }}
+            value={inputValue}
+            placeholder={inputPlaceholder}
+            focused={inputEnabled && !isLoading}
+            onInput={onInputChange}
+            onSubmit={onSubmit ? () => onSubmit() : undefined}
+          />
         </box>
 
         {/* Hint bar */}

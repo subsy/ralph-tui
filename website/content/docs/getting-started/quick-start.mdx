@@ -1,0 +1,128 @@
+---
+title: Quick Start
+description: Get up and running with Ralph TUI in 2 minutes using JSON mode - no external dependencies required.
+---
+
+## 2-Minute Quickstart
+
+The fastest way to get started is with **JSON mode** - no external dependencies required! You'll have Ralph TUI running autonomously in just a few steps.
+
+<Callout type="tip">
+JSON mode uses a simple `prd.json` file for task tracking. It's perfect for getting started quickly without setting up external tools.
+</Callout>
+
+<Steps>
+  <Step title="Install Ralph TUI">
+    Install Ralph TUI globally using bun:
+
+    ```bash
+    bun install -g ralph-tui
+    ```
+
+    <Callout type="info">
+    Ralph TUI requires Bun as its runtime. If you don't have Bun installed, see the [Installation](/docs/getting-started/installation) guide.
+    </Callout>
+  </Step>
+
+  <Step title="Setup Your Project">
+    Navigate to your project and run the setup wizard:
+
+    ```bash
+    cd your-project
+    ralph-tui setup
+    ```
+
+    The interactive wizard will:
+    - Detect installed agents (Claude Code, OpenCode)
+    - Create a `.ralph-tui/config.toml` configuration file
+    - Install bundled skills for PRD creation and task conversion
+    - Optionally detect existing trackers
+  </Step>
+
+  <Step title="Create a PRD">
+    Use the AI-powered PRD creator to define your feature:
+
+    ```bash
+    ralph-tui create-prd --chat
+    ```
+
+    The AI will ask about your feature goals and requirements, then generate:
+    - A PRD markdown file (`./tasks/prd-<feature>.md`)
+    - A task file (`./prd.json`) ready for execution
+
+    <Callout type="tip">
+    Answer the AI's questions about your feature. When done, you'll be prompted to create tasks automatically.
+    </Callout>
+  </Step>
+
+  <Step title="Run Ralph">
+    Start the autonomous execution loop:
+
+    ```bash
+    ralph-tui run --prd ./prd.json
+    ```
+
+    Ralph will now:
+    - Select the highest-priority task with no blockers
+    - Build a prompt from the task details
+    - Execute your AI agent
+    - Stream output in real-time
+    - Detect completion and move to the next task
+  </Step>
+</Steps>
+
+## What Just Happened?
+
+Let's break down what each step accomplished:
+
+1. **Setup** configured Ralph and installed the `ralph-tui-prd` skill for AI-powered PRD creation
+2. **Create-prd** had an AI conversation about your feature and created structured tasks
+3. **Run** started the autonomous loop - Ralph picks tasks, builds prompts, runs your agent, and marks tasks complete
+
+## Alternative: With Beads Tracker
+
+If you use [Beads](https://github.com/steveyegge/beads) for issue tracking, you can run Ralph with an epic:
+
+```bash
+# Run with a beads epic
+ralph-tui run --epic my-project-epic
+```
+
+Beads provides additional features like:
+- Git-backed persistence
+- Task dependencies
+- Hierarchy (epics containing stories)
+- Labels and priorities
+
+## Controlling Execution
+
+While Ralph is running, use these keyboard shortcuts:
+
+| Key | Action |
+|-----|--------|
+| `s` | Start execution |
+| `p` | Pause/Resume execution |
+| `+` / `=` | Add 10 iterations (extends max iterations) |
+| `-` / `_` | Remove 10 iterations (minimum of current iteration or 1) |
+| `d` | Toggle progress dashboard |
+| `i` | Toggle iteration history |
+| `q` | Quit |
+| `?` | Show all shortcuts |
+
+## Understanding the TUI
+
+The terminal interface shows:
+
+- **Left Panel**: Task list with status indicators (✓ complete, → in progress, ○ pending)
+- **Right Panel**: Live agent output (stdout/stderr)
+- **Header**: Current iteration count (e.g., `[3/10]`) and active task
+- **Footer**: Available keyboard shortcuts
+
+## Next Steps
+
+Now that you have Ralph TUI running:
+
+- **[Installation](/docs/getting-started/installation)** - Explore all installation options
+- **[CLI Commands](/docs/cli/overview)** - Learn the full command reference
+- **[Configuration](/docs/configuration/overview)** - Customize Ralph for your workflow
+- **[Troubleshooting](/docs/troubleshooting/common-issues)** - Tips for effective autonomous coding

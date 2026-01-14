@@ -306,6 +306,11 @@ export function RunApp({
   // Start in 'ready' state if we have onStart callback (waiting for user to start)
   const [status, setStatus] = useState<RalphStatus>(onStart ? 'ready' : 'running');
   const [currentIteration, setCurrentIteration] = useState(0);
+  const [maxIterations, setMaxIterations] = useState(() => {
+    // Initialize from engine if available
+    const info = engine.getIterationInfo();
+    return info.maxIterations;
+  });
   const [currentOutput, setCurrentOutput] = useState('');
   // Streaming parser for live output - extracts readable content and prevents memory bloat
   const outputParserRef = useRef(new StreamingOutputParser());
@@ -600,6 +605,16 @@ export function RunApp({
           // Update task list with fresh data from tracker
           setTasks(convertTasksWithDependencyStatus(event.tasks));
           break;
+
+        case 'engine:iterations-added':
+          // Update maxIterations state when iterations are added at runtime
+          setMaxIterations(event.newMax);
+          break;
+
+        case 'engine:iterations-removed':
+          // Update maxIterations state when iterations are removed at runtime
+          setMaxIterations(event.newMax);
+          break;
       }
     });
 
@@ -797,6 +812,38 @@ export function RunApp({
         case 'r':
           // Refresh task list from tracker
           engine.refreshTasks();
+          break;
+
+        case '+':
+        case '=':
+        case '-':
+        case '_':
+          // Add/remove 10 iterations: +/= add, -/_ remove
+          const isPlus = key.name === '+' || key.name === '=';
+          const isMinus = key.name === '-' || key.name === '_';
+          if ((isPlus || isMinus) &&
+              (status === 'ready' || status === 'running' || status === 'executing' || status === 'paused' || status === 'stopped' || status === 'idle' || status === 'complete')) {
+            if (isPlus) {
+              engine.addIterations(10).then((shouldContinue) => {
+                if (shouldContinue || status === 'complete') {
+                  setStatus('running');
+                  engine.continueExecution();
+                }
+              }).catch((err) => {
+                console.error('Failed to add iterations:', err);
+              });
+            } else {
+              engine.removeIterations(10)
+                .then((success) => {
+                  if (!success) {
+                    console.log('Cannot reduce below current iteration or minimum of 1');
+                  }
+                })
+                .catch((err) => {
+                  console.error('Failed to remove iterations:', err);
+                });
+            }
+          }
           break;
 
         case ',':
@@ -1093,6 +1140,8 @@ export function RunApp({
         trackerName={trackerName}
         activeAgentState={activeAgentState}
         rateLimitState={rateLimitState}
+        currentIteration={currentIteration}
+        maxIterations={maxIterations}
       />
 
       {/* Progress Dashboard - toggleable with 'd' key */}

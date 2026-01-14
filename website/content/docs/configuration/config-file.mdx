@@ -1,0 +1,283 @@
+---
+title: Config File Reference
+description: Complete guide to Ralph TUI configuration file structure with annotated examples.
+---
+
+## Config File Structure
+
+Ralph TUI uses TOML files for configuration. TOML is a minimal, human-readable format that's easy to edit and version control.
+
+<Callout type="info">
+Configuration is validated using Zod schemas at runtime. Invalid configurations will show helpful error messages pointing to the specific problem.
+</Callout>
+
+## Minimal Configuration
+
+The simplest valid configuration just needs an agent:
+
+```toml
+# .ralph-tui/config.toml
+agent = "claude"
+```
+
+This uses Claude Code with all default settings.
+
+## Complete Example
+
+Here's a fully annotated configuration file showing all available options:
+
+```toml
+# .ralph-tui/config.toml
+# ─────────────────────────────────────────────
+# Core Settings
+# ─────────────────────────────────────────────
+
+# Default agent plugin name
+agent = "claude"
+
+# Default tracker plugin name
+tracker = "beads-bv"
+
+# Maximum iterations per session (0 = unlimited)
+maxIterations = 10
+
+# Delay between iterations in milliseconds
+iterationDelay = 1000
+
+# Output directory for iteration logs
+outputDir = ".ralph-tui/iterations"
+
+# Progress file for cross-iteration context
+progressFile = ".ralph-tui/progress.md"
+
+# Auto-commit after each completed task
+autoCommit = false
+
+# Custom prompt template path (relative or absolute)
+# prompt_template = "./my-template.hbs"
+
+# Subagent tracing detail: "off", "minimal", "moderate", "full"
+subagentTracingDetail = "minimal"
+
+# ─────────────────────────────────────────────
+# Agent Options (shorthand)
+# ─────────────────────────────────────────────
+
+[agentOptions]
+# These options are passed to the selected agent plugin
+model = "claude-sonnet-4-20250514"
+
+# ─────────────────────────────────────────────
+# Tracker Options (shorthand)
+# ─────────────────────────────────────────────
+
+[trackerOptions]
+# These options are passed to the selected tracker plugin
+# Example for beads-bv tracker:
+# epicId = "beads-001"
+
+# ─────────────────────────────────────────────
+# Error Handling
+# ─────────────────────────────────────────────
+
+[errorHandling]
+# Strategy when a task fails: "retry", "skip", or "abort"
+strategy = "skip"
+
+# Maximum retry attempts (when strategy = "retry")
+maxRetries = 3
+
+# Delay between retries in milliseconds
+retryDelayMs = 5000
+
+# Continue even if agent exits with non-zero code
+continueOnNonZeroExit = false
+
+# ─────────────────────────────────────────────
+# Rate Limit Handling
+# ─────────────────────────────────────────────
+
+# Fallback agents when primary hits rate limits
+fallbackAgents = ["opencode"]
+
+[rateLimitHandling]
+# Enable automatic fallback to secondary agents
+enabled = true
+
+# Retries before switching to fallback
+maxRetries = 3
+
+# Base backoff time for exponential retry (ms)
+baseBackoffMs = 5000
+
+# Try primary agent again between iterations
+recoverPrimaryBetweenIterations = true
+
+# ─────────────────────────────────────────────
+# Notifications
+# ─────────────────────────────────────────────
+
+[notifications]
+# Enable desktop notifications
+enabled = true
+
+# Sound mode: "off", "system", or "ralph"
+sound = "off"
+```
+
+## Common Configurations
+
+### Development Setup
+
+For day-to-day development with Claude Code:
+
+```toml
+agent = "claude"
+tracker = "beads-bv"
+maxIterations = 10
+subagentTracingDetail = "moderate"
+
+[errorHandling]
+strategy = "skip"
+
+[notifications]
+enabled = true
+```
+
+### PRD-Based Workflow
+
+For working through a prd.json task file:
+
+```toml
+agent = "claude"
+tracker = "json"
+maxIterations = 0  # Unlimited - complete all tasks
+
+[trackerOptions]
+path = "./prd.json"
+```
+
+### High-Reliability Setup
+
+For critical tasks where you want maximum retry capability:
+
+```toml
+agent = "claude"
+fallbackAgents = ["opencode"]
+
+[errorHandling]
+strategy = "retry"
+maxRetries = 5
+retryDelayMs = 10000
+
+[rateLimitHandling]
+enabled = true
+maxRetries = 5
+baseBackoffMs = 10000
+```
+
+### Headless/CI Setup
+
+For automated pipelines:
+
+```toml
+agent = "claude"
+tracker = "json"
+maxIterations = 50
+autoCommit = true
+
+[trackerOptions]
+path = "./tasks/prd.json"
+
+[errorHandling]
+strategy = "abort"  # Fail fast in CI
+
+[notifications]
+enabled = false
+```
+
+### Custom Prompt Template
+
+When you need customized prompts for your workflow:
+
+```toml
+agent = "claude"
+tracker = "beads-bv"
+prompt_template = "./prompts/my-custom-template.hbs"
+```
+
+## Advanced: Plugin Arrays
+
+For complex setups with multiple agents or trackers, you can define arrays:
+
+```toml
+# Define multiple agent configurations
+[[agents]]
+name = "claude-fast"
+plugin = "claude"
+default = true
+
+  [agents.options]
+  model = "claude-sonnet-4-20250514"
+
+[[agents]]
+name = "claude-smart"
+plugin = "claude"
+
+  [agents.options]
+  model = "claude-opus-4-20250514"
+
+[[agents]]
+name = "opencode-backup"
+plugin = "opencode"
+
+# Specify which to use
+defaultAgent = "claude-fast"
+```
+
+<Callout type="tip">
+For most users, the shorthand `agent` and `tracker` fields are sufficient. The array syntax is only needed for advanced multi-agent setups.
+</Callout>
+
+## Merging Behavior
+
+When multiple config files exist, they're merged with these rules:
+
+1. **Scalar values** (strings, numbers, booleans): Project overrides global
+2. **Arrays** (`agents`, `trackers`, `fallbackAgents`): Project completely replaces global
+3. **Objects** (`errorHandling`, `agentOptions`): Merged, with project values taking precedence
+
+```toml
+# ~/.config/ralph-tui/config.toml (global)
+agent = "claude"
+maxIterations = 10
+
+[agentOptions]
+model = "claude-sonnet-4-20250514"
+```
+
+```toml
+# .ralph-tui/config.toml (project)
+maxIterations = 5  # Overrides global
+
+[agentOptions]
+timeout = 30000  # Merged with global agentOptions
+```
+
+**Result:** `agent = "claude"`, `maxIterations = 5`, `agentOptions = { model: "...", timeout: 30000 }`
+
+## Validation Errors
+
+If your configuration has errors, Ralph TUI will show helpful messages:
+
+```
+Configuration error in .ralph-tui/config.toml:
+  • maxIterations: Number must be less than or equal to 1000
+  • errorHandling.strategy: Invalid enum value. Expected 'retry' | 'skip' | 'abort'
+```
+
+## Next Steps
+
+- **[Options Reference](/docs/configuration/options)** - Complete list of all options
+- **[CLI Commands](/docs/cli/run)** - CLI flag documentation
+- **[Prompt Templates](/docs/templates)** - Customize prompts

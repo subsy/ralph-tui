@@ -21,6 +21,15 @@ pnpm-debug.log*
 *.tsbuildinfo
 *.tgz
 
+# Next.js (root level)
+.next/
+out/
+
+# Website build outputs
+website/.next/
+website/out/
+website/node_modules/
+
 # IDE
 .idea/
 .vscode/
@@ -38,3 +47,4 @@ Thumbs.db
 
 # Ralph TUI runtime (all user-specific state)
 .ralph-tui/
+.envrc

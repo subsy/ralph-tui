@@ -1,0 +1,263 @@
+---
+title: Claude Code Agent
+description: Integrate Anthropic's Claude Code CLI with Ralph TUI for AI-assisted coding.
+---
+
+## Claude Code Agent
+
+The Claude Code agent plugin integrates with Anthropic's `claude` CLI to execute AI coding tasks. It's the default agent for Ralph TUI and provides the richest feature set.
+
+<Callout type="tip">
+Claude Code supports **subagent tracing** - Ralph TUI can show nested tool calls (Read, Write, Task) in real-time as Claude works.
+</Callout>
+
+## Prerequisites
+
+Install Claude Code CLI:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+Verify installation:
+
+```bash
+claude --version
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Claude">
+    Use the `--agent claude` flag (or set as default in config):
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent claude
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --model opus
+    ```
+  </Step>
+
+  <Step title="Enable Subagent Tracing">
+    Press `t` in the TUI to cycle through tracing detail levels, or configure in config:
+
+    ```toml
+    subagentTracingDetail = "full"
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "claude"
+
+[agentOptions]
+model = "sonnet"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-claude"
+plugin = "claude"
+default = true
+command = "claude"  # Override CLI path if needed
+timeout = 300000    # 5 minute timeout
+
+[agents.options]
+model = "sonnet"
+printMode = "text"
+skipPermissions = true
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | Model variant: `sonnet`, `opus`, or `haiku` |
+| `printMode` | string | `"text"` | Output mode: `text`, `json`, or `stream` |
+| `skipPermissions` | boolean | `true` | Enable `--dangerously-skip-permissions` |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"claude"` | Path to Claude CLI executable |
+
+## Models
+
+Claude Code supports three model variants:
+
+| Model | Description | Use Case |
+|-------|-------------|----------|
+| `sonnet` | Balanced performance and cost | Most tasks (default) |
+| `opus` | Most capable, highest cost | Complex reasoning, architecture |
+| `haiku` | Fastest, lowest cost | Simple tasks, rapid iteration |
+
+Select via CLI or config:
+
+```bash
+# CLI
+ralph-tui run --prd ./prd.json --model opus
+
+# Config
+[agentOptions]
+model = "opus"
+```
+
+## Subagent Tracing
+
+Claude Code emits structured JSONL when running with `--output-format stream-json`. Ralph TUI parses this to display:
+
+- Tool invocations (Read, Write, Bash, Task, etc.)
+- Nested subagent calls and their output
+- Duration and status of each operation
+- Token usage and cost
+
+### Tracing Levels
+
+| Level | Description |
+|-------|-------------|
+| `off` | No tracing, show raw output only |
+| `minimal` | Show start/complete events |
+| `moderate` | Events with description and duration |
+| `full` | Events with nested output and hierarchy |
+
+Configure in config:
+
+```toml
+subagentTracingDetail = "full"
+```
+
+Or toggle in TUI:
+- Press `t` to cycle through levels
+- Press `T` (Shift+T) to toggle the subagent tree panel
+- Press `u` to toggle the subagent tracing panel
+
+<Callout type="info">
+Subagent tracing requires Claude's streaming JSON output. Ralph TUI automatically adds the necessary flags (`--verbose --output-format stream-json`) when tracing is enabled.
+</Callout>
+
+## Autonomous Operation
+
+By default, Claude Code prompts for permission before modifying files. Ralph TUI runs with `--dangerously-skip-permissions` to enable fully autonomous operation.
+
+<Callout type="warning">
+Only use autonomous mode with trusted task inputs. Claude will execute file modifications, terminal commands, and more without asking.
+</Callout>
+
+To disable autonomous mode (require confirmations):
+
+```toml
+[agentOptions]
+skipPermissions = false
+```
+
+## File Context
+
+Claude Code supports adding directory context via `--add-dir`. Ralph TUI extracts directories from any file paths in your task and adds them automatically.
+
+This helps Claude understand your project structure when working on related files.
+
+## How It Works
+
+When Ralph TUI executes a task with Claude:
+
+1. **Build command**: Constructs `claude --print [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Parse JSONL** (if tracing enabled): Extracts structured tool call data
+5. **Detect completion**: Watches for `<promise>COMPLETE</promise>` token
+6. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+claude \
+  --print \
+  --verbose \                           # When tracing enabled
+  --output-format stream-json \         # When tracing enabled
+  --model sonnet \                      # If model specified
+  --dangerously-skip-permissions \      # If skipPermissions true
+  --add-dir /path/to/context \          # From file context
+  < prompt.txt                          # Prompt via stdin
+```
+
+## Rate Limit Handling
+
+Configure fallback behavior for API rate limits:
+
+```toml
+agent = "claude"
+fallbackAgents = ["opencode"]
+
+[rateLimitHandling]
+enabled = true
+maxRetries = 3
+baseBackoffMs = 5000
+recoverPrimaryBetweenIterations = true
+```
+
+When Claude hits rate limits:
+1. Retry with exponential backoff
+2. After `maxRetries`, switch to first available fallback agent
+3. Between iterations, attempt to recover to primary agent
+
+## Troubleshooting
+
+### "Claude CLI not found"
+
+Ensure Claude is installed and in your PATH:
+
+```bash
+which claude
+# Should output: /path/to/claude
+
+# If not found, install:
+npm install -g @anthropic-ai/claude-code
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "claude"
+plugin = "claude"
+timeout = 600000  # 10 minutes
+```
+
+### "Task not completing"
+
+Ensure your prompt template includes instructions to output the completion token:
+
+```handlebars
+When finished (or if already complete), signal completion with:
+<promise>COMPLETE</promise>
+```
+
+### "Subagent tracing not showing"
+
+1. Ensure `subagentTracingDetail` is not `"off"`
+2. Press `u` to toggle the tracing panel visibility
+3. Check that Claude is outputting JSONL (run manually with `--verbose --output-format stream-json`)
+
+## Next Steps
+
+- **[OpenCode Agent](/docs/plugins/agents/opencode)** - Multi-provider alternative
+- **[Configuration](/docs/configuration/options)** - Full options reference
+- **[Prompt Templates](/docs/templates)** - Customize task prompts

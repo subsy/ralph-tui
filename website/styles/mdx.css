@@ -1,0 +1,191 @@
+/**
+ * ABOUTME: MDX-specific styles for documentation pages.
+ * Provides consistent styling for MDX components and content.
+ */
+
+/* ============================================
+   Callout Component Styles
+   ============================================ */
+
+/* Callout status dot animation */
+@keyframes callout-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.callout-status-dot {
+  animation: callout-pulse 2s ease-in-out infinite;
+}
+
+/* ============================================
+   Steps Component Styles
+   ============================================ */
+
+/* Step connector line gradient animation */
+@keyframes step-line-flow {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 0% 100%;
+  }
+}
+
+.step-connector-animated {
+  background-size: 100% 200%;
+  animation: step-line-flow 3s linear infinite;
+}
+
+/* Step number glow effect */
+@keyframes step-number-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(122, 162, 247, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(122, 162, 247, 0.25);
+  }
+}
+
+.step-number-glow {
+  animation: step-number-glow 2s ease-in-out infinite;
+}
+
+/* ============================================
+   Tabs Component Styles
+   ============================================ */
+
+/* Hide scrollbar for tab list but keep functionality */
+.tabs-list-scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.tabs-list-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tab trigger active indicator animation */
+@keyframes tab-indicator-slide {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+.tab-active-indicator {
+  animation: tab-indicator-slide 0.2s ease-out forwards;
+  transform-origin: left;
+}
+
+/* ============================================
+   MDX Content Container Styles
+   ============================================ */
+
+/* Prose overrides for MDX content within components */
+.mdx-content {
+  /* Reset margins for first/last children */
+  & > p:first-child {
+    margin-top: 0;
+  }
+
+  & > p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Consistent list spacing */
+  & > ul,
+  & > ol {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  /* Code block spacing inside components */
+  & > pre {
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+}
+
+/* ============================================
+   Terminal-Inspired Visual Effects
+   ============================================ */
+
+/* Scanline effect overlay (optional, apply to containers) */
+.terminal-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 1px,
+    rgba(0, 0, 0, 0.03) 1px,
+    rgba(0, 0, 0, 0.03) 2px
+  );
+  z-index: 10;
+}
+
+/* CRT glow effect for focused elements */
+.terminal-glow {
+  box-shadow:
+    0 0 2px rgba(122, 162, 247, 0.1),
+    0 0 4px rgba(122, 162, 247, 0.1),
+    0 0 8px rgba(122, 162, 247, 0.05);
+}
+
+.terminal-glow:focus-within {
+  box-shadow:
+    0 0 4px rgba(122, 162, 247, 0.2),
+    0 0 8px rgba(122, 162, 247, 0.15),
+    0 0 16px rgba(122, 162, 247, 0.1);
+}
+
+/* Typing cursor animation for decorative use */
+@keyframes terminal-cursor-blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+.terminal-cursor {
+  animation: terminal-cursor-blink 1s step-end infinite;
+}
+
+/* ============================================
+   Accessibility Improvements
+   ============================================ */
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .callout-status-dot,
+  .step-connector-animated,
+  .step-number-glow,
+  .tab-active-indicator,
+  .terminal-cursor {
+    animation: none;
+  }
+
+  .terminal-glow,
+  .terminal-glow:focus-within {
+    box-shadow: none;
+  }
+}
+
+/* High contrast mode adjustments */
+@media (prefers-contrast: high) {
+  .terminal-scanlines::after {
+    display: none;
+  }
+}

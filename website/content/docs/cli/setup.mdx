@@ -1,0 +1,206 @@
+---
+title: setup
+description: Run the interactive setup wizard to configure Ralph TUI for your project.
+---
+
+## Synopsis
+
+```bash
+ralph-tui setup
+```
+
+The `setup` command runs an interactive wizard that configures Ralph TUI for your project. It detects available agents, creates configuration files, and installs bundled skills.
+
+<Callout type="tip">
+Running `ralph-tui setup` is the recommended first step when starting with Ralph TUI in a new project.
+</Callout>
+
+## Aliases
+
+```bash
+ralph-tui init    # Same as setup
+```
+
+## What Setup Does
+
+The interactive wizard performs these steps:
+
+<Steps>
+  <Step title="Detect Installed Agents">
+    Scans for available AI coding agents:
+    - **Claude Code** - Looks for `claude` CLI
+    - **OpenCode** - Looks for `opencode` CLI
+
+    Prompts you to select which agent to use as the default.
+  </Step>
+
+  <Step title="Create Configuration">
+    Creates `.ralph-tui/config.toml` with your selected options:
+    - Default agent and tracker
+    - Model preferences
+    - Error handling strategy
+    - Iteration limits
+  </Step>
+
+  <Step title="Install Skills">
+    Installs bundled skills for PRD creation and task conversion:
+    - `ralph-tui-prd` - AI-powered PRD creation
+    - `ralph-tui-create-json` - Convert PRD to prd.json
+    - `ralph-tui-create-beads` - Convert PRD to Beads issues
+  </Step>
+
+  <Step title="Detect Existing Trackers">
+    Optionally scans for existing task sources:
+    - `prd.json` files
+    - Beads configuration (`.beads/`)
+    - Existing PRD markdown files
+  </Step>
+</Steps>
+
+## Examples
+
+### Basic Setup
+
+```bash
+cd your-project
+ralph-tui setup
+```
+
+Example interaction:
+
+```
+Welcome to Ralph TUI Setup!
+
+Detecting installed agents...
+✓ Found: claude (Claude Code)
+✓ Found: opencode (OpenCode)
+
+? Which agent should be the default?
+❯ claude - Claude Code (recommended)
+  opencode - OpenCode
+
+? Default tracker type?
+❯ json - Simple JSON file (no dependencies)
+  beads - Git-backed issue tracker
+  beads-bv - Beads with graph analysis
+
+? Maximum iterations per session? (0 = unlimited)
+❯ 10
+
+Creating configuration...
+✓ Created .ralph-tui/config.toml
+
+Installing skills...
+✓ Installed ralph-tui-prd
+✓ Installed ralph-tui-create-json
+✓ Installed ralph-tui-create-beads
+
+Setup complete! Next steps:
+1. Create a PRD: ralph-tui create-prd --chat
+2. Start Ralph: ralph-tui run --prd ./prd.json
+```
+
+## Configuration Created
+
+Setup creates `.ralph-tui/config.toml`:
+
+```toml
+# .ralph-tui/config.toml (created by setup)
+
+# Default tracker and agent
+tracker = "json"
+agent = "claude"
+
+# Execution limits
+maxIterations = 10
+
+# Agent-specific options
+[agentOptions]
+model = "sonnet"
+
+# Error handling
+[errorHandling]
+strategy = "skip"
+maxRetries = 3
+retryDelayMs = 5000
+```
+
+## Skills Installation
+
+Skills are installed to your Claude Code skills directory:
+
+| Skill | Location | Purpose |
+|-------|----------|---------|
+| `ralph-tui-prd` | `~/.claude-code/skills/` | AI-powered PRD creation |
+| `ralph-tui-create-json` | `~/.claude-code/skills/` | Convert PRD to JSON tasks |
+| `ralph-tui-create-beads` | `~/.claude-code/skills/` | Convert PRD to Beads issues |
+
+<Callout type="info">
+Skills require Claude Code. If using OpenCode, you can still create PRDs using the built-in template mode.
+</Callout>
+
+## Skipping Setup
+
+If you want to run Ralph without the interactive setup:
+
+```bash
+# Skip setup and use defaults
+ralph-tui run --prd ./prd.json --no-setup
+
+# Or create config manually
+mkdir -p .ralph-tui
+cat > .ralph-tui/config.toml << 'EOF'
+tracker = "json"
+agent = "claude"
+maxIterations = 10
+EOF
+```
+
+## Re-running Setup
+
+You can run setup again to update your configuration:
+
+```bash
+# Re-run setup (will ask before overwriting)
+ralph-tui setup
+```
+
+<Callout type="warning">
+Re-running setup will prompt before overwriting existing configuration. Your current settings will be shown as defaults.
+</Callout>
+
+## Troubleshooting
+
+### "No agents found"
+
+Ensure you have at least one supported agent installed:
+
+```bash
+# Check for Claude Code
+which claude
+
+# Check for OpenCode
+which opencode
+
+# If not found, install one:
+# Claude Code: https://docs.anthropic.com/en/docs/claude-code
+# OpenCode: https://github.com/opencode-ai/opencode
+```
+
+### "Permission denied" for skills
+
+Ensure the skills directory is writable:
+
+```bash
+# Create skills directory if needed
+mkdir -p ~/.claude-code/skills
+
+# Check permissions
+ls -la ~/.claude-code/
+```
+
+## Related Commands
+
+- **[run](/docs/cli/run)** - Start execution after setup
+- **[create-prd](/docs/cli/create-prd)** - Create your first PRD
+- **[convert](/docs/cli/convert)** - Convert existing PRDs to tasks

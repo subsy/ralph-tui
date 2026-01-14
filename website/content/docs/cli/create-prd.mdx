@@ -1,0 +1,227 @@
+---
+title: create-prd
+description: Create a new Product Requirements Document (PRD) interactively with AI assistance.
+---
+
+## Synopsis
+
+```bash
+ralph-tui create-prd [options]
+```
+
+The `create-prd` command generates a structured PRD through an interactive conversation with an AI agent. It asks about your feature goals, requirements, and quality gates, then produces a PRD Markdown file.
+
+<Callout type="tip">
+Use `--chat` mode (recommended) for AI-powered PRD creation. The AI asks contextual questions and generates higher-quality PRDs than the template wizard.
+</Callout>
+
+## Aliases
+
+```bash
+ralph-tui prime    # Same as create-prd
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--chat`, `--ai` | Use AI-powered chat mode (recommended) |
+| `--agent <name>` | Override agent for chat mode |
+| `--output, -o <dir>` | Output directory for PRD files (default: `./tasks`) |
+| `--stories, -n <count>` | Number of user stories (template mode only) |
+| `--force, -f` | Overwrite existing files |
+
+## Examples
+
+### AI-Powered Chat Mode (Recommended)
+
+```bash
+# Start interactive AI conversation
+ralph-tui create-prd --chat
+
+# Use a specific agent
+ralph-tui create-prd --chat --agent opencode
+```
+
+### Template Mode
+
+```bash
+# Use template wizard (fills in placeholders)
+ralph-tui create-prd
+
+# Specify number of stories
+ralph-tui create-prd --stories 8
+```
+
+### Custom Output Location
+
+```bash
+# Save PRD to custom directory
+ralph-tui create-prd --chat --output ./docs/prds
+
+# Overwrite existing PRD
+ralph-tui create-prd --chat --force
+```
+
+## Chat Mode Workflow
+
+When you run `create-prd --chat`, the AI guides you through:
+
+<Steps>
+  <Step title="Feature Goal">
+    What problem does this feature solve? What's the high-level objective?
+  </Step>
+
+  <Step title="Target Users">
+    Who will use this feature? What are their needs?
+  </Step>
+
+  <Step title="Scope Definition">
+    What should be included? What's explicitly out of scope?
+  </Step>
+
+  <Step title="User Stories">
+    The AI helps break down the feature into discrete, implementable stories.
+  </Step>
+
+  <Step title="Quality Gates">
+    What commands must pass? (e.g., `bun run typecheck`, `bun run lint`)
+  </Step>
+
+  <Step title="Task Creation">
+    After generating the PRD, you're asked whether to create tasks:
+    - **JSON** - Create `prd.json` for the json tracker
+    - **Beads** - Create issues in your Beads project
+    - **Skip** - Just save the PRD Markdown
+  </Step>
+</Steps>
+
+## Output Files
+
+The command creates:
+
+| File | Description |
+|------|-------------|
+| `./tasks/prd-<feature-name>.md` | The PRD Markdown document |
+| `./prd.json` | Task file (if JSON selected) |
+
+### PRD Structure
+
+Generated PRDs follow this structure:
+
+```markdown
+# Feature Name
+
+## Overview
+Brief description of the feature and its goals.
+
+## User Stories
+
+### US-001: Story Title
+**As a** [user type]
+**I want** [capability]
+**So that** [benefit]
+
+#### Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+- [ ] Criterion 3
+
+## Quality Gates
+
+These commands must pass for every user story:
+- `bun run typecheck` - Type checking
+- `bun run lint` - Linting
+- `bun run build` - Build verification
+```
+
+## Quality Gates
+
+Quality gates are critical for successful automation. They tell Ralph what commands must pass after each task.
+
+<Callout type="info">
+Quality gates are extracted from the PRD and automatically appended to each user story's acceptance criteria during conversion.
+</Callout>
+
+Common quality gates:
+
+```markdown
+## Quality Gates
+
+These commands must pass for every user story:
+- `bun run typecheck` - Type checking
+- `bun run lint` - Linting
+- `bun run build` - Build verification
+- `bun run test` - Unit tests
+```
+
+## Best Practices
+
+### Keep Stories Small
+
+Each user story should be completable in one agent session (roughly one context window). If you can't describe it in 2-3 sentences, split it.
+
+```markdown
+# Too big - split this
+### US-001: Implement user authentication system
+
+# Better - separate concerns
+### US-001: Add login form component
+### US-002: Create authentication API endpoints
+### US-003: Implement session management
+### US-004: Add logout functionality
+```
+
+### Make Criteria Verifiable
+
+Acceptance criteria should be testable, not vague:
+
+```markdown
+# Bad - too vague
+- [ ] The form looks good
+- [ ] Error handling works
+
+# Good - specific and testable
+- [ ] Form displays validation errors below each invalid field
+- [ ] Invalid submission shows error toast with message
+- [ ] Network errors display retry button
+```
+
+### Order Dependencies
+
+Put foundational stories first:
+
+```markdown
+### US-001: Create database schema (no dependencies)
+### US-002: Implement backend API (depends on US-001)
+### US-003: Build frontend components (depends on US-002)
+```
+
+## Troubleshooting
+
+### "Agent not responding"
+
+Ensure your agent CLI is working:
+
+```bash
+# Test Claude Code
+claude --version
+
+# Test OpenCode
+opencode --version
+```
+
+### "Output directory not found"
+
+Create the output directory first:
+
+```bash
+mkdir -p ./tasks
+ralph-tui create-prd --chat
+```
+
+## Related Commands
+
+- **[convert](/docs/cli/convert)** - Convert an existing PRD to tasks
+- **[run](/docs/cli/run)** - Execute tasks from the generated PRD
+- **[setup](/docs/cli/setup)** - Install skills for PRD creation

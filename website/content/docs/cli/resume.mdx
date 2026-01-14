@@ -1,0 +1,144 @@
+---
+title: resume
+description: Resume an interrupted Ralph TUI session from where it left off.
+---
+
+## Synopsis
+
+```bash
+ralph-tui resume [options]
+```
+
+The `resume` command continues execution from a previously interrupted session. Ralph loads the saved session state and picks up where it left off, automatically resetting any stale "in_progress" tasks.
+
+<Callout type="tip">
+Session state is automatically saved to `.ralph-tui-session.json`. You can resume even after crashes or forced exits.
+</Callout>
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--cwd <path>` | Working directory (where to find the session file) |
+| `--headless` | Run without TUI |
+| `--force` | Override stale lock (use if another instance crashed) |
+
+## Examples
+
+### Basic Resume
+
+```bash
+# Resume from current directory
+ralph-tui resume
+
+# Resume headless for CI pipelines
+ralph-tui resume --headless
+```
+
+### Resume from Different Directory
+
+```bash
+# Resume a session in another project
+ralph-tui resume --cwd /path/to/project
+```
+
+### Force Override Stale Lock
+
+```bash
+# Override if previous instance crashed
+ralph-tui resume --force
+```
+
+<Callout type="warning">
+Only use `--force` when you're certain no other Ralph instance is running. Using it while another instance is active can cause conflicts.
+</Callout>
+
+## What Gets Restored
+
+When you resume a session, Ralph restores:
+
+- **Iteration number** - Continues counting from where you left off
+- **Task statuses** - Completed tasks remain completed
+- **Progress file** - Cross-iteration context is preserved
+- **Configuration** - Uses the same config as the original run
+
+## Handling Stale Tasks
+
+If Ralph was interrupted while a task was "in_progress", resume automatically:
+
+1. Detects tasks stuck in "in_progress" state
+2. Resets them to "open" status
+3. Re-selects the next task based on priority
+
+This ensures no tasks are permanently stuck due to crashes.
+
+## Session Lock
+
+Ralph uses a lock mechanism to prevent multiple instances:
+
+- The session file includes a lock timestamp
+- If the lock is stale (older than a threshold), resume can proceed
+- Use `--force` to override the lock if needed
+
+## Example Workflow
+
+<Steps>
+  <Step title="Start Execution">
+    ```bash
+    ralph-tui run --prd ./prd.json
+    ```
+    Ralph begins processing tasks.
+  </Step>
+
+  <Step title="Interrupt">
+    Press `q` to quit, or the process gets interrupted.
+    Session state is saved automatically.
+  </Step>
+
+  <Step title="Resume Later">
+    ```bash
+    ralph-tui resume
+    ```
+    Ralph continues from where it left off.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### "Session lock exists"
+
+Another Ralph instance may be running, or a previous instance crashed:
+
+```bash
+# Check if another instance is running
+ps aux | grep ralph-tui
+
+# If not, force resume
+ralph-tui resume --force
+```
+
+### "No session found"
+
+No `.ralph-tui-session.json` file exists in the working directory:
+
+```bash
+# Start a new session instead
+ralph-tui run --prd ./prd.json
+```
+
+### "Task stuck in_progress"
+
+Resume handles this automatically, but you can also manually reset:
+
+```bash
+# For beads tracker
+bd update TASK-ID --status open
+
+# For JSON tracker, edit prd.json directly
+```
+
+## Related Commands
+
+- **[run](/docs/cli/run)** - Start a new execution session
+- **[status](/docs/cli/status)** - Check session status without resuming
+- **[logs](/docs/cli/logs)** - View iteration history

@@ -14,6 +14,7 @@ import type {
   AgentExecuteOptions,
   AgentSetupQuestion,
   AgentDetectResult,
+  AgentExecutionHandle,
 } from '../types.js';
 
 /** Supported providers for the model flag */
@@ -21,6 +22,42 @@ type OpenCodeProvider = 'anthropic' | 'openai' | 'google' | 'xai' | 'ollama';
 
 /** Output format options */
 type OpenCodeFormat = 'default' | 'json';
+
+/**
+ * Patterns to match opencode metadata lines that should be filtered from output.
+ * These are status/debug lines that aren't part of the actual response.
+ */
+const OPENCODE_METADATA_PATTERNS = [
+  /^[|!]\s+/,                  // Any line starting with "| " or "! " (tool calls, status)
+  /^\s*\[\d+\/\d+\]/,          // Progress indicators like "[1/3]"
+  /^(Reading|Writing|Creating|Updating|Running)\s+/i,  // Action status lines
+  /^\s*\{[\s\S]*"type":\s*"/,  // JSON event objects
+  /^\s*\{[\s\S]*"description":\s*"/,  // JSON with description field (background_task)
+  /^\s*\{[\s\S]*"path":\s*"/,  // JSON with path field (Glob, Read)
+  /^\s*\{[\s\S]*"pattern":\s*"/,  // JSON with pattern field (grep)
+  /^[^\s]+\.(md|ts|tsx|js|json):\s*["{[]/,  // Grep-style output: filepath: JSON/string
+  /^skills\//,                 // Skills directory paths
+];
+
+/**
+ * Check if a line matches any metadata pattern.
+ */
+function isMetadataLine(line: string): boolean {
+  // Strip ANSI escape codes for pattern matching
+  const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+  return OPENCODE_METADATA_PATTERNS.some((pattern) => pattern.test(cleanLine));
+}
+
+/**
+ * Filter opencode metadata lines from output.
+ * Returns the text with metadata lines removed.
+ */
+function filterOpenCodeMetadata(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !isMetadataLine(line))
+    .join('\n');
+}
 
 /**
  * OpenCode agent plugin implementation.
@@ -34,6 +71,7 @@ type OpenCodeFormat = 'default' | 'json';
  * - File attachment via --file flag (can be used multiple times)
  * - Timeout handling with graceful SIGTERM before SIGKILL
  * - Streaming stdout/stderr capture
+ * - Filters metadata lines from output (slashcommand, agent warnings)
  */
 export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   readonly meta: AgentPluginMeta = {
@@ -285,8 +323,11 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
     // OpenCode uses: opencode run [flags] [message..]
     const args: string[] = ['run'];
 
-    // Add agent type (default is 'general')
-    args.push('--agent', this.agent);
+    // Only add agent type if explicitly set to non-default value
+    // Omitting --agent lets opencode use its default, avoiding warning messages
+    if (this.agent !== 'general') {
+      args.push('--agent', this.agent);
+    }
 
     // Add model in provider/model format if both are specified
     const modelToUse = this.buildModelString();
@@ -322,6 +363,31 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
     _options?: AgentExecuteOptions
   ): string {
     return prompt;
+  }
+
+  /**
+   * Override execute to filter opencode metadata from stdout.
+   * Wraps the onStdout callback to remove status lines like "|  slashcommand {...}".
+   */
+  override execute(
+    prompt: string,
+    files?: AgentFileContext[],
+    options?: AgentExecuteOptions
+  ): AgentExecutionHandle {
+    // Wrap onStdout to filter metadata lines
+    const filteredOptions: AgentExecuteOptions = {
+      ...options,
+      onStdout: options?.onStdout
+        ? (data: string) => {
+            const filtered = filterOpenCodeMetadata(data);
+            if (filtered.trim()) {
+              options.onStdout!(filtered);
+            }
+          }
+        : undefined,
+    };
+
+    return super.execute(prompt, files, filteredOptions);
   }
 
   /**

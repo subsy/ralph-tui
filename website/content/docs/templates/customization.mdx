@@ -1,0 +1,373 @@
+---
+title: Template Customization
+description: Create and customize prompt templates to match your workflow and project requirements.
+---
+
+## Why Customize Templates?
+
+While Ralph's built-in templates work for most projects, customization lets you:
+
+- Add project-specific instructions or quality gates
+- Include additional context like code style guidelines
+- Modify the prompt structure for your AI agent's preferences
+- Inject custom metadata from your tracker
+
+## Quick Start: Initialize a Custom Template
+
+The fastest way to get started is copying the built-in template:
+
+```bash
+ralph-tui template init
+```
+
+This creates `.ralph-tui-prompt.hbs` in your project root, pre-populated with the current template for your tracker type.
+
+<Callout type="tip">
+The `.hbs` extension stands for Handlebars, the templating engine Ralph uses. You can also use `.md` or any other extension—Ralph just reads the file content.
+</Callout>
+
+## Template Locations
+
+### Project-Level Template
+
+Create a template in your project directory:
+
+```
+your-project/
+├── .ralph-tui/
+│   └── config.toml
+├── .ralph-tui-prompt.hbs    # Custom template here
+└── ...
+```
+
+Reference it in your config:
+
+```toml
+# .ralph-tui/config.toml
+prompt_template = ".ralph-tui-prompt.hbs"
+```
+
+Or pass it via CLI:
+
+```bash
+ralph-tui run --prompt .ralph-tui-prompt.hbs
+```
+
+### User-Level Templates
+
+For templates that apply across all your projects, use the config directory:
+
+```
+~/.config/ralph-tui/
+├── config.toml              # Global config
+├── prompt.md                # Default for JSON tracker
+└── prompt-beads.md          # Default for Beads trackers
+```
+
+Initialize user-level templates with:
+
+```bash
+ralph-tui template init --global
+```
+
+## Creating a Custom Template
+
+### Basic Structure
+
+A minimal template needs the task details and completion signal:
+
+```handlebars
+## Task: {{taskTitle}}
+
+{{taskDescription}}
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+### Adding Conditional Sections
+
+Use `{{#if}}` blocks to include content only when data exists:
+
+```handlebars
+## Task: {{taskTitle}}
+
+{{#if taskDescription}}
+### Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+### Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+{{#if dependsOn}}
+### Prerequisites
+Complete these first: {{dependsOn}}
+{{/if}}
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+### Adding Project-Specific Instructions
+
+Customize the instructions section for your workflow:
+
+```handlebars
+## User Story
+**ID**: {{taskId}}
+**Title**: {{taskTitle}}
+
+{{#if taskDescription}}
+## Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+## Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+## Project-Specific Instructions
+
+### Code Style
+- Use TypeScript with strict mode
+- Follow the existing patterns in `src/`
+- Add JSDoc comments for public APIs
+
+### Quality Gates (REQUIRED)
+Before marking complete, run:
+1. `bun run typecheck` - Must pass with no errors
+2. `bun run lint` - Must pass with no warnings
+3. `bun run test` - All tests must pass
+
+### Git Workflow
+- Commit with message format: `feat(scope): description`
+- Keep commits atomic and focused
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+## Example Templates
+
+### Minimal Template
+
+For simple, focused prompts:
+
+```handlebars
+Task: {{taskTitle}}
+{{taskDescription}}
+
+{{#if acceptanceCriteria}}
+Requirements:
+{{acceptanceCriteria}}
+{{/if}}
+
+Signal <promise>COMPLETE</promise> when done.
+```
+
+### Verbose Template with Full Context
+
+For maximum context injection:
+
+```handlebars
+## Task Context
+- **ID**: {{taskId}}
+- **Type**: {{type}}
+- **Priority**: {{priority}}
+- **Status**: {{status}}
+- **Labels**: {{labels}}
+- **Tracker**: {{trackerName}}
+- **Agent**: {{agentName}}
+- **Date**: {{currentDate}}
+
+{{#if epicId}}
+## Epic Context
+- **Epic ID**: {{epicId}}
+- **Epic Title**: {{epicTitle}}
+{{/if}}
+
+## Task Details
+**Title**: {{taskTitle}}
+
+{{#if taskDescription}}
+### Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+### Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+{{#if notes}}
+### Additional Notes
+{{notes}}
+{{/if}}
+
+## Dependencies
+
+{{#if dependsOn}}
+**Depends On**: {{dependsOn}}
+These tasks must be complete before starting.
+{{/if}}
+
+{{#if blocks}}
+**Blocks**: {{blocks}}
+Completing this task will unblock the above.
+{{/if}}
+
+{{#if recentProgress}}
+## Previous Progress
+{{recentProgress}}
+{{/if}}
+
+## Instructions
+1. Implement the requirements
+2. Run quality checks
+3. Commit changes
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+### Frontend-Focused Template
+
+For UI development with browser verification:
+
+```handlebars
+## Frontend Task: {{taskTitle}}
+
+{{#if taskDescription}}
+### Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+### Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+## Frontend Development Guidelines
+
+### Implementation
+1. Check for existing components in `src/components/`
+2. Follow the design system patterns
+3. Use Tailwind CSS for styling
+4. Ensure responsive design (mobile-first)
+
+### Browser Verification (REQUIRED)
+Before marking complete:
+1. Load the `dev-browser` skill
+2. Navigate to the affected page(s)
+3. Verify the UI renders correctly
+4. Test interactive elements
+5. Check responsive behavior at different viewport sizes
+
+### Quality Checks
+- `bun run typecheck` - No type errors
+- `bun run lint` - No lint warnings
+- Visual verification in browser
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+### API Development Template
+
+For backend/API work:
+
+```handlebars
+## API Task: {{taskTitle}}
+
+{{#if taskDescription}}
+### Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+### Requirements
+{{acceptanceCriteria}}
+{{/if}}
+
+## API Development Guidelines
+
+### Implementation
+1. Follow REST conventions
+2. Use proper HTTP status codes
+3. Validate input with Zod schemas
+4. Handle errors gracefully
+
+### Testing Requirements
+- Write unit tests for new functions
+- Add integration tests for endpoints
+- Cover edge cases and error paths
+
+### Documentation
+- Update API docs if adding endpoints
+- Add JSDoc comments for new functions
+
+### Quality Checks
+- `bun run typecheck`
+- `bun run lint`
+- `bun run test`
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+## Accessing Raw Task Data
+
+For advanced templates, you can access the raw task and config objects:
+
+```handlebars
+{{!-- Access nested task metadata --}}
+{{#if task.metadata.customField}}
+Custom: {{task.metadata.customField}}
+{{/if}}
+
+{{!-- Access config values --}}
+Working directory: {{cwd}}
+Model: {{model}}
+```
+
+<Callout type="warning">
+The `task` and `config` objects expose internal structure that may change between versions. Prefer using the documented template variables when possible.
+</Callout>
+
+## Testing Your Template
+
+### Preview Rendered Output
+
+View how your template renders with a specific task:
+
+```bash
+# Show current template source
+ralph-tui template show
+
+# Run in dry-run mode to see prompts without executing
+ralph-tui run --prd ./prd.json --iterations 1 --headless
+```
+
+### Validate Syntax
+
+Handlebars will error on invalid syntax. Common issues:
+
+```handlebars
+{{!-- Wrong: unclosed block --}}
+{{#if condition}}
+Content here...
+
+{{!-- Correct: properly closed --}}
+{{#if condition}}
+Content here...
+{{/if}}
+```
+
+## Next Steps
+
+- **[Handlebars Reference](/docs/templates/handlebars)** - Complete syntax and variable reference
+- **[Configuration](/docs/configuration)** - Set template paths in config

@@ -1,0 +1,178 @@
+---
+title: run
+description: Start the Ralph TUI execution loop to autonomously process tasks from your tracker.
+---
+
+## Synopsis
+
+```bash
+ralph-tui run [options]
+```
+
+The `run` command starts the autonomous execution loop. Ralph will select tasks, build prompts, execute your AI agent, detect completion, and repeat until all tasks are done or the iteration limit is reached.
+
+<Callout type="tip">
+Running `ralph-tui` without any command also starts the TUI interface, allowing you to navigate and start execution interactively.
+</Callout>
+
+## Options
+
+### Task Source Options
+
+| Option | Description |
+|--------|-------------|
+| `--prd <path>` | PRD file path (auto-switches to json tracker) |
+| `--epic <id>` | Epic ID for beads tracker |
+
+### Agent & Model Options
+
+| Option | Description |
+|--------|-------------|
+| `--agent <name>` | Override agent plugin (e.g., `claude`, `opencode`) |
+| `--model <name>` | Override model (see [Model Options](#model-options) below) |
+| `--tracker <name>` | Override tracker plugin (e.g., `beads`, `beads-bv`, `json`) |
+
+### Execution Control
+
+| Option | Description |
+|--------|-------------|
+| `--iterations <n>` | Maximum iterations (0 = unlimited) |
+| `--delay <ms>` | Delay between iterations in milliseconds |
+
+### Output & State
+
+| Option | Description |
+|--------|-------------|
+| `--prompt <path>` | Custom prompt template file path |
+| `--output-dir <path>` | Directory for iteration logs (default: `.ralph-tui/iterations`) |
+| `--progress-file <path>` | Progress file for cross-iteration context (default: `.ralph-tui/progress.md`) |
+
+### Display Options
+
+| Option | Description |
+|--------|-------------|
+| `--headless` | Run without TUI (alias: `--no-tui`) |
+| `--no-setup` | Skip interactive setup even if no config exists |
+
+## Model Options
+
+The `--model` flag accepts different values depending on which agent you're using.
+
+### Claude Agent
+
+```bash
+ralph-tui run --agent claude --model <model>
+```
+
+| Model | Description |
+|-------|-------------|
+| `sonnet` | Claude Sonnet - balanced performance and cost |
+| `opus` | Claude Opus - most capable, higher cost |
+| `haiku` | Claude Haiku - fastest, lowest cost |
+
+### OpenCode Agent
+
+```bash
+ralph-tui run --agent opencode --model <provider>/<model>
+```
+
+Models use `provider/model` format. Valid providers:
+
+| Provider | Example Models |
+|----------|----------------|
+| `anthropic` | `anthropic/claude-3-5-sonnet`, `anthropic/claude-3-opus` |
+| `openai` | `openai/gpt-4o`, `openai/gpt-4-turbo` |
+| `google` | `google/gemini-pro`, `google/gemini-1.5-pro` |
+| `xai` | `xai/grok-1` |
+| `ollama` | `ollama/llama3`, `ollama/codellama` |
+
+<Callout type="info">
+Model names within each provider are validated by the provider's API. If you specify an invalid model name, you'll see an error from the underlying agent CLI.
+</Callout>
+
+## Examples
+
+### Basic Usage with JSON Tracker
+
+```bash
+# Run with a prd.json file
+ralph-tui run --prd ./prd.json
+
+# Limit to 5 iterations
+ralph-tui run --prd ./prd.json --iterations 5
+```
+
+### Using Beads Tracker
+
+```bash
+# Run with a beads epic
+ralph-tui run --epic my-feature-epic
+
+# Use beads-bv for intelligent task selection
+ralph-tui run --epic my-feature-epic --tracker beads-bv
+```
+
+### Agent & Model Override
+
+```bash
+# Use Claude Opus for complex tasks
+ralph-tui run --prd ./prd.json --agent claude --model opus
+
+# Use OpenCode with GPT-4
+ralph-tui run --prd ./prd.json --agent opencode --model openai/gpt-4o
+```
+
+### Custom Prompt Template
+
+```bash
+# Use a custom Handlebars template
+ralph-tui run --prd ./prd.json --prompt ./my-template.hbs
+```
+
+### Headless Mode (CI/Scripts)
+
+```bash
+# Run without TUI for automation
+ralph-tui run --prd ./prd.json --headless --iterations 10
+```
+
+### Development Workflow
+
+```bash
+# Add delay between iterations for monitoring
+ralph-tui run --prd ./prd.json --delay 5000
+
+# Custom output directory for logs
+ralph-tui run --prd ./prd.json --output-dir ./logs/ralph
+```
+
+## Execution Flow
+
+When you run this command, Ralph:
+
+1. **Loads configuration** from `.ralph-tui/config.toml`
+2. **Connects to tracker** (json, beads, or beads-bv)
+3. **Selects next task** based on priority and dependencies
+4. **Builds prompt** using the Handlebars template
+5. **Spawns agent** with the prompt
+6. **Streams output** to the TUI (or stdout in headless mode)
+7. **Detects completion** via `<promise>COMPLETE</promise>` token
+8. **Marks task done** and proceeds to next task
+9. **Repeats** until no tasks remain or max iterations reached
+
+## Session Persistence
+
+Ralph automatically saves state to `.ralph-tui-session.json`:
+
+- Current iteration number
+- Task statuses
+- Iteration history
+- Active task IDs (for crash recovery)
+
+If interrupted, use [`ralph-tui resume`](/docs/cli/resume) to continue.
+
+## Related Commands
+
+- **[resume](/docs/cli/resume)** - Continue an interrupted session
+- **[status](/docs/cli/status)** - Check session status
+- **[logs](/docs/cli/logs)** - View iteration output logs

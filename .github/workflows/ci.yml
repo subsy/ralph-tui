@@ -29,3 +29,26 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  website:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install website dependencies
+        run: cd website && bun install
+
+      - name: Type check website
+        run: cd website && bun run typecheck
+
+      - name: Lint website
+        run: cd website && bun run lint
+
+      - name: Build website
+        run: cd website && bun run build

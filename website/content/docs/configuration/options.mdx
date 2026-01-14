@@ -1,0 +1,306 @@
+---
+title: Options Reference
+description: Complete reference for all Ralph TUI configuration options with types, defaults, and constraints.
+---
+
+## Configuration Options Reference
+
+This page documents every configuration option available in Ralph TUI. Options can be set in config files (TOML) or via CLI flags.
+
+<Callout type="tip">
+Most options have sensible defaults. You typically only need to configure the agent and tracker for your project.
+</Callout>
+
+## Core Settings
+
+These control basic execution behavior.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `agent` | string | - | Agent plugin to use (e.g., "claude", "opencode") |
+| `tracker` | string | - | Tracker plugin to use (e.g., "beads-bv", "json") |
+| `maxIterations` | number | `10` | Maximum iterations per session (0 = unlimited, max 1000) |
+| `iterationDelay` | number | `1000` | Delay between iterations in milliseconds (max 300000) |
+| `outputDir` | string | `.ralph-tui/iterations` | Directory for iteration log files |
+| `progressFile` | string | `.ralph-tui/progress.md` | Progress file for cross-iteration context |
+| `autoCommit` | boolean | `false` | Auto-commit after each completed task |
+| `prompt_template` | string | - | Custom Handlebars template path |
+| `subagentTracingDetail` | string | `"off"` | Subagent visibility level |
+
+### subagentTracingDetail Values
+
+Controls how much information about subagent activity is displayed:
+
+| Value | Description |
+|-------|-------------|
+| `"off"` | No tracing, show raw agent output only |
+| `"minimal"` | Show start/complete events |
+| `"moderate"` | Show events with description and duration |
+| `"full"` | Show events with nested output and hierarchy |
+
+## Agent Options
+
+### Shorthand Configuration
+
+The simplest way to configure an agent:
+
+```toml
+agent = "claude"
+
+[agentOptions]
+model = "claude-sonnet-4-20250514"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `agent` | string | - | Agent plugin name |
+| `agentOptions` | object | `{}` | Plugin-specific options |
+
+### Full Agent Configuration
+
+For advanced setups with multiple agents:
+
+```toml
+[[agents]]
+name = "my-agent"
+plugin = "claude"
+default = true
+command = "claude"
+defaultFlags = ["--no-confirm"]
+timeout = 300000
+
+  [agents.options]
+  model = "claude-sonnet-4-20250514"
+
+  [agents.rateLimitHandling]
+  enabled = true
+  maxRetries = 3
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | string | **required** | Unique identifier for this agent config |
+| `plugin` | string | **required** | Plugin type ("claude", "opencode") |
+| `default` | boolean | `false` | Use as default agent |
+| `command` | string | (from plugin) | Override executable command |
+| `defaultFlags` | string[] | `[]` | Additional CLI flags |
+| `timeout` | number | `0` | Execution timeout (ms, 0 = no timeout) |
+| `options` | object | `{}` | Plugin-specific options |
+| `fallbackAgents` | string[] | `[]` | Agents to try on rate limit |
+| `rateLimitHandling` | object | - | Rate limit configuration |
+
+## Tracker Options
+
+### Shorthand Configuration
+
+```toml
+tracker = "beads-bv"
+
+[trackerOptions]
+epicId = "beads-001"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `tracker` | string | - | Tracker plugin name |
+| `trackerOptions` | object | `{}` | Plugin-specific options |
+
+### Full Tracker Configuration
+
+```toml
+[[trackers]]
+name = "my-tracker"
+plugin = "beads-bv"
+default = true
+
+  [trackers.options]
+  epicId = "beads-001"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | string | **required** | Unique identifier |
+| `plugin` | string | **required** | Plugin type ("json", "beads-bv", "beads") |
+| `default` | boolean | `false` | Use as default tracker |
+| `options` | object | `{}` | Plugin-specific options |
+
+### Tracker Plugin Options
+
+Each tracker plugin accepts specific options:
+
+#### JSON Tracker
+
+For prd.json task files:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | string | Path to prd.json file |
+
+#### Beads-BV Tracker
+
+For Beads issues with BV triage:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `epicId` | string | Epic ID to filter tasks |
+
+#### Beads Tracker
+
+For basic Beads integration:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `epicId` | string | Epic ID to filter tasks |
+
+## Error Handling
+
+Controls how Ralph responds to task failures.
+
+```toml
+[errorHandling]
+strategy = "skip"
+maxRetries = 3
+retryDelayMs = 5000
+continueOnNonZeroExit = false
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `strategy` | string | `"skip"` | Error handling strategy |
+| `maxRetries` | number | `3` | Max retry attempts (0-10) |
+| `retryDelayMs` | number | `5000` | Delay between retries (0-300000 ms) |
+| `continueOnNonZeroExit` | boolean | `false` | Continue if agent exits non-zero |
+
+### Strategy Values
+
+| Value | Description |
+|-------|-------------|
+| `"retry"` | Retry the task up to `maxRetries` times |
+| `"skip"` | Skip the failed task and continue to next |
+| `"abort"` | Stop execution immediately on failure |
+
+<Callout type="warning">
+Use `"abort"` for CI pipelines where any failure should stop the build. Use `"skip"` for development where you want to see all issues.
+</Callout>
+
+## Rate Limit Handling
+
+Controls fallback behavior when the primary agent hits API rate limits.
+
+```toml
+fallbackAgents = ["opencode"]
+
+[rateLimitHandling]
+enabled = true
+maxRetries = 3
+baseBackoffMs = 5000
+recoverPrimaryBetweenIterations = true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fallbackAgents` | string[] | `[]` | Ordered list of fallback agents |
+| `rateLimitHandling.enabled` | boolean | `true` | Enable rate limit handling |
+| `rateLimitHandling.maxRetries` | number | `3` | Retries before fallback (0-10) |
+| `rateLimitHandling.baseBackoffMs` | number | `5000` | Base backoff time (0-300000 ms) |
+| `rateLimitHandling.recoverPrimaryBetweenIterations` | boolean | `true` | Try primary between iterations |
+
+## Notifications
+
+Configure desktop notifications for iteration events.
+
+```toml
+[notifications]
+enabled = true
+sound = "off"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable desktop notifications |
+| `sound` | string | `"off"` | Notification sound mode |
+
+### Sound Mode Values
+
+| Value | Description |
+|-------|-------------|
+| `"off"` | No sound |
+| `"system"` | Use OS default notification sound |
+| `"ralph"` | Play random Ralph Wiggum sound clips |
+
+## CLI Flag Reference
+
+These flags override config file settings. Use with any execution command.
+
+### Execution Options
+
+| Flag | Short | Type | Description |
+|------|-------|------|-------------|
+| `--iterations <n>` | `-n` | number | Max iterations |
+| `--delay <ms>` | | number | Iteration delay |
+| `--output-dir <path>` | | string | Output directory |
+| `--progress-file <path>` | | string | Progress file path |
+| `--headless` | | boolean | Run without TUI |
+| `--no-setup` | | boolean | Skip setup check |
+
+### Agent Options
+
+| Flag | Short | Type | Description |
+|------|-------|------|-------------|
+| `--agent <name>` | `-a` | string | Agent to use |
+| `--model <model>` | `-m` | string | Model override |
+
+### Tracker Options
+
+| Flag | Short | Type | Description |
+|------|-------|------|-------------|
+| `--tracker <name>` | `-t` | string | Tracker to use |
+| `--epic <id>` | `-e` | string | Epic ID (beads trackers) |
+| `--prd <path>` | `-p` | string | PRD file path (json tracker) |
+
+### Error Handling Options
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--on-error <strategy>` | string | Error strategy (retry/skip/abort) |
+| `--max-retries <n>` | number | Max retry attempts |
+
+### Prompt Options
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--prompt <path>` | string | Custom prompt template |
+
+### Notification Options
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--notify` | boolean | Enable notifications |
+| `--no-notify` | boolean | Disable notifications |
+
+## Validation Constraints
+
+All numeric options have validation constraints:
+
+| Option | Min | Max |
+|--------|-----|-----|
+| `maxIterations` | 0 | 1000 |
+| `iterationDelay` | 0 | 300000 |
+| `errorHandling.maxRetries` | 0 | 10 |
+| `errorHandling.retryDelayMs` | 0 | 300000 |
+| `rateLimitHandling.maxRetries` | 0 | 10 |
+| `rateLimitHandling.baseBackoffMs` | 0 | 300000 |
+
+## Environment Variables
+
+Ralph TUI respects these environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `XDG_CONFIG_HOME` | Override global config location (default: `~/.config`) |
+
+## Next Steps
+
+- **[Config File](/docs/configuration/config-file)** - Full config file examples
+- **[CLI Commands](/docs/cli/run)** - Command documentation
+- **[Plugins](/docs/plugins)** - Agent and tracker plugin details

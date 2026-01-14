@@ -1,0 +1,151 @@
+---
+title: Configuration Overview
+description: Learn how to configure Ralph TUI with global, project, and CLI options.
+---
+
+## Configuration System
+
+Ralph TUI uses a layered configuration system that allows you to set defaults at multiple levels. Each layer can override settings from the previous layer.
+
+<Callout type="info">
+Configuration files use TOML format, which is designed to be easy to read and write. All configuration is validated at runtime with helpful error messages.
+</Callout>
+
+## Configuration Layers
+
+Settings are loaded in this order, with later layers overriding earlier ones:
+
+<Steps>
+  <Step title="Global Config">
+    **Location:** `~/.config/ralph-tui/config.toml`
+
+    User-wide defaults that apply to all projects. Great for setting your preferred agent or common options.
+  </Step>
+
+  <Step title="Project Config">
+    **Location:** `.ralph-tui/config.toml` (in project root)
+
+    Project-specific settings that override global defaults. Created automatically by `ralph-tui setup`.
+  </Step>
+
+  <Step title="CLI Flags">
+    Command-line options that override everything. Useful for one-off changes or scripting.
+  </Step>
+</Steps>
+
+## Configuration Files
+
+Both global and project configs use the same schema and TOML format:
+
+```toml
+# Example configuration
+agent = "claude"
+tracker = "beads-bv"
+maxIterations = 10
+iterationDelay = 1000
+```
+
+### File Locations
+
+| Config Level | Path | Purpose |
+|-------------|------|---------|
+| Global | `~/.config/ralph-tui/config.toml` | User-wide defaults |
+| Project | `.ralph-tui/config.toml` | Project-specific settings |
+
+<Callout type="tip">
+The project config is searched up from your current directory, so you can run `ralph-tui` from any subdirectory and it will find the config in your project root.
+</Callout>
+
+## Quick Setup
+
+The easiest way to create configuration is with the setup wizard:
+
+```bash
+ralph-tui setup
+```
+
+This interactive command will:
+1. Detect installed agents (Claude Code, OpenCode)
+2. Create `.ralph-tui/config.toml` with your choices
+3. Install bundled skills for PRD creation
+4. Optionally configure trackers
+
+## Viewing Configuration
+
+To see your merged configuration (global + project + defaults):
+
+```bash
+ralph-tui config show
+```
+
+This shows the effective configuration after all layers are merged, helpful for debugging.
+
+## Configuration Sections
+
+Ralph TUI configuration is organized into several sections:
+
+### Core Settings
+
+Basic execution parameters:
+
+```toml
+maxIterations = 10       # Maximum iterations (0 = unlimited)
+iterationDelay = 1000    # Delay between iterations (ms)
+outputDir = ".ralph-tui/iterations"
+progressFile = ".ralph-tui/progress.md"
+autoCommit = false       # Auto-commit after task completion
+```
+
+### Agent Settings
+
+Configure which AI agent to use:
+
+```toml
+agent = "claude"         # Shorthand: use this agent plugin
+
+# Or configure with options:
+[agentOptions]
+model = "claude-sonnet-4-20250514"
+```
+
+### Tracker Settings
+
+Configure your task source:
+
+```toml
+tracker = "beads-bv"     # Shorthand: use this tracker plugin
+
+# Or configure with options:
+[trackerOptions]
+epicId = "beads-001"
+```
+
+### Error Handling
+
+Control how Ralph responds to failures:
+
+```toml
+[errorHandling]
+strategy = "skip"        # "retry", "skip", or "abort"
+maxRetries = 3
+retryDelayMs = 5000
+```
+
+### Rate Limiting
+
+Configure fallback behavior for API rate limits:
+
+```toml
+fallbackAgents = ["opencode"]
+
+[rateLimitHandling]
+enabled = true
+maxRetries = 3
+baseBackoffMs = 5000
+```
+
+## Next Steps
+
+- **[Config File](/docs/configuration/config-file)** - Complete config file examples
+- **[Options Reference](/docs/configuration/options)** - Full list of all options
+- **[CLI Commands](/docs/cli)** - CLI flag documentation

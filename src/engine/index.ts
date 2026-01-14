@@ -34,7 +34,7 @@ import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { SubagentTraceParser } from '../plugins/agents/tracing/parser.js';
 import type { SubagentEvent } from '../plugins/agents/tracing/types.js';
 import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
-import { updateSessionIteration, updateSessionStatus } from '../session/index.js';
+import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
 import { saveIterationLog, buildSubagentTrace, createProgressEntry, appendProgress, getRecentProgressSummary } from '../logs/index.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
@@ -1033,6 +1033,133 @@ export class ExecutionEngine {
    */
   isPausing(): boolean {
     return this.state.status === 'pausing';
+  }
+
+  /**
+   * Add iterations to maxIterations at runtime.
+   * Useful for extending a session without stopping.
+   * @param count - Number of iterations to add (must be positive)
+   * @returns true if the engine should be restarted (was idle after hitting max_iterations)
+   */
+  async addIterations(count: number): Promise<boolean> {
+    if (count <= 0) {
+      return false;
+    }
+
+    const previousMax = this.config.maxIterations;
+    // Handle unlimited case (0 means unlimited) - true no-op
+    if (previousMax === 0) {
+      return false;
+    }
+
+    const newMax = previousMax + count;
+
+    // Check if we should restart (engine is idle and we're adding to a non-unlimited max)
+    const shouldRestart = this.state.status === 'idle' && previousMax > 0;
+
+    // Update config
+    this.config.maxIterations = newMax;
+
+    // Persist to session
+    await updateSessionMaxIterations(this.config.cwd, newMax);
+
+    // Emit event
+    this.emit({
+      type: 'engine:iterations-added',
+      timestamp: new Date().toISOString(),
+      added: count,
+      newMax,
+      previousMax,
+      currentIteration: this.state.currentIteration,
+    });
+
+    return shouldRestart;
+  }
+
+  /**
+   * Remove iterations from maxIterations at runtime.
+   * Useful for limiting a session that's running longer than expected.
+   * @param count - Number of iterations to remove (must be positive)
+   * @returns true if successful, false if removal would go below 1 or current iteration
+   */
+  async removeIterations(count: number): Promise<boolean> {
+    if (count <= 0) {
+      return false;
+    }
+
+    const previousMax = this.config.maxIterations;
+    // Handle unlimited case (0 means unlimited) - cannot reduce unlimited
+    if (previousMax === 0) {
+      return false;
+    }
+
+    // Calculate new max, but don't go below 1 or current iteration
+    const minAllowed = Math.max(1, this.state.currentIteration);
+    const newMax = Math.max(minAllowed, previousMax - count);
+
+    // Check if we actually made a change
+    if (newMax === previousMax) {
+      return false;
+    }
+
+    // Update config
+    this.config.maxIterations = newMax;
+
+    // Persist to session
+    await updateSessionMaxIterations(this.config.cwd, newMax);
+
+    // Emit event
+    this.emit({
+      type: 'engine:iterations-removed',
+      timestamp: new Date().toISOString(),
+      removed: previousMax - newMax,
+      newMax,
+      previousMax,
+      currentIteration: this.state.currentIteration,
+    });
+
+    return true;
+  }
+
+  /**
+   * Continue execution after adding more iterations.
+   * Call this after addIterations() returns true.
+   */
+  async continueExecution(): Promise<void> {
+    if (this.state.status !== 'idle') {
+      return; // Only continue from idle state
+    }
+
+    if (!this.agent || !this.tracker) {
+      throw new Error('Engine not initialized');
+    }
+
+    this.state.status = 'running';
+    this.shouldStop = false;
+
+    // Emit resumed event
+    this.emit({
+      type: 'engine:resumed',
+      timestamp: new Date().toISOString(),
+      fromIteration: this.state.currentIteration,
+    });
+
+    try {
+      await this.runLoop();
+    } finally {
+      this.state.status = 'idle';
+    }
+  }
+
+  /**
+   * Get current iteration info.
+   * @returns Object with currentIteration and maxIterations
+   */
+  getIterationInfo(): { currentIteration: number; maxIterations: number } {
+    return {
+      currentIteration: this.state.currentIteration,
+      maxIterations: this.config.maxIterations,
+    };
   }
 
   /**

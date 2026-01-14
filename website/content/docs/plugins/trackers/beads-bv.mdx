@@ -1,0 +1,318 @@
+---
+title: Beads-BV Tracker
+description: Smart task selection using PageRank, critical path, and graph analysis.
+---
+
+## Beads-BV Tracker
+
+The Beads-BV tracker extends the standard Beads tracker with intelligent task selection powered by [bv](https://github.com/steveyegge/bv) (Beads Viewer). It uses graph algorithms like PageRank and critical path analysis to pick tasks that unblock the most downstream work.
+
+<Callout type="tip">
+Beads-BV is ideal for large projects with complex dependency graphs. It automatically prioritizes bottleneck tasks.
+</Callout>
+
+## Prerequisites
+
+Install both the Beads CLI and Beads Viewer:
+
+```bash
+# Install bd (Beads CLI)
+bun install -g beads-cli
+
+# Install bv (Beads Viewer)
+bun install -g beads-viewer
+```
+
+Initialize Beads in your project:
+
+```bash
+cd your-project
+bd init
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Create Tasks with Dependencies">
+    Set up tasks with dependency relationships:
+
+    ```bash
+    bd create --title "Database schema" --type task
+    bd create --title "API endpoints" --type task
+    bd create --title "Frontend UI" --type task
+
+    # API depends on schema
+    bd dep add beads-api beads-schema
+
+    # Frontend depends on API
+    bd dep add beads-frontend beads-api
+    ```
+  </Step>
+
+  <Step title="Run with Beads-BV">
+    ```bash
+    ralph-tui run --tracker beads-bv --epic beads-xyz
+    ```
+
+    BV will recommend "Database schema" first because completing it unblocks the most work.
+  </Step>
+</Steps>
+
+## Configuration
+
+### CLI Flags
+
+```bash
+ralph-tui run --tracker beads-bv --epic beads-xyz
+```
+
+### Config File
+
+```toml
+# .ralph-tui/config.toml
+tracker = "beads-bv"
+
+[trackerOptions]
+beadsDir = ".beads"
+labels = "ralph"
+```
+
+### Options Reference
+
+Same as the base Beads tracker:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `beadsDir` | string | `.beads` | Path to .beads directory |
+| `epicId` | string | - | Epic ID to filter tasks |
+| `labels` | string | - | Comma-separated label filter |
+| `workingDir` | string | `.` | Working directory for commands |
+
+## How BV Selects Tasks
+
+BV uses graph analysis to rank tasks. The `--robot-triage` command returns:
+
+### Score Components
+
+| Metric | Description |
+|--------|-------------|
+| **PageRank** | Node importance in dependency graph |
+| **Betweenness** | How often task is on critical paths |
+| **Blocker Ratio** | How many tasks this unblocks |
+| **Staleness** | How long task has been open |
+| **Priority Boost** | Original priority factored in |
+
+### Example Output
+
+```json
+{
+  "recommendations": [
+    {
+      "id": "beads-schema",
+      "title": "Database schema",
+      "score": 0.85,
+      "reasons": [
+        "Unblocks 5 downstream tasks",
+        "On critical path",
+        "High PageRank score"
+      ],
+      "unblocks": 5
+    }
+  ]
+}
+```
+
+## Task Reasoning
+
+Beads-BV provides reasoning for why each task was selected:
+
+```
+Selected: beads-schema (score: 0.85)
+Reasons:
+  - Unblocks 5 downstream tasks
+  - On critical path
+  - High PageRank score
+```
+
+This appears in the TUI task details panel.
+
+## Fallback Behavior
+
+If `bv` is not installed or fails, Beads-BV automatically falls back to standard Beads behavior (priority + order). You'll see a warning:
+
+```
+Warning: bv binary not found. Smart task selection will fall back to basic beads behavior.
+```
+
+## BV Robot Flags
+
+The plugin uses BV's robot flags for deterministic output:
+
+| Flag | Purpose |
+|------|---------|
+| `--robot-triage` | Get ranked recommendations |
+| `--robot-next` | Get single top pick |
+| `--robot-plan` | Get parallel execution tracks |
+| `--robot-insights` | Get full graph metrics |
+
+### Manual BV Usage
+
+You can run BV commands directly for insights:
+
+```bash
+# Get triage recommendations
+bv --robot-triage | jq '.triage.recommendations[:3]'
+
+# Get project stats
+bv --robot-triage | jq '.triage.quick_ref'
+
+# Check for cycles
+bv --robot-insights | jq '.Cycles'
+```
+
+## Graph Analysis Benefits
+
+### Simple Priority vs Graph Analysis
+
+Consider this dependency graph:
+
+```
+    A ─────────┐
+               ▼
+    B ──────▶ D ──────▶ E
+               ▲
+    C ─────────┘
+```
+
+**Simple priority** might pick A, B, C in order.
+
+**BV analysis** picks D first because:
+- D is a bottleneck (3 tasks depend on it)
+- Completing D unblocks E immediately
+- A, B, C can be done in parallel afterward
+
+### Critical Path
+
+BV identifies the critical path - the longest sequence of dependent tasks. Tasks on this path are prioritized because delays cascade.
+
+### Cycle Detection
+
+BV detects dependency cycles that would deadlock execution:
+
+```bash
+bv --robot-insights | jq '.Cycles'
+```
+
+Fix cycles with:
+```bash
+bd dep remove <task> <dependency>
+```
+
+## Triage Stats
+
+BV provides project health metrics:
+
+```json
+{
+  "quick_ref": {
+    "open_count": 15,
+    "actionable_count": 8,
+    "blocked_count": 4,
+    "in_progress_count": 3
+  }
+}
+```
+
+The TUI displays these in the status bar when using Beads-BV.
+
+## How It Works
+
+When Ralph TUI runs with Beads-BV:
+
+1. **Detect**: Check for `.beads/`, `bd`, and `bv` CLIs
+2. **Triage**: Run `bv --robot-triage` for recommendations
+3. **Filter**: Apply epic and label filters to recommendations
+4. **Select**: Pick top-scored task
+5. **Augment**: Add BV reasoning to task metadata
+6. **Execute**: Run agent with enriched task prompt
+7. **Refresh**: Update triage after task completion
+
+### Automatic Refresh
+
+After each task completes, BV triage data is refreshed in the background. This ensures recommendations stay current as the graph changes.
+
+## Beads-BV vs Beads
+
+| Feature | Beads | Beads-BV |
+|---------|-------|----------|
+| Task selection | Priority + order | Graph-optimized |
+| PageRank | No | Yes |
+| Critical path | No | Yes |
+| Unblock analysis | No | Yes |
+| Extra dependency | None | `bv` CLI |
+| Fallback | N/A | To Beads |
+
+Use Beads for simple projects, Beads-BV for complex dependency graphs.
+
+## Troubleshooting
+
+### "bv binary not found"
+
+Install Beads Viewer:
+
+```bash
+bun install -g beads-viewer
+```
+
+### "Falling back to basic beads"
+
+BV failed - check:
+1. `bv --version` works
+2. `.beads/beads.jsonl` exists
+3. No syntax errors in beads data
+
+### "Cycle detected"
+
+You have circular dependencies. Find and fix:
+
+```bash
+# Find cycles
+bv --robot-insights | jq '.Cycles'
+
+# Remove offending dependency
+bd dep remove <task-a> <task-b>
+```
+
+### "Wrong task selected"
+
+BV might select a task you didn't expect. Check its reasoning:
+
+```bash
+bv --robot-triage | jq '.triage.recommendations[0]'
+```
+
+The score breakdown explains why it was chosen.
+
+## Advanced: Custom Triage
+
+For custom selection logic, you can query BV directly:
+
+```bash
+# Get all recommendations
+bv --robot-triage > triage.json
+
+# Filter by your criteria
+jq '.triage.recommendations | map(select(.unblocks > 2))' triage.json
+
+# Get quick wins (high impact, low complexity)
+jq '.triage.quick_wins' triage.json
+
+# Get blockers to clear first
+jq '.triage.blockers_to_clear' triage.json
+```
+
+## Next Steps
+
+- **[Beads Tracker](/docs/plugins/trackers/beads)** - Base Beads without graph analysis
+- **[JSON Tracker](/docs/plugins/trackers/json)** - Simple file-based tracking
+- **[Plugin Overview](/docs/plugins)** - Understanding the plugin system

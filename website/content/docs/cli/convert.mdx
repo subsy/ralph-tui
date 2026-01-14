@@ -1,0 +1,243 @@
+---
+title: convert
+description: Convert PRD markdown files to executable task formats like prd.json.
+---
+
+## Synopsis
+
+```bash
+ralph-tui convert [options] <prd-file>
+```
+
+The `convert` command transforms a PRD markdown file into a task format that Ralph can execute. It extracts user stories, acceptance criteria, and quality gates to create structured task files.
+
+<Callout type="tip">
+If you used `create-prd --chat`, you were likely already prompted to convert to tasks. Use this command when you have an existing PRD that needs conversion.
+</Callout>
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--to <format>` | Target format: `json` |
+| `--output, -o <path>` | Output file path (default: `./prd.json`) |
+| `--branch, -b <name>` | Git branch name (prompts if not provided) |
+| `--force, -f` | Overwrite existing files |
+
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<prd-file>` | Path to the PRD markdown file to convert |
+
+## Examples
+
+### Basic Conversion
+
+```bash
+# Convert PRD to prd.json
+ralph-tui convert ./tasks/prd-my-feature.md
+
+# Specify output path
+ralph-tui convert ./tasks/prd-my-feature.md --output ./my-tasks.json
+```
+
+### Explicit Format
+
+```bash
+# Convert to JSON format
+ralph-tui convert --to json ./tasks/prd-my-feature.md
+```
+
+### Overwrite Existing
+
+```bash
+# Force overwrite of existing prd.json
+ralph-tui convert --force ./tasks/prd-my-feature.md
+```
+
+### With Git Branch
+
+```bash
+# Specify branch name for beads integration
+ralph-tui convert --branch feat/my-feature ./tasks/prd-my-feature.md
+```
+
+## Conversion Process
+
+When you run `convert`, the command:
+
+<Steps>
+  <Step title="Parse PRD">
+    Reads the markdown file and extracts:
+    - Feature title and description
+    - User stories with their IDs
+    - Acceptance criteria for each story
+    - Dependencies between stories
+  </Step>
+
+  <Step title="Extract Quality Gates">
+    Finds the "## Quality Gates" section and extracts commands that must pass.
+  </Step>
+
+  <Step title="Append Gates to Stories">
+    Adds quality gate commands to each story's acceptance criteria, ensuring every task runs the required checks.
+  </Step>
+
+  <Step title="Generate Output">
+    Creates the task file in the specified format with proper structure for Ralph to execute.
+  </Step>
+</Steps>
+
+## Output Format
+
+### JSON (prd.json)
+
+The JSON output follows this structure:
+
+```json
+{
+  "title": "My Feature",
+  "description": "Feature description from PRD",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "First user story",
+      "description": "As a user, I want...",
+      "acceptanceCriteria": [
+        "Criterion from PRD",
+        "Another criterion",
+        "bun run typecheck passes",
+        "bun run lint passes"
+      ],
+      "dependsOn": [],
+      "passes": false
+    },
+    {
+      "id": "US-002",
+      "title": "Second user story",
+      "dependsOn": ["US-001"],
+      "passes": false
+    }
+  ]
+}
+```
+
+<Callout type="info">
+The `passes: false` field indicates the task hasn't been completed. Ralph sets this to `true` when the task is done.
+</Callout>
+
+## Quality Gate Integration
+
+Quality gates from the PRD are automatically appended to acceptance criteria:
+
+**PRD Input:**
+
+```markdown
+### US-001: Add login form
+
+#### Acceptance Criteria
+- [ ] Form has email and password fields
+- [ ] Submit button is disabled until valid
+
+## Quality Gates
+- `bun run typecheck` - Type checking
+- `bun run lint` - Linting
+```
+
+**JSON Output:**
+
+```json
+{
+  "id": "US-001",
+  "acceptanceCriteria": [
+    "Form has email and password fields",
+    "Submit button is disabled until valid",
+    "bun run typecheck passes",
+    "bun run lint passes"
+  ]
+}
+```
+
+## Dependency Detection
+
+The converter attempts to detect dependencies from:
+
+1. **Explicit "depends on" mentions** in the PRD
+2. **Prerequisites sections** in user stories
+3. **Story ordering** (later stories may depend on earlier ones)
+
+You can also manually add dependencies in the PRD:
+
+```markdown
+### US-003: Build frontend form
+**Prerequisites**: US-001 (schema), US-002 (API)
+```
+
+## Workflow Example
+
+<Steps>
+  <Step title="Create PRD">
+    Write or generate a PRD markdown file:
+    ```bash
+    ralph-tui create-prd --chat
+    # Save as ./tasks/prd-auth.md
+    ```
+  </Step>
+
+  <Step title="Review PRD">
+    Open and review the PRD, adjusting stories and criteria as needed.
+  </Step>
+
+  <Step title="Convert to Tasks">
+    ```bash
+    ralph-tui convert ./tasks/prd-auth.md
+    ```
+  </Step>
+
+  <Step title="Run Ralph">
+    ```bash
+    ralph-tui run --prd ./prd.json
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### "No user stories found"
+
+Ensure your PRD uses the expected format:
+
+```markdown
+### US-001: Story Title
+or
+### User Story 1: Story Title
+```
+
+### "Quality gates section not found"
+
+Add a quality gates section to your PRD:
+
+```markdown
+## Quality Gates
+
+These commands must pass for every user story:
+- `bun run typecheck` - Type checking
+- `bun run lint` - Linting
+```
+
+### "Output file exists"
+
+Use `--force` to overwrite, or specify a different output path:
+
+```bash
+ralph-tui convert --force ./tasks/prd-auth.md
+# or
+ralph-tui convert ./tasks/prd-auth.md --output ./new-tasks.json
+```
+
+## Related Commands
+
+- **[create-prd](/docs/cli/create-prd)** - Create a new PRD with AI assistance
+- **[run](/docs/cli/run)** - Execute tasks from the converted file
+- **[status](/docs/cli/status)** - Check execution progress

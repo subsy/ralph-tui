@@ -1,0 +1,435 @@
+---
+title: Debugging
+description: How to debug Ralph TUI issues using logs, verbose mode, session inspection, and diagnostic tools.
+---
+
+## Overview
+
+When something goes wrong with Ralph TUI, systematic debugging helps identify the root cause quickly. This guide covers the diagnostic tools and techniques available.
+
+<Callout type="tip">
+Start with the simplest diagnostic (logs) before moving to more complex debugging. Most issues can be resolved by examining iteration output.
+</Callout>
+
+---
+
+## Iteration Logs
+
+Ralph TUI automatically saves output from each iteration to the `.ralph-tui/iterations/` directory.
+
+### Viewing Logs
+
+```bash
+# View the most recent iteration
+ralph-tui logs
+
+# View a specific iteration
+ralph-tui logs --iteration 5
+
+# View logs for a specific task
+ralph-tui logs --task US-005
+
+# View full output without truncation
+ralph-tui logs --iteration 5 --verbose
+```
+
+### Log File Location
+
+```
+.ralph-tui/
+└── iterations/
+    ├── iteration-001.json
+    ├── iteration-002.json
+    └── ...
+```
+
+Each log file contains:
+- Task ID and details
+- Full agent stdout/stderr
+- Timestamps and duration
+- Exit codes and completion status
+
+### Searching Logs
+
+```bash
+# Search for errors across all iterations
+grep -r "error" .ralph-tui/iterations/
+
+# Find completion tokens
+grep -r "COMPLETE" .ralph-tui/iterations/
+
+# Search for specific task mentions
+grep -r "US-005" .ralph-tui/iterations/
+```
+
+### Cleaning Up Logs
+
+Old logs can accumulate and consume disk space:
+
+```bash
+# Preview what would be deleted
+ralph-tui logs --clean --keep 10 --dry-run
+
+# Delete old logs, keeping the 10 most recent
+ralph-tui logs --clean --keep 10
+```
+
+---
+
+## Session Inspection
+
+The session file (`.ralph-tui-session.json`) contains the complete state of your Ralph TUI session.
+
+### Viewing Session State
+
+```bash
+# Quick status check
+ralph-tui status
+
+# JSON output for scripting
+ralph-tui status --json
+
+# Raw session file (when ralph-tui isn't running)
+cat .ralph-tui-session.json | jq .
+```
+
+### Session File Structure
+
+```json
+{
+  "version": "1.0.0",
+  "startedAt": "2024-01-15T10:30:00Z",
+  "currentIteration": 5,
+  "taskStatuses": {
+    "US-001": "completed",
+    "US-002": "in_progress",
+    "US-003": "pending"
+  },
+  "activeTaskId": "US-002",
+  "lockPid": 12345
+}
+```
+
+### Common Session Issues
+
+<Tabs
+  items={[
+    { label: "Stale Lock", value: "stale-lock", content: "If the `lockPid` refers to a dead process:\n\n```bash\n# Check if the process exists\nps -p $(cat .ralph-tui-session.json | jq -r '.lockPid')\n\n# Force resume if it doesn't\nralph-tui resume --force\n```" },
+    { label: "Corrupted State", value: "corrupted", content: "If the session file is malformed:\n\n```bash\n# Validate JSON syntax\ncat .ralph-tui-session.json | jq . 2>&1\n\n# Back up and recreate if corrupted\nmv .ralph-tui-session.json .ralph-tui-session.json.bak\nralph-tui run --prd ./prd.json\n```" },
+    { label: "Missing File", value: "missing", content: "If the session file doesn't exist:\n\n```bash\n# There's no session to resume - start fresh\nralph-tui run --prd ./prd.json\n```" }
+  ]}
+/>
+
+---
+
+## Configuration Debugging
+
+### View Effective Configuration
+
+```bash
+# See the merged configuration from all sources
+ralph-tui config show
+```
+
+This shows the final configuration after merging:
+1. Default values
+2. Global config (`~/.config/ralph-tui/config.toml`)
+3. Project config (`.ralph-tui/config.toml`)
+4. CLI flags
+
+### Validate TOML Syntax
+
+TOML syntax errors can cause configuration issues:
+
+```bash
+# Check for TOML parsing errors
+cat .ralph-tui/config.toml | npx toml2json 2>&1
+```
+
+Common TOML mistakes:
+- Missing quotes around strings with special characters
+- Incorrect table nesting with `[section]`
+- Using `=` instead of `:` (TOML uses `=`)
+
+### Configuration Precedence
+
+```
+CLI Flags (highest priority)
+    ↓
+Project Config (.ralph-tui/config.toml)
+    ↓
+Global Config (~/.config/ralph-tui/config.toml)
+    ↓
+Default Values (lowest priority)
+```
+
+---
+
+## Agent Debugging
+
+### Verify Agent Installation
+
+```bash
+# List detected agents
+ralph-tui plugins agents
+
+# Test agent directly
+which claude && claude --version
+which opencode && opencode --version
+```
+
+### Test Agent Execution
+
+Run the agent manually to isolate issues:
+
+```bash
+# Test Claude Code directly
+echo "Say hello" | claude --print
+
+# Test OpenCode directly
+echo "Say hello" | opencode run
+```
+
+### View Agent Command
+
+To see what command Ralph TUI executes:
+
+1. Check iteration logs for the full command
+2. Look for the `command` field in log JSON
+
+```bash
+ralph-tui logs --iteration 1 --verbose | head -50
+```
+
+---
+
+## Tracker Debugging
+
+### prd.json Issues
+
+```bash
+# Validate JSON syntax
+cat prd.json | jq . 2>&1
+
+# Check task structure
+cat prd.json | jq '.userStories[] | {id, title, passes, status}'
+
+# Find blocked tasks
+cat prd.json | jq '.userStories[] | select(.blockedBy | length > 0)'
+```
+
+### Beads Issues
+
+```bash
+# Check Beads status
+bd doctor
+
+# View all tasks in an epic
+bd list --epic your-epic-id
+
+# Check for blocked tasks
+bd blocked
+
+# Sync status
+bd sync --status
+```
+
+### Beads-bv Issues
+
+```bash
+# Verify bv is available
+which bv
+
+# Check graph analysis
+bv --robot-triage | jq '.quick_ref'
+
+# View dependency cycles (can block progress)
+bv --robot-insights | jq '.Cycles'
+```
+
+---
+
+## Template Debugging
+
+### View Current Template
+
+```bash
+# Display the active prompt template
+ralph-tui template show
+```
+
+### Test Template Rendering
+
+To see what prompt is actually sent to the agent:
+
+1. Check iteration logs - the rendered prompt is included
+2. Look for `prompt` or `input` fields in the log JSON
+
+### Template Variables
+
+Available Handlebars variables:
+- `{{task.id}}` - Task identifier
+- `{{task.title}}` - Task title
+- `{{task.description}}` - Full description
+- `{{task.acceptanceCriteria}}` - Acceptance criteria
+- `{{recentProgress}}` - Cross-iteration context
+- `{{epic.title}}` - Epic title (if using Beads)
+
+---
+
+## Progress File Debugging
+
+The progress file tracks cross-iteration context.
+
+### View Progress History
+
+```bash
+# View accumulated progress
+cat .ralph-tui/progress.md
+
+# Check file size (capped at ~50KB)
+ls -la .ralph-tui/progress.md
+```
+
+### Reset Progress
+
+If progress context is causing issues:
+
+```bash
+# Clear progress file
+echo "" > .ralph-tui/progress.md
+
+# Or remove entirely (will be recreated)
+rm .ralph-tui/progress.md
+```
+
+---
+
+## Common Debug Workflows
+
+### Workflow: Task Won't Complete
+
+<Steps>
+  <Step title="Check iteration logs">
+    ```bash
+    ralph-tui logs --task TASK-ID --verbose
+    ```
+    Look for the `<promise>COMPLETE</promise>` token in output.
+  </Step>
+
+  <Step title="Verify template includes completion instruction">
+    ```bash
+    ralph-tui template show | grep -i "promise\|complete"
+    ```
+  </Step>
+
+  <Step title="Test agent directly">
+    Run the agent manually with the same prompt to see if it completes.
+  </Step>
+
+  <Step title="Check acceptance criteria">
+    If criteria are impossible to meet, the agent may never signal completion.
+  </Step>
+</Steps>
+
+### Workflow: Unexpected Behavior
+
+<Steps>
+  <Step title="Check configuration">
+    ```bash
+    ralph-tui config show
+    ```
+    Verify settings match your expectations.
+  </Step>
+
+  <Step title="Review session state">
+    ```bash
+    ralph-tui status --json
+    ```
+  </Step>
+
+  <Step title="Examine recent iterations">
+    ```bash
+    ralph-tui logs --verbose
+    ```
+  </Step>
+
+  <Step title="Check for dependency issues">
+    ```bash
+    # For Beads
+    bd blocked
+
+    # For prd.json
+    cat prd.json | jq '.userStories[] | select(.blockedBy | length > 0)'
+    ```
+  </Step>
+</Steps>
+
+### Workflow: Agent Errors
+
+<Steps>
+  <Step title="Check agent is working">
+    ```bash
+    echo "Hello" | claude --print
+    ```
+  </Step>
+
+  <Step title="Verify credentials">
+    ```bash
+    # Claude Code
+    claude config show
+
+    # Environment
+    echo $ANTHROPIC_API_KEY
+    ```
+  </Step>
+
+  <Step title="Check rate limits">
+    Look for rate limit messages in iteration logs.
+  </Step>
+
+  <Step title="Review error handling config">
+    ```toml
+    [errorHandling]
+    strategy = "retry"
+    maxRetries = 3
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Reporting Issues
+
+When reporting issues to GitHub, include:
+
+1. **Ralph TUI version:**
+   ```bash
+   ralph-tui --version
+   ```
+
+2. **Configuration (sanitized):**
+   ```bash
+   ralph-tui config show
+   ```
+
+3. **Relevant iteration logs** (remove sensitive data)
+
+4. **Session status:**
+   ```bash
+   ralph-tui status --json
+   ```
+
+5. **Steps to reproduce** the issue
+
+<Callout type="warning">
+Before sharing logs, remove any API keys, passwords, or other sensitive information.
+</Callout>
+
+---
+
+## Next Steps
+
+- **[Common Issues](/docs/troubleshooting/common-issues)** - Solutions for frequent problems
+- **[Configuration Reference](/docs/configuration/options)** - All configuration options
+- **[CLI Commands](/docs/cli/overview)** - Command reference

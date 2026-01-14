@@ -1,0 +1,462 @@
+---
+title: Handlebars Reference
+description: Complete reference for Handlebars syntax and available template variables in Ralph TUI.
+---
+
+## Handlebars Basics
+
+Ralph uses [Handlebars](https://handlebarsjs.com) for template rendering. Handlebars is a logic-less templating language that uses double curly braces for variable substitution.
+
+### Variable Substitution
+
+Insert variable values with `{{variableName}}`:
+
+```handlebars
+**Task ID**: {{taskId}}
+**Title**: {{taskTitle}}
+```
+
+Renders to:
+
+```markdown
+**Task ID**: US-001
+**Title**: Add user authentication
+```
+
+### Conditional Blocks
+
+Show content only when a variable has a value:
+
+```handlebars
+{{#if taskDescription}}
+## Description
+{{taskDescription}}
+{{/if}}
+```
+
+The block renders only if `taskDescription` is non-empty.
+
+### Else Blocks
+
+Provide fallback content:
+
+```handlebars
+{{#if epicTitle}}
+**Epic**: {{epicTitle}}
+{{else}}
+*No epic assigned*
+{{/if}}
+```
+
+### Unless Blocks
+
+Inverse of `if` - renders when value is falsy:
+
+```handlebars
+{{#unless dependsOn}}
+This task has no dependencies - you can start immediately!
+{{/unless}}
+```
+
+### Comments
+
+Add template comments that won't appear in output:
+
+```handlebars
+{{!-- This is a Handlebars comment --}}
+{{! Short comment syntax }}
+```
+
+## Available Variables
+
+Ralph provides these variables for template rendering:
+
+### Task Information
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `taskId` | string | Unique task identifier (e.g., "US-001", "beads-abc") |
+| `taskTitle` | string | Task title/summary |
+| `taskDescription` | string | Full task description |
+| `acceptanceCriteria` | string | Extracted acceptance criteria (formatted as checklist) |
+| `type` | string | Task type: "feature", "bug", "task", etc. |
+| `status` | string | Current status: "open", "in_progress", "closed" |
+| `priority` | string | Priority level: "0" (critical) to "4" (backlog) |
+| `notes` | string | Additional task notes or context |
+
+### Relationships
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `dependsOn` | string | Comma-separated list of dependency task IDs |
+| `blocks` | string | Comma-separated list of tasks this blocks |
+| `labels` | string | Comma-separated list of labels |
+| `epicId` | string | Parent epic ID (if part of an epic) |
+| `epicTitle` | string | Parent epic title |
+
+### Context Information
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `trackerName` | string | Active tracker: "json", "beads", "beads-bv" |
+| `agentName` | string | Active agent: "claude", "opencode" |
+| `model` | string | Model being used (if configured) |
+| `cwd` | string | Current working directory path |
+| `currentDate` | string | Current date in ISO format (YYYY-MM-DD) |
+| `currentTimestamp` | string | Current timestamp in ISO format |
+
+### Progress Tracking
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `recentProgress` | string | Summary of progress from recent iterations |
+
+## Variable Details
+
+### taskDescription
+
+The full description from your task tracker. For JSON (prd.json), this is the story description. For Beads, it's the issue body.
+
+```handlebars
+{{#if taskDescription}}
+## Description
+{{taskDescription}}
+{{/if}}
+```
+
+### acceptanceCriteria
+
+Extracted from task metadata or parsed from description. Ralph formats array-based criteria as a markdown checklist:
+
+```handlebars
+{{#if acceptanceCriteria}}
+## Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+```
+
+Renders as:
+
+```markdown
+## Acceptance Criteria
+- [ ] User can log in with email/password
+- [ ] Session persists across page refreshes
+- [ ] Invalid credentials show error message
+```
+
+### dependsOn and blocks
+
+These show task relationships for dependency-aware workflows:
+
+```handlebars
+{{#if dependsOn}}
+**Blocked by**: {{dependsOn}}
+Complete these first before starting.
+{{/if}}
+
+{{#if blocks}}
+**Impact**: Completing this unblocks: {{blocks}}
+{{/if}}
+```
+
+### recentProgress
+
+When cross-iteration progress tracking is enabled, this contains a summary of recent work:
+
+```handlebars
+{{#if recentProgress}}
+## Previous Progress
+{{recentProgress}}
+{{/if}}
+```
+
+The progress file is managed automatically by Ralph and includes:
+- Notes from previous iterations
+- Insights and learnings
+- Context for the current task
+
+### priority
+
+Priority as a string, where lower numbers = higher priority:
+
+| Value | Meaning |
+|-------|---------|
+| "0" | Critical/P0 |
+| "1" | High/P1 |
+| "2" | Medium/P2 (default) |
+| "3" | Low/P3 |
+| "4" | Backlog/P4 |
+
+```handlebars
+{{#if priority}}
+**Priority**: P{{priority}}
+{{/if}}
+```
+
+## Advanced Usage
+
+### Accessing Raw Objects
+
+For advanced templates, access the full task and config objects:
+
+```handlebars
+{{!-- Access task metadata --}}
+{{#if task.metadata.branch}}
+Branch: {{task.metadata.branch}}
+{{/if}}
+
+{{!-- Access nested properties --}}
+{{#with task}}
+  ID: {{id}}
+  Title: {{title}}
+  {{#each labels}}
+    - {{this}}
+  {{/each}}
+{{/with}}
+```
+
+<Callout type="warning">
+Raw object access exposes internal structure that may change. Use documented variables when possible for forward compatibility.
+</Callout>
+
+### Iterating Over Arrays
+
+When accessing raw arrays (like from `task.labels`):
+
+```handlebars
+{{#each task.labels}}
+- {{this}}
+{{/each}}
+```
+
+### Nested Conditionals
+
+Combine conditions for complex logic:
+
+```handlebars
+{{#if epicId}}
+  {{#if epicTitle}}
+**Epic**: {{epicId}} - {{epicTitle}}
+  {{else}}
+**Epic**: {{epicId}}
+  {{/if}}
+{{/if}}
+```
+
+## Handlebars Syntax Reference
+
+### Expression Escaping
+
+By default, Handlebars escapes HTML entities. Ralph disables this (using `noEscape: true`), so your content renders as-is:
+
+```handlebars
+{{!-- These render the same in Ralph --}}
+{{taskDescription}}
+{{{taskDescription}}}
+```
+
+### Block Helpers
+
+| Helper | Usage | Description |
+|--------|-------|-------------|
+| `if` | `{{#if var}}...{{/if}}` | Renders block if truthy |
+| `unless` | `{{#unless var}}...{{/unless}}` | Renders block if falsy |
+| `each` | `{{#each array}}...{{/each}}` | Iterates over array |
+| `with` | `{{#with object}}...{{/with}}` | Changes context |
+
+### Special Variables
+
+| Variable | Context | Description |
+|----------|---------|-------------|
+| `this` | Inside `each` | Current array item |
+| `@index` | Inside `each` | Current index (0-based) |
+| `@first` | Inside `each` | True if first iteration |
+| `@last` | Inside `each` | True if last iteration |
+| `@key` | Inside `each` (object) | Current property key |
+
+### Path Notation
+
+Access nested properties with dot notation:
+
+```handlebars
+{{task.metadata.customField}}
+{{config.tracker.plugin}}
+```
+
+## Common Patterns
+
+### Fallback Values
+
+Show a default when variable is empty:
+
+```handlebars
+{{#if type}}
+**Type**: {{type}}
+{{else}}
+**Type**: task
+{{/if}}
+```
+
+### Conditional Sections
+
+Include entire sections conditionally:
+
+```handlebars
+{{#if epicId}}
+## Epic Context
+- **Epic**: {{epicId}}
+- **Title**: {{epicTitle}}
+{{/if}}
+```
+
+### Formatted Lists
+
+When you have comma-separated values:
+
+```handlebars
+{{#if labels}}
+**Labels**: {{labels}}
+{{/if}}
+```
+
+Note: `labels` is already comma-joined by Ralph. For full control, access `task.labels` array directly.
+
+### Date/Time Context
+
+Include temporal context:
+
+```handlebars
+{{!-- Just the date --}}
+Started: {{currentDate}}
+
+{{!-- Full timestamp --}}
+Timestamp: {{currentTimestamp}}
+```
+
+## Troubleshooting
+
+### Variable Not Rendering
+
+If a variable shows as empty:
+
+1. Check the variable name spelling
+2. Verify your tracker provides that data
+3. Use `ralph-tui template show` to see available data
+
+### Syntax Errors
+
+Common mistakes:
+
+```handlebars
+{{!-- Wrong: Missing closing --}}
+{{#if condition}
+Content
+{{/if}}
+
+{{!-- Wrong: Extra spaces in helper --}}
+{{ #if condition }}
+
+{{!-- Correct --}}
+{{#if condition}}
+Content
+{{/if}}
+```
+
+### Conditional Not Working
+
+Handlebars considers these falsy:
+- Empty string `""`
+- `null` or `undefined`
+- `false`
+- `0`
+- Empty array `[]`
+
+If your variable is an empty string, the `{{#if}}` block won't render.
+
+## Template Examples by Use Case
+
+### Strict Quality Gates
+
+```handlebars
+## Task: {{taskTitle}}
+
+{{taskDescription}}
+
+## MANDATORY Quality Gates
+Run ALL of these before signaling completion:
+
+1. **Type Check**: `bun run typecheck`
+   - Must have ZERO errors
+
+2. **Lint**: `bun run lint`
+   - Must have ZERO warnings
+
+3. **Tests**: `bun run test`
+   - All tests must pass
+
+DO NOT signal completion if any check fails.
+
+<promise>COMPLETE</promise>
+```
+
+### Minimal Context
+
+```handlebars
+{{taskTitle}}
+
+{{acceptanceCriteria}}
+
+Done? <promise>COMPLETE</promise>
+```
+
+### Maximum Context
+
+```handlebars
+# {{taskTitle}}
+
+## Metadata
+| Field | Value |
+|-------|-------|
+| ID | {{taskId}} |
+| Type | {{type}} |
+| Priority | P{{priority}} |
+| Status | {{status}} |
+| Labels | {{labels}} |
+| Tracker | {{trackerName}} |
+| Agent | {{agentName}} |
+| Date | {{currentDate}} |
+
+{{#if epicId}}
+## Epic: {{epicId}}
+{{epicTitle}}
+{{/if}}
+
+## Description
+{{taskDescription}}
+
+## Acceptance Criteria
+{{acceptanceCriteria}}
+
+{{#if dependsOn}}
+## Dependencies
+Depends on: {{dependsOn}}
+{{/if}}
+
+{{#if blocks}}
+## Impact
+Unblocks: {{blocks}}
+{{/if}}
+
+{{#if recentProgress}}
+## Previous Progress
+{{recentProgress}}
+{{/if}}
+
+## Completion
+<promise>COMPLETE</promise>
+```
+
+## Next Steps
+
+- **[Template Customization](/docs/templates/customization)** - Create your own templates
+- **[Configuration](/docs/configuration)** - Set template paths and options

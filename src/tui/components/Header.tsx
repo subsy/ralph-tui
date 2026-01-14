@@ -146,6 +146,8 @@ export function Header({
   trackerName,
   activeAgentState,
   rateLimitState,
+  currentIteration,
+  maxIterations,
 }: HeaderProps): ReactNode {
   const statusDisplay = getStatusDisplay(status);
   const formattedTime = formatElapsedTime(elapsedTime);
@@ -222,6 +224,14 @@ export function Header({
               {completedTasks}/{totalTasks}
             </text>
           </box>
+          {/* Iteration counter - show current/max or current/∞ for unlimited */}
+          {currentIteration !== undefined && maxIterations !== undefined && (
+            <text fg={colors.fg.muted}>
+              <span fg={colors.fg.secondary}>
+                [{currentIteration}/{maxIterations === 0 ? '∞' : maxIterations}]
+              </span>
+            </text>
+          )}
           <text fg={colors.fg.muted}>⏱</text>
           <text fg={colors.fg.secondary}>{formattedTime}</text>
         </box>

@@ -1,0 +1,180 @@
+---
+title: Plugin Architecture
+description: Understanding Ralph TUI's plugin system for agent and tracker integrations.
+---
+
+## Plugin Architecture
+
+Ralph TUI uses a plugin system to support multiple AI agents and task trackers. This modular design lets you choose the tools that best fit your workflow.
+
+<Callout type="info">
+Plugins are independent - any agent can work with any tracker. Use Claude Code with Beads, or OpenCode with prd.json, or any combination.
+</Callout>
+
+## Two Plugin Types
+
+Ralph TUI has two categories of plugins:
+
+### Agent Plugins
+
+Agent plugins connect to AI coding assistants that execute tasks. They handle:
+
+- Detecting if the agent CLI is installed
+- Building command-line arguments from prompts
+- Streaming output in real-time
+- Managing execution lifecycle (start, interrupt, timeout)
+- Model selection and configuration
+
+**Built-in agents:**
+- **[Claude Code](/docs/plugins/agents/claude)** - Anthropic's Claude CLI with subagent tracing
+- **[OpenCode](/docs/plugins/agents/opencode)** - Open-source multi-provider agent
+
+### Tracker Plugins
+
+Tracker plugins connect to task management systems. They handle:
+
+- Fetching available tasks
+- Selecting the next task (respecting priorities and dependencies)
+- Updating task status (in progress, completed)
+- Syncing with external systems
+
+**Built-in trackers:**
+- **[JSON](/docs/plugins/trackers/json)** - Simple prd.json file format (no dependencies)
+- **[Beads](/docs/plugins/trackers/beads)** - Git-backed issue tracker with hierarchy
+- **[Beads-BV](/docs/plugins/trackers/beads-bv)** - Beads with graph analysis for smart task selection
+
+## How Plugins Work Together
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Ralph TUI                               │
+│                                                                 │
+│  ┌──────────────┐                         ┌──────────────┐     │
+│  │   Tracker    │──── Get Next Task ─────▶│   Engine     │     │
+│  │   Plugin     │◀─── Update Status ──────│              │     │
+│  └──────────────┘                         └──────┬───────┘     │
+│                                                  │              │
+│                                           Build Prompt          │
+│                                                  │              │
+│                                                  ▼              │
+│                                          ┌──────────────┐      │
+│                                          │    Agent     │      │
+│                                          │    Plugin    │      │
+│                                          └──────────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+The execution engine orchestrates plugins:
+
+1. **Tracker** provides the next task (highest priority, no blockers)
+2. **Engine** builds a prompt from task data + Handlebars template
+3. **Agent** executes the prompt and streams output
+4. **Engine** detects completion via `<promise>COMPLETE</promise>`
+5. **Tracker** marks the task as complete
+6. Repeat until no tasks remain
+
+## Plugin Comparison
+
+### Agents
+
+| Feature | Claude Code | OpenCode |
+|---------|-------------|----------|
+| Provider | Anthropic | Multi-provider |
+| Models | sonnet, opus, haiku | Any via provider/model format |
+| Subagent Tracing | Yes (JSONL) | No |
+| File Context | Yes (--add-dir) | Yes (--file) |
+| Streaming | Yes | Yes |
+| Installation | `npm i -g @anthropic-ai/claude-code` | `curl -fsSL https://opencode.ai/install \| bash` |
+
+### Trackers
+
+| Feature | JSON | Beads | Beads-BV |
+|---------|------|-------|----------|
+| External CLI | None | `bd` | `bd` + `bv` |
+| Dependencies | Yes | Yes | Yes |
+| Priority Ordering | Yes | Yes | Yes + PageRank |
+| Hierarchy (Epics) | No | Yes | Yes |
+| Graph Analysis | No | No | Yes |
+| Git Sync | No | Yes | Yes |
+| Setup Complexity | Lowest | Medium | Highest |
+
+## Choosing Plugins
+
+<Tabs
+  items={[
+    { label: "Getting Started", value: "getting-started", content: "Start with the **JSON tracker** and **Claude Code agent**:\n\n```bash\nralph-tui run --prd ./prd.json --agent claude\n```\n\nNo external dependencies needed - just create a `prd.json` file and go." },
+    { label: "Team Projects", value: "team", content: "Use **Beads tracker** for git-backed issue tracking:\n\n```bash\nralph-tui run --tracker beads --epic my-epic\n```\n\nIssues sync across team members via git." },
+    { label: "Large Projects", value: "large", content: "Use **Beads-BV tracker** for intelligent task selection:\n\n```bash\nralph-tui run --tracker beads-bv --epic my-epic\n```\n\nBV uses PageRank and critical path analysis to pick tasks that unblock the most work." }
+  ]}
+/>
+
+## Configuration
+
+### Quick Setup
+
+Set default plugins in your config file:
+
+```toml
+# .ralph-tui/config.toml
+agent = "claude"
+tracker = "json"
+
+[agentOptions]
+model = "sonnet"
+```
+
+### CLI Override
+
+Override config with CLI flags:
+
+```bash
+ralph-tui run --agent opencode --tracker beads-bv --epic my-epic
+```
+
+### Multiple Plugin Configs
+
+Configure multiple instances for flexibility:
+
+```toml
+# Define two agents
+[[agents]]
+name = "claude-fast"
+plugin = "claude"
+[agents.options]
+model = "haiku"
+
+[[agents]]
+name = "claude-smart"
+plugin = "claude"
+default = true
+[agents.options]
+model = "opus"
+
+# Switch between them
+# ralph-tui run --agent claude-fast
+```
+
+## Plugin Interface
+
+All plugins implement standard interfaces defined in the source:
+
+- **AgentPlugin**: `src/plugins/agents/types.ts`
+- **TrackerPlugin**: `src/plugins/trackers/types.ts`
+
+Key methods for agents:
+- `detect()` - Check if CLI is available
+- `execute(prompt, files, options)` - Run the agent
+- `interrupt(executionId)` - Stop execution
+
+Key methods for trackers:
+- `getTasks(filter)` - Get all matching tasks
+- `getNextTask(filter)` - Get highest priority ready task
+- `completeTask(id, reason)` - Mark task done
+- `updateTaskStatus(id, status)` - Update task state
+
+## Next Steps
+
+Learn about specific plugins:
+
+- **Agents**: [Claude Code](/docs/plugins/agents/claude) | [OpenCode](/docs/plugins/agents/opencode)
+- **Trackers**: [JSON](/docs/plugins/trackers/json) | [Beads](/docs/plugins/trackers/beads) | [Beads-BV](/docs/plugins/trackers/beads-bv)

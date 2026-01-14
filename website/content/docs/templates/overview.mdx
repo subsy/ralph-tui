@@ -1,0 +1,168 @@
+---
+title: Prompt Templates Overview
+description: Learn how Ralph TUI uses Handlebars templates to build prompts for AI agents.
+---
+
+## What Are Prompt Templates?
+
+Prompt templates are [Handlebars](https://handlebarsjs.com) templates that transform task data into structured prompts for AI agents. When Ralph picks a task from your tracker, it uses a template to build the prompt that gets sent to Claude Code or OpenCode.
+
+<Callout type="info">
+Handlebars is a simple templating language that uses `{{variable}}` syntax for variable substitution and `{{#if condition}}...{{/if}}` for conditional blocks.
+</Callout>
+
+## Why Templates Matter
+
+Templates give you control over how your AI agent receives task information:
+
+- **Consistency** - Every task gets the same structured format
+- **Context injection** - Include relevant metadata like dependencies, labels, and progress
+- **Workflow customization** - Tailor instructions to your project's requirements
+- **Quality gates** - Embed project-specific validation commands
+
+## How Templates Work
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐   │
+│   │    TASK      │────▶│   TEMPLATE   │────▶│    PROMPT    │   │
+│   │    DATA      │     │   + CONTEXT  │     │   TO AGENT   │   │
+│   └──────────────┘     └──────────────┘     └──────────────┘   │
+│                                                                 │
+│   {                    ## User Story          Structured        │
+│     id: "US-001",      **ID**: US-001   →    markdown sent      │
+│     title: "Add..."    **Title**: Add...     to Claude/OpenCode │
+│   }                                                             │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+When Ralph executes a task:
+
+<Steps>
+  <Step title="Load Template">
+    Ralph loads the appropriate template based on your tracker type (JSON, Beads, or custom).
+  </Step>
+
+  <Step title="Build Context">
+    Task data is extracted and formatted as template variables: `taskId`, `taskTitle`, `acceptanceCriteria`, etc.
+  </Step>
+
+  <Step title="Render Prompt">
+    Handlebars processes the template with the context, producing the final prompt string.
+  </Step>
+
+  <Step title="Execute Agent">
+    The rendered prompt is passed to your AI agent (Claude Code or OpenCode).
+  </Step>
+</Steps>
+
+## Built-in Templates
+
+Ralph includes optimized templates for each tracker type:
+
+| Tracker | Template | Optimized For |
+|---------|----------|---------------|
+| `json` | JSON Template | PRD user stories with acceptance criteria |
+| `beads` | Beads Template | Bead workflows with epic context |
+| `beads-bv` | Beads-BV Template | Graph-aware selection with dependency info |
+| `default` | Default Template | Generic task structure |
+
+### JSON Template Example
+
+The JSON tracker template structures PRD user stories:
+
+```handlebars
+## User Story
+**ID**: {{taskId}}
+**Title**: {{taskTitle}}
+
+{{#if taskDescription}}
+## Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+## Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+{{#if dependsOn}}
+**Prerequisites**: {{dependsOn}}
+{{/if}}
+
+## Instructions
+1. Implement this user story following the acceptance criteria
+2. Run your project's quality checks (typecheck, lint, etc.)
+3. Commit your changes with a descriptive message
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+### Beads Template Example
+
+The Beads template includes epic context and specific instructions for the `bd` CLI:
+
+```handlebars
+## Bead Details
+- **ID**: {{taskId}}
+- **Title**: {{taskTitle}}
+{{#if epicId}}
+- **Epic**: {{epicId}}{{#if epicTitle}} - {{epicTitle}}{{/if}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+## Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+## Instructions
+1. Implement the requirements (stay on current branch)
+2. Run your project's quality checks
+3. Commit: feat: {{taskId}} - {{taskTitle}}
+4. Close the bead when done
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+```
+
+## Template Resolution Order
+
+Ralph searches for templates in this order, using the first one found:
+
+<Steps>
+  <Step title="Custom Path">
+    Explicit `--prompt` argument or `prompt_template` in config file.
+
+    ```bash
+    ralph-tui run --prompt ./my-template.hbs
+    ```
+  </Step>
+
+  <Step title="User Config Directory">
+    Templates in `~/.config/ralph-tui/`:
+    - `prompt.md` for JSON tracker
+    - `prompt-beads.md` for Beads trackers
+  </Step>
+
+  <Step title="Built-in Template">
+    Bundled defaults that ship with Ralph TUI.
+  </Step>
+</Steps>
+
+## Viewing Your Current Template
+
+To see which template Ralph is using:
+
+```bash
+ralph-tui template show
+```
+
+This displays the resolved template source and content.
+
+## Next Steps
+
+- **[Customization](/docs/templates/customization)** - Create your own templates
+- **[Handlebars Reference](/docs/templates/handlebars)** - Complete variable and syntax reference
