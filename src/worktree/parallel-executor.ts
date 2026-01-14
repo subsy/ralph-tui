@@ -116,6 +116,16 @@ export class ParallelExecutor {
             ctx.abortController.abort();
           }
         }
+        
+        const abortedResults = await Promise.allSettled(
+          Array.from(runningPromises.values())
+        );
+        for (const settledResult of abortedResults) {
+          if (settledResult.status === 'fulfilled') {
+            results.push(settledResult.value);
+          }
+        }
+        runningPromises.clear();
         break;
       }
 
@@ -150,14 +160,6 @@ export class ParallelExecutor {
         }
       } else if (completedResult.result.status === 'completed') {
         this.emit({ type: 'task_completed', result: completedResult.result });
-      }
-    }
-
-    for (const [taskId] of runningPromises) {
-      const ctx = this.activeExecutions.get(taskId);
-      if (ctx) {
-        ctx.abortController.abort();
-        results.push(this.createCancelledResult(ctx, 'Execution shutdown'));
       }
     }
 
@@ -424,24 +426,6 @@ export class ParallelExecutor {
     return lines.join('\n');
   }
 
-  private createCancelledResult(ctx: TaskExecutionContext, reason: string): ParallelTaskResult {
-    const endedAt = new Date();
-    this.stats.totalTasksCancelled++;
-    this.emit({ type: 'task_cancelled', task: ctx.task, reason });
-
-    return {
-      task: ctx.task,
-      status: 'cancelled',
-      worktree: ctx.worktree,
-      startedAt: ctx.startedAt,
-      endedAt,
-      durationMs: endedAt.getTime() - ctx.startedAt.getTime(),
-      stdout: ctx.stdout,
-      stderr: ctx.stderr,
-      error: this.createExecutionError(reason, 'unknown'),
-    };
-  }
-
   private createExecutionError(message: string, phase: TaskFailurePhase): TaskExecutionError {
     return {
       message,
@@ -617,14 +601,15 @@ export class ParallelExecutor {
   private updateStats(results: ParallelTaskResult[], durationMs: number): void {
     this.stats.totalExecutionTimeMs += durationMs;
 
-    const totalDurationFromTasks = results
+    const nonCancelledResults = results.filter(r => r.status !== 'cancelled');
+    const totalDurationFromTasks = nonCancelledResults
       .filter(r => r.durationMs !== undefined)
       .reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
     
-    const tasksWithDuration = results.filter(r => r.durationMs !== undefined).length;
+    const tasksWithDuration = nonCancelledResults.filter(r => r.durationMs !== undefined).length;
     if (tasksWithDuration > 0) {
       const completedTaskCount = this.stats.totalTasksCompleted + this.stats.totalTasksFailed;
-      const prevCompletedCount = completedTaskCount - results.length;
+      const prevCompletedCount = completedTaskCount - nonCancelledResults.length;
       const prevTotal = this.stats.avgTaskDurationMs * Math.max(0, prevCompletedCount);
       this.stats.avgTaskDurationMs = completedTaskCount > 0
         ? (prevTotal + totalDurationFromTasks) / completedTaskCount

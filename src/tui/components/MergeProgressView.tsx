@@ -61,6 +61,8 @@ export function MergeProgressView({
       setViewMode('rollback');
     } else if (isResolvingConflict && viewMode !== 'conflict' && !isShowingRollbackPrompt) {
       setViewMode('conflict');
+    } else if (!isShowingRollbackPrompt && !isResolvingConflict && viewMode !== 'overview') {
+      setViewMode('overview');
     }
   }, [isResolvingConflict, isShowingRollbackPrompt, viewMode]);
 
@@ -229,15 +231,20 @@ export function MergeProgressView({
   }
 
   if (viewMode === 'rollback' && validationResult && backupRef) {
+    const hasRequiredCallbacks = onRollback && onRollbackPreserveDebug && onContinueAnyway && onAbortAll;
+    if (!hasRequiredCallbacks) {
+      setViewMode('overview');
+      return null;
+    }
     return (
       <RollbackPromptPanel
         validationResult={validationResult}
         backupBranch={backupBranch}
         backupRef={backupRef}
-        onRollback={onRollback ?? (() => {})}
-        onRollbackPreserveDebug={onRollbackPreserveDebug ?? (() => {})}
-        onContinueAnyway={onContinueAnyway ?? (() => {})}
-        onAbort={onAbortAll ?? (() => {})}
+        onRollback={onRollback}
+        onRollbackPreserveDebug={onRollbackPreserveDebug}
+        onContinueAnyway={onContinueAnyway}
+        onAbort={onAbortAll}
         isRollingBack={isRollingBack}
         rollbackResult={rollbackResult}
       />

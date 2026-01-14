@@ -361,7 +361,8 @@ export class TaskGraphAnalyzer {
 
       if (tasks.length === 0) continue;
 
-      const limitedTasks = tasks.slice(0, this.config.maxTasksPerUnit);
+      const maxTasks = Math.max(1, this.config.maxTasksPerUnit);
+      const limitedTasks = tasks.slice(0, maxTasks);
       const totalUnblocks = limitedTasks.reduce((sum, t) => sum + (t.metrics?.unblockCount ?? 0), 0);
       const avgPriority = limitedTasks.reduce((sum, t) => sum + t.priority, 0) / limitedTasks.length;
 
