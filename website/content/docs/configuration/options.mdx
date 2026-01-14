@@ -260,6 +260,39 @@ ralph-tui create-prd --chat --prd-skill custom-prd-skill
 Using `--prd-skill` requires `skills_dir` to be set in your config file. The command will fail with a clear error if `skills_dir` is not configured.
 </Callout>
 
+### PRD Format Requirements for Custom Skills
+
+Custom skills must generate PRDs compatible with task creation. Required format:
+
+```markdown
+# Feature Name
+
+## Quality Gates (optional but recommended)
+
+These commands must pass for every user story:
+- `bun run typecheck`
+- `bun run lint`
+
+## User Stories
+
+### US-001: Story Title
+
+**As a** [user type]
+**I want** [capability]
+**So that** [benefit]
+
+#### Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+### US-002: Another Story
+...
+```
+
+<Callout type="info">
+If a custom skill generates a PRD without user stories matching `### US-XXX:` pattern, task creation will fail with a clear error message.
+</Callout>
+
 ## CLI Flag Reference
 
 These flags override config file settings. Use with any execution command.
