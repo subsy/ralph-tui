@@ -1,0 +1,51 @@
+---
+name: Feature request
+description: Suggest a new feature or improvement for ralph-tui
+labels: enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please fill out this template to help us understand your request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Use case
+      description: |
+        What problem are you trying to solve? Why is this important?
+        Include specific examples where possible.
+      placeholder: |
+        I often need to [task] but currently have to [workaround].
+        It would be helpful if ralph-tui could...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How do you imagine this feature working? Include any mockups, API examples, or UI suggestions.
+      placeholder: |
+        A possible implementation could be:
+        - Add command `ralph-tui feature --option`
+        - New menu item in the UI at location X
+        - Configuration option in config file...
+      render: markdown
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you thought about other approaches? What are the trade-offs?
+      placeholder: |
+        I considered [alternative] but [reason it's not as good].
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Any other information (related issues, references, screenshots, etc.)
+      placeholder: |
+        - See also: #123
+        - Similar feature in [other tool]

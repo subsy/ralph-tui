@@ -1,0 +1,80 @@
+---
+name: Bug report
+description: Report a bug to help us improve ralph-tui
+labels: bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out this template completely so we can reproduce and fix the issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: ralph-tui version
+      description: You can find this by running `ralph-tui --version` or checking your package.json
+      placeholder: e.g., 1.2.3 or commit abc123
+    validations:
+      required: true
+
+  - type: input
+    id: bun-version
+    attributes:
+      label: Bun version
+      description: Run `bun --version` to get this
+      placeholder: e.g., 1.1.10
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system and architecture
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows (WSL)
+        - Windows (Native)
+        - Linux (x86_64)
+        - Linux (arm64)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Please provide a minimal, reproducible example. Include:
+        - Exact commands you ran
+        - Configuration files (if relevant)
+        - What you expected to happen
+        - What actually happened
+      placeholder: |
+        1. Run `ralph-tui --some-flag value`
+        2. Click on X button
+        3. See error in terminal / UI freezes / etc.
+
+        Expected: [what should happen]
+        Actual: [what actually happened]
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / terminal output
+      description: Include any error messages, stack traces, or unexpected output. Use code blocks for formatting.
+      placeholder: |
+        $ ralph-tui dev
+        [Paste output here]
+      render: shell
+
+  - type: input
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Any other information that might be helpful (screenshots, related issues, workarounds you've tried, etc.)
+      placeholder: e.g., Started after upgrading from version X to Y
