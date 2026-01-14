@@ -1047,8 +1047,12 @@ export class ExecutionEngine {
     }
 
     const previousMax = this.config.maxIterations;
-    // Handle unlimited case (0 means unlimited)
-    const newMax = previousMax === 0 ? 0 : previousMax + count;
+    // Handle unlimited case (0 means unlimited) - true no-op
+    if (previousMax === 0) {
+      return false;
+    }
+
+    const newMax = previousMax + count;
 
     // Check if we should restart (engine is idle and we're adding to a non-unlimited max)
     const shouldRestart = this.state.status === 'idle' && previousMax > 0;

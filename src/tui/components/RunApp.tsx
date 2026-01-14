@@ -813,13 +813,17 @@ export function RunApp({
         case '=':
           // Add 10 iterations to maxIterations (extends the session without stopping)
           // Handle both '+' (key.name) and Shift+= (key.sequence === '+')
-          if (key.name === '+' || key.sequence === '+') {
+          if ((key.name === '+' || key.sequence === '+') &&
+              (status === 'ready' || status === 'paused' || status === 'stopped' || status === 'idle')) {
             engine.addIterations(10).then((shouldContinue) => {
               if (shouldContinue) {
                 // Engine was idle (stopped due to max_iterations), restart it
                 setStatus('running');
                 engine.continueExecution();
               }
+            }).catch((err) => {
+              // Surface iteration addition errors to user
+              console.error('Failed to add iterations:', err);
             });
           }
           break;

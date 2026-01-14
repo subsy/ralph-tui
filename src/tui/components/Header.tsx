@@ -225,7 +225,7 @@ export function Header({
             </text>
           </box>
           {/* Iteration counter - show current/max or current/∞ for unlimited */}
-          {currentIteration !== undefined && (
+          {currentIteration !== undefined && maxIterations !== undefined && (
             <text fg={colors.fg.muted}>
               <span fg={colors.fg.secondary}>
                 [{currentIteration}/{maxIterations === 0 ? '∞' : maxIterations}]
