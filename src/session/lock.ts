@@ -17,43 +17,23 @@ import {
 import { promptBoolean } from '../setup/prompts.js';
 import type { LockFile } from './types.js';
 
-/**
- * Directory for session data (relative to cwd)
- */
+export type { LockFile } from './types.js';
+
 const SESSION_DIR = '.ralph-tui';
 const LOCK_FILE = 'ralph.lock';
 
-/**
- * Result of checking the lock status
- */
 export interface LockCheckResult {
-  /** Whether a valid lock exists (another process is running) */
   isLocked: boolean;
-
-  /** Whether the lock is stale (process no longer running) */
   isStale: boolean;
-
-  /** The lock file contents if a lock exists */
   lock?: LockFile;
 }
 
-/**
- * Result of attempting to acquire a lock
- */
 export interface LockAcquisitionResult {
-  /** Whether the lock was successfully acquired */
   acquired: boolean;
-
-  /** Error message if acquisition failed */
   error?: string;
-
-  /** PID of the existing lock holder if blocked */
   existingPid?: number;
 }
 
-/**
- * Check if a process is running by sending signal 0
- */
 function isProcessRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -63,16 +43,10 @@ function isProcessRunning(pid: number): boolean {
   }
 }
 
-/**
- * Get the session directory path
- */
 function getSessionDir(cwd: string): string {
   return join(cwd, SESSION_DIR);
 }
 
-/**
- * Get the lock file path
- */
 function getLockPath(cwd: string): string {
   return join(getSessionDir(cwd), LOCK_FILE);
 }
@@ -338,4 +312,46 @@ export function registerLockCleanupHandlers(cwd: string): () => void {
     process.off('uncaughtException', handleUncaughtError);
     process.off('unhandledRejection', handleUncaughtError);
   };
+}
+
+export async function acquireParallelModeLock(
+  cwd: string,
+  sessionId: string,
+  options: {
+    force?: boolean;
+    nonInteractive?: boolean;
+  } = {}
+): Promise<LockAcquisitionResult> {
+  const result = await acquireLockWithPrompt(cwd, sessionId, options);
+  
+  if (result.acquired) {
+    await updateLockParallelMode(cwd, true, 0);
+  }
+  
+  return result;
+}
+
+export async function updateLockParallelMode(
+  cwd: string,
+  isParallelMode: boolean,
+  activeWorktreeCount: number
+): Promise<void> {
+  const lock = await readLockFile(cwd);
+  if (!lock) {
+    return;
+  }
+
+  const updatedLock: LockFile = {
+    ...lock,
+    isParallelMode,
+    activeWorktreeCount,
+  };
+
+  const lockPath = getLockPath(cwd);
+  await writeFile(lockPath, JSON.stringify(updatedLock, null, 2));
+}
+
+export async function isParallelModeLock(cwd: string): Promise<boolean> {
+  const lock = await readLockFile(cwd);
+  return lock?.isParallelMode ?? false;
 }

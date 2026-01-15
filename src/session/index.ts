@@ -356,14 +356,12 @@ export async function resumeSession(
   return session;
 }
 
-// Re-export types
 export type {
-  LockFile,
   SessionMetadata,
   SessionCheckResult,
   CreateSessionOptions,
   SessionStatus,
-};
+} from './types.js';
 
 // Re-export persistence module
 export {
@@ -402,6 +400,36 @@ export {
   acquireLockWithPrompt,
   releaseLock as releaseLockNew,
   registerLockCleanupHandlers,
+  acquireParallelModeLock,
+  updateLockParallelMode,
+  isParallelModeLock,
   type LockCheckResult,
   type LockAcquisitionResult,
 } from './lock.js';
+
+export type { LockFile } from './types.js';
+
+export {
+  hasParallelSession,
+  loadParallelSession,
+  saveParallelSession,
+  deleteParallelSession,
+  createParallelSession,
+  addAgentToSession,
+  completeAgentTask,
+  removeAgentFromSession,
+  pauseParallelSession,
+  resumeParallelSessionState,
+  completeParallelSession,
+  failParallelSession,
+  isParallelSessionResumable,
+  detectOrphanedWorktrees,
+  detectAndRecoverStaleParallelSession,
+  getResumableTasks,
+  getParallelSessionSummary,
+  type PersistedAgentState,
+  type PersistedWorktreeState,
+  type PersistedParallelSessionState,
+  type OrphanedWorktreeInfo,
+  type ParallelSessionRecoveryResult,
+} from './parallel-session.js';

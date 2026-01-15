@@ -11,3 +11,6 @@ export * from './theme.js';
 
 // Type definitions
 export * from './types.js';
+
+// Parallel progress types
+export * from './parallel-progress-types.js';

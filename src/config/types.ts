@@ -6,6 +6,7 @@
 import type { AgentPluginConfig } from '../plugins/agents/types.js';
 import type { TrackerPluginConfig } from '../plugins/trackers/types.js';
 import type { ErrorHandlingConfig, ErrorHandlingStrategy } from '../engine/types.js';
+import type { BroadcastConfig } from '../worktree/broadcast-types.js';
 
 /**
  * Rate limit handling configuration for agents.
@@ -43,6 +44,75 @@ export const DEFAULT_RATE_LIMIT_HANDLING: Required<RateLimitHandlingConfig> = {
  * - 'full': Show events + nested output + hierarchy panel
  */
 export type SubagentDetailLevel = 'off' | 'minimal' | 'moderate' | 'full';
+
+/**
+ * Resource limits configuration for parallel worktree execution.
+ */
+export interface ResourceLimitsConfig {
+  /** Minimum free memory in MB before spawning new worktrees (default: 1024) */
+  minFreeMemoryMB?: number;
+  /** Maximum CPU utilization percentage before throttling spawns (default: 80) */
+  maxCpuUtilization?: number;
+}
+
+/**
+ * AI-powered conflict resolution configuration.
+ * Controls how merge conflicts are handled during parallel worktree merges.
+ */
+export interface ConflictResolutionConfig {
+  /** Whether to attempt AI-powered auto-resolution for merge conflicts (default: true) */
+  autoResolve?: boolean;
+  /** Confidence threshold (0.0-1.0) above which AI resolution is accepted (default: 0.8) */
+  confidenceThreshold?: number;
+  /** Maximum number of files to attempt AI resolution on per conflict (default: 10) */
+  maxFilesPerConflict?: number;
+  /** Timeout in milliseconds for AI resolution per file (default: 30000) */
+  resolutionTimeoutMs?: number;
+}
+
+/**
+ * Default conflict resolution configuration.
+ */
+export const DEFAULT_CONFLICT_RESOLUTION_CONFIG: Required<ConflictResolutionConfig> = {
+  autoResolve: true,
+  confidenceThreshold: 0.8,
+  maxFilesPerConflict: 10,
+  resolutionTimeoutMs: 30000,
+};
+
+/**
+ * Parallel execution configuration.
+ * Controls auto-parallelization of tasks using git worktrees.
+ */
+export interface ParallelConfig {
+  /** Whether auto-parallelization is enabled (default: true) */
+  enabled?: boolean;
+  /** Maximum number of concurrent worktrees (default: 4) */
+  maxWorktrees?: number;
+  /** Resource limits for spawning worktrees */
+  resourceLimits?: ResourceLimitsConfig;
+  /** Directory where worktrees are created (default: '.worktrees') */
+  worktreeDir?: string;
+  /** Whether to automatically clean up worktrees after successful merge (default: true) */
+  autoCleanup?: boolean;
+  /** Prefix for backup branches created during parallel execution (default: 'backup/') */
+  backupBranchPrefix?: string;
+}
+
+/**
+ * Default parallel configuration.
+ */
+export const DEFAULT_PARALLEL_CONFIG: Required<ParallelConfig> = {
+  enabled: true,
+  maxWorktrees: 4,
+  resourceLimits: {
+    minFreeMemoryMB: 1024,
+    maxCpuUtilization: 80,
+  },
+  worktreeDir: '.worktrees',
+  autoCleanup: true,
+  backupBranchPrefix: 'backup/',
+};
 
 /**
  * Sound mode for notifications.
@@ -116,6 +186,9 @@ export interface RuntimeOptions {
 
   /** Override notifications enabled state (--notify or --no-notify CLI flags) */
   notify?: boolean;
+
+  /** Override parallel enabled state (--no-parallel CLI flag) */
+  noParallel?: boolean;
 }
 
 /**
@@ -186,6 +259,15 @@ export interface StoredConfig {
 
   /** Notifications configuration */
   notifications?: NotificationsConfig;
+
+  /** Parallel execution configuration */
+  parallel?: ParallelConfig;
+
+  /** AI-powered conflict resolution configuration */
+  conflictResolution?: ConflictResolutionConfig;
+
+  /** Agent broadcast system configuration */
+  broadcast?: Partial<BroadcastConfig>;
 }
 
 /**
