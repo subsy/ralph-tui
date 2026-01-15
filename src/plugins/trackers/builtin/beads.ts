@@ -431,7 +431,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     const args = ['update', id, '--status', 'closed'];
 
     if (reason) {
-      args.push('--close_reason', reason);
+      args.push('--reason', reason);
     }
 
     const { exitCode, stderr, stdout } = await execBd(args, this.workingDir);
