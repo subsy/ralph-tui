@@ -6,6 +6,9 @@
 // Components
 export * from './components/index.js';
 
+// Hooks
+export * from './hooks/index.js';
+
 // Theme and styling
 export * from './theme.js';
 

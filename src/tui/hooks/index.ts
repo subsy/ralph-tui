@@ -1,0 +1,11 @@
+/**
+ * ABOUTME: Export barrel for TUI hooks.
+ * Re-exports all React hooks used in the TUI components.
+ */
+
+export {
+  useImageAttachment,
+  type AttachedImage,
+  type AttachResult,
+  type UseImageAttachmentReturn,
+} from './useImageAttachment.js';
