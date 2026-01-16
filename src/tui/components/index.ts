@@ -34,3 +34,5 @@ export { PrdChatApp } from './PrdChatApp.js';
 export type { PrdChatAppProps } from './PrdChatApp.js';
 export { SubagentTreePanel } from './SubagentTreePanel.js';
 export type { SubagentTreePanelProps } from './SubagentTreePanel.js';
+export { ImageAttachmentCount } from './ImageAttachmentCount.js';
+export type { ImageAttachmentCountProps } from './ImageAttachmentCount.js';

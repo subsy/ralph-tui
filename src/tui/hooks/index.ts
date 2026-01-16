@@ -9,3 +9,12 @@ export {
   type AttachResult,
   type UseImageAttachmentReturn,
 } from './useImageAttachment.js';
+
+export {
+  useInlineImageIndicators,
+  isWithinIndicator,
+  MARKERS,
+  type ImageIndicatorMap,
+  type ProcessedText,
+  type UseInlineImageIndicatorsReturn,
+} from './useInlineImageIndicators.js';

@@ -10,6 +10,7 @@ import { useKeyboard } from '@opentui/react';
 import type { TextareaRenderable, KeyEvent } from '@opentui/core';
 import { colors } from '../theme.js';
 import type { ChatMessage } from '../../chat/types.js';
+import { ImageAttachmentCount } from './ImageAttachmentCount.js';
 
 /**
  * Spinner frames for animation
@@ -78,6 +79,16 @@ export interface ChatViewProps {
 
   /** Callback when user submits (presses Ctrl+Enter) with the current input value */
   onSubmit?: (value: string) => void;
+
+  /** Number of attached images (for display above input) */
+  attachedImageCount?: number;
+
+  /**
+   * Callback when an image indicator is removed via backspace/delete.
+   * Parent component should use this to remove the corresponding image attachment.
+   * @param imageId - ID of the image whose indicator was deleted
+   */
+  onImageIndicatorRemoved?: (imageId: string) => void;
 }
 
 /**
@@ -142,6 +153,8 @@ export function ChatView({
   hint = '[Ctrl+Enter] Send  [Esc] Cancel',
   agentName,
   onSubmit,
+  attachedImageCount = 0,
+  onImageIndicatorRemoved: _onImageIndicatorRemoved, // Reserved for future indicator backspace handling
 }: ChatViewProps): ReactNode {
   // Generate dynamic loading text
   const loadingText = agentName
@@ -405,6 +418,11 @@ export function ChatView({
           )}
         </scrollbox>
       </box>
+
+      {/* Image attachment count (shown above input when images are attached) */}
+      {attachedImageCount > 0 && (
+        <ImageAttachmentCount count={attachedImageCount} />
+      )}
 
       {/* Input area */}
       <box
