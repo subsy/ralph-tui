@@ -1,6 +1,7 @@
 /**
- * ABOUTME: Tests for image file path detection utility.
- * Tests image path pattern matching, file existence validation, and edge cases.
+ * ABOUTME: Tests for image detection utility.
+ * Tests image path pattern matching, file existence validation, OSC 52 detection,
+ * data URI detection, raw base64 detection, and edge cases.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -13,6 +14,10 @@ import {
   looksLikeImagePath,
   getImageMimeType,
   readImageFile,
+  detectOsc52Image,
+  detectDataUriImage,
+  detectRawBase64Image,
+  detectBase64Image,
 } from '../../src/tui/utils/image-detection.js';
 
 describe('image-detection utility', () => {
@@ -211,6 +216,246 @@ describe('image-detection utility', () => {
       expect(getImageMimeType('png')).toBe('image/png');
       expect(getImageMimeType('gif')).toBe('image/gif');
       expect(getImageMimeType('webp')).toBe('image/webp');
+    });
+  });
+
+  // ==========================================================================
+  // OSC 52 and Base64 Image Detection Tests
+  // ==========================================================================
+
+  // Minimal valid 1x1 PNG image as base64 (68 bytes decoded)
+  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+  const VALID_PNG_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+  // Minimal JPEG image as base64 (starts with /9j/)
+  // JPEG magic bytes: FF D8 FF
+  const VALID_JPEG_BASE64 =
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==';
+
+  // Minimal GIF image as base64 (starts with R0lGOD)
+  // GIF magic bytes: 47 49 46 38 39 61 (GIF89a)
+  const VALID_GIF_BASE64 =
+    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+  // Minimal WebP image as base64 (starts with UklGR)
+  // WebP magic bytes: 52 49 46 46 ... 57 45 42 50 (RIFF...WEBP)
+  const VALID_WEBP_BASE64 =
+    'UklGRlYAAABXRUJQVlA4IEoAAADwAQCdASoBAAEAAUAmJYgCdAEO/hOMAAD+8v7+/v7+/v7+/v7+/v4A';
+
+  describe('detectOsc52Image', () => {
+    test('detects OSC 52 with PNG image', () => {
+      const osc52 = `\x1b]52;c;${VALID_PNG_BASE64}\x07`;
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('png');
+      expect(result.imageData).toBeDefined();
+      expect(result.base64Data).toBe(VALID_PNG_BASE64);
+    });
+
+    test('detects OSC 52 with JPEG image', () => {
+      const osc52 = `\x1b]52;c;${VALID_JPEG_BASE64}\x07`;
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('jpeg');
+    });
+
+    test('detects OSC 52 with GIF image', () => {
+      const osc52 = `\x1b]52;c;${VALID_GIF_BASE64}\x07`;
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('gif');
+    });
+
+    test('detects OSC 52 with WebP image', () => {
+      const osc52 = `\x1b]52;c;${VALID_WEBP_BASE64}\x07`;
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('webp');
+    });
+
+    test('detects OSC 52 with ST terminator', () => {
+      const osc52 = `\x1b]52;c;${VALID_PNG_BASE64}\x1b\\`;
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('png');
+    });
+
+    test('detects OSC 52 with primary selection (p)', () => {
+      const osc52 = `\x1b]52;p;${VALID_PNG_BASE64}\x07`;
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(true);
+    });
+
+    test('returns false for non-OSC 52 text', () => {
+      const result = detectOsc52Image('just regular text');
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for OSC 52 with invalid base64', () => {
+      const osc52 = '\x1b]52;c;notvalidbase64!!!\x07';
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for OSC 52 with non-image data', () => {
+      // Valid base64 but not image data
+      const textBase64 = Buffer.from('Hello World').toString('base64');
+      const osc52 = `\x1b]52;c;${textBase64}\x07`;
+      const result = detectOsc52Image(osc52);
+      expect(result.isBase64Image).toBe(false);
+      expect(result.error).toBe('Not a recognized image format');
+    });
+  });
+
+  describe('detectDataUriImage', () => {
+    test('detects data URI with PNG', () => {
+      const dataUri = `data:image/png;base64,${VALID_PNG_BASE64}`;
+      const result = detectDataUriImage(dataUri);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('png');
+      expect(result.imageData).toBeDefined();
+    });
+
+    test('detects data URI with JPEG', () => {
+      const dataUri = `data:image/jpeg;base64,${VALID_JPEG_BASE64}`;
+      const result = detectDataUriImage(dataUri);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('jpeg');
+    });
+
+    test('detects data URI with jpg (normalized to jpeg)', () => {
+      const dataUri = `data:image/jpg;base64,${VALID_JPEG_BASE64}`;
+      const result = detectDataUriImage(dataUri);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('jpeg');
+    });
+
+    test('detects data URI with GIF', () => {
+      const dataUri = `data:image/gif;base64,${VALID_GIF_BASE64}`;
+      const result = detectDataUriImage(dataUri);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('gif');
+    });
+
+    test('detects data URI with WebP', () => {
+      const dataUri = `data:image/webp;base64,${VALID_WEBP_BASE64}`;
+      const result = detectDataUriImage(dataUri);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('webp');
+    });
+
+    test('handles whitespace around data URI', () => {
+      const dataUri = `  data:image/png;base64,${VALID_PNG_BASE64}  `;
+      const result = detectDataUriImage(dataUri);
+      expect(result.isBase64Image).toBe(true);
+    });
+
+    test('is case-insensitive for MIME type', () => {
+      const dataUri = `data:IMAGE/PNG;base64,${VALID_PNG_BASE64}`;
+      const result = detectDataUriImage(dataUri);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('png');
+    });
+
+    test('returns false for non-data URI', () => {
+      const result = detectDataUriImage('just regular text');
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for non-image data URI', () => {
+      const result = detectDataUriImage('data:text/plain;base64,SGVsbG8=');
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for data URI with invalid base64', () => {
+      const result = detectDataUriImage('data:image/png;base64,!!!invalid!!!');
+      expect(result.isBase64Image).toBe(false);
+    });
+  });
+
+  describe('detectRawBase64Image', () => {
+    test('detects raw PNG base64', () => {
+      const result = detectRawBase64Image(VALID_PNG_BASE64);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('png');
+    });
+
+    test('detects raw JPEG base64', () => {
+      const result = detectRawBase64Image(VALID_JPEG_BASE64);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('jpeg');
+    });
+
+    test('detects raw GIF base64', () => {
+      const result = detectRawBase64Image(VALID_GIF_BASE64);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('gif');
+    });
+
+    test('detects raw WebP base64', () => {
+      const result = detectRawBase64Image(VALID_WEBP_BASE64);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('webp');
+    });
+
+    test('returns false for short base64', () => {
+      const result = detectRawBase64Image('abc123');
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for invalid base64 characters', () => {
+      const result = detectRawBase64Image('!!!invalid base64 with special chars!!!');
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for valid base64 without image magic', () => {
+      // Valid base64 of "Hello World, this is a test message"
+      const textBase64 = 'SGVsbG8gV29ybGQsIHRoaXMgaXMgYSB0ZXN0IG1lc3NhZ2U=';
+      const result = detectRawBase64Image(textBase64);
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for regular text', () => {
+      const result = detectRawBase64Image('just some regular text');
+      expect(result.isBase64Image).toBe(false);
+    });
+  });
+
+  describe('detectBase64Image (unified)', () => {
+    test('detects OSC 52 format', () => {
+      const osc52 = `\x1b]52;c;${VALID_PNG_BASE64}\x07`;
+      const result = detectBase64Image(osc52);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('png');
+    });
+
+    test('detects data URI format', () => {
+      const dataUri = `data:image/jpeg;base64,${VALID_JPEG_BASE64}`;
+      const result = detectBase64Image(dataUri);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('jpeg');
+    });
+
+    test('detects raw base64 format', () => {
+      const result = detectBase64Image(VALID_GIF_BASE64);
+      expect(result.isBase64Image).toBe(true);
+      expect(result.extension).toBe('gif');
+    });
+
+    test('returns false for regular text (fallback)', () => {
+      const result = detectBase64Image('This is just regular text to paste');
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for file paths (not base64)', () => {
+      const result = detectBase64Image('/path/to/image.png');
+      expect(result.isBase64Image).toBe(false);
+    });
+
+    test('returns false for empty string', () => {
+      const result = detectBase64Image('');
+      expect(result.isBase64Image).toBe(false);
     });
   });
 });
