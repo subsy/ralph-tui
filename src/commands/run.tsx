@@ -53,6 +53,7 @@ import { createInterruptHandler } from '../interruption/index.js';
 import type { InterruptHandler } from '../interruption/types.js';
 import { createStructuredLogger, clearProgress } from '../logs/index.js';
 import { sendCompletionNotification, sendMaxIterationsNotification, sendErrorNotification, resolveNotificationsEnabled } from '../notifications.js';
+import { performExitCleanup } from '../tui/utils/exit-cleanup.js';
 import type { NotificationSoundMode } from '../config/types.js';
 
 /**
@@ -1151,6 +1152,16 @@ async function runHeadless(
     currentState = { ...currentState, status: 'interrupted' };
     await savePersistedSession(currentState);
     await engine.dispose();
+
+    // Perform image cleanup (headless mode - auto-cleanup without prompt)
+    const cleanupResult = await performExitCleanup({
+      cwd: config.cwd,
+      headless: true,
+    });
+    if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+      logger.info('system', `Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+    }
+
     process.exit(0);
   };
 
@@ -1187,6 +1198,16 @@ async function runHeadless(
     currentState = { ...currentState, status: 'interrupted' };
     await savePersistedSession(currentState);
     await engine.dispose();
+
+    // Perform image cleanup (headless mode - auto-cleanup without prompt)
+    const cleanupResult = await performExitCleanup({
+      cwd: config.cwd,
+      headless: true,
+    });
+    if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+      logger.info('system', `Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+    }
+
     process.exit(0);
   };
 
@@ -1502,6 +1523,15 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   await releaseLockNew(config.cwd);
   cleanupLockHandlers();
   console.log('\nRalph TUI finished.');
+
+  // Perform image cleanup based on configuration
+  const cleanupResult = await performExitCleanup({
+    cwd: config.cwd,
+    headless: !config.showTui,
+  });
+  if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+    console.log(`Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+  }
 
   // Explicitly exit - event listeners may keep process alive otherwise
   process.exit(0);

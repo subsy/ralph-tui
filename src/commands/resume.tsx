@@ -32,6 +32,7 @@ import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { RunApp } from '../tui/components/RunApp.js';
+import { performExitCleanup } from '../tui/utils/exit-cleanup.js';
 
 /**
  * Parse CLI arguments for the resume command
@@ -134,6 +135,13 @@ async function runWithTui(
     currentState = { ...currentState, status: 'interrupted' };
     await savePersistedSession(currentState);
     await cleanup();
+
+    // Perform image cleanup
+    const cleanupResult = await performExitCleanup({ cwd });
+    if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+      console.log(`Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+    }
+
     process.exit(0);
   };
 
@@ -157,6 +165,13 @@ async function runWithTui(
         currentState = { ...currentState, status: 'interrupted' };
         await savePersistedSession(currentState);
         await cleanup();
+
+        // Perform image cleanup
+        const cleanupResult = await performExitCleanup({ cwd });
+        if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+          console.log(`Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+        }
+
         process.exit(0);
       }}
       trackerType={trackerType}
@@ -243,6 +258,13 @@ async function runHeadless(
     await savePersistedSession(currentState);
     await engine.dispose();
     await releaseLock(cwd);
+
+    // Perform image cleanup (headless mode - auto-cleanup without prompt)
+    const cleanupResult = await performExitCleanup({ cwd, headless: true });
+    if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+      console.log(`Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+    }
+
     process.exit(0);
   };
 
@@ -422,6 +444,15 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
   }
 
   console.log('\nRalph TUI finished.');
+
+  // Perform image cleanup based on configuration
+  const cleanupResult = await performExitCleanup({
+    cwd,
+    headless,
+  });
+  if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+    console.log(`Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+  }
 }
 
 /**

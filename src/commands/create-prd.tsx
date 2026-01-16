@@ -16,6 +16,7 @@ import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPlugin, AgentPluginConfig } from '../plugins/agents/types.js';
 import { executeRunCommand } from './run.js';
+import { performExitCleanup } from '../tui/utils/exit-cleanup.js';
 
 /**
  * Command-line arguments for the create-prd command.
@@ -324,8 +325,13 @@ export async function executeCreatePrdCommand(args: string[]): Promise<void> {
 
   const result = await runChatMode(parsedArgs);
 
-  // If cancelled or no result, exit
+  // If cancelled or no result, perform cleanup and exit
   if (!result) {
+    // Perform image cleanup
+    const cleanupResult = await performExitCleanup({ cwd });
+    if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+      console.log(`Cleaned up ${cleanupResult.deletedCount} session image(s).`);
+    }
     process.exit(0);
   }
 
@@ -346,6 +352,12 @@ export async function executeCreatePrdCommand(args: string[]): Promise<void> {
     // Execute run command (this will show the TUI)
     await executeRunCommand(runArgs);
     // Note: executeRunCommand handles process.exit internally
+  }
+
+  // Perform image cleanup before exiting
+  const cleanupResult = await performExitCleanup({ cwd });
+  if (!cleanupResult.skipped && cleanupResult.deletedCount > 0) {
+    console.log(`Cleaned up ${cleanupResult.deletedCount} session image(s).`);
   }
 
   process.exit(0);
