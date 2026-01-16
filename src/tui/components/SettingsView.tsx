@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
-import type { StoredConfig, SubagentDetailLevel, NotificationSoundMode } from '../../config/types.js';
+import type { StoredConfig, SubagentDetailLevel, NotificationSoundMode, ImageCleanupPolicy } from '../../config/types.js';
 import type { AgentPluginMeta } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 
@@ -167,6 +167,69 @@ function buildSettingDefinitions(
         notifications: {
           ...config.notifications,
           sound: value as NotificationSoundMode,
+        },
+      }),
+      requiresRestart: false,
+    },
+    {
+      key: 'imagesEnabled',
+      label: 'Images',
+      type: 'boolean',
+      description: 'Enable image attachments via paste',
+      getValue: (config) => config.images?.enabled ?? true,
+      setValue: (config, value) => ({
+        ...config,
+        images: {
+          ...config.images,
+          enabled: value as boolean,
+        },
+      }),
+      requiresRestart: false,
+    },
+    {
+      key: 'imageCleanupPolicy',
+      label: 'Img Cleanup',
+      type: 'select',
+      description: 'When to clean up attached images: on_exit, manual, or never',
+      options: ['on_exit', 'manual', 'never'],
+      getValue: (config) => config.images?.cleanup_policy ?? 'on_exit',
+      setValue: (config, value) => ({
+        ...config,
+        images: {
+          ...config.images,
+          cleanup_policy: value as ImageCleanupPolicy,
+        },
+      }),
+      requiresRestart: false,
+    },
+    {
+      key: 'skipCleanupConfirmation',
+      label: 'Skip Cleanup',
+      type: 'boolean',
+      description: 'Skip confirmation prompt when cleaning up images',
+      getValue: (config) => config.images?.skip_cleanup_confirmation ?? false,
+      setValue: (config, value) => ({
+        ...config,
+        images: {
+          ...config.images,
+          skip_cleanup_confirmation: value as boolean,
+        },
+      }),
+      requiresRestart: false,
+    },
+    {
+      key: 'maxImagesPerMessage',
+      label: 'Max Images',
+      type: 'number',
+      description: 'Maximum images per message (0 = unlimited)',
+      min: 0,
+      max: 100,
+      getValue: (config) => config.images?.max_images_per_message ?? 10,
+      setValue: (config, value) => ({
+        ...config,
+        images: {
+          ...config.images,
+          max_images_per_message: value as number,
         },
       }),
       requiresRestart: false,

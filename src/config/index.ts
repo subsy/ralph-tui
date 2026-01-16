@@ -14,7 +14,7 @@ import type {
   RuntimeOptions,
   ConfigValidationResult,
 } from './types.js';
-import { DEFAULT_CONFIG, DEFAULT_ERROR_HANDLING } from './types.js';
+import { DEFAULT_CONFIG, DEFAULT_ERROR_HANDLING, DEFAULT_IMAGE_CONFIG } from './types.js';
 import type { ErrorHandlingConfig } from '../engine/types.js';
 import type { AgentPluginConfig } from '../plugins/agents/types.js';
 import type { TrackerPluginConfig } from '../plugins/trackers/types.js';
@@ -181,6 +181,9 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
   }
   if (project.notifications !== undefined) {
     merged.notifications = { ...merged.notifications, ...project.notifications };
+  }
+  if (project.images !== undefined) {
+    merged.images = { ...merged.images, ...project.images };
   }
 
   return merged;
@@ -638,8 +641,8 @@ export async function validateConfig(
 }
 
 // Re-export types
-export type { StoredConfig, RalphConfig, RuntimeOptions, ConfigValidationResult, SubagentDetailLevel, NotificationSoundMode } from './types.js';
-export { DEFAULT_CONFIG };
+export type { StoredConfig, RalphConfig, RuntimeOptions, ConfigValidationResult, SubagentDetailLevel, NotificationSoundMode, ImageCleanupPolicy, ImageConfig } from './types.js';
+export { DEFAULT_CONFIG, DEFAULT_IMAGE_CONFIG };
 
 // Export schema utilities
 export {
@@ -651,6 +654,8 @@ export {
   ErrorHandlingConfigSchema,
   SubagentDetailLevelSchema,
   NotificationSoundModeSchema,
+  ImageCleanupPolicySchema,
+  ImageConfigSchema,
 } from './schema.js';
 export type {
   ConfigParseResult,

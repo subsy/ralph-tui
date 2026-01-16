@@ -53,6 +53,38 @@ export type SubagentDetailLevel = 'off' | 'minimal' | 'moderate' | 'full';
 export type NotificationSoundMode = 'off' | 'system' | 'ralph';
 
 /**
+ * Image cleanup policy for attached images.
+ * - 'on_exit': Clean up images when ralph-tui exits (default)
+ * - 'manual': Keep images until manually deleted
+ * - 'never': Never clean up images automatically
+ */
+export type ImageCleanupPolicy = 'on_exit' | 'manual' | 'never';
+
+/**
+ * Image attachment configuration.
+ */
+export interface ImageConfig {
+  /** Whether image attachments are enabled (default: true) */
+  enabled?: boolean;
+  /** Cleanup policy for attached images (default: 'on_exit') */
+  cleanup_policy?: ImageCleanupPolicy;
+  /** Skip confirmation prompt when cleaning up images (default: false) */
+  skip_cleanup_confirmation?: boolean;
+  /** Maximum images allowed per message (default: 10, 0 = unlimited) */
+  max_images_per_message?: number;
+}
+
+/**
+ * Default image configuration
+ */
+export const DEFAULT_IMAGE_CONFIG: Required<ImageConfig> = {
+  enabled: true,
+  cleanup_policy: 'on_exit',
+  skip_cleanup_confirmation: false,
+  max_images_per_message: 10,
+};
+
+/**
  * Notifications configuration for desktop notifications.
  */
 export interface NotificationsConfig {
@@ -186,6 +218,9 @@ export interface StoredConfig {
 
   /** Notifications configuration */
   notifications?: NotificationsConfig;
+
+  /** Image attachment configuration */
+  images?: ImageConfig;
 }
 
 /**

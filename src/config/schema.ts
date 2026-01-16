@@ -56,6 +56,25 @@ export const NotificationsConfigSchema = z.object({
 });
 
 /**
+ * Image cleanup policy schema
+ */
+export const ImageCleanupPolicySchema = z.enum(['on_exit', 'manual', 'never']);
+
+/**
+ * Image configuration schema
+ */
+export const ImageConfigSchema = z.object({
+  /** Whether image attachments are enabled (default: true) */
+  enabled: z.boolean().optional(),
+  /** Cleanup policy for attached images (default: 'on_exit') */
+  cleanup_policy: ImageCleanupPolicySchema.optional(),
+  /** Skip confirmation prompt when cleaning up images (default: false) */
+  skip_cleanup_confirmation: z.boolean().optional(),
+  /** Maximum images allowed per message (default: 10, 0 = unlimited) */
+  max_images_per_message: z.number().int().min(0).max(100).optional(),
+});
+
+/**
  * Agent plugin configuration schema
  */
 export const AgentPluginConfigSchema = z.object({
@@ -134,6 +153,9 @@ export const StoredConfigSchema = z
 
     // Notifications configuration
     notifications: NotificationsConfigSchema.optional(),
+
+    // Image attachment configuration
+    images: ImageConfigSchema.optional(),
   })
   .strict();
 
