@@ -7,10 +7,11 @@
 import type { ReactNode } from 'react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useKeyboard } from '@opentui/react';
-import type { TextareaRenderable, KeyEvent } from '@opentui/core';
+import type { TextareaRenderable, KeyEvent, PasteEvent } from '@opentui/core';
 import { colors } from '../theme.js';
 import type { ChatMessage } from '../../chat/types.js';
 import { ImageAttachmentCount } from './ImageAttachmentCount.js';
+import { usePaste } from '../hooks/usePaste.js';
 
 /**
  * Spinner frames for animation
@@ -89,6 +90,23 @@ export interface ChatViewProps {
    * @param imageId - ID of the image whose indicator was deleted
    */
   onImageIndicatorRemoved?: (imageId: string) => void;
+
+  /**
+   * Callback when text is pasted into the input.
+   * If this callback is provided, it will be called with the pasted text and event.
+   * The callback can call event.preventDefault() to prevent the default paste behavior.
+   *
+   * Use this to implement image detection:
+   * 1. Check clipboard for actual image data
+   * 2. Check if pasted text is a file path
+   * 3. Check for base64/OSC 52 data
+   * 4. If image detected, attach it and call event.preventDefault()
+   * 5. If not image, let the default paste behavior occur
+   *
+   * @param text - The pasted text
+   * @param event - The paste event (call preventDefault() to stop default paste)
+   */
+  onPaste?: (text: string, event: PasteEvent) => void | Promise<void>;
 }
 
 /**
@@ -155,6 +173,7 @@ export function ChatView({
   onSubmit,
   attachedImageCount = 0,
   onImageIndicatorRemoved: _onImageIndicatorRemoved, // Reserved for future indicator backspace handling
+  onPaste,
 }: ChatViewProps): ReactNode {
   // Generate dynamic loading text
   const loadingText = agentName
@@ -319,6 +338,32 @@ export function ChatView({
   );
 
   useKeyboard(handleKeyboard);
+
+  // Handle paste events with optional image detection
+  // The onPaste callback can call event.preventDefault() to stop default paste behavior
+  const handlePaste = useCallback(
+    (text: string, event: PasteEvent) => {
+      // Only handle paste if input is enabled and not loading
+      if (!inputEnabled || isLoading) {
+        return;
+      }
+
+      // If a custom paste handler is provided, call it
+      // The handler can call event.preventDefault() to stop default paste behavior
+      if (onPaste) {
+        onPaste(text, event);
+      }
+      // If no handler or handler didn't prevent default, OpenTUI's textarea
+      // will handle the paste normally
+    },
+    [inputEnabled, isLoading, onPaste]
+  );
+
+  // Subscribe to paste events with debouncing enabled
+  usePaste(handlePaste, {
+    enabled: inputEnabled && !isLoading,
+    debounceMs: 100,
+  });
 
   return (
     <box

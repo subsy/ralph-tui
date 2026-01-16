@@ -18,3 +18,8 @@ export {
   type ProcessedText,
   type UseInlineImageIndicatorsReturn,
 } from './useInlineImageIndicators.js';
+
+export {
+  usePaste,
+  type UsePasteOptions,
+} from './usePaste.js';
