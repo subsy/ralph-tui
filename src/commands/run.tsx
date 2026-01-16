@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
 import { buildConfig, validateConfig, loadStoredConfig, saveProjectConfig } from '../config/index.js';
-import type { RuntimeOptions, StoredConfig } from '../config/types.js';
+import type { RuntimeOptions, StoredConfig, SandboxConfig } from '../config/types.js';
 import {
   checkSession,
   createSession,
@@ -586,6 +586,8 @@ interface RunAppWrapperProps {
   onUpdatePersistedState?: (updater: (state: PersistedSessionState) => PersistedSessionState) => void;
   /** Current model being used (provider/model format, e.g., "anthropic/claude-3-5-sonnet") */
   currentModel?: string;
+  /** Sandbox configuration for display in header */
+  sandboxConfig?: SandboxConfig;
 }
 
 /**
@@ -607,6 +609,7 @@ function RunAppWrapper({
   initialSubagentPanelVisible = false,
   onUpdatePersistedState,
   currentModel,
+  sandboxConfig,
 }: RunAppWrapperProps) {
   const [showInterruptDialog, setShowInterruptDialog] = useState(false);
   const [storedConfig, setStoredConfig] = useState<StoredConfig | undefined>(initialStoredConfig);
@@ -734,6 +737,7 @@ function RunAppWrapper({
       initialSubagentPanelVisible={initialSubagentPanelVisible}
       onSubagentPanelVisibilityChange={handleSubagentPanelVisibilityChange}
       currentModel={currentModel}
+      sandboxConfig={sandboxConfig}
     />
   );
 }
@@ -957,6 +961,7 @@ async function runWithTui(
       initialSubagentPanelVisible={persistedState.subagentPanelVisible ?? false}
       onUpdatePersistedState={handleUpdatePersistedState}
       currentModel={config.model}
+      sandboxConfig={config.sandbox}
     />
   );
 

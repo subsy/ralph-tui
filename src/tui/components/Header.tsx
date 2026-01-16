@@ -12,6 +12,9 @@ import type { HeaderProps } from '../types.js';
 /** Rate limit indicator icon */
 const RATE_LIMIT_ICON = '⏳';
 
+/** Sandbox indicator icon */
+const SANDBOX_ICON = '🔒';
+
 /**
  * Truncate text to fit within a given width, adding ellipsis if needed
  */
@@ -125,11 +128,32 @@ function getAgentDisplay(
 }
 
 /**
+ * Get the sandbox display string.
+ * Returns null if sandbox is disabled, otherwise returns mode with optional (no-net) suffix.
+ */
+function getSandboxDisplay(
+  sandboxConfig: HeaderProps['sandboxConfig']
+): string | null {
+  if (!sandboxConfig?.enabled) {
+    return null;
+  }
+
+  const mode = sandboxConfig.mode ?? 'auto';
+  if (mode === 'off') {
+    return null;
+  }
+
+  const networkSuffix = sandboxConfig.network === false ? ' (no-net)' : '';
+  return `${mode}${networkSuffix}`;
+}
+
+/**
  * Compact header component showing essential information:
  * - Status indicator and label
  * - Current task (when executing)
  * - Agent and tracker plugin names (for configuration visibility)
  * - Model being used (provider/model format with logo)
+ * - Sandbox status when enabled (mode + network status)
  * - Fallback indicator when using fallback agent
  * - Rate limit icon when primary agent is limited
  * - Status line when primary agent is rate limited (explains fallback)
@@ -150,6 +174,7 @@ export function Header({
   currentIteration,
   maxIterations,
   currentModel,
+  sandboxConfig,
 }: HeaderProps): ReactNode {
   const statusDisplay = getStatusDisplay(status);
   const formattedTime = formatElapsedTime(elapsedTime);
@@ -164,6 +189,9 @@ export function Header({
         return { provider, model, full: currentModel, display: provider ? `${provider}/${model}` : model };
       })()
     : null;
+
+  // Get sandbox display info (null if disabled)
+  const sandboxDisplay = getSandboxDisplay(sandboxConfig);
 
   // Show abbreviated task title when executing (max 40 chars), fallback to task ID
   const isActive = status === 'executing' || status === 'running';
@@ -213,10 +241,10 @@ export function Header({
           )}
         </box>
 
-        {/* Right section: Agent/Tracker + Model + Progress (X/Y) with mini bar + elapsed time */}
+        {/* Right section: Agent/Tracker + Model + Sandbox + Progress (X/Y) with mini bar + elapsed time */}
         <box style={{ flexDirection: 'row', gap: 2, alignItems: 'center' }}>
-          {/* Agent and tracker plugin names with fallback/rate limit indicators */}
-          {(agentDisplay.displayName || trackerName || modelDisplay) && (
+          {/* Agent, model, tracker, and sandbox indicators */}
+          {(agentDisplay.displayName || trackerName || modelDisplay || sandboxDisplay) && (
             <text fg={colors.fg.muted}>
               {agentDisplay.showRateLimitIcon && (
                 <span fg={colors.status.warning}>{RATE_LIMIT_ICON} </span>
@@ -224,12 +252,16 @@ export function Header({
               {agentDisplay.displayName && (
                 <span fg={agentDisplay.color}>{agentDisplay.displayName}</span>
               )}
-              {agentDisplay.displayName && (trackerName || modelDisplay) && <span fg={colors.fg.dim}> | </span>}
+              {agentDisplay.displayName && (trackerName || modelDisplay || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
               {modelDisplay && (
                 <span fg={colors.accent.primary}>{modelDisplay.display}</span>
               )}
-              {(agentDisplay.displayName || modelDisplay) && trackerName && <span fg={colors.fg.dim}> | </span>}
+              {(agentDisplay.displayName || modelDisplay) && (trackerName || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
               {trackerName && <span fg={colors.accent.tertiary}>{trackerName}</span>}
+              {trackerName && sandboxDisplay && <span fg={colors.fg.dim}> | </span>}
+              {sandboxDisplay && (
+                <span fg={colors.status.info}>{SANDBOX_ICON} {sandboxDisplay}</span>
+              )}
             </text>
           )}
           <box style={{ flexDirection: 'row', gap: 1, alignItems: 'center' }}>

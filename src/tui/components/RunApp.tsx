@@ -31,7 +31,7 @@ import type {
   RateLimitState,
 } from '../../engine/index.js';
 import type { TrackerTask } from '../../plugins/trackers/types.js';
-import type { StoredConfig, SubagentDetailLevel } from '../../config/types.js';
+import type { StoredConfig, SubagentDetailLevel, SandboxConfig } from '../../config/types.js';
 import type { AgentPluginMeta } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
@@ -95,6 +95,8 @@ export interface RunAppProps {
   onSubagentPanelVisibilityChange?: (visible: boolean) => void;
   /** Current model being used (provider/model format, e.g., "anthropic/claude-3-5-sonnet") */
   currentModel?: string;
+  /** Sandbox configuration for display in header */
+  sandboxConfig?: SandboxConfig;
 }
 
 /**
@@ -299,6 +301,7 @@ export function RunApp({
   initialSubagentPanelVisible = false,
   onSubagentPanelVisibilityChange,
   currentModel,
+  sandboxConfig,
 }: RunAppProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const [tasks, setTasks] = useState<TaskItem[]>(() => {
@@ -1173,6 +1176,7 @@ export function RunApp({
         currentIteration={currentIteration}
         maxIterations={maxIterations}
         currentModel={currentModel}
+        sandboxConfig={sandboxConfig}
       />
 
       {/* Progress Dashboard - toggleable with 'd' key */}
