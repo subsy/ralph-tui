@@ -9,19 +9,18 @@
  */
 
 /**
- * Color formatting disabled - TUI framework escapes ANSI codes.
- * Using plain text formatting for now.
- * TODO: Implement TUI-native color rendering via React components
+ * ANSI color codes for terminal output formatting.
+ * These render in the TUI's output panel.
  */
 export const COLORS = {
-  blue: '',
-  purple: '',
-  cyan: '',
-  green: '',
-  yellow: '',
-  pink: '',
-  muted: '',
-  reset: '',
+  blue: '\x1b[94m',      // Bright blue for tool names
+  purple: '\x1b[95m',    // Bright magenta for file paths
+  cyan: '\x1b[96m',      // Bright cyan for patterns/URLs
+  green: '\x1b[92m',     // Bright green for success
+  yellow: '\x1b[93m',    // Bright yellow for warnings/queries
+  pink: '\x1b[91m',      // Bright red for errors
+  muted: '\x1b[90m',     // Gray for secondary info
+  reset: '\x1b[0m',      // Reset to default
 } as const;
 
 /**

@@ -53,3 +53,4 @@ Thumbs.db
 # Local examples and test files
 examples/
 prd-example.json
+coverage/

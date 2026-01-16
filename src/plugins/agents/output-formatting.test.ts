@@ -16,39 +16,45 @@ import {
 } from './output-formatting.js';
 
 describe('COLORS', () => {
-  test('all color values are empty strings (disabled for TUI)', () => {
-    // Colors are disabled because TUI framework escapes ANSI codes
-    expect(COLORS.blue).toBe('');
-    expect(COLORS.purple).toBe('');
-    expect(COLORS.cyan).toBe('');
-    expect(COLORS.green).toBe('');
-    expect(COLORS.yellow).toBe('');
-    expect(COLORS.pink).toBe('');
-    expect(COLORS.muted).toBe('');
-    expect(COLORS.reset).toBe('');
+  test('all color values are ANSI escape codes', () => {
+    // Colors are ANSI escape sequences for terminal formatting
+    expect(COLORS.blue).toMatch(/^\x1b\[\d+m$/);
+    expect(COLORS.purple).toMatch(/^\x1b\[\d+m$/);
+    expect(COLORS.cyan).toMatch(/^\x1b\[\d+m$/);
+    expect(COLORS.green).toMatch(/^\x1b\[\d+m$/);
+    expect(COLORS.yellow).toMatch(/^\x1b\[\d+m$/);
+    expect(COLORS.pink).toMatch(/^\x1b\[\d+m$/);
+    expect(COLORS.muted).toMatch(/^\x1b\[\d+m$/);
+    expect(COLORS.reset).toBe('\x1b[0m');
   });
 });
 
 describe('formatToolName', () => {
-  test('wraps tool name in brackets', () => {
-    expect(formatToolName('glob')).toBe('[glob]');
-    expect(formatToolName('read')).toBe('[read]');
-    expect(formatToolName('bash')).toBe('[bash]');
+  test('wraps tool name in brackets with color', () => {
+    expect(formatToolName('glob')).toContain('[glob]');
+    expect(formatToolName('read')).toContain('[read]');
+    expect(formatToolName('bash')).toContain('[bash]');
+    // Should include color codes
+    expect(formatToolName('glob')).toContain(COLORS.blue);
+    expect(formatToolName('glob')).toContain(COLORS.reset);
   });
 
   test('handles empty string', () => {
-    expect(formatToolName('')).toBe('[]');
+    expect(formatToolName('')).toContain('[]');
   });
 });
 
 describe('formatPath', () => {
-  test('returns path unchanged (colors disabled)', () => {
-    expect(formatPath('/home/user/file.ts')).toBe('/home/user/file.ts');
-    expect(formatPath('./relative/path')).toBe('./relative/path');
+  test('wraps path in purple color codes', () => {
+    expect(formatPath('/home/user/file.ts')).toContain('/home/user/file.ts');
+    expect(formatPath('/home/user/file.ts')).toContain(COLORS.purple);
+    expect(formatPath('/home/user/file.ts')).toContain(COLORS.reset);
+    expect(formatPath('./relative/path')).toContain('./relative/path');
   });
 
   test('handles empty string', () => {
-    expect(formatPath('')).toBe('');
+    expect(formatPath('')).toContain(COLORS.purple);
+    expect(formatPath('')).toContain(COLORS.reset);
   });
 });
 
@@ -94,91 +100,112 @@ describe('formatCommand', () => {
 });
 
 describe('formatError', () => {
-  test('wraps message in Error brackets', () => {
-    expect(formatError('Something went wrong')).toBe('[Error: Something went wrong]');
-    expect(formatError('File not found')).toBe('[Error: File not found]');
+  test('wraps message in Error brackets with pink color', () => {
+    expect(formatError('Something went wrong')).toContain('[Error: Something went wrong]');
+    expect(formatError('Something went wrong')).toContain(COLORS.pink);
+    expect(formatError('Something went wrong')).toContain(COLORS.reset);
+    expect(formatError('File not found')).toContain('[Error: File not found]');
   });
 
   test('handles empty string', () => {
-    expect(formatError('')).toBe('[Error: ]');
+    expect(formatError('')).toContain('[Error: ]');
   });
 });
 
 describe('formatPattern', () => {
-  test('adds pattern: prefix', () => {
-    expect(formatPattern('*.ts')).toBe('pattern: *.ts');
-    expect(formatPattern('src/**/*.tsx')).toBe('pattern: src/**/*.tsx');
+  test('adds pattern: prefix with cyan color', () => {
+    expect(formatPattern('*.ts')).toContain('pattern:');
+    expect(formatPattern('*.ts')).toContain('*.ts');
+    expect(formatPattern('*.ts')).toContain(COLORS.cyan);
+    expect(formatPattern('*.ts')).toContain(COLORS.reset);
+    expect(formatPattern('src/**/*.tsx')).toContain('src/**/*.tsx');
   });
 
   test('handles empty string', () => {
-    expect(formatPattern('')).toBe('pattern: ');
+    expect(formatPattern('')).toContain('pattern:');
   });
 });
 
 describe('formatUrl', () => {
-  test('returns URL unchanged (colors disabled)', () => {
-    expect(formatUrl('https://example.com')).toBe('https://example.com');
-    expect(formatUrl('http://localhost:3000')).toBe('http://localhost:3000');
+  test('wraps URL in cyan color codes', () => {
+    expect(formatUrl('https://example.com')).toContain('https://example.com');
+    expect(formatUrl('https://example.com')).toContain(COLORS.cyan);
+    expect(formatUrl('https://example.com')).toContain(COLORS.reset);
+    expect(formatUrl('http://localhost:3000')).toContain('http://localhost:3000');
   });
 
   test('handles empty string', () => {
-    expect(formatUrl('')).toBe('');
+    expect(formatUrl('')).toContain(COLORS.cyan);
+    expect(formatUrl('')).toContain(COLORS.reset);
   });
 });
 
 describe('formatToolCall', () => {
   test('formats tool name only when no input', () => {
-    expect(formatToolCall('glob')).toBe('[glob]\n');
-    expect(formatToolCall('read', undefined)).toBe('[read]\n');
+    expect(formatToolCall('glob')).toContain('[glob]');
+    expect(formatToolCall('glob')).toContain(COLORS.blue);
+    expect(formatToolCall('read', undefined)).toContain('[read]');
   });
 
   test('formats tool name only when input is empty object', () => {
-    expect(formatToolCall('bash', {})).toBe('[bash]\n');
+    expect(formatToolCall('bash', {})).toContain('[bash]');
   });
 
   test('includes description when provided', () => {
     const result = formatToolCall('bash', { description: 'Run tests' });
-    expect(result).toBe('[bash] Run tests\n');
+    expect(result).toContain('[bash]');
+    expect(result).toContain('Run tests');
   });
 
   test('includes formatted command', () => {
     const result = formatToolCall('bash', { command: 'npm test' });
-    expect(result).toBe('[bash] $ npm test\n');
+    expect(result).toContain('[bash]');
+    expect(result).toContain('$ npm test');
   });
 
   test('includes file_path', () => {
     const result = formatToolCall('read', { file_path: '/src/index.ts' });
-    expect(result).toBe('[read] /src/index.ts\n');
+    expect(result).toContain('[read]');
+    expect(result).toContain('/src/index.ts');
   });
 
   test('includes path (alternative to file_path)', () => {
     const result = formatToolCall('glob', { path: '/src' });
-    expect(result).toBe('[glob] /src\n');
+    expect(result).toContain('[glob]');
+    expect(result).toContain('/src');
   });
 
   test('prefers file_path over path when both provided', () => {
     const result = formatToolCall('read', { file_path: '/correct', path: '/wrong' });
-    expect(result).toBe('[read] /correct\n');
+    expect(result).toContain('[read]');
+    expect(result).toContain('/correct');
+    expect(result).not.toContain('/wrong');
   });
 
   test('includes pattern', () => {
     const result = formatToolCall('grep', { pattern: 'TODO' });
-    expect(result).toBe('[grep] pattern: TODO\n');
+    expect(result).toContain('[grep]');
+    expect(result).toContain('pattern:');
+    expect(result).toContain('TODO');
   });
 
   test('includes query', () => {
     const result = formatToolCall('search', { query: 'hello world' });
-    expect(result).toBe('[search] query: hello world\n');
+    expect(result).toContain('[search]');
+    expect(result).toContain('query:');
+    expect(result).toContain('hello world');
   });
 
   test('includes URL', () => {
     const result = formatToolCall('fetch', { url: 'https://api.example.com' });
-    expect(result).toBe('[fetch] https://api.example.com\n');
+    expect(result).toContain('[fetch]');
+    expect(result).toContain('https://api.example.com');
   });
 
   test('includes content preview for short content', () => {
     const result = formatToolCall('write', { content: 'hello world' });
-    expect(result).toBe('[write] "hello world"\n');
+    expect(result).toContain('[write]');
+    expect(result).toContain('"hello world"');
   });
 
   test('truncates long content with char count', () => {
@@ -213,7 +240,9 @@ describe('formatToolCall', () => {
       description: 'Run build',
       command: 'npm run build',
     });
-    expect(result).toBe('[bash] Run build $ npm run build\n');
+    expect(result).toContain('[bash]');
+    expect(result).toContain('Run build');
+    expect(result).toContain('$ npm run build');
   });
 
   test('combines all supported fields', () => {
@@ -229,8 +258,10 @@ describe('formatToolCall', () => {
     expect(result).toContain('Test');
     expect(result).toContain('$ cmd');
     expect(result).toContain('/path');
-    expect(result).toContain('pattern: *.ts');
-    expect(result).toContain('query: search');
+    expect(result).toContain('pattern:');
+    expect(result).toContain('*.ts');
+    expect(result).toContain('query:');
+    expect(result).toContain('search');
     expect(result).toContain('http://x');
   });
 });
@@ -301,8 +332,9 @@ describe('processAgentEvents', () => {
       { type: 'tool_use', name: 'read', input: { file_path: '/test.ts' } },
     ];
     const result = processAgentEvents(events);
-    // Tool call should be on its own line
-    expect(result).toContain('Let me check that\n[read]');
+    // Tool call should be on its own line (newline before the color-coded [read])
+    expect(result).toContain('Let me check that\n');
+    expect(result).toContain('[read]');
   });
 
   test('tool_use on its own still has leading newline', () => {
@@ -312,7 +344,8 @@ describe('processAgentEvents', () => {
     ];
     const result = processAgentEvents(events);
     // Should start with newline so it appears on its own line
-    expect(result).toMatch(/^\n\[read\]/);
+    expect(result.startsWith('\n')).toBe(true);
+    expect(result).toContain('[read]');
   });
 
   test('returns empty string for empty events array', () => {
