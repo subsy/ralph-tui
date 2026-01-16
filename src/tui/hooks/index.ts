@@ -38,3 +38,9 @@ export {
   type AttachResultWithFeedback,
   type UseImageAttachmentWithFeedbackReturn,
 } from './useImageAttachmentWithFeedback.js';
+
+export {
+  usePasteHint,
+  type UsePasteHintOptions,
+  type UsePasteHintReturn,
+} from './usePasteHint.js';

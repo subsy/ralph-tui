@@ -72,6 +72,8 @@ export const ImageConfigSchema = z.object({
   skip_cleanup_confirmation: z.boolean().optional(),
   /** Maximum images allowed per message (default: 10, 0 = unlimited) */
   max_images_per_message: z.number().int().min(0).max(100).optional(),
+  /** Show hint about image paste on first text paste of session (default: true) */
+  show_paste_hints: z.boolean().optional(),
 });
 
 /**

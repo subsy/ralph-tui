@@ -234,6 +234,21 @@ function buildSettingDefinitions(
       }),
       requiresRestart: false,
     },
+    {
+      key: 'showPasteHints',
+      label: 'Paste Hints',
+      type: 'boolean',
+      description: 'Show hint about image paste on first text paste',
+      getValue: (config) => config.images?.show_paste_hints ?? true,
+      setValue: (config, value) => ({
+        ...config,
+        images: {
+          ...config.images,
+          show_paste_hints: value as boolean,
+        },
+      }),
+      requiresRestart: false,
+    },
   ];
 }
 

@@ -19,7 +19,7 @@ import type { ChatMessage, ChatEvent } from '../../chat/types.js';
 import type { AgentPlugin } from '../../plugins/agents/types.js';
 import { parsePrdMarkdown } from '../../prd/index.js';
 import { colors } from '../theme.js';
-import { useImageAttachmentWithFeedback, useToast } from '../hooks/index.js';
+import { useImageAttachmentWithFeedback, useToast, usePasteHint } from '../hooks/index.js';
 import type { ImageConfig } from '../../config/types.js';
 import { DEFAULT_IMAGE_CONFIG } from '../../config/types.js';
 
@@ -235,6 +235,7 @@ export function PrdChatApp({
   const toast = useToast();
   const imagesEnabled = imageConfig?.enabled ?? DEFAULT_IMAGE_CONFIG.enabled;
   const maxImagesPerMessage = imageConfig?.max_images_per_message ?? DEFAULT_IMAGE_CONFIG.max_images_per_message;
+  const showPasteHints = imageConfig?.show_paste_hints ?? DEFAULT_IMAGE_CONFIG.show_paste_hints;
   const {
     attachedImages,
     attachImage,
@@ -243,6 +244,9 @@ export function PrdChatApp({
   } = useImageAttachmentWithFeedback(toast, {
     maxImagesPerMessage: imagesEnabled ? maxImagesPerMessage : 0,
   });
+
+  // Paste hint hook for first-time users
+  const { onTextPaste } = usePasteHint(toast, { enabled: showPasteHints && imagesEnabled });
 
   // Initialize chat engine
   useEffect(() => {
@@ -570,10 +574,12 @@ Read the PRD and create the appropriate tasks.`;
       const result = await attachImage(text);
       if (result.success) {
         event.preventDefault();
+      } else {
+        // Not an image - show first-time paste hint if enabled
+        onTextPaste();
       }
-      // If not an image, let the default paste behavior occur (text is inserted)
     },
-    [imagesEnabled, attachImage]
+    [imagesEnabled, attachImage, onTextPaste]
   );
 
   // Determine hint text based on phase

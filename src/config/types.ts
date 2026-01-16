@@ -72,6 +72,8 @@ export interface ImageConfig {
   skip_cleanup_confirmation?: boolean;
   /** Maximum images allowed per message (default: 10, 0 = unlimited) */
   max_images_per_message?: number;
+  /** Show hint about image paste on first text paste of session (default: true) */
+  show_paste_hints?: boolean;
 }
 
 /**
@@ -82,6 +84,7 @@ export const DEFAULT_IMAGE_CONFIG: Required<ImageConfig> = {
   cleanup_policy: 'on_exit',
   skip_cleanup_confirmation: false,
   max_images_per_message: 10,
+  show_paste_hints: true,
 };
 
 /**
