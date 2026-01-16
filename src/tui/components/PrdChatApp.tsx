@@ -22,6 +22,7 @@ import { colors } from '../theme.js';
 import { useImageAttachmentWithFeedback, useToast, usePasteHint } from '../hooks/index.js';
 import type { ImageConfig } from '../../config/types.js';
 import { DEFAULT_IMAGE_CONFIG } from '../../config/types.js';
+import { isSlashCommand, executeSlashCommand } from '../utils/slash-commands.js';
 
 /**
  * Props for the PrdChatApp component
@@ -435,7 +436,34 @@ Read the PRD and create the appropriate tasks.`;
   const sendMessage = useCallback(
     async (value?: string) => {
       const userMessage = value?.trim() ?? inputValue.trim();
-      if (!userMessage || !engineRef.current || isLoading) {
+      if (!userMessage || isLoading) {
+        return;
+      }
+
+      // Check for slash commands first
+      if (isSlashCommand(userMessage)) {
+        setInputValue('');
+        const result = await executeSlashCommand(userMessage, {
+          clearPendingImages: clearImages,
+          pendingImageCount: attachedImages.length,
+        });
+
+        if (result.handled) {
+          // Show feedback via toast
+          if (result.success) {
+            toast.showSuccess(result.message ?? 'Command executed');
+          } else {
+            toast.showError(result.message ?? 'Command failed');
+          }
+          return;
+        }
+        // If command not handled, fall through to send as message
+        // (but don't - unknown commands should be ignored)
+        return;
+      }
+
+      // Regular message - requires engine
+      if (!engineRef.current) {
         return;
       }
 
@@ -500,7 +528,7 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
     },
-    [inputValue, isLoading, getPromptSuffix, attachedImages, clearImages]
+    [inputValue, isLoading, getPromptSuffix, attachedImages, clearImages, toast]
   );
 
   /**
