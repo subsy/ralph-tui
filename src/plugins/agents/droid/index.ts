@@ -5,6 +5,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { platform } from 'node:os';
 import { BaseAgentPlugin } from '../base.js';
 import type {
   AgentPluginMeta,
@@ -181,8 +182,6 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
     } else {
       // Use 'script' to create a pseudo-TTY that satisfies Ink's requirements
       // script -q: quiet mode (no "Script started" messages)
-      // -c: command to run
-      // /dev/null: output file (we capture stdout/stderr via pipes)
       //
       // The prompt (last arg) may contain newlines, so use fullEscape for it.
       // Other args are simple strings, so use simpleEscape.
@@ -193,7 +192,14 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
       // Use stty -echo to prevent the pseudo-TTY from echoing input back as output
       const targetCwd = options?.cwd ?? process.cwd();
       const shellCmd = `stty -echo 2>/dev/null; cd ${simpleEscape(targetCwd)} && ${droidCmd}`;
-      const scriptArgs = ['-q', '-c', shellCmd, '/dev/null'];
+
+      // macOS and Linux have different 'script' command syntax:
+      // - Linux: script -q -c "command" /dev/null
+      // - macOS: script -q /dev/null sh -c "command"
+      const isMacOS = platform() === 'darwin';
+      const scriptArgs = isMacOS
+        ? ['-q', '/dev/null', 'sh', '-c', shellCmd]
+        : ['-q', '-c', shellCmd, '/dev/null'];
 
       proc = spawn('script', scriptArgs, {
         cwd: options?.cwd ?? process.cwd(),
