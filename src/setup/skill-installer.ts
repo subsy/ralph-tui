@@ -51,11 +51,15 @@ export function getClaudeSkillsDir(): string {
  * Get the path to the bundled skills in the ralph-tui package.
  */
 export function getBundledSkillsDir(): string {
-  // In ESM, we need to derive the path from import.meta.url
-  // This file is at src/setup/skill-installer.ts
-  // Skills are at skills/
-  const currentDir = dirname(fileURLToPath(import.meta.url));
-  // Go up from src/setup to root, then into skills
+  const currentFile = fileURLToPath(import.meta.url);
+  const currentDir = dirname(currentFile);
+
+  // Running from dist/cli.js (bundled)
+  if (currentDir.endsWith('dist') || currentDir.includes('/dist/')) {
+    return join(currentDir, 'skills');
+  }
+
+  // Running from src/ (development)
   return join(currentDir, '..', '..', 'skills');
 }
 

@@ -15,7 +15,7 @@
     "ralph-tui": "./dist/cli.js"
   },
   "scripts": {
-    "build": "bun build ./src/cli.tsx --outdir ./dist --target bun --sourcemap=external && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external && cp -r assets dist/",
+    "build": "bun build ./src/cli.tsx --outdir ./dist --target bun --sourcemap=external && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external && cp -r assets dist/ && cp -r skills dist/",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
