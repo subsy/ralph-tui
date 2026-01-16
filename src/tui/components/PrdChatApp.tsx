@@ -2,12 +2,13 @@
  * ABOUTME: PRD Chat application component for the Ralph TUI.
  * Provides an interactive chat interface for generating PRDs using an AI agent.
  * After PRD generation, shows a split view with PRD preview and tracker options.
+ * Supports image attachments that are appended to prompts.
  */
 
 import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useKeyboard } from '@opentui/react';
-import type { KeyEvent } from '@opentui/core';
+import type { KeyEvent, PasteEvent } from '@opentui/core';
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,6 +19,9 @@ import type { ChatMessage, ChatEvent } from '../../chat/types.js';
 import type { AgentPlugin } from '../../plugins/agents/types.js';
 import { parsePrdMarkdown } from '../../prd/index.js';
 import { colors } from '../theme.js';
+import { useImageAttachmentWithFeedback, useToast } from '../hooks/index.js';
+import type { ImageConfig } from '../../config/types.js';
+import { DEFAULT_IMAGE_CONFIG } from '../../config/types.js';
 
 /**
  * Props for the PrdChatApp component
@@ -59,6 +63,9 @@ export interface PrdChatAppProps {
 
   /** Callback when an error occurs */
   onError?: (error: string) => void;
+
+  /** Image attachment configuration */
+  imageConfig?: ImageConfig;
 }
 
 /**
@@ -192,6 +199,7 @@ export function PrdChatApp({
   onComplete,
   onCancel,
   onError,
+  imageConfig,
 }: PrdChatAppProps): ReactNode {
   // Phase: 'chat' for PRD generation, 'review' for tracker selection
   const [phase, setPhase] = useState<'chat' | 'review'>('chat');
@@ -222,6 +230,19 @@ export function PrdChatApp({
 
   // Get tracker options
   const trackerOptions = getTrackerOptions(cwd);
+
+  // Image attachment and toast hooks
+  const toast = useToast();
+  const imagesEnabled = imageConfig?.enabled ?? DEFAULT_IMAGE_CONFIG.enabled;
+  const maxImagesPerMessage = imageConfig?.max_images_per_message ?? DEFAULT_IMAGE_CONFIG.max_images_per_message;
+  const {
+    attachedImages,
+    attachImage,
+    clearImages,
+    getPromptSuffix,
+  } = useImageAttachmentWithFeedback(toast, {
+    maxImagesPerMessage: imagesEnabled ? maxImagesPerMessage : 0,
+  });
 
   // Initialize chat engine
   useEffect(() => {
@@ -420,40 +441,54 @@ Read the PRD and create the appropriate tasks.`;
       setLoadingStatus('Sending to agent...');
       setError(undefined);
 
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
+      // Get image suffix before clearing (will be empty string if no images)
+      const imageSuffix = getPromptSuffix();
 
-    try {
-      const result = await engineRef.current.sendMessage(userMessage, {
-        onChunk: (chunk) => {
-          if (isMountedRef.current) {
-            setStreamingChunk((prev) => prev + chunk);
-          }
-        },
-        onStatus: (status) => {
-          if (isMountedRef.current) {
-            setLoadingStatus(status);
-          }
-        },
-      });
+      // Clear attached images after capturing suffix
+      if (attachedImages.length > 0) {
+        clearImages();
+      }
 
-      if (isMountedRef.current) {
-        if (result.success && result.response) {
-          setMessages((prev) => [...prev, result.response!]);
-          setStreamingChunk('');
-        } else if (!result.success) {
-          setError(result.error || 'Failed to get response');
+      // The user message shown in the chat (without image paths for cleaner display)
+      const userMsg: ChatMessage = {
+        role: 'user',
+        content: attachedImages.length > 0
+          ? `${userMessage}\n\n📎 ${attachedImages.length} image(s) attached`
+          : userMessage,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      // The prompt sent to the agent includes the image paths
+      const promptToSend = userMessage + imageSuffix;
+
+      try {
+        const result = await engineRef.current.sendMessage(promptToSend, {
+          onChunk: (chunk) => {
+            if (isMountedRef.current) {
+              setStreamingChunk((prev) => prev + chunk);
+            }
+          },
+          onStatus: (status) => {
+            if (isMountedRef.current) {
+              setLoadingStatus(status);
+            }
+          },
+        });
+
+        if (isMountedRef.current) {
+          if (result.success && result.response) {
+            setMessages((prev) => [...prev, result.response!]);
+            setStreamingChunk('');
+          } else if (!result.success) {
+            setError(result.error || 'Failed to get response');
+          }
         }
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      if (isMountedRef.current) {
-        setError(errorMsg);
-      }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        if (isMountedRef.current) {
+          setError(errorMsg);
+        }
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
@@ -461,7 +496,7 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
     },
-    [inputValue, isLoading]
+    [inputValue, isLoading, getPromptSuffix, attachedImages, clearImages]
   );
 
   /**
@@ -521,6 +556,26 @@ Read the PRD and create the appropriate tasks.`;
 
   useKeyboard(handleKeyboard);
 
+  /**
+   * Handle paste events - try to detect and attach images
+   */
+  const handlePaste = useCallback(
+    async (text: string, event: PasteEvent) => {
+      // Don't process paste if images are disabled
+      if (!imagesEnabled) {
+        return;
+      }
+
+      // Try to attach as image - if it succeeds, prevent the default paste
+      const result = await attachImage(text);
+      if (result.success) {
+        event.preventDefault();
+      }
+      // If not an image, let the default paste behavior occur (text is inserted)
+    },
+    [imagesEnabled, attachImage]
+  );
+
   // Determine hint text based on phase
   const hint =
     phase === 'review'
@@ -553,6 +608,9 @@ Read the PRD and create the appropriate tasks.`;
             hint={hint}
             agentName={agent.meta.name}
             onSubmit={sendMessage}
+            attachedImageCount={attachedImages.length}
+            onPaste={handlePaste}
+            toasts={toast.toasts}
           />
         </box>
 
@@ -581,6 +639,9 @@ Read the PRD and create the appropriate tasks.`;
         hint={hint}
         agentName={agent.meta.name}
         onSubmit={sendMessage}
+        attachedImageCount={attachedImages.length}
+        onPaste={handlePaste}
+        toasts={toast.toasts}
       />
       <ConfirmationDialog
         visible={showQuitConfirm}

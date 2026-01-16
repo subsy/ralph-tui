@@ -8,6 +8,7 @@ export {
   type AttachedImage,
   type AttachResult,
   type UseImageAttachmentReturn,
+  type UseImageAttachmentOptions,
 } from './useImageAttachment.js';
 
 export {

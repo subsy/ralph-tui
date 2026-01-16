@@ -16,6 +16,7 @@ import {
   storeImageFromBuffer,
   deleteStoredImage,
 } from '../utils/image-storage.js';
+import { DEFAULT_IMAGE_CONFIG } from '../../config/types.js';
 
 /**
  * Represents a single attached image with metadata.
@@ -41,6 +42,17 @@ export interface AttachResult {
   image?: AttachedImage;
   /** Error message (if failed) */
   error?: string;
+}
+
+/**
+ * Options for the useImageAttachment hook.
+ */
+export interface UseImageAttachmentOptions {
+  /**
+   * Maximum images allowed per message (0 = unlimited).
+   * Defaults to DEFAULT_IMAGE_CONFIG.max_images_per_message (10).
+   */
+  maxImagesPerMessage?: number;
 }
 
 /**
@@ -79,6 +91,14 @@ export interface UseImageAttachmentReturn {
    * Whether there are any attached images.
    */
   hasImages: boolean;
+  /**
+   * Maximum images allowed per message (from config).
+   */
+  maxImages: number;
+  /**
+   * Whether the max images limit has been reached.
+   */
+  isAtLimit: boolean;
 }
 
 /**
@@ -171,6 +191,7 @@ function generateDisplayName(source: string, _storedPath: string, index: number)
  * - Clipboard image data (Ctrl+V with image copied)
  * - Base64/data URI encoded images
  *
+ * @param options - Configuration options for the hook
  * @returns Object with attachment state and methods
  *
  * @example
@@ -182,7 +203,7 @@ function generateDisplayName(source: string, _storedPath: string, index: number)
  *     removeImage,
  *     clearImages,
  *     getPromptSuffix,
- *   } = useImageAttachment();
+ *   } = useImageAttachment({ maxImagesPerMessage: 5 });
  *
  *   const handlePaste = async (text: string) => {
  *     const result = await attachImage(text);
@@ -205,13 +226,22 @@ function generateDisplayName(source: string, _storedPath: string, index: number)
  * }
  * ```
  */
-export function useImageAttachment(): UseImageAttachmentReturn {
+export function useImageAttachment(options: UseImageAttachmentOptions = {}): UseImageAttachmentReturn {
+  const maxImages = options.maxImagesPerMessage ?? DEFAULT_IMAGE_CONFIG.max_images_per_message;
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
 
   /**
    * Attach an image from the system clipboard.
    */
   const attachFromClipboard = useCallback(async (): Promise<AttachResult> => {
+    // Check if we've reached the max limit (0 = unlimited)
+    if (maxImages > 0 && attachedImages.length >= maxImages) {
+      return {
+        success: false,
+        error: `Maximum of ${maxImages} images allowed per message`,
+      };
+    }
+
     // Check if clipboard has an image
     const hasImage = await hasClipboardImage();
     if (!hasImage) {
@@ -254,7 +284,7 @@ export function useImageAttachment(): UseImageAttachmentReturn {
     });
 
     return { success: true, image };
-  }, []);
+  }, [maxImages, attachedImages.length]);
 
   /**
    * Attach an image from various input sources.
@@ -266,6 +296,14 @@ export function useImageAttachment(): UseImageAttachmentReturn {
       // Empty input means try clipboard
       if (!trimmedInput) {
         return attachFromClipboard();
+      }
+
+      // Check if we've reached the max limit (0 = unlimited)
+      if (maxImages > 0 && attachedImages.length >= maxImages) {
+        return {
+          success: false,
+          error: `Maximum of ${maxImages} images allowed per message`,
+        };
       }
 
       // Check if input is base64 image data
@@ -329,7 +367,7 @@ export function useImageAttachment(): UseImageAttachmentReturn {
         error: pathResult.error ?? 'Input is not a recognized image format',
       };
     },
-    [attachFromClipboard]
+    [attachFromClipboard, maxImages, attachedImages.length]
   );
 
   /**
@@ -389,6 +427,14 @@ export function useImageAttachment(): UseImageAttachmentReturn {
    */
   const hasImages = useMemo(() => attachedImages.length > 0, [attachedImages]);
 
+  /**
+   * Whether the max images limit has been reached.
+   */
+  const isAtLimit = useMemo(
+    () => maxImages > 0 && attachedImages.length >= maxImages,
+    [maxImages, attachedImages.length]
+  );
+
   return {
     attachedImages,
     attachImage,
@@ -397,5 +443,7 @@ export function useImageAttachment(): UseImageAttachmentReturn {
     clearImages,
     getPromptSuffix,
     hasImages,
+    maxImages,
+    isAtLimit,
   };
 }

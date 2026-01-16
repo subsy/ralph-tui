@@ -246,6 +246,9 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
   console.log(`Using agent: ${agent.meta.name}`);
   console.log('');
 
+  // Load config for image settings
+  const storedConfig = await loadStoredConfig(cwd);
+
   // Create renderer and render the chat app
   const renderer = await createCliRenderer({
     exitOnCtrlC: false, // We handle Ctrl+C in the app
@@ -285,6 +288,7 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
         onComplete={handleComplete}
         onCancel={handleCancel}
         onError={handleError}
+        imageConfig={storedConfig.images}
       />
     );
   });

@@ -7,7 +7,7 @@
 import { useCallback, useRef } from 'react';
 import { platform } from 'node:os';
 import { useImageAttachment } from './useImageAttachment.js';
-import type { AttachResult, UseImageAttachmentReturn } from './useImageAttachment.js';
+import type { AttachResult, UseImageAttachmentReturn, UseImageAttachmentOptions } from './useImageAttachment.js';
 import type { UseToastReturn } from './useToast.js';
 import { checkClipboardTool } from '../utils/clipboard-image.js';
 import { looksLikeImagePath } from '../utils/image-detection.js';
@@ -40,6 +40,7 @@ type ErrorCategory =
   | 'storage_failed'    // Failed to save image
   | 'missing_tool'      // Clipboard tool not installed
   | 'no_image'          // No image in clipboard
+  | 'max_limit'         // Max images per message reached
   | 'unknown';          // Generic error
 
 /**
@@ -47,6 +48,11 @@ type ErrorCategory =
  */
 function categorizeError(error: string, inputLooksLikePath: boolean): ErrorCategory {
   const lowerError = error.toLowerCase();
+  
+  // Max images limit reached
+  if (lowerError.includes('maximum') && lowerError.includes('images')) {
+    return 'max_limit';
+  }
   
   // Missing clipboard tool
   if (lowerError.includes('no clipboard tool') || lowerError.includes('install')) {
@@ -90,7 +96,7 @@ function categorizeError(error: string, inputLooksLikePath: boolean): ErrorCateg
 /**
  * Get user-friendly error message based on error category.
  */
-function getErrorMessage(category: ErrorCategory): string {
+function getErrorMessage(category: ErrorCategory, error?: string): string {
   switch (category) {
     case 'invalid_path':
       return 'Invalid image path';
@@ -104,6 +110,9 @@ function getErrorMessage(category: ErrorCategory): string {
       return 'Clipboard tool not installed';
     case 'no_image':
       return 'No image in clipboard';
+    case 'max_limit':
+      // Use the original error message which contains the limit number
+      return error ?? 'Max images limit reached';
     case 'unknown':
     default:
       return 'Failed to attach image';
@@ -137,8 +146,10 @@ function getInstallHint(): string {
  * - Clipboard tool fails: "Failed to read clipboard"
  * - Storage fails: "Failed to save image"
  * - Missing tool (once per session): Install hint
+ * - Max images limit reached: "Maximum of N images allowed"
  *
  * @param toast - Toast hook return value for showing notifications
+ * @param options - Configuration options passed to useImageAttachment
  * @returns Extended image attachment hook with feedback
  *
  * @example
@@ -149,7 +160,7 @@ function getInstallHint(): string {
  *     attachedImages,
  *     attachImage,
  *     attachFromClipboard,
- *   } = useImageAttachmentWithFeedback(toast);
+ *   } = useImageAttachmentWithFeedback(toast, { maxImagesPerMessage: 5 });
  *
  *   const handlePaste = async (text: string) => {
  *     // Feedback is shown automatically via toasts
@@ -161,9 +172,10 @@ function getInstallHint(): string {
  * ```
  */
 export function useImageAttachmentWithFeedback(
-  toast: UseToastReturn
+  toast: UseToastReturn,
+  options: UseImageAttachmentOptions = {}
 ): UseImageAttachmentWithFeedbackReturn {
-  const baseHook = useImageAttachment();
+  const baseHook = useImageAttachment(options);
   
   // Track whether we've shown the missing tool message this session
   const hasShownMissingToolMessageRef = useRef(false);
@@ -217,7 +229,7 @@ export function useImageAttachmentWithFeedback(
         return { ...result, feedbackShown: false };
       }
       
-      const message = getErrorMessage(category);
+      const message = getErrorMessage(category, result.error);
       toast.showError(message);
       return { ...result, feedbackShown: true };
     }
@@ -273,9 +285,16 @@ export function useImageAttachmentWithFeedback(
         return { ...result, feedbackShown: true };
       }
       
+      // Handle max limit error (show regardless of input type)
+      if (category === 'max_limit') {
+        const message = getErrorMessage(category, result.error);
+        toast.showError(message);
+        return { ...result, feedbackShown: true };
+      }
+      
       // For other errors on paths that looked like images, show generic message
       if (inputLooksLikePath) {
-        const message = getErrorMessage(category);
+        const message = getErrorMessage(category, result.error);
         toast.showError(message);
         return { ...result, feedbackShown: true };
       }
