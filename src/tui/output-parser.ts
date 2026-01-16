@@ -158,16 +158,11 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
     parsedParts.push(formatDroidCostSummary(droidCostAccumulator.getSummary()));
   }
 
-  // If we found JSONL content, return the extracted parts
+  // If we found JSONL content, return ALL extracted parts joined together
+  // This ensures tool calls and intermediate output are visible, not just the final result
   if (hasJsonl && parsedParts.length > 0) {
-    // Return the last result (usually the most complete output)
-    // Filter to get only the meaningful results (not just partial outputs)
-    const meaningfulParts = parsedParts.filter((p) => p.length > 50);
-    if (meaningfulParts.length > 0) {
-      // Strip ANSI codes - legacy formatters use ANSI which causes TUI artifacts
-      return stripAnsiCodes(meaningfulParts[meaningfulParts.length - 1]!);
-    }
-    return stripAnsiCodes(parsedParts[parsedParts.length - 1]!);
+    // Strip ANSI codes from each part and join with newlines
+    return parsedParts.map(p => stripAnsiCodes(p)).join('\n');
   }
 
   // If we have plain text lines and no JSONL, return the plain text

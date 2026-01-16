@@ -651,14 +651,23 @@ function TaskOutputView({
         }}
       >
         <scrollbox style={{ flexGrow: 1, padding: 1 }}>
-          {/* Simple line-based coloring: tool call lines get accent color */}
+          {/* Line-based coloring with tool names in green */}
           {displayOutput !== undefined && displayOutput.length > 0 ? (
             <box style={{ flexDirection: 'column' }}>
               {displayOutput.split('\n').map((line, i) => {
-                // Color lines that start with [toolname] pattern
-                const isToolCall = /^\[[\w-]+\]/.test(line);
+                // Check if line starts with [toolname] pattern
+                const toolMatch = line.match(/^(\[[\w-]+\])(.*)/);
+                if (toolMatch) {
+                  const [, toolName, rest] = toolMatch;
+                  return (
+                    <box key={i} style={{ flexDirection: 'row' }}>
+                      <text fg={colors.status.success}>{toolName}</text>
+                      <text fg={colors.fg.secondary}>{rest}</text>
+                    </box>
+                  );
+                }
                 return (
-                  <text key={i} fg={isToolCall ? colors.accent.primary : colors.fg.secondary}>
+                  <text key={i} fg={colors.fg.secondary}>
                     {line}
                   </text>
                 );
