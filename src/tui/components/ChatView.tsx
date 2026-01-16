@@ -11,7 +11,9 @@ import type { TextareaRenderable, KeyEvent, PasteEvent } from '@opentui/core';
 import { colors } from '../theme.js';
 import type { ChatMessage } from '../../chat/types.js';
 import { ImageAttachmentCount } from './ImageAttachmentCount.js';
+import { ToastContainer } from './Toast.js';
 import { usePaste } from '../hooks/usePaste.js';
+import type { Toast as ToastData } from '../hooks/useToast.js';
 
 /**
  * Spinner frames for animation
@@ -107,6 +109,12 @@ export interface ChatViewProps {
    * @param event - The paste event (call preventDefault() to stop default paste)
    */
   onPaste?: (text: string, event: PasteEvent) => void | Promise<void>;
+
+  /**
+   * Toast notifications to display in the chat view.
+   * Provide this from the useToast hook to show transient feedback messages.
+   */
+  toasts?: ToastData[];
 }
 
 /**
@@ -174,6 +182,7 @@ export function ChatView({
   attachedImageCount = 0,
   onImageIndicatorRemoved: _onImageIndicatorRemoved, // Reserved for future indicator backspace handling
   onPaste,
+  toasts = [],
 }: ChatViewProps): ReactNode {
   // Generate dynamic loading text
   const loadingText = agentName
@@ -372,8 +381,12 @@ export function ChatView({
         height: '100%',
         flexDirection: 'column',
         backgroundColor: colors.bg.primary,
+        position: 'relative',
       }}
     >
+      {/* Toast notifications */}
+      {toasts.length > 0 && <ToastContainer toasts={toasts} />}
+
       {/* Header */}
       <box
         style={{

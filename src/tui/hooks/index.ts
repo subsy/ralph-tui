@@ -23,3 +23,17 @@ export {
   usePaste,
   type UsePasteOptions,
 } from './usePaste.js';
+
+export {
+  useToast,
+  type Toast as ToastData,
+  type ToastVariant,
+  type ShowToastOptions,
+  type UseToastReturn,
+} from './useToast.js';
+
+export {
+  useImageAttachmentWithFeedback,
+  type AttachResultWithFeedback,
+  type UseImageAttachmentWithFeedbackReturn,
+} from './useImageAttachmentWithFeedback.js';
