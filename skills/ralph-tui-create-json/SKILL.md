@@ -15,10 +15,11 @@ Converts PRDs to prd.json format for ralph-tui autonomous execution.
 
 Take a PRD (markdown file or text) and create a prd.json file:
 1. **Extract Quality Gates** from the PRD's "Quality Gates" section
-2. Parse user stories from the PRD
-3. Append quality gates to each story's acceptance criteria
-4. Set up dependencies between stories
-5. Output ready for `ralph-tui run --prd <path>`
+2. Parse work items from the PRD
+3. Map work item prefixes to `type` field (US-xxx → story, TA-xxx → task)
+4. Append quality gates to each item's acceptance criteria
+5. Set up dependencies between items
+6. Output ready for `ralph-tui run --prd <path>`
 
 ---
 
@@ -49,14 +50,15 @@ Extract:
 
 ```json
 {
-  "project": "[Project name from PRD or directory]",
+  "name": "[Project name from PRD or directory]",
   "branchName": "ralph/[feature-name-kebab-case]",
   "description": "[Feature description from PRD]",
-  "userStories": [
+  "workItems": [
     {
-      "id": "US-001",
-      "title": "[Story title]",
-      "description": "As a [user], I want [feature] so that [benefit]",
+      "id": "TA-001",
+      "title": "[Task title]",
+      "type": "task",
+      "description": "Add [X] to support [feature Y]",
       "acceptanceCriteria": [
         "Criterion 1 from PRD",
         "Criterion 2 from PRD",
@@ -70,8 +72,9 @@ Extract:
     },
     {
       "id": "US-002",
-      "title": "[UI Story that depends on US-001]",
-      "description": "...",
+      "title": "[Story that depends on TA-001]",
+      "type": "story",
+      "description": "As a [user], I want [X] so that [Y]",
       "acceptanceCriteria": [
         "...",
         "pnpm typecheck passes",
@@ -81,7 +84,7 @@ Extract:
       "priority": 2,
       "passes": false,
       "notes": "",
-      "dependsOn": ["US-001"]
+      "dependsOn": ["TA-001"]
     }
   ]
 }
@@ -89,13 +92,27 @@ Extract:
 
 ---
 
-## Story Size: The #1 Rule
+## Type Mapping
 
-**Each story must be completable in ONE ralph-tui iteration (~one agent context window).**
+Map work item prefixes to the `type` field (case-insensitive):
 
-Ralph-tui spawns a fresh agent instance per iteration with no memory of previous work. If a story is too big, the agent runs out of context before finishing.
+| Prefix | `type` | Notes |
+|--------|--------|-------|
+| US-xxx | story | User-facing features ("As a user, I want...") |
+| TA-xxx | task | Technical work (schema, backend, refactoring, bugs, maintenance) |
+| other | task | Default for unknown prefixes (including legacy FR-xxx) |
 
-### Right-sized stories:
+**Backward compatibility:** The tracker also accepts `userStories` as an alias for `workItems` when reading, and `project` as an alias for `name`.
+
+---
+
+## Work Item Size: The #1 Rule
+
+**Each work item must be completable in ONE ralph-tui iteration (~one agent context window).**
+
+Ralph-tui spawns a fresh agent instance per iteration with no memory of previous work. If an item is too big, the agent runs out of context before finishing.
+
+### Right-sized items:
 - Add a database column + migration
 - Add a UI component to an existing page
 - Update a server action with new logic
@@ -112,21 +129,22 @@ Ralph-tui spawns a fresh agent instance per iteration with no memory of previous
 
 ## Dependencies with `dependsOn`
 
-Use the `dependsOn` array to specify which stories must complete first:
+Use the `dependsOn` array to specify which items must complete first:
 
 ```json
 {
   "id": "US-002",
   "title": "Create API endpoints",
-  "dependsOn": ["US-001"],  // Won't be selected until US-001 passes
+  "type": "story",
+  "dependsOn": ["TA-001"],  // Won't be selected until TA-001 passes
   ...
 }
 ```
 
 Ralph-tui will:
-- Show US-002 as "blocked" until US-001 completes
-- Never select US-002 for execution while US-001 is open
-- Include "Prerequisites: US-001" in the prompt when working on US-002
+- Show US-002 as "blocked" until TA-001 completes
+- Never select US-002 for execution while TA-001 is open
+- Include "Prerequisites: TA-001" in the prompt when working on US-002
 
 **Correct dependency order:**
 1. Schema/database changes (no dependencies)
@@ -136,10 +154,10 @@ Ralph-tui will:
 
 ---
 
-## Acceptance Criteria: Quality Gates + Story-Specific
+## Acceptance Criteria: Quality Gates + Item-Specific
 
-Each story's acceptance criteria should include:
-1. **Story-specific criteria** from the PRD (what this story accomplishes)
+Each item's acceptance criteria should include:
+1. **Item-specific criteria** from the PRD (what this work item accomplishes)
 2. **Quality gates** from the PRD's Quality Gates section (appended at the end)
 
 ### Good criteria (verifiable):
@@ -158,14 +176,15 @@ Each story's acceptance criteria should include:
 ## Conversion Rules
 
 1. **Extract Quality Gates** from PRD first
-2. **Each user story → one JSON entry**
-3. **IDs**: Sequential (US-001, US-002, etc.)
-4. **Priority**: Based on dependency order (1 = highest)
-5. **dependsOn**: Array of story IDs this story requires
-6. **All stories**: `passes: false` and empty `notes`
-7. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
-8. **Acceptance criteria**: Story criteria + quality gates appended
-9. **UI stories**: Also append UI-specific gates (browser verification)
+2. **Each work item → one JSON entry**
+3. **IDs**: Use global counter with type prefix (US-001, TA-002, US-003)
+4. **Type**: Map prefix to type (US-xxx → story, TA-xxx → task)
+5. **Priority**: Based on dependency order (1 = highest)
+6. **dependsOn**: Array of item IDs this item requires
+7. **All items**: `passes: false` and empty `notes`
+8. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
+9. **Acceptance criteria**: Item criteria + quality gates appended
+10. **UI items**: Also append UI-specific gates (browser verification)
 
 ---
 
@@ -192,48 +211,54 @@ Add priority levels to tasks.
 
 ## Quality Gates
 
-These commands must pass for every user story:
+These commands must pass for every work item:
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
-For UI stories, also include:
+For UI items, also include:
 - Verify in browser using dev-browser skill
 
-## User Stories
+## Work Items
 
-### US-001: Add priority field to database
-**Description:** As a developer, I need to store task priority.
+### TA-001: Add priority field to database
+**Type:** task
+**Description:** Add priority column to store task priority levels.
 
 **Acceptance Criteria:**
 - [ ] Add priority column: 1-4 (default 2)
 - [ ] Migration runs successfully
 
 ### US-002: Display priority badge on task cards
-**Description:** As a user, I want to see task priority at a glance.
+**Type:** story
+**Description:** As a user, I want to see task priority at a glance so I can focus on high-priority work.
 
 **Acceptance Criteria:**
 - [ ] Badge shows P1/P2/P3/P4 with colors
 - [ ] Badge visible without hovering
+**Depends on:** TA-001
 
 ### US-003: Add priority filter dropdown
-**Description:** As a user, I want to filter tasks by priority.
+**Type:** story
+**Description:** As a user, I want to filter tasks by priority so I can focus on urgent items.
 
 **Acceptance Criteria:**
 - [ ] Filter dropdown: All, P1, P2, P3, P4
 - [ ] Filter persists in URL
+**Depends on:** US-002
 ```
 
 **Output prd.json:**
 ```json
 {
-  "project": "my-app",
+  "name": "my-app",
   "branchName": "ralph/task-priority",
   "description": "Add priority levels to tasks",
-  "userStories": [
+  "workItems": [
     {
-      "id": "US-001",
+      "id": "TA-001",
       "title": "Add priority field to database",
-      "description": "As a developer, I need to store task priority.",
+      "type": "task",
+      "description": "Add priority column to store task priority levels.",
       "acceptanceCriteria": [
         "Add priority column: 1-4 (default 2)",
         "Migration runs successfully",
@@ -248,7 +273,8 @@ For UI stories, also include:
     {
       "id": "US-002",
       "title": "Display priority badge on task cards",
-      "description": "As a user, I want to see task priority at a glance.",
+      "type": "story",
+      "description": "As a user, I want to see task priority at a glance so I can focus on high-priority work.",
       "acceptanceCriteria": [
         "Badge shows P1/P2/P3/P4 with colors",
         "Badge visible without hovering",
@@ -259,12 +285,13 @@ For UI stories, also include:
       "priority": 2,
       "passes": false,
       "notes": "",
-      "dependsOn": ["US-001"]
+      "dependsOn": ["TA-001"]
     },
     {
       "id": "US-003",
       "title": "Add priority filter dropdown",
-      "description": "As a user, I want to filter tasks by priority.",
+      "type": "story",
+      "description": "As a user, I want to filter tasks by priority so I can focus on urgent items.",
       "acceptanceCriteria": [
         "Filter dropdown: All, P1, P2, P3, P4",
         "Filter persists in URL",
@@ -291,22 +318,23 @@ ralph-tui run --prd ./tasks/prd.json
 ```
 
 Ralph-tui will:
-1. Load stories from prd.json
-2. Select the highest-priority story with `passes: false` and no blocking dependencies
-3. Generate a prompt with story details + acceptance criteria
-4. Run the agent to implement the story
+1. Load items from prd.json
+2. Select the highest-priority item with `passes: false` and no blocking dependencies
+3. Generate a prompt with item details + acceptance criteria
+4. Run the agent to implement the item
 5. Mark `passes: true` on completion
-6. Repeat until all stories pass
+6. Repeat until all items pass
 
 ---
 
 ## Checklist Before Saving
 
 - [ ] Extracted Quality Gates from PRD (or asked user if missing)
-- [ ] Each story completable in one iteration
-- [ ] Stories ordered by dependency (schema → backend → UI)
-- [ ] `dependsOn` correctly set for each story
-- [ ] Quality gates appended to every story's acceptance criteria
-- [ ] UI stories have browser verification (if specified in Quality Gates)
+- [ ] Each work item completable in one iteration
+- [ ] Work items ordered by dependency (schema → backend → UI)
+- [ ] Mapped item prefixes to `type` field (US-xxx → story, TA-xxx → task)
+- [ ] `dependsOn` correctly set for each item
+- [ ] Quality gates appended to every item's acceptance criteria
+- [ ] UI items have browser verification (if specified in Quality Gates)
 - [ ] Acceptance criteria are verifiable (not vague)
 - [ ] No circular dependencies

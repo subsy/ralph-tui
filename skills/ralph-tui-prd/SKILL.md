@@ -89,12 +89,12 @@ Brief description of the feature and the problem it solves.
 Specific, measurable objectives (bullet list).
 
 ### 3. Quality Gates
-**CRITICAL:** List the commands that must pass for every user story.
+**CRITICAL:** List the commands that must pass for every work item.
 
 ```markdown
 ## Quality Gates
 
-These commands must pass for every user story:
+These commands must pass for every work item:
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
@@ -104,51 +104,63 @@ For UI stories, also include:
 
 This section is extracted by conversion tools (ralph-tui-create-json, ralph-tui-create-beads) and appended to each story's acceptance criteria.
 
-### 4. User Stories
-Each story needs:
-- **Title:** Short descriptive name
-- **Description:** "As a [user], I want [feature] so that [benefit]"
+### 4. Work Items
+Each work item needs:
+- **ID with Type Prefix:** US-xxx (story) or TA-xxx (task)
+- **Type:** Explicit type declaration
+- **Description:** Format depends on type (see below)
 - **Acceptance Criteria:** Verifiable checklist of what "done" means
 
-Each story should be small enough to implement in one focused AI agent session.
+Each item should be small enough to implement in one focused AI agent session.
+
+**Work Item Types:**
+
+| Prefix | Type | When to Use | Description Format |
+|--------|------|-------------|-------------------|
+| US-xxx | story | User-facing features | "As a [user], I want [X] so that [Y]" |
+| TA-xxx | task | Technical work (schema, backend, refactoring, bugs, maintenance) | Imperative: "Add X", "Fix Y" |
+
+**ID Counter:** Use a global counter across both types (US-001, TA-002, US-003, not US-001, TA-001).
 
 **Format:**
 ```markdown
-### US-001: [Title]
+### US-001: [Story Title]
+**Type:** story
 **Description:** As a [user], I want [feature] so that [benefit].
 
 **Acceptance Criteria:**
 - [ ] Specific verifiable criterion
 - [ ] Another criterion
+
+### TA-002: [Task Title]
+**Type:** task
+**Description:** Add [X] to support [feature Y].
+
+**Acceptance Criteria:**
+- [ ] Specific verifiable criterion
 ```
 
-**Note:** Do NOT include quality gate commands in individual story criteria - they are defined once in the Quality Gates section and applied automatically during conversion.
+**Note:** Do NOT include quality gate commands in individual item criteria - they are defined once in the Quality Gates section and applied automatically during conversion.
 
 **Important:**
 - Acceptance criteria must be verifiable, not vague
 - "Works correctly" is bad
 - "Button shows confirmation dialog before deleting" is good
-- Each story should be independently completable
+- Each item should be independently completable
+- Order items by dependency (items that must be done first appear first)
 
-### 5. Functional Requirements
-Numbered list of specific functionalities:
-- "FR-1: The system must allow users to..."
-- "FR-2: When a user clicks X, the system must..."
-
-Be explicit and unambiguous.
-
-### 6. Non-Goals (Out of Scope)
+### 5. Non-Goals (Out of Scope)
 What this feature will NOT include. Critical for managing scope.
 
-### 7. Technical Considerations (Optional)
+### 6. Technical Considerations (Optional)
 - Known constraints or dependencies
 - Integration points with existing systems
 - Performance requirements
 
-### 8. Success Metrics
+### 7. Success Metrics
 How will success be measured?
 
-### 9. Open Questions
+### 8. Open Questions
 Remaining questions or areas needing clarification.
 
 ---
@@ -158,7 +170,7 @@ Remaining questions or areas needing clarification.
 The PRD will be executed by AI coding agents via ralph-tui. Therefore:
 
 - Be explicit and unambiguous
-- User stories should be small (completable in one session)
+- Work items should be small (completable in one session)
 - Acceptance criteria must be machine-verifiable where possible
 - Include specific file paths if you know them
 - Reference existing code patterns in the project
@@ -179,7 +191,7 @@ The PRD will be executed by AI coding agents via ralph-tui. Therefore:
 ## Quality Gates
 ...
 
-## User Stories
+## Work Items
 ...
 [/PRD]
 ```
@@ -242,25 +254,27 @@ Add dark mode support to ralph-tui to reduce eye strain during long orchestratio
 
 ## Quality Gates
 
-These commands must pass for every user story:
+These commands must pass for every work item:
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
 For UI stories, also include:
 - Verify in browser using dev-browser skill
 
-## User Stories
+## Work Items
 
-### US-001: Add theme configuration
-**Description:** As a user, I want to set my preferred theme (light/dark) so that it persists across sessions.
+### TA-001: Add theme configuration schema
+**Type:** task
+**Description:** Add theme field to configuration schema to support light/dark modes.
 
 **Acceptance Criteria:**
 - [ ] Add `theme` field to `.ralph-tui.yaml` schema
 - [ ] Support values: "light", "dark", "system"
 - [ ] Default to "light" for backwards compatibility
 
-### US-002: Create dark theme color palette
-**Description:** As a user, I want a soft-contrast dark theme that's easy on the eyes.
+### TA-002: Create dark theme color palette
+**Type:** task
+**Description:** Define dark theme color palette with proper contrast ratios.
 
 **Acceptance Criteria:**
 - [ ] Define dark palette with gray tones (not pure black)
@@ -268,7 +282,8 @@ For UI stories, also include:
 - [ ] Colors work well for all UI states (selected, hover, disabled)
 
 ### US-003: Apply theme to TUI components
-**Description:** As a user, I want all TUI components to respect my theme preference.
+**Type:** story
+**Description:** As a user, I want all TUI components to respect my theme preference so that I have a consistent viewing experience.
 
 **Acceptance Criteria:**
 - [ ] Header component uses theme colors
@@ -276,20 +291,17 @@ For UI stories, also include:
 - [ ] Detail panels use theme colors
 - [ ] Progress bar uses theme colors
 - [ ] Dialogs use theme colors
+**Depends on:** TA-001, TA-002
 
 ### US-004: Add theme toggle in settings
-**Description:** As a user, I want to toggle themes from within the TUI settings.
+**Type:** story
+**Description:** As a user, I want to toggle themes from within the TUI settings so that I can change themes without editing config files.
 
 **Acceptance Criteria:**
 - [ ] Theme option visible in settings view
 - [ ] Changes apply immediately without restart
 - [ ] Changes persist to config file
-
-## Functional Requirements
-- FR-1: Theme setting must be readable from `.ralph-tui.yaml`
-- FR-2: Theme must apply on TUI startup
-- FR-3: Theme changes in settings must apply immediately
-- FR-4: All text must maintain readability in both themes
+**Depends on:** US-003
 
 ## Non-Goals
 - System theme auto-detection (future enhancement)
@@ -320,8 +332,11 @@ Before outputting the PRD:
 - [ ] Asked about quality gates (REQUIRED)
 - [ ] Asked follow-up questions when needed
 - [ ] Quality Gates section included with project-specific commands
-- [ ] User stories are small and independently completable
-- [ ] User stories do NOT include quality gate commands (they're in the Quality Gates section)
-- [ ] Functional requirements are numbered and unambiguous
+- [ ] Work items use correct prefixes: US-xxx (story) or TA-xxx (task)
+- [ ] Work items include explicit **Type:** line
+- [ ] Stories use "As a user..." format; tasks use imperative format
+- [ ] Work items are small and independently completable
+- [ ] Work items do NOT include quality gate commands (they're in the Quality Gates section)
+- [ ] Work items are ordered by dependency (dependencies first)
 - [ ] Non-goals section defines clear boundaries
 - [ ] PRD is wrapped in `[PRD]...[/PRD]` markers

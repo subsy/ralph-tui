@@ -19,17 +19,27 @@ import type {
 } from '../types.js';
 
 /**
- * Structure of a user story in prd.json format.
+ * Work item types supported in prd.json.
+ * Maps to beads issue_type values.
+ */
+type WorkItemType = 'story' | 'task';
+
+/**
+ * Structure of a work item in prd.json format.
  * This matches the format specified in the PRD.
+ * Note: "user story" terminology is deprecated; prefer "work item".
  */
 interface PrdUserStory {
-  /** Unique story identifier (e.g., "US-001") */
+  /** Unique item identifier (e.g., "US-001", "TA-002") */
   id: string;
 
-  /** Short title of the user story */
+  /** Short title of the work item */
   title: string;
 
-  /** Full description of the user story */
+  /** Work item type: feature, task, bug, or chore */
+  type?: WorkItemType;
+
+  /** Full description of the work item */
   description?: string;
 
   /** List of acceptance criteria */
@@ -38,19 +48,19 @@ interface PrdUserStory {
   /** Priority level (lower = higher priority, 1-based) */
   priority?: number;
 
-  /** Whether the story has passed/completed */
+  /** Whether the item has passed/completed */
   passes: boolean;
 
   /** Labels or tags */
   labels?: string[];
 
-  /** Dependencies - story IDs this story depends on */
+  /** Dependencies - item IDs this item depends on */
   dependsOn?: string[];
 
   /** Optional notes (general purpose, shown in TUI and prompts) */
   notes?: string;
 
-  /** Optional notes for when the story was completed (alias for notes) */
+  /** Optional notes for when the item was completed (alias for notes) */
   completionNotes?: string;
 }
 
@@ -116,7 +126,7 @@ function validatePrdJsonSchema(data: unknown, filePath: string): PrdJson {
     throw new PrdJsonSchemaError(
       `Invalid prd.json: expected an object, got ${typeof data}`,
       ['File content is not a valid JSON object'],
-      'Ensure the file contains a valid JSON object with "name" and "userStories" fields.'
+      'Ensure the file contains a valid JSON object with "name" and "workItems" fields.'
     );
   }
 
@@ -132,17 +142,18 @@ function validatePrdJsonSchema(data: unknown, filePath: string): PrdJson {
       `Invalid prd.json schema: found ${wrongFields.join(' and ')} instead of expected structure`,
       [
         `Found fields: ${wrongFields.join(', ')}`,
-        'Expected fields: "name" (or "project"), "userStories", "branchName" (optional)',
+        'Expected fields: "name" (or "project"), "workItems" (or "userStories"), "branchName" (optional)',
         'This appears to be an AI-generated file that did not follow the correct schema.',
       ],
       `The correct prd.json format is:
 {
   "name": "Feature Name",
   "branchName": "feature/my-feature",
-  "userStories": [
+  "workItems": [
     {
       "id": "US-001",
       "title": "Story title",
+      "type": "story",
       "description": "As a user, I want...",
       "acceptanceCriteria": ["Criterion 1", "Criterion 2"],
       "priority": 1,
@@ -163,14 +174,20 @@ or manually restructure the file to match the schema above.`
     errors.push('Missing required field: "name" (string) - the project/feature name');
   }
 
-  // Check for userStories array
-  if (!('userStories' in obj)) {
-    errors.push('Missing required field: "userStories" (array) - the list of tasks');
-  } else if (!Array.isArray(obj.userStories)) {
-    errors.push('"userStories" must be an array');
+  // Check for workItems or userStories array (workItems preferred, userStories for backward compat)
+  const itemsArray = obj.workItems ?? obj.userStories;
+  const itemsFieldName = 'workItems' in obj ? 'workItems' : 'userStories';
+
+  if (!itemsArray) {
+    errors.push(
+      'Missing required field: "workItems" (array) - the list of tasks. ' +
+        '"userStories" is also accepted for backward compatibility.'
+    );
+  } else if (!Array.isArray(itemsArray)) {
+    errors.push(`"${itemsFieldName}" must be an array`);
   } else {
-    // Validate each user story
-    const stories = obj.userStories as unknown[];
+    // Validate each work item
+    const stories = itemsArray as unknown[];
     for (let i = 0; i < stories.length; i++) {
       const story = stories[i];
       if (!story || typeof story !== 'object') {
@@ -221,12 +238,13 @@ or manually restructure the file to match the schema above.`
     );
   }
 
-  // Normalize: accept 'project' as alias for 'name'
+  // Normalize: accept 'project' as alias for 'name', 'userStories' as alias for 'workItems'
+  const items = (obj.workItems ?? obj.userStories) as PrdUserStory[];
   return {
     name: name as string,
     description: typeof obj.description === 'string' ? obj.description : undefined,
     branchName: typeof obj.branchName === 'string' ? obj.branchName : undefined,
-    userStories: (obj.userStories as PrdUserStory[]).map((s) => ({
+    userStories: items.map((s) => ({
       ...s,
       // Ensure passes is a boolean (convert from status if needed as fallback)
       passes: typeof s.passes === 'boolean' ? s.passes : false,
@@ -265,11 +283,30 @@ function statusToPasses(status: TrackerTaskStatus): boolean {
 }
 
 /**
+ * Infer work item type from ID prefix.
+ * Case-insensitive.
+ *
+ * Prefix mapping:
+ * - US-xxx → story (user-facing features)
+ * - TA-xxx → task (technical work)
+ * - other → task (default, includes FR-xxx legacy)
+ */
+function inferTypeFromId(id: string): WorkItemType {
+  const upper = id.toUpperCase();
+  if (upper.startsWith('US-')) return 'story';
+  // All other prefixes (TA-, FR-, or unknown) are tasks
+  return 'task';
+}
+
+/**
  * Convert a PrdUserStory to TrackerTask.
  */
 function storyToTask(story: PrdUserStory, parentName?: string): TrackerTask {
   // Use notes or completionNotes (notes takes precedence as it's the Ralph standard)
   const notes = story.notes || story.completionNotes;
+
+  // Type precedence: explicit type field wins over prefix inference
+  const itemType = story.type ?? inferTypeFromId(story.id);
 
   return {
     id: story.id,
@@ -278,7 +315,7 @@ function storyToTask(story: PrdUserStory, parentName?: string): TrackerTask {
     priority: mapPriority(story.priority),
     description: story.description,
     labels: story.labels,
-    type: 'story',
+    type: itemType,
     parentId: parentName,
     dependsOn: story.dependsOn,
     metadata: {
