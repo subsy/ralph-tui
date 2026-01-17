@@ -6,6 +6,7 @@
 
 import { access, constants, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { stringify as stringifyToml } from 'smol-toml';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
@@ -32,6 +33,8 @@ import {
   listBundledSkills,
   installSkill,
   isSkillInstalled,
+  getDefaultSkillsDir,
+  getProjectLocalSkillsDir,
 } from './skill-installer.js';
 
 /**
@@ -176,6 +179,7 @@ async function saveConfig(
     trackerOptions: answers.trackerOptions,
     agent: answers.agent,
     agentOptions: answers.agentOptions,
+    skills_dir: answers.skillsDir,
     maxIterations: answers.maxIterations,
     autoCommit: answers.autoCommit,
   };
@@ -193,6 +197,68 @@ ${toml}`;
   await writeFile(configPath, content, 'utf-8');
 
   return configPath;
+}
+
+interface SkillPathChoice {
+  value: string;
+  label: string;
+  description: string;
+}
+
+async function promptSkillPath(agent: string): Promise<string> {
+  const defaultPath = getDefaultSkillsDir(agent);
+  const projectLocalPath = getProjectLocalSkillsDir(agent);
+  const agentName = agent.charAt(0).toUpperCase() + agent.slice(1);
+
+  const choices: SkillPathChoice[] = [
+    {
+      value: defaultPath,
+      label: `${defaultPath}/ (global)`,
+      description: `Use ${agentName} skills globally for all projects`,
+    },
+    {
+      value: projectLocalPath,
+      label: `${projectLocalPath}/ (project-local)`,
+      description: `Use ${agentName} skills only in this project (recommended)`,
+    },
+    {
+      value: 'custom',
+      label: 'Custom path',
+      description: 'Specify a custom skills directory path',
+    },
+  ];
+
+  const selected = await promptSelect(
+    `Where should ${agentName} skills be installed?`,
+    choices,
+    {
+      default: defaultPath,
+      help: 'Skills are AI-powered workflows that enhance agent capabilities.',
+    }
+  );
+
+  if (selected === 'custom') {
+    const customPath = await promptQuestion({
+      id: 'customSkillsPath',
+      prompt: 'Enter skills directory path:',
+      type: 'text',
+      required: true,
+      help: 'Path to store skills (use ~ for home directory)',
+    });
+    return customPath as string;
+  }
+
+  return selected;
+}
+
+/**
+ * Expand tilde in a path to the user's home directory.
+ */
+function expandHome(path: string): string {
+  if (path.startsWith('~')) {
+    return join(homedir(), path.slice(1));
+  }
+  return path;
 }
 
 /**
@@ -299,7 +365,14 @@ export async function runSetupWizard(
     // They can be configured later via config file
     const agentOptions: Record<string, unknown> = {};
 
-    // === Step 3: Iteration Settings ===
+    // === Step 3: Skills Directory ===
+    printSection('Skills Directory');
+
+    const skillsDir = await promptSkillPath(selectedAgent);
+    printSuccess(`Using skills directory: ${skillsDir}`);
+    console.log();
+
+    // === Step 4: Iteration Settings ===
     printSection('Iteration Settings');
 
     const maxIterations = await promptNumber(
@@ -323,6 +396,7 @@ export async function runSetupWizard(
     // === Step 4: Skills Installation ===
     printSection('AI Skills Installation');
 
+    const expandedSkillsDir = expandHome(skillsDir);
     const bundledSkills = await listBundledSkills();
 
     if (bundledSkills.length > 0) {
@@ -331,7 +405,7 @@ export async function runSetupWizard(
       console.log();
 
       for (const skill of bundledSkills) {
-        const alreadyInstalled = await isSkillInstalled(skill.name);
+        const alreadyInstalled = await isSkillInstalled(skill.name, expandedSkillsDir);
         const actionLabel = alreadyInstalled ? 'Update' : 'Install';
 
         const installThisSkill = await promptBoolean(
@@ -346,7 +420,7 @@ export async function runSetupWizard(
 
         if (installThisSkill) {
           // Always use force to overwrite existing skills with latest version
-          const result = await installSkill(skill.name, { force: true });
+          const result = await installSkill(skill.name, { force: true, targetDir: expandedSkillsDir });
           if (result.success) {
             printSuccess(`  ${alreadyInstalled ? 'Updated' : 'Installed'}: ${skill.name}`);
             if (result.path) {
@@ -369,6 +443,7 @@ export async function runSetupWizard(
       trackerOptions,
       agent: selectedAgent,
       agentOptions,
+      skillsDir,
       maxIterations,
       autoCommit,
     };

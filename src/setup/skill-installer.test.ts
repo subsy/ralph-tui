@@ -30,6 +30,11 @@ const {
   installAllSkills,
   installRalphTuiPrdSkill,
   computeSkillsPath,
+  getDefaultSkillsDir,
+  getProjectLocalSkillsDir,
+  getSkillsDir,
+  expandHome,
+  getExpandedSkillsDir,
 } = skillInstaller;
 
 describe('getClaudeSkillsDir', () => {
@@ -290,5 +295,147 @@ describe('installAllSkills', () => {
     for (const [_name, result] of results) {
       expect(result.success).toBe(true);
     }
+  });
+});
+
+describe('getDefaultSkillsDir', () => {
+  test('returns claude default path for claude agent', () => {
+    expect(getDefaultSkillsDir('claude')).toBe('~/.claude/skills');
+  });
+
+  test('returns opencode default path for opencode agent', () => {
+    expect(getDefaultSkillsDir('opencode')).toBe('~/.config/opencode/skills');
+  });
+
+  test('returns droid default path for droid agent', () => {
+    expect(getDefaultSkillsDir('droid')).toBe('~/.config/droid/skills');
+  });
+
+  test('returns claude default for unknown agent', () => {
+    expect(getDefaultSkillsDir('unknown')).toBe('~/.claude/skills');
+  });
+});
+
+describe('getProjectLocalSkillsDir', () => {
+  test('returns claude project-local path for claude agent', () => {
+    expect(getProjectLocalSkillsDir('claude')).toBe('./.claude/skills');
+  });
+
+  test('returns opencode project-local path for opencode agent', () => {
+    expect(getProjectLocalSkillsDir('opencode')).toBe('./.opencode/skills');
+  });
+
+  test('returns droid project-local path for droid agent', () => {
+    expect(getProjectLocalSkillsDir('droid')).toBe('./.droid/skills');
+  });
+
+  test('returns claude default for unknown agent', () => {
+    expect(getProjectLocalSkillsDir('unknown')).toBe('./.claude/skills');
+  });
+});
+
+describe('getSkillsDir', () => {
+  test('returns configured skills_dir when set', () => {
+    const config = { skills_dir: '/custom/path/to/skills' };
+    expect(getSkillsDir(config)).toBe('/custom/path/to/skills');
+  });
+
+  test('returns configured skills_dir with tilde when set', () => {
+    const config = { skills_dir: '~/my-skills' };
+    expect(getSkillsDir(config)).toBe('~/my-skills');
+  });
+
+  test('falls back to claude default when skills_dir is empty', () => {
+    const config = { skills_dir: '', agent: 'claude' };
+    expect(getSkillsDir(config)).toBe('~/.claude/skills');
+  });
+
+  test('falls back to claude default when skills_dir is undefined', () => {
+    const config = { agent: 'claude' };
+    expect(getSkillsDir(config)).toBe('~/.claude/skills');
+  });
+
+  test('falls back to opencode default when agent is opencode', () => {
+    const config = { agent: 'opencode' };
+    expect(getSkillsDir(config)).toBe('~/.config/opencode/skills');
+  });
+
+  test('falls back to droid default when agent is droid', () => {
+    const config = { agent: 'droid' };
+    expect(getSkillsDir(config)).toBe('~/.config/droid/skills');
+  });
+
+  test('uses configured skills_dir over agent default', () => {
+    const config = { skills_dir: './custom', agent: 'opencode' };
+    expect(getSkillsDir(config)).toBe('./custom');
+  });
+
+  test('defaults to claude when no agent specified', () => {
+    const config = {};
+    expect(getSkillsDir(config)).toBe('~/.claude/skills');
+  });
+
+  test('handles whitespace-only skills_dir', () => {
+    const config = { skills_dir: '   ', agent: 'opencode' };
+    expect(getSkillsDir(config)).toBe('~/.config/opencode/skills');
+  });
+});
+
+describe('expandHome', () => {
+  test('expands tilde to home directory', () => {
+    const result = expandHome('~/some/path');
+    expect(result).toBe(join(homedir(), 'some/path'));
+  });
+
+  test('returns path unchanged when no tilde', () => {
+    const result = expandHome('/absolute/path');
+    expect(result).toBe('/absolute/path');
+  });
+
+  test('returns path unchanged when tilde not at start', () => {
+    const result = expandHome('/path/to/somewhere');
+    expect(result).toBe('/path/to/somewhere');
+  });
+
+  test('handles empty string', () => {
+    const result = expandHome('');
+    expect(result).toBe('');
+  });
+
+  test('handles just tilde', () => {
+    const result = expandHome('~');
+    expect(result).toBe(homedir());
+  });
+});
+
+describe('getExpandedSkillsDir', () => {
+  test('expands tilde in configured path', () => {
+    const config = { skills_dir: '~/my-skills' };
+    const result = getExpandedSkillsDir(config);
+    expect(result).toBe(join(homedir(), 'my-skills'));
+  });
+
+  test('expands tilde in default path for opencode agent', () => {
+    const config = { agent: 'opencode' };
+    const result = getExpandedSkillsDir(config);
+    expect(result).toBe(join(homedir(), '.config', 'opencode', 'skills'));
+  });
+
+  test('expands tilde in default path for claude agent', () => {
+    const config = { agent: 'claude' };
+    const result = getExpandedSkillsDir(config);
+    expect(result).toBe(join(homedir(), '.claude', 'skills'));
+  });
+
+  test('handles absolute paths without tilde', () => {
+    const config = { skills_dir: '/absolute/path' };
+    const result = getExpandedSkillsDir(config);
+    expect(result).toBe('/absolute/path');
+  });
+
+  test('handles relative paths', () => {
+    const config = { skills_dir: './relative/path' };
+    const result = getExpandedSkillsDir(config);
+    expect(result).toBe('./relative/path');
   });
 });

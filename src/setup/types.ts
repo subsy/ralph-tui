@@ -47,6 +47,9 @@ export interface SetupAnswers {
   /** Agent-specific options */
   agentOptions: Record<string, unknown>;
 
+  /** Skills directory path */
+  skillsDir: string;
+
   /** Maximum iterations per run (0 = unlimited) */
   maxIterations: number;
 

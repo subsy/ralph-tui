@@ -16,6 +16,7 @@ import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPlugin, AgentPluginConfig } from '../plugins/agents/types.js';
 import { executeRunCommand } from './run.js';
+import { getExpandedSkillsDir } from '../setup/skill-installer.js';
 
 /**
  * Command-line arguments for the create-prd command.
@@ -305,15 +306,10 @@ export async function executeCreatePrdCommand(args: string[]): Promise<void> {
   const storedConfig = await loadStoredConfig(cwd);
 
   if (parsedArgs.prdSkill) {
-    if (!storedConfig.skills_dir?.trim()) {
-      console.error('Error: --prd-skill requires skills_dir to be set in config.');
-      console.error('Set skills_dir in ~/.config/ralph-tui/config.toml or .ralph-tui/config.toml.');
-      process.exit(1);
-    }
-
+    const skillsDir = getExpandedSkillsDir(storedConfig);
     parsedArgs.prdSkillSource = await loadPrdSkillSource(
       parsedArgs.prdSkill,
-      storedConfig.skills_dir,
+      skillsDir,
       cwd
     );
   }

@@ -41,10 +41,99 @@ export interface SkillInfo {
 }
 
 /**
- * Get the path to the user's Claude Code skills directory.
- */
+  * Get the path to the user's Claude Code skills directory.
+  */
 export function getClaudeSkillsDir(): string {
   return join(homedir(), '.claude', 'skills');
+}
+
+/**
+ * Configuration interface for skills directory resolution.
+ */
+interface SkillsConfig {
+  /** Configured skills directory */
+  skills_dir?: string;
+  /** Configured agent */
+  agent?: string;
+}
+
+/**
+ * Get the skills directory path with backward compatibility.
+ * If skills_dir is not configured, falls back to agent-specific default.
+ *
+ * @param config - Configuration object with optional skills_dir and agent
+ * @returns The skills directory path (with tilde notation if not configured)
+ */
+export function getSkillsDir(config: SkillsConfig): string {
+  if (config.skills_dir !== undefined && config.skills_dir.trim() !== '') {
+    return config.skills_dir;
+  }
+
+  const agent = config.agent || 'claude';
+  return getDefaultSkillsDir(agent);
+}
+
+/**
+ * Expand tilde in a path to the user's home directory.
+ *
+ * @param path - Path that may start with ~
+ * @returns Path with ~ expanded to home directory
+ */
+export function expandHome(path: string): string {
+  if (path.startsWith('~')) {
+    return join(homedir(), path.slice(1));
+  }
+  return path;
+}
+
+/**
+ * Get the skills directory path, expanded and ready for use.
+ *
+ * @param config - Configuration object with optional skills_dir and agent
+ * @returns Expanded absolute path to skills directory
+ */
+export function getExpandedSkillsDir(config: SkillsConfig): string {
+  return expandHome(getSkillsDir(config));
+}
+
+/**
+ * Get the default skills directory path for a given agent.
+ * Returns the agent-specific default path with tilde notation.
+ *
+ * @param agent - The agent ID (e.g., 'claude', 'opencode', 'droid')
+ * @returns The default skills directory path with tilde notation
+ */
+export function getDefaultSkillsDir(agent: string): string {
+  switch (agent) {
+    case 'claude':
+      return '~/.claude/skills';
+    case 'opencode':
+      return '~/.config/opencode/skills';
+    case 'droid':
+      return '~/.config/droid/skills';
+    default:
+      return '~/.claude/skills';
+  }
+}
+
+/**
+ * Get the project-local skills directory path for a given agent.
+ * Returns the path relative to the project root.
+ *
+ * @param agent - The agent ID (e.g., 'claude', 'opencode', 'droid')
+ * @returns The project-local skills directory path (relative with ./)
+ */
+export function getProjectLocalSkillsDir(agent: string): string {
+  switch (agent) {
+    case 'claude':
+      return './.claude/skills';
+    case 'opencode':
+      return './.opencode/skills';
+    case 'droid':
+      return './.droid/skills';
+    default:
+      return './.claude/skills';
+  }
 }
 
 /**
@@ -127,8 +216,12 @@ export async function listBundledSkills(): Promise<SkillInfo[]> {
 /**
  * Check if a skill is already installed.
  */
-export async function isSkillInstalled(skillName: string): Promise<boolean> {
-  const targetPath = join(getClaudeSkillsDir(), skillName);
+export async function isSkillInstalled(
+  skillName: string,
+  targetDir?: string
+): Promise<boolean> {
+  const skillsDir = targetDir ?? getClaudeSkillsDir();
+  const targetPath = join(skillsDir, skillName);
 
   try {
     await access(targetPath, constants.F_OK);
@@ -139,16 +232,18 @@ export async function isSkillInstalled(skillName: string): Promise<boolean> {
 }
 
 /**
- * Install a bundled skill to the user's Claude Code skills directory.
+ * Install a bundled skill to a specified skills directory.
  */
 export async function installSkill(
   skillName: string,
   options: {
     force?: boolean;
+    targetDir?: string;
   } = {}
 ): Promise<SkillInstallResult> {
   const sourcePath = join(getBundledSkillsDir(), skillName);
-  const targetPath = join(getClaudeSkillsDir(), skillName);
+  const targetDir = options.targetDir ?? getClaudeSkillsDir();
+  const targetPath = join(targetDir, skillName);
 
   try {
     // Check if source exists
@@ -163,7 +258,7 @@ export async function installSkill(
     }
 
     // Check if already installed
-    if (!options.force && (await isSkillInstalled(skillName))) {
+    if (!options.force && (await isSkillInstalled(skillName, targetDir))) {
       return {
         success: true,
         path: targetPath,
@@ -199,6 +294,7 @@ export async function installSkill(
 export async function installRalphTuiPrdSkill(
   options: {
     force?: boolean;
+    targetDir?: string;
   } = {}
 ): Promise<SkillInstallResult> {
   return installSkill('ralph-tui-prd', options);
@@ -210,6 +306,7 @@ export async function installRalphTuiPrdSkill(
 export async function installAllSkills(
   options: {
     force?: boolean;
+    targetDir?: string;
   } = {}
 ): Promise<Map<string, SkillInstallResult>> {
   const results = new Map<string, SkillInstallResult>();
