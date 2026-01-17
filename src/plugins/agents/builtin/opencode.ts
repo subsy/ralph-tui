@@ -135,6 +135,9 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   /** Model name (without provider prefix) */
   private model?: string;
 
+  /** Model variant (provider-specific reasoning effort: high, max, minimal) */
+  private variant?: string;
+
   /** Agent type to use (general, build, plan) */
   private agent: string = 'general';
 
@@ -151,6 +154,12 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
 
     if (typeof config.model === 'string' && config.model.length > 0) {
       this.model = config.model;
+    }
+
+    // Accept any variant string - validation is delegated to OpenCode CLI
+    // Different models support different variant values (e.g., Gemini: minimal/high/max)
+    if (typeof config.variant === 'string' && config.variant.length > 0) {
+      this.variant = config.variant;
     }
 
     if (
@@ -328,6 +337,11 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
       args.push('--model', modelToUse);
     }
 
+    // Add model variant if specified
+    if (this.variant) {
+      args.push('--variant', this.variant);
+    }
+
     // Always use JSON format for streaming output parsing
     // This gives us structured events (text, tool_use, etc.) that we can format nicely
     args.push('--format', 'json');
@@ -422,6 +436,8 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
     ) {
       return 'Invalid agent type. Must be one of: general, build, plan';
     }
+
+    // Variant validation is delegated to OpenCode CLI - different models support different values
 
     return null;
   }

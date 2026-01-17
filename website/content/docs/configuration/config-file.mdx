@@ -35,6 +35,9 @@ Here's a fully annotated configuration file showing all available options:
 # Default agent plugin name
 agent = "claude"
 
+# Custom command (optional) - use wrapper tools like Claude Code Router
+# command = "ccr code"
+
 # Default tracker plugin name
 tracker = "beads-bv"
 
@@ -205,6 +208,18 @@ agent = "claude"
 tracker = "beads-bv"
 prompt_template = "./prompts/my-custom-template.hbs"
 ```
+
+### Alternative AI Provider (CCR)
+
+Use [Claude Code Router](https://github.com/anthropics/ccr) to route requests through alternative providers like OpenRouter, DeepSeek, Ollama, or Gemini:
+
+```toml
+agent = "claude"
+command = "ccr code"
+tracker = "beads-bv"
+```
+
+This uses the Claude agent plugin (for output parsing, flags, etc.) but executes through CCR which handles provider routing.
 
 ## Advanced: Plugin Arrays
 

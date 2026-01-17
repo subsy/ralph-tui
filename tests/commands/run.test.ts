@@ -72,6 +72,28 @@ describe('run command', () => {
       });
     });
 
+    describe('variant option', () => {
+      test('parses --variant with value', () => {
+        const result = parseRunArgs(['--variant', 'high']);
+        expect(result.variant).toBe('high');
+      });
+
+      test('parses --variant max', () => {
+        const result = parseRunArgs(['--variant', 'max']);
+        expect(result.variant).toBe('max');
+      });
+
+      test('parses --variant minimal', () => {
+        const result = parseRunArgs(['--variant', 'minimal']);
+        expect(result.variant).toBe('minimal');
+      });
+
+      test('ignores --variant without value', () => {
+        const result = parseRunArgs(['--variant']);
+        expect(result.variant).toBeUndefined();
+      });
+    });
+
     describe('tracker option', () => {
       test('parses --tracker with name', () => {
         const result = parseRunArgs(['--tracker', 'beads']);
@@ -262,6 +284,7 @@ describe('run command', () => {
           '--epic', 'my-epic',
           '--agent', 'claude',
           '--model', 'opus',
+          '--variant', 'high',
           '--tracker', 'beads-bv',
           '--iterations', '15',
           '--delay', '1000',
@@ -272,6 +295,7 @@ describe('run command', () => {
         expect(result.epicId).toBe('my-epic');
         expect(result.agent).toBe('claude');
         expect(result.model).toBe('opus');
+        expect(result.variant).toBe('high');
         expect(result.tracker).toBe('beads-bv');
         expect(result.iterations).toBe(15);
         expect(result.iterationDelay).toBe(1000);
@@ -322,6 +346,7 @@ describe('run command', () => {
       const output = consoleOutput.join('\n');
       expect(output).toContain('--prd');
       expect(output).toContain('--model');
+      expect(output).toContain('--variant');
       expect(output).toContain('--delay');
       expect(output).toContain('--cwd');
       expect(output).toContain('--resume');

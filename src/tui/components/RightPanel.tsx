@@ -522,6 +522,115 @@ function TimingSummary({ timing }: { timing?: IterationTimingInfo }): ReactNode 
 }
 
 /**
+ * Prompt preview view - shows the full rendered prompt that will be sent to the agent.
+ * Displays the template source indicator and scrollable prompt content.
+ *
+ * Note: This shows a "point-in-time" preview - dynamic content like progress.md
+ * may change before the actual prompt is sent during execution.
+ */
+function PromptPreviewView({
+  task,
+  promptPreview,
+  templateSource,
+}: {
+  task: NonNullable<RightPanelProps['selectedTask']>;
+  promptPreview?: string;
+  templateSource?: string;
+}): ReactNode {
+  const statusColor = getTaskStatusColor(task.status);
+  const statusIndicator = getTaskStatusIndicator(task.status);
+
+  return (
+    <box style={{ flexDirection: 'column', padding: 1, flexGrow: 1 }}>
+      {/* Compact task header with template source */}
+      <box style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1 }}>
+        <box>
+          <text>
+            <span fg={statusColor}>{statusIndicator}</span>
+            <span fg={colors.fg.primary}> {task.title}</span>
+            <span fg={colors.fg.muted}> ({task.id})</span>
+          </text>
+        </box>
+        {templateSource && (
+          <box>
+            <text fg={colors.accent.secondary}>[{templateSource}]</text>
+          </box>
+        )}
+      </box>
+
+      {/* Dynamic content notice */}
+      <box
+        style={{
+          marginBottom: 1,
+          padding: 1,
+          border: true,
+          borderColor: colors.status.warning,
+          backgroundColor: colors.bg.tertiary,
+        }}
+      >
+        <text fg={colors.status.warning}>
+          ⚠ Preview only - dynamic content (progress, etc.) may change before execution
+        </text>
+      </box>
+
+      {/* Full-height prompt preview */}
+      <box
+        title="Prompt Preview"
+        style={{
+          flexGrow: 1,
+          border: true,
+          borderColor: colors.accent.primary,
+          backgroundColor: colors.bg.secondary,
+        }}
+      >
+        <scrollbox style={{ flexGrow: 1, padding: 1 }}>
+          {promptPreview ? (
+            <box style={{ flexDirection: 'column' }}>
+              {promptPreview.split('\n').map((line, i) => {
+                // Highlight markdown headers
+                if (line.match(/^#+\s/)) {
+                  return (
+                    <text key={i} fg={colors.accent.primary}>
+                      {line}
+                    </text>
+                  );
+                }
+                // Highlight bullet points
+                if (line.match(/^\s*[-*]\s/)) {
+                  return (
+                    <text key={i} fg={colors.fg.secondary}>
+                      {line}
+                    </text>
+                  );
+                }
+                // Highlight code fences
+                if (line.match(/^```/)) {
+                  return (
+                    <text key={i} fg={colors.accent.tertiary}>
+                      {line}
+                    </text>
+                  );
+                }
+                // Regular text
+                return (
+                  <text key={i} fg={colors.fg.secondary}>
+                    {line}
+                  </text>
+                );
+              })}
+            </box>
+          ) : (
+            <text fg={colors.fg.muted}>
+              Cycle views with 'o' or press Shift+O for prompt preview
+            </text>
+          )}
+        </scrollbox>
+      </box>
+    </box>
+  );
+}
+
+/**
  * Task output view - shows full-height scrollable iteration output
  * with optional collapsible subagent sections
  */
@@ -687,7 +796,7 @@ function TaskOutputView({
 }
 
 /**
- * Task details view - switches between metadata and output views
+ * Task details view - switches between metadata, output, and prompt views
  */
 function TaskDetails({
   task,
@@ -703,6 +812,8 @@ function TaskDetails({
   collapsedSubagents,
   focusedSubagentId,
   onSubagentToggle,
+  promptPreview,
+  templateSource,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
@@ -717,6 +828,8 @@ function TaskDetails({
   collapsedSubagents?: Set<string>;
   focusedSubagentId?: string;
   onSubagentToggle?: (id: string) => void;
+  promptPreview?: string;
+  templateSource?: string;
 }): ReactNode {
   if (viewMode === 'output') {
     return (
@@ -737,11 +850,21 @@ function TaskDetails({
     );
   }
 
+  if (viewMode === 'prompt') {
+    return (
+      <PromptPreviewView
+        task={task}
+        promptPreview={promptPreview}
+        templateSource={templateSource}
+      />
+    );
+  }
+
   return <TaskMetadataView task={task} />;
 }
 
 /**
- * RightPanel component showing task details or iteration output
+ * RightPanel component showing task details, iteration output, or prompt preview
  */
 export function RightPanel({
   selectedTask,
@@ -757,9 +880,16 @@ export function RightPanel({
   collapsedSubagents,
   focusedSubagentId,
   onSubagentToggle,
+  promptPreview,
+  templateSource,
 }: RightPanelProps): ReactNode {
   // Build title with view mode indicator and subagent level
-  const modeIndicator = viewMode === 'details' ? '[Details]' : '[Output]';
+  const modeIndicators: Record<typeof viewMode, string> = {
+    details: '[Details]',
+    output: '[Output]',
+    prompt: '[Prompt]',
+  };
+  const modeIndicator = modeIndicators[viewMode];
   const subagentIndicator = subagentDetailLevel !== 'off' ? ` [Trace: ${subagentDetailLevel}]` : '';
   const title = `Details ${modeIndicator}${subagentIndicator}`;
 
@@ -791,6 +921,8 @@ export function RightPanel({
           collapsedSubagents={collapsedSubagents}
           focusedSubagentId={focusedSubagentId}
           onSubagentToggle={onSubagentToggle}
+          promptPreview={promptPreview}
+          templateSource={templateSource}
         />
       ) : (
         <NoSelection />

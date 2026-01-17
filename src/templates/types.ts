@@ -73,6 +73,33 @@ export interface TemplateVariables {
 
   /** Full path to beads database file (for bd --db flag) */
   beadsDbPath: string;
+
+  // --- NEW: PRD Context Variables ---
+
+  /** PRD/Epic name */
+  prdName: string;
+
+  /** PRD/Epic description */
+  prdDescription: string;
+
+  /** Full PRD markdown content (the source document - study this for context) */
+  prdContent: string;
+
+  /** Number of completed stories in the PRD */
+  prdCompletedCount: string;
+
+  /** Total number of stories in the PRD */
+  prdTotalCount: string;
+
+  // --- NEW: Learning/Patterns Variables ---
+
+  /** Codebase patterns extracted from progress.md (study these first) */
+  codebasePatterns: string;
+
+  // --- NEW: Selection Context Variables ---
+
+  /** Why this task was selected (for beads-bv, includes PageRank info) */
+  selectionReason: string;
 }
 
 /**

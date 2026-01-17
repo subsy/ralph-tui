@@ -22,7 +22,6 @@ import {
   BEADS_BV_TEMPLATE,
   JSON_TEMPLATE,
 } from './builtin.js';
-import { PROMPT_JSON, PROMPT_BEADS } from './prompts.js';
 
 /**
  * Cache for compiled templates to avoid recompilation
@@ -75,47 +74,56 @@ export function getUserConfigDir(): string {
 }
 
 /**
- * Get the default prompt filename for a tracker type.
+ * Get the template filename for a tracker type.
  * @param trackerType The tracker type
- * @returns The default prompt filename
+ * @returns The template filename (e.g., "beads.hbs")
  */
-export function getDefaultPromptFilename(trackerType: BuiltinTemplateType): string {
-  switch (trackerType) {
-    case 'beads':
-    case 'beads-bv':
-      return 'prompt-beads.md';
-    case 'json':
-    default:
-      return 'prompt.md';
-  }
+export function getTemplateFilename(trackerType: BuiltinTemplateType): string {
+  return `${trackerType}.hbs`;
+}
+
+
+/**
+ * Get the path to a template in the project's .ralph-tui/templates/ folder.
+ * @param cwd The working directory (project root)
+ * @param trackerType The tracker type
+ * @returns Full path to the project-level template
+ */
+export function getProjectTemplatePath(cwd: string, trackerType: BuiltinTemplateType): string {
+  return path.join(cwd, '.ralph-tui', 'templates', getTemplateFilename(trackerType));
 }
 
 /**
- * Get the path to the default user prompt file for a tracker type.
+ * Get the path to a template in the global ~/.config/ralph-tui/templates/ folder.
  * @param trackerType The tracker type
- * @returns Full path to the user prompt file in config directory
+ * @returns Full path to the global template
  */
-export function getUserPromptPath(trackerType: BuiltinTemplateType): string {
-  return path.join(getUserConfigDir(), getDefaultPromptFilename(trackerType));
+export function getGlobalTemplatePath(trackerType: BuiltinTemplateType): string {
+  return path.join(getUserConfigDir(), 'templates', getTemplateFilename(trackerType));
 }
 
+
 /**
- * Load a template from a custom path or fall back to user config or built-in.
+ * Load a template from a custom path or fall back through the resolution hierarchy.
  *
  * Resolution order:
  * 1. customPath (explicit --prompt argument or config file prompt_template)
- * 2. ~/.config/ralph-tui/{mode-specific}.md (user config directory)
- * 3. Built-in template (bundled default)
+ * 2. Project: ./.ralph-tui/templates/{tracker}.hbs (project-level customization)
+ * 3. Global: ~/.config/ralph-tui/templates/{tracker}.hbs (user-level customization)
+ * 4. trackerTemplate (from tracker plugin's getTemplate())
+ * 5. Built-in template (bundled default - final fallback)
  *
  * @param customPath Optional path to custom template
  * @param trackerType Tracker type for user config and built-in template fallback
  * @param cwd Working directory for relative path resolution
+ * @param trackerTemplate Optional template content from the tracker plugin
  * @returns The template load result
  */
 export function loadTemplate(
   customPath: string | undefined,
   trackerType: BuiltinTemplateType,
-  cwd: string
+  cwd: string,
+  trackerTemplate?: string
 ): TemplateLoadResult {
   // 1. Try explicit custom template first (from --prompt or config)
   if (customPath) {
@@ -147,22 +155,46 @@ export function loadTemplate(
     }
   }
 
-  // 2. Try user config directory prompt file
-  const userPromptPath = getUserPromptPath(trackerType);
+  // 2. Try project-level template: ./.ralph-tui/templates/{tracker}.hbs
+  const projectTemplatePath = getProjectTemplatePath(cwd, trackerType);
   try {
-    if (fs.existsSync(userPromptPath)) {
-      const content = fs.readFileSync(userPromptPath, 'utf-8');
+    if (fs.existsSync(projectTemplatePath)) {
+      const content = fs.readFileSync(projectTemplatePath, 'utf-8');
       return {
         success: true,
         content,
-        source: userPromptPath,
+        source: `project:${projectTemplatePath}`,
       };
     }
   } catch {
-    // Silently fall through to built-in template
+    // Silently fall through to next level
   }
 
-  // 3. Use built-in template
+  // 3. Try global template: ~/.config/ralph-tui/templates/{tracker}.hbs
+  const globalTemplatePath = getGlobalTemplatePath(trackerType);
+  try {
+    if (fs.existsSync(globalTemplatePath)) {
+      const content = fs.readFileSync(globalTemplatePath, 'utf-8');
+      return {
+        success: true,
+        content,
+        source: `global:${globalTemplatePath}`,
+      };
+    }
+  } catch {
+    // Silently fall through to tracker template
+  }
+
+  // 4. Use tracker-provided template (from plugin's getTemplate())
+  if (trackerTemplate) {
+    return {
+      success: true,
+      content: trackerTemplate,
+      source: `tracker:${trackerType}`,
+    };
+  }
+
+  // 5. Fallback to built-in template (final fallback)
   const content = getBuiltinTemplate(trackerType);
   return {
     success: true,
@@ -220,18 +252,69 @@ function getAcceptanceCriteria(task: TrackerTask): string {
 }
 
 /**
+ * Extended context for building template variables.
+ * Includes PRD information, patterns, and selection context.
+ */
+export interface ExtendedTemplateContext {
+  /** Recent progress summary from previous iterations */
+  recentProgress?: string;
+
+  /** Codebase patterns from progress.md */
+  codebasePatterns?: string;
+
+  /** PRD context for full project visibility */
+  prd?: {
+    name: string;
+    description?: string;
+    content: string; // The source PRD markdown (full context for agent to study)
+    completedCount: number;
+    totalCount: number;
+  };
+
+  /** Selection reason (for beads-bv tracker) */
+  selectionReason?: string;
+}
+
+/**
  * Build template variables from task and config.
  * @param task The current task
  * @param config The ralph configuration
  * @param epic Optional epic information
+ * @param extended Extended context including progress, patterns, PRD data
  * @returns The flattened template variables
  */
 export function buildTemplateVariables(
   task: TrackerTask,
   config: Partial<RalphConfig>,
   epic?: { id: string; title: string; description?: string },
-  recentProgress?: string
+  extended?: string | ExtendedTemplateContext
 ): TemplateVariables {
+  // Handle backward compatibility: if extended is a string, it's recentProgress
+  let recentProgress = '';
+  let codebasePatterns = '';
+  let prdName = '';
+  let prdDescription = '';
+  let prdContent = '';
+  let prdCompletedCount = '0';
+  let prdTotalCount = '0';
+  let selectionReason = '';
+
+  if (typeof extended === 'string') {
+    recentProgress = extended;
+  } else if (extended) {
+    recentProgress = extended.recentProgress ?? '';
+    codebasePatterns = extended.codebasePatterns ?? '';
+    selectionReason = extended.selectionReason ?? '';
+
+    if (extended.prd) {
+      prdName = extended.prd.name;
+      prdDescription = extended.prd.description ?? '';
+      prdContent = extended.prd.content;
+      prdCompletedCount = String(extended.prd.completedCount);
+      prdTotalCount = String(extended.prd.totalCount);
+    }
+  }
+
   return {
     taskId: task.id,
     taskTitle: task.title,
@@ -252,8 +335,18 @@ export function buildTemplateVariables(
     currentDate: new Date().toISOString().split('T')[0],
     currentTimestamp: new Date().toISOString(),
     notes: (task.metadata?.notes as string) ?? '',
-    recentProgress: recentProgress ?? '',
+    recentProgress,
     beadsDbPath: computeBeadsDbPath(config),
+    // New PRD context variables
+    prdName,
+    prdDescription,
+    prdContent,
+    prdCompletedCount,
+    prdTotalCount,
+    // New patterns variable
+    codebasePatterns,
+    // New selection context variable
+    selectionReason,
   };
 }
 
@@ -273,17 +366,17 @@ function computeBeadsDbPath(config: Partial<RalphConfig>): string {
  * @param task The current task
  * @param config The ralph configuration
  * @param epic Optional epic information
- * @param recentProgress Optional recent progress summary
+ * @param extended Extended context with progress, patterns, PRD data - or just a progress string
  * @returns The template context
  */
 export function buildTemplateContext(
   task: TrackerTask,
   config: Partial<RalphConfig>,
   epic?: { id: string; title: string; description?: string },
-  recentProgress?: string
+  extended?: string | ExtendedTemplateContext
 ): TemplateContext {
   return {
-    vars: buildTemplateVariables(task, config, epic, recentProgress),
+    vars: buildTemplateVariables(task, config, epic, extended),
     task,
     config,
     epic,
@@ -320,21 +413,23 @@ function compileTemplate(
  * @param task The current task
  * @param config The ralph configuration
  * @param epic Optional epic information
- * @param recentProgress Optional recent progress summary from previous iterations
+ * @param extended Extended context with progress, patterns, PRD data - or just a progress string for backward compat
+ * @param trackerTemplate Optional template from the tracker plugin's getTemplate()
  * @returns The render result with the prompt or error
  */
 export function renderPrompt(
   task: TrackerTask,
   config: RalphConfig,
   epic?: { id: string; title: string; description?: string },
-  recentProgress?: string
+  extended?: string | ExtendedTemplateContext,
+  trackerTemplate?: string
 ): TemplateRenderResult {
   // Determine template to use
   const trackerType = getTemplateTypeFromPlugin(config.tracker.plugin);
   const customPath = config.promptTemplate;
 
-  // Load the template
-  const loadResult = loadTemplate(customPath, trackerType, config.cwd);
+  // Load the template (uses tracker template if no custom/user config override)
+  const loadResult = loadTemplate(customPath, trackerType, config.cwd, trackerTemplate);
   if (!loadResult.success || !loadResult.content) {
     return {
       success: false,
@@ -344,7 +439,7 @@ export function renderPrompt(
   }
 
   // Build context
-  const context = buildTemplateContext(task, config, epic, recentProgress);
+  const context = buildTemplateContext(task, config, epic, extended);
 
   // Create a flat context for Handlebars (variables at top level)
   const flatContext = {
@@ -422,60 +517,60 @@ export function copyBuiltinTemplate(
 }
 
 /**
- * Get the bundled prompt content for a tracker type.
- * These are the markdown instruction files (not Handlebars templates).
- * @param trackerType The tracker type
- * @returns The prompt content
+ * Result of installing a single template.
  */
-export function getBundledPrompt(trackerType: BuiltinTemplateType): string {
-  switch (trackerType) {
-    case 'beads':
-    case 'beads-bv':
-      return PROMPT_BEADS;
-    case 'json':
-    default:
-      return PROMPT_JSON;
-  }
+export interface TemplateInstallResult {
+  /** Template filename */
+  file: string;
+  /** Whether the file was created */
+  created: boolean;
+  /** Whether the file was skipped (already exists) */
+  skipped: boolean;
+  /** Error message if installation failed */
+  error?: string;
 }
 
 /**
- * Initialize user config directory with default prompt files.
- * Creates ~/.config/ralph-tui/ and copies prompt.md and prompt-beads.md.
+ * Install templates to the global config directory.
+ * Creates ~/.config/ralph-tui/templates/ and copies tracker templates.
+ *
+ * @param templates Map of tracker type to template content
  * @param force Overwrite existing files
- * @returns Results for each file
+ * @returns Results for each template
  */
-export function initializeUserPrompts(force = false): {
+export function installGlobalTemplates(
+  templates: Record<string, string>,
+  force = false
+): {
   success: boolean;
-  results: Array<{ file: string; created: boolean; skipped: boolean; error?: string }>;
+  templatesDir: string;
+  results: TemplateInstallResult[];
 } {
-  const configDir = getUserConfigDir();
-  const results: Array<{ file: string; created: boolean; skipped: boolean; error?: string }> = [];
+  const templatesDir = path.join(getUserConfigDir(), 'templates');
+  const results: TemplateInstallResult[] = [];
 
-  // Ensure config directory exists
+  // Ensure templates directory exists
   try {
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
+    if (!fs.existsSync(templatesDir)) {
+      fs.mkdirSync(templatesDir, { recursive: true });
     }
   } catch (error) {
     return {
       success: false,
+      templatesDir,
       results: [{
-        file: configDir,
+        file: templatesDir,
         created: false,
         skipped: false,
-        error: `Failed to create config directory: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Failed to create templates directory: ${error instanceof Error ? error.message : String(error)}`,
       }],
     };
   }
 
-  // Files to create
-  const promptFiles = [
-    { filename: 'prompt.md', content: PROMPT_JSON },
-    { filename: 'prompt-beads.md', content: PROMPT_BEADS },
-  ];
-
-  for (const { filename, content } of promptFiles) {
-    const filePath = path.join(configDir, filename);
+  // Install each template
+  for (const [trackerType, content] of Object.entries(templates)) {
+    const filename = getTemplateFilename(trackerType as BuiltinTemplateType);
+    const filePath = path.join(templatesDir, filename);
 
     try {
       if (fs.existsSync(filePath) && !force) {
@@ -496,5 +591,27 @@ export function initializeUserPrompts(force = false): {
   }
 
   const success = results.every((r) => r.created || r.skipped);
-  return { success, results };
+  return { success, templatesDir, results };
+}
+
+/**
+ * Install built-in templates to the global config directory.
+ * Copies default, beads, beads-bv, and json templates.
+ *
+ * @param force Overwrite existing files
+ * @returns Results for each template
+ */
+export function installBuiltinTemplates(force = false): {
+  success: boolean;
+  templatesDir: string;
+  results: TemplateInstallResult[];
+} {
+  const templates: Record<string, string> = {
+    'default': DEFAULT_TEMPLATE,
+    'beads': BEADS_TEMPLATE,
+    'beads-bv': BEADS_BV_TEMPLATE,
+    'json': JSON_TEMPLATE,
+  };
+
+  return installGlobalTemplates(templates, force);
 }

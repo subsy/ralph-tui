@@ -59,6 +59,18 @@ describe('OpenCodeAgentPlugin', () => {
       expect(await plugin.isReady()).toBe(true);
     });
 
+    test('accepts variant config', async () => {
+      // Variant validation is delegated to OpenCode CLI - any string is accepted
+      await plugin.initialize({ variant: 'high' });
+      expect(await plugin.isReady()).toBe(true);
+    });
+
+    test('accepts any variant string', async () => {
+      // Different models support different variants, so we accept any value
+      await plugin.initialize({ variant: 'custom-variant' });
+      expect(await plugin.isReady()).toBe(true);
+    });
+
     test('accepts agent type config', async () => {
       await plugin.initialize({ agent: 'build' });
       expect(await plugin.isReady()).toBe(true);
@@ -139,6 +151,15 @@ describe('OpenCodeAgentPlugin', () => {
       expect(await plugin.validateSetup({ provider: 'openai' })).toBeNull();
       expect(await plugin.validateSetup({ provider: 'google' })).toBeNull();
       expect(await plugin.validateSetup({ provider: 'custom-provider' })).toBeNull();
+    });
+
+    test('accepts any variant string', async () => {
+      // Variant validation is delegated to OpenCode CLI - different models have different values
+      expect(await plugin.validateSetup({ variant: 'minimal' })).toBeNull();
+      expect(await plugin.validateSetup({ variant: 'high' })).toBeNull();
+      expect(await plugin.validateSetup({ variant: 'max' })).toBeNull();
+      expect(await plugin.validateSetup({ variant: 'custom' })).toBeNull();
+      expect(await plugin.validateSetup({ variant: '' })).toBeNull();
     });
   });
 

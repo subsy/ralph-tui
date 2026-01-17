@@ -46,7 +46,7 @@ import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { RunApp } from '../tui/components/RunApp.js';
 import { EpicSelectionApp } from '../tui/components/EpicSelectionApp.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
-import { BeadsTrackerPlugin } from '../plugins/trackers/builtin/beads.js';
+import { BeadsTrackerPlugin } from '../plugins/trackers/builtin/beads/index.js';
 import type { RalphConfig } from '../config/types.js';
 import { projectConfigExists, runSetupWizard } from '../setup/index.js';
 import { createInterruptHandler } from '../interruption/index.js';
@@ -111,6 +111,13 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--model':
         if (nextArg && !nextArg.startsWith('-')) {
           options.model = nextArg;
+          i++;
+        }
+        break;
+
+      case '--variant':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.variant = nextArg;
           i++;
         }
         break;
@@ -239,6 +246,7 @@ Options:
   --prd <path>        PRD file path (auto-switches to json tracker)
   --agent <name>      Override agent plugin (e.g., claude, opencode)
   --model <name>      Override model (e.g., opus, sonnet)
+  --variant <level>   Model variant/reasoning effort (minimal, high, max)
   --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json)
   --prompt <path>     Custom prompt file (default: based on tracker mode)
   --output-dir <path> Directory for iteration logs (default: .ralph-tui/iterations)

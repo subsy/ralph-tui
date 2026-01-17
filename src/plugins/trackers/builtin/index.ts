@@ -5,9 +5,9 @@
  */
 
 import { getTrackerRegistry } from '../registry.js';
-import createJsonTracker from './json.js';
-import createBeadsTracker from './beads.js';
-import createBeadsBvTracker from './beads-bv.js';
+import createJsonTracker from './json/index.js';
+import createBeadsTracker from './beads/index.js';
+import createBeadsBvTracker from './beads-bv/index.js';
 
 /**
  * All built-in tracker plugin factories.

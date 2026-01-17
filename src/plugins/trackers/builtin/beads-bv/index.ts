@@ -7,8 +7,10 @@
 
 import { spawn } from 'node:child_process';
 import { access, constants } from 'node:fs/promises';
-import { join } from 'node:path';
-import { BeadsTrackerPlugin } from './beads.js';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BeadsTrackerPlugin } from '../beads/index.js';
 import type {
   TrackerPluginMeta,
   TrackerPluginFactory,
@@ -18,7 +20,7 @@ import type {
   TaskFilter,
   TaskCompletionResult,
   SetupQuestion,
-} from '../types.js';
+} from '../../types.js';
 
 /**
  * Recommendation from bv --robot-triage output.
@@ -75,9 +77,6 @@ interface BvTriageOutput {
   };
 }
 
-// BvNextOutput interface kept for documentation, but not currently used
-// since we use --robot-triage instead for more comprehensive recommendations
-
 /**
  * Result of detect() operation including bv availability.
  */
@@ -116,6 +115,16 @@ export interface TaskReasoning {
     risk?: number;
   };
 }
+
+/**
+ * Get the directory containing this module (for locating template.hbs).
+ */
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Cache for the template content to avoid repeated file reads.
+ */
+let templateCache: string | null = null;
 
 /**
  * Execute a bv command and return the output.
@@ -686,11 +695,38 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     return (this.config.beadsDir as string) ?? '.beads';
   }
 
-  // Note: getEpicId() is now inherited from BeadsTrackerPlugin (public)
-
   private getLabels(): string[] {
     // Use the labels parsed by parent's initialize() method
     return this.labels;
+  }
+
+  /**
+   * Get the prompt template for the Beads+bv tracker.
+   * Reads from the co-located template.hbs file.
+   */
+  override getTemplate(): string {
+    // Return cached template if available
+    if (templateCache !== null) {
+      return templateCache;
+    }
+
+    // Read template from co-located file
+    const templatePath = join(__dirname, 'template.hbs');
+    try {
+      templateCache = readFileSync(templatePath, 'utf-8');
+      return templateCache;
+    } catch (err) {
+      console.error(`Failed to read template from ${templatePath}:`, err);
+      // Return a minimal fallback template
+      return `## Task: {{taskTitle}}
+{{#if taskDescription}}
+{{taskDescription}}
+{{/if}}
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+`;
+    }
   }
 }
 

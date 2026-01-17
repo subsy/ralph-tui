@@ -4,6 +4,9 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   EngineEvent,
   IterationResult,
@@ -92,6 +95,7 @@ function createControllableAgent(options: {
     async validateSetup() { return null; },
     validateModel() { return null; },
     async dispose() { currentExecution = undefined; },
+    getSandboxRequirements() { return { network: false, filesystem: 'read-only' as const }; },
   };
 
   return { agent, getCallCount: () => callIndex };
@@ -112,6 +116,9 @@ function createControllableTracker(options: {
       name: 'Test Tracker',
       description: 'Test tracker for integration tests',
       version: '1.0.0',
+      supportsBidirectionalSync: false,
+      supportsHierarchy: false,
+      supportsDependencies: false,
     },
     async initialize() {},
     async isReady() { return true; },
@@ -189,6 +196,7 @@ function createControllableTracker(options: {
     getSetupQuestions() { return []; },
     async validateSetup() { return null; },
     async dispose() {},
+    getTemplate() { return ''; },  // Empty string signals to use builtin template
   };
 
   return { tracker, getTasks: () => tasks, getCompletedCount: () => completedCount };
@@ -201,10 +209,14 @@ let mockTrackerRegistry: ReturnType<typeof createControllableTracker>;
 
 describe('ExecutionEngine Integration', () => {
   let events: EngineEvent[];
+  let tempDir: string;
 
   beforeEach(async () => {
     events = [];
-    
+
+    // Create temp directory for each test to allow real logging
+    tempDir = await mkdtemp(join(tmpdir(), 'ralph-integration-test-'));
+
     // Reset mocks for each test
     mockAgentRegistry = createControllableAgent();
     mockTrackerRegistry = createControllableTracker();
@@ -222,31 +234,33 @@ describe('ExecutionEngine Integration', () => {
       }),
     }));
 
+    // Import and re-export all session functions to prevent mock pollution
+    const sessionModule = await import('../../src/session/index.js');
+
     mock.module('../../src/session/index.js', () => ({
+      // Re-export everything from real module first
+      ...sessionModule,
+      // Then override with mocked functions
       updateSessionIteration: () => Promise.resolve(),
       updateSessionStatus: () => Promise.resolve(),
       updateSessionMaxIterations: () => Promise.resolve(),
     }));
 
-    mock.module('../../src/logs/index.js', () => ({
-      saveIterationLog: () => Promise.resolve(),
-      appendProgress: () => Promise.resolve(),
-      getRecentProgressSummary: () => Promise.resolve(''),
-      buildSubagentTrace: () => undefined,
-      createProgressEntry: () => ({ iteration: 1, status: 'completed' }),
-    }));
-
-    mock.module('../../src/templates/index.js', () => ({
-      renderPrompt: () => ({ success: true, prompt: 'Test prompt for task' }),
-    }));
+    // NOTE: Do NOT mock logs/index.js - it causes pollution across test files
+    // due to Bun's known bug with mock.module (see: https://github.com/oven-sh/bun/issues/12823)
+    // The real logging functions work fine for integration tests since they use temp directories
 
     // Import ExecutionEngine after mocking
     const engineModule = await import('../../src/engine/index.js');
     ExecutionEngine = engineModule.ExecutionEngine;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     mock.restore();
+    // Clean up temp directory
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   describe('SELECT → BUILD → EXECUTE → DETECT cycle', () => {
@@ -260,7 +274,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -313,7 +327,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -355,7 +369,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 2,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -395,7 +409,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -429,7 +443,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -468,7 +482,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -499,7 +513,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -530,7 +544,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -562,7 +576,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 1,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
@@ -597,7 +611,7 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const engine = new ExecutionEngine({
-        cwd: '/test',
+        cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },

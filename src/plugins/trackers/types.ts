@@ -354,6 +354,34 @@ export interface TrackerPlugin {
    * Called when Ralph TUI shuts down.
    */
   dispose(): Promise<void>;
+
+  /**
+   * Get the prompt template for this tracker.
+   * Each tracker provides its own Handlebars template for rendering prompts.
+   * @returns The Handlebars template string
+   */
+  getTemplate(): string;
+
+  /**
+   * Get PRD context for prompt rendering.
+   * Returns the project/feature context that should be included in prompts.
+   * For JSON tracker: reads the source PRD markdown file.
+   * For Beads tracker: could return epic description or linked PRD.
+   *
+   * @returns PRD context object or null if not available
+   */
+  getPrdContext?(): Promise<{
+    /** PRD/feature name */
+    name: string;
+    /** Brief description */
+    description?: string;
+    /** Full PRD content (markdown) */
+    content: string;
+    /** Number of completed tasks */
+    completedCount: number;
+    /** Total number of tasks */
+    totalCount: number;
+  } | null>;
 }
 
 /**

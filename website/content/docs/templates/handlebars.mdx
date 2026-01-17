@@ -9,11 +9,11 @@ Ralph uses [Handlebars](https://handlebarsjs.com) for template rendering. Handle
 
 ### Variable Substitution
 
-Insert variable values with `{{variableName}}`:
+Insert variable values with `\{\{variableName\}\}`:
 
 ```handlebars
-**Task ID**: {{taskId}}
-**Title**: {{taskTitle}}
+**Task ID**: \{\{taskId\}\}
+**Title**: \{\{taskTitle\}\}
 ```
 
 Renders to:
@@ -28,10 +28,10 @@ Renders to:
 Show content only when a variable has a value:
 
 ```handlebars
-{{#if taskDescription}}
+\{\{#if taskDescription\}\}
 ## Description
-{{taskDescription}}
-{{/if}}
+\{\{taskDescription\}\}
+\{\{/if\}\}
 ```
 
 The block renders only if `taskDescription` is non-empty.
@@ -41,11 +41,11 @@ The block renders only if `taskDescription` is non-empty.
 Provide fallback content:
 
 ```handlebars
-{{#if epicTitle}}
-**Epic**: {{epicTitle}}
-{{else}}
+\{\{#if epicTitle\}\}
+**Epic**: \{\{epicTitle\}\}
+\{\{else\}\}
 *No epic assigned*
-{{/if}}
+\{\{/if\}\}
 ```
 
 ### Unless Blocks
@@ -53,9 +53,9 @@ Provide fallback content:
 Inverse of `if` - renders when value is falsy:
 
 ```handlebars
-{{#unless dependsOn}}
+\{\{#unless dependsOn\}\}
 This task has no dependencies - you can start immediately!
-{{/unless}}
+\{\{/unless\}\}
 ```
 
 ### Comments
@@ -63,8 +63,8 @@ This task has no dependencies - you can start immediately!
 Add template comments that won't appear in output:
 
 ```handlebars
-{{!-- This is a Handlebars comment --}}
-{{! Short comment syntax }}
+\{\{!-- This is a Handlebars comment --\}\}
+\{\{! Short comment syntax \}\}
 ```
 
 ## Available Variables
@@ -104,12 +104,27 @@ Ralph provides these variables for template rendering:
 | `cwd` | string | Current working directory path |
 | `currentDate` | string | Current date in ISO format (YYYY-MM-DD) |
 | `currentTimestamp` | string | Current timestamp in ISO format |
+| `beadsDbPath` | string | Full path to beads database (for `bd --db` flag) |
 
-### Progress Tracking
+### PRD Context (Project Requirements)
+
+When using a tracker that supports PRD context (JSON tracker with `metadata.sourcePrd`), these variables provide full project visibility:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `prdName` | string | Name of the PRD/project |
+| `prdDescription` | string | PRD description |
+| `prdContent` | string | Full PRD markdown content (for agent to study) |
+| `prdCompletedCount` | string | Number of completed tasks/stories |
+| `prdTotalCount` | string | Total number of tasks/stories |
+
+### Progress & Patterns
 
 | Variable | Type | Description |
 |----------|------|-------------|
 | `recentProgress` | string | Summary of progress from recent iterations |
+| `codebasePatterns` | string | Learnings and patterns from previous iterations |
+| `selectionReason` | string | Why this task was selected (beads-bv tracker) |
 
 ## Variable Details
 
@@ -118,10 +133,10 @@ Ralph provides these variables for template rendering:
 The full description from your task tracker. For JSON (prd.json), this is the story description. For Beads, it's the issue body.
 
 ```handlebars
-{{#if taskDescription}}
+\{\{#if taskDescription\}\}
 ## Description
-{{taskDescription}}
-{{/if}}
+\{\{taskDescription\}\}
+\{\{/if\}\}
 ```
 
 ### acceptanceCriteria
@@ -129,10 +144,10 @@ The full description from your task tracker. For JSON (prd.json), this is the st
 Extracted from task metadata or parsed from description. Ralph formats array-based criteria as a markdown checklist:
 
 ```handlebars
-{{#if acceptanceCriteria}}
+\{\{#if acceptanceCriteria\}\}
 ## Acceptance Criteria
-{{acceptanceCriteria}}
-{{/if}}
+\{\{acceptanceCriteria\}\}
+\{\{/if\}\}
 ```
 
 Renders as:
@@ -149,14 +164,14 @@ Renders as:
 These show task relationships for dependency-aware workflows:
 
 ```handlebars
-{{#if dependsOn}}
-**Blocked by**: {{dependsOn}}
+\{\{#if dependsOn\}\}
+**Blocked by**: \{\{dependsOn\}\}
 Complete these first before starting.
-{{/if}}
+\{\{/if\}\}
 
-{{#if blocks}}
-**Impact**: Completing this unblocks: {{blocks}}
-{{/if}}
+\{\{#if blocks\}\}
+**Impact**: Completing this unblocks: \{\{blocks\}\}
+\{\{/if\}\}
 ```
 
 ### recentProgress
@@ -164,16 +179,66 @@ Complete these first before starting.
 When cross-iteration progress tracking is enabled, this contains a summary of recent work:
 
 ```handlebars
-{{#if recentProgress}}
+\{\{#if recentProgress\}\}
 ## Previous Progress
-{{recentProgress}}
-{{/if}}
+\{\{recentProgress\}\}
+\{\{/if\}\}
 ```
 
 The progress file is managed automatically by Ralph and includes:
 - Notes from previous iterations
 - Insights and learnings
 - Context for the current task
+
+### PRD Context Variables
+
+When your tracker provides PRD context (e.g., JSON tracker with `metadata.sourcePrd`), you can include full project context in your prompts:
+
+```handlebars
+\{\{#if prdContent\}\}
+## PRD: \{\{prdName\}\}
+\{\{#if prdDescription\}\}
+\{\{prdDescription\}\}
+\{\{/if\}\}
+
+### Progress: \{\{prdCompletedCount\}\}/\{\{prdTotalCount\}\} tasks complete
+
+<details>
+<summary>Full PRD Document (click to expand)</summary>
+
+\{\{prdContent\}\}
+
+</details>
+\{\{/if\}\}
+```
+
+This gives the AI agent full visibility into the project requirements and current progress.
+
+### codebasePatterns
+
+Contains learnings and patterns discovered during previous iterations:
+
+```handlebars
+\{\{#if codebasePatterns\}\}
+## Codebase Patterns (Study These First)
+\{\{codebasePatterns\}\}
+\{\{/if\}\}
+```
+
+Patterns are typically extracted from `.ralph-tui/progress.md` and help agents avoid repeating mistakes.
+
+### selectionReason (beads-bv)
+
+For the beads-bv tracker with graph-aware selection, this explains why the current task was chosen:
+
+```handlebars
+\{\{#if selectionReason\}\}
+## Why This Task Was Selected
+\{\{selectionReason\}\}
+\{\{/if\}\}
+```
+
+This might include information about dependencies, blocking relationships, or priority scores.
 
 ### priority
 
@@ -188,9 +253,9 @@ Priority as a string, where lower numbers = higher priority:
 | "4" | Backlog/P4 |
 
 ```handlebars
-{{#if priority}}
-**Priority**: P{{priority}}
-{{/if}}
+\{\{#if priority\}\}
+**Priority**: P\{\{priority\}\}
+\{\{/if\}\}
 ```
 
 ## Advanced Usage
@@ -200,19 +265,19 @@ Priority as a string, where lower numbers = higher priority:
 For advanced templates, access the full task and config objects:
 
 ```handlebars
-{{!-- Access task metadata --}}
-{{#if task.metadata.branch}}
-Branch: {{task.metadata.branch}}
-{{/if}}
+\{\{!-- Access task metadata --\}\}
+\{\{#if task.metadata.branch\}\}
+Branch: \{\{task.metadata.branch\}\}
+\{\{/if\}\}
 
-{{!-- Access nested properties --}}
-{{#with task}}
-  ID: {{id}}
-  Title: {{title}}
-  {{#each labels}}
-    - {{this}}
-  {{/each}}
-{{/with}}
+\{\{!-- Access nested properties --\}\}
+\{\{#with task\}\}
+  ID: \{\{id\}\}
+  Title: \{\{title\}\}
+  \{\{#each labels\}\}
+    - \{\{this\}\}
+  \{\{/each\}\}
+\{\{/with\}\}
 ```
 
 <Callout type="warning">
@@ -224,9 +289,9 @@ Raw object access exposes internal structure that may change. Use documented var
 When accessing raw arrays (like from `task.labels`):
 
 ```handlebars
-{{#each task.labels}}
-- {{this}}
-{{/each}}
+\{\{#each task.labels\}\}
+- \{\{this\}\}
+\{\{/each\}\}
 ```
 
 ### Nested Conditionals
@@ -234,13 +299,13 @@ When accessing raw arrays (like from `task.labels`):
 Combine conditions for complex logic:
 
 ```handlebars
-{{#if epicId}}
-  {{#if epicTitle}}
-**Epic**: {{epicId}} - {{epicTitle}}
-  {{else}}
-**Epic**: {{epicId}}
-  {{/if}}
-{{/if}}
+\{\{#if epicId\}\}
+  \{\{#if epicTitle\}\}
+**Epic**: \{\{epicId\}\} - \{\{epicTitle\}\}
+  \{\{else\}\}
+**Epic**: \{\{epicId\}\}
+  \{\{/if\}\}
+\{\{/if\}\}
 ```
 
 ## Handlebars Syntax Reference
@@ -250,19 +315,19 @@ Combine conditions for complex logic:
 By default, Handlebars escapes HTML entities. Ralph disables this (using `noEscape: true`), so your content renders as-is:
 
 ```handlebars
-{{!-- These render the same in Ralph --}}
-{{taskDescription}}
-{{{taskDescription}}}
+\{\{!-- These render the same in Ralph --\}\}
+\{\{taskDescription\}\}
+\{\{{taskDescription\}\}}
 ```
 
 ### Block Helpers
 
 | Helper | Usage | Description |
 |--------|-------|-------------|
-| `if` | `{{#if var}}...{{/if}}` | Renders block if truthy |
-| `unless` | `{{#unless var}}...{{/unless}}` | Renders block if falsy |
-| `each` | `{{#each array}}...{{/each}}` | Iterates over array |
-| `with` | `{{#with object}}...{{/with}}` | Changes context |
+| `if` | `\{\{#if var\}\}...\{\{/if\}\}` | Renders block if truthy |
+| `unless` | `\{\{#unless var\}\}...\{\{/unless\}\}` | Renders block if falsy |
+| `each` | `\{\{#each array\}\}...\{\{/each\}\}` | Iterates over array |
+| `with` | `\{\{#with object\}\}...\{\{/with\}\}` | Changes context |
 
 ### Special Variables
 
@@ -279,8 +344,8 @@ By default, Handlebars escapes HTML entities. Ralph disables this (using `noEsca
 Access nested properties with dot notation:
 
 ```handlebars
-{{task.metadata.customField}}
-{{config.tracker.plugin}}
+\{\{task.metadata.customField\}\}
+\{\{config.tracker.plugin\}\}
 ```
 
 ## Common Patterns
@@ -290,11 +355,11 @@ Access nested properties with dot notation:
 Show a default when variable is empty:
 
 ```handlebars
-{{#if type}}
-**Type**: {{type}}
-{{else}}
+\{\{#if type\}\}
+**Type**: \{\{type\}\}
+\{\{else\}\}
 **Type**: task
-{{/if}}
+\{\{/if\}\}
 ```
 
 ### Conditional Sections
@@ -302,11 +367,11 @@ Show a default when variable is empty:
 Include entire sections conditionally:
 
 ```handlebars
-{{#if epicId}}
+\{\{#if epicId\}\}
 ## Epic Context
-- **Epic**: {{epicId}}
-- **Title**: {{epicTitle}}
-{{/if}}
+- **Epic**: \{\{epicId\}\}
+- **Title**: \{\{epicTitle\}\}
+\{\{/if\}\}
 ```
 
 ### Formatted Lists
@@ -314,9 +379,9 @@ Include entire sections conditionally:
 When you have comma-separated values:
 
 ```handlebars
-{{#if labels}}
-**Labels**: {{labels}}
-{{/if}}
+\{\{#if labels\}\}
+**Labels**: \{\{labels\}\}
+\{\{/if\}\}
 ```
 
 Note: `labels` is already comma-joined by Ralph. For full control, access `task.labels` array directly.
@@ -326,11 +391,11 @@ Note: `labels` is already comma-joined by Ralph. For full control, access `task.
 Include temporal context:
 
 ```handlebars
-{{!-- Just the date --}}
-Started: {{currentDate}}
+\{\{!-- Just the date --\}\}
+Started: \{\{currentDate\}\}
 
-{{!-- Full timestamp --}}
-Timestamp: {{currentTimestamp}}
+\{\{!-- Full timestamp --\}\}
+Timestamp: \{\{currentTimestamp\}\}
 ```
 
 ## Troubleshooting
@@ -348,18 +413,18 @@ If a variable shows as empty:
 Common mistakes:
 
 ```handlebars
-{{!-- Wrong: Missing closing --}}
-{{#if condition}
+\{\{!-- Wrong: Missing closing --\}\}
+\{\{#if condition}
 Content
-{{/if}}
+\{\{/if\}\}
 
-{{!-- Wrong: Extra spaces in helper --}}
-{{ #if condition }}
+\{\{!-- Wrong: Extra spaces in helper --\}\}
+\{\{ #if condition \}\}
 
-{{!-- Correct --}}
-{{#if condition}}
+\{\{!-- Correct --\}\}
+\{\{#if condition\}\}
 Content
-{{/if}}
+\{\{/if\}\}
 ```
 
 ### Conditional Not Working
@@ -371,16 +436,16 @@ Handlebars considers these falsy:
 - `0`
 - Empty array `[]`
 
-If your variable is an empty string, the `{{#if}}` block won't render.
+If your variable is an empty string, the `\{\{#if\}\}` block won't render.
 
 ## Template Examples by Use Case
 
 ### Strict Quality Gates
 
 ```handlebars
-## Task: {{taskTitle}}
+## Task: \{\{taskTitle\}\}
 
-{{taskDescription}}
+\{\{taskDescription\}\}
 
 ## MANDATORY Quality Gates
 Run ALL of these before signaling completion:
@@ -402,9 +467,9 @@ DO NOT signal completion if any check fails.
 ### Minimal Context
 
 ```handlebars
-{{taskTitle}}
+\{\{taskTitle\}\}
 
-{{acceptanceCriteria}}
+\{\{acceptanceCriteria\}\}
 
 Done? <promise>COMPLETE</promise>
 ```
@@ -412,45 +477,65 @@ Done? <promise>COMPLETE</promise>
 ### Maximum Context
 
 ```handlebars
-# {{taskTitle}}
+\{\{#if prdContent\}\}
+## PRD: \{\{prdName\}\}
+\{\{prdDescription\}\}
+### Progress: \{\{prdCompletedCount\}\}/\{\{prdTotalCount\}\} complete
+<details>
+<summary>Full PRD</summary>
+\{\{prdContent\}\}
+</details>
+\{\{/if\}\}
+
+\{\{#if codebasePatterns\}\}
+## Codebase Patterns
+\{\{codebasePatterns\}\}
+\{\{/if\}\}
+
+# \{\{taskTitle\}\}
 
 ## Metadata
 | Field | Value |
 |-------|-------|
-| ID | {{taskId}} |
-| Type | {{type}} |
-| Priority | P{{priority}} |
-| Status | {{status}} |
-| Labels | {{labels}} |
-| Tracker | {{trackerName}} |
-| Agent | {{agentName}} |
-| Date | {{currentDate}} |
+| ID | \{\{taskId\}\} |
+| Type | \{\{type\}\} |
+| Priority | P\{\{priority\}\} |
+| Status | \{\{status\}\} |
+| Labels | \{\{labels\}\} |
+| Tracker | \{\{trackerName\}\} |
+| Agent | \{\{agentName\}\} |
+| Date | \{\{currentDate\}\} |
 
-{{#if epicId}}
-## Epic: {{epicId}}
-{{epicTitle}}
-{{/if}}
+\{\{#if epicId\}\}
+## Epic: \{\{epicId\}\}
+\{\{epicTitle\}\}
+\{\{/if\}\}
 
 ## Description
-{{taskDescription}}
+\{\{taskDescription\}\}
 
 ## Acceptance Criteria
-{{acceptanceCriteria}}
+\{\{acceptanceCriteria\}\}
 
-{{#if dependsOn}}
+\{\{#if dependsOn\}\}
 ## Dependencies
-Depends on: {{dependsOn}}
-{{/if}}
+Depends on: \{\{dependsOn\}\}
+\{\{/if\}\}
 
-{{#if blocks}}
+\{\{#if blocks\}\}
 ## Impact
-Unblocks: {{blocks}}
-{{/if}}
+Unblocks: \{\{blocks\}\}
+\{\{/if\}\}
 
-{{#if recentProgress}}
+\{\{#if recentProgress\}\}
 ## Previous Progress
-{{recentProgress}}
-{{/if}}
+\{\{recentProgress\}\}
+\{\{/if\}\}
+
+\{\{#if selectionReason\}\}
+## Selection Reason
+\{\{selectionReason\}\}
+\{\{/if\}\}
 
 ## Completion
 <promise>COMPLETE</promise>

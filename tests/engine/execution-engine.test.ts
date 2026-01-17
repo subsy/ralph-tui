@@ -41,13 +41,6 @@ const mockUpdateSessionIteration = mock(() => Promise.resolve());
 const mockUpdateSessionStatus = mock(() => Promise.resolve());
 const mockUpdateSessionMaxIterations = mock(() => Promise.resolve());
 
-// Mock log functions
-const mockSaveIterationLog = mock(() => Promise.resolve());
-const mockAppendProgress = mock(() => Promise.resolve());
-const mockGetRecentProgressSummary = mock(() => Promise.resolve(''));
-
-// Mock template function
-const mockRenderPrompt = mock(() => ({ success: true, prompt: 'Test prompt' }));
 
 // Override module imports
 mock.module('../../src/plugins/agents/registry.js', () => ({
@@ -68,17 +61,13 @@ mock.module('../../src/session/index.js', () => ({
   updateSessionMaxIterations: mockUpdateSessionMaxIterations,
 }));
 
-mock.module('../../src/logs/index.js', () => ({
-  saveIterationLog: mockSaveIterationLog,
-  appendProgress: mockAppendProgress,
-  getRecentProgressSummary: mockGetRecentProgressSummary,
-  buildSubagentTrace: () => undefined,
-  createProgressEntry: () => ({ iteration: 1, status: 'completed' }),
-}));
+// NOTE: Do NOT mock logs/index.js - it causes pollution across test files
+// due to Bun's known bug with mock.module (see: https://github.com/oven-sh/bun/issues/12823)
+// The real logging functions work fine for execution-engine tests since they use temp directories
 
-mock.module('../../src/templates/index.js', () => ({
-  renderPrompt: mockRenderPrompt,
-}));
+// NOTE: Do NOT mock templates/index.js - it causes pollution across test files
+// due to Bun's known bug with mock.module (see: https://github.com/oven-sh/bun/issues/12823)
+// The real renderPrompt function works fine for execution-engine tests
 
 /**
  * Create a minimal RalphConfig for testing

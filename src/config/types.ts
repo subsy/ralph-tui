@@ -90,6 +90,9 @@ export interface RuntimeOptions {
   /** Override model for the agent */
   model?: string;
 
+  /** Override model variant for the agent (e.g., minimal, high, max for Gemini) */
+  variant?: string;
+
   /** Override tracker plugin */
   tracker?: string;
 
@@ -176,6 +179,22 @@ export interface StoredConfig {
 
   /** Legacy alias: agent command name */
   agentCommand?: string;
+
+  /**
+   * Custom command/executable path for the agent.
+   *
+   * Use this to route agent requests through wrapper tools like Claude Code Router (CCR)
+   * or to specify a custom binary location.
+   *
+   * Precedence (highest to lowest):
+   * 1. Agent-specific: [[agents]] command field
+   * 2. Top-level: this field
+   * 3. Plugin default: e.g., "claude" for Claude plugin
+   *
+   * @example "ccr code" - Route through Claude Code Router
+   * @example "/opt/bin/my-claude" - Absolute path to custom binary
+   */
+  command?: string;
 
   /** Shorthand: tracker plugin name */
   tracker?: string;

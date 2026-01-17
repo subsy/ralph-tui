@@ -38,6 +38,10 @@ export interface ProgressEntry {
   notes?: string;
   insights?: string[];
   error?: string;
+  /** Git commit hash after successful completion */
+  commitHash?: string;
+  /** Files changed in this iteration */
+  filesChanged?: string[];
 }
 
 /**
@@ -94,6 +98,9 @@ function formatProgressEntry(entry: ProgressEntry): string {
 
   lines.push(`## ${status} Iteration ${entry.iteration} - ${entry.taskId}: ${entry.taskTitle}`);
   lines.push(`*${entry.timestamp} (${duration}s)*`);
+  if (entry.commitHash) {
+    lines.push(`**Commit:** ${entry.commitHash}`);
+  }
   lines.push('');
 
   if (entry.completed) {
@@ -106,6 +113,17 @@ function formatProgressEntry(entry: ProgressEntry): string {
     lines.push('');
     lines.push('**Error:**');
     lines.push(entry.error);
+  }
+
+  if (entry.filesChanged && entry.filesChanged.length > 0) {
+    lines.push('');
+    lines.push('**Files Changed:**');
+    for (const file of entry.filesChanged.slice(0, 10)) {
+      lines.push(`- ${file}`);
+    }
+    if (entry.filesChanged.length > 10) {
+      lines.push(`- ... and ${entry.filesChanged.length - 10} more`);
+    }
   }
 
   if (entry.notes) {
@@ -254,15 +272,81 @@ export async function clearProgress(cwd: string): Promise<void> {
   const filePath = join(cwd, PROGRESS_FILE);
 
   try {
-    await writeFile(filePath, `# Ralph Progress Log
-
-This file tracks progress across iterations. It's automatically updated
-after each iteration and included in agent prompts for context.
-
----
-
-`, 'utf-8');
+    await writeFile(filePath, getDefaultProgressHeader(), 'utf-8');
   } catch {
     // Ignore errors
   }
 }
+
+/**
+ * Default header for the progress file.
+ * Includes a placeholder for the Codebase Patterns section.
+ */
+function getDefaultProgressHeader(): string {
+  return `# Ralph Progress Log
+
+This file tracks progress across iterations. It's automatically updated
+after each iteration and included in agent prompts for context.
+
+## Codebase Patterns (Study These First)
+
+*Add reusable patterns discovered during development here.*
+
+---
+
+`;
+}
+
+/**
+ * Pattern for matching the Codebase Patterns section.
+ */
+const PATTERNS_SECTION_REGEX = /## Codebase Patterns.*?\n([\s\S]*?)(?=\n---|\n## [^C])/i;
+
+/**
+ * Extract codebase patterns from the progress file.
+ * These are consolidated learnings that should be read first.
+ *
+ * @param cwd Working directory
+ * @returns Array of pattern strings, or empty array if none found
+ */
+export async function extractCodebasePatterns(cwd: string): Promise<string[]> {
+  const content = await readProgress(cwd);
+  if (!content) return [];
+
+  const match = content.match(PATTERNS_SECTION_REGEX);
+  if (!match || !match[1]) return [];
+
+  const patternsSection = match[1].trim();
+  if (!patternsSection || patternsSection.startsWith('*Add reusable patterns')) {
+    return [];
+  }
+
+  // Extract bullet points
+  const patterns = patternsSection
+    .split('\n')
+    .map((line) => line.replace(/^[-*•]\s*/, '').trim())
+    .filter((line) => line.length > 0);
+
+  return patterns;
+}
+
+/**
+ * Get the formatted codebase patterns section for prompts.
+ * Returns empty string if no patterns exist.
+ *
+ * @param cwd Working directory
+ * @returns Formatted patterns section markdown
+ */
+export async function getCodebasePatternsForPrompt(cwd: string): Promise<string> {
+  const patterns = await extractCodebasePatterns(cwd);
+  if (patterns.length === 0) return '';
+
+  const lines = ['## Codebase Patterns (Study These First)', ''];
+  for (const pattern of patterns) {
+    lines.push(`- ${pattern}`);
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+

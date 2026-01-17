@@ -57,5 +57,6 @@ export {
   appendProgress,
   readProgress,
   getRecentProgressSummary,
+  getCodebasePatternsForPrompt,
   clearProgress,
 } from './progress.js';
