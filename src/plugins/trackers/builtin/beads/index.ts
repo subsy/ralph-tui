@@ -40,10 +40,10 @@ interface BeadJson {
   dependency_count?: number;
   dependent_count?: number;
   dependencies?: Array<{
-    id: string;
-    title: string;
-    status: string;
-    dependency_type: 'blocks' | 'parent-child';
+    issue_id: string;
+    depends_on_id: string;
+    type: 'blocks' | 'parent-child';
+    created_at?: string;
   }>;
   dependents?: Array<{
     id: string;
@@ -167,8 +167,8 @@ function beadToTask(bead: BeadJson): TrackerTask {
 
   if (bead.dependencies) {
     for (const dep of bead.dependencies) {
-      if (dep.dependency_type === 'blocks') {
-        dependsOn.push(dep.id);
+      if (dep.type === 'blocks') {
+        dependsOn.push(dep.depends_on_id);
       }
     }
   }
