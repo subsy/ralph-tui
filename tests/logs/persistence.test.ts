@@ -123,6 +123,121 @@ describe('buildMetadata', () => {
     expect(metadata.agentPlugin).toBe('claude');
     expect(metadata.model).toBe('claude-sonnet-4-20250514');
   });
+
+  test('handles old config-only signature for backward compatibility', () => {
+    const result = createTestIterationResult();
+
+    // Old signature: buildMetadata(result, config) where config is RalphConfig directly
+    const metadata = buildMetadata(result, {
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      model: 'claude-sonnet-4-20250514',
+    } as any);
+
+    expect(metadata.agentPlugin).toBe('claude');
+    expect(metadata.model).toBe('claude-sonnet-4-20250514');
+    // Sandbox fields should be undefined in old signature
+    expect(metadata.sandboxMode).toBeUndefined();
+  });
+
+  test('includes epicId from config', () => {
+    const result = createTestIterationResult();
+
+    const metadata = buildMetadata(result, {
+      config: {
+        epicId: 'epic-123',
+      },
+    });
+
+    expect(metadata.epicId).toBe('epic-123');
+  });
+
+  test('includes error from result', () => {
+    const result = createTestIterationResult({
+      error: 'Task failed due to timeout',
+    });
+
+    const metadata = buildMetadata(result, { config: {} });
+
+    expect(metadata.error).toBe('Task failed due to timeout');
+  });
+
+  test('includes completionSummary when provided', () => {
+    const result = createTestIterationResult();
+
+    const metadata = buildMetadata(result, {
+      config: {},
+      completionSummary: 'Completed on fallback (opencode) due to rate limit',
+    });
+
+    expect(metadata.completionSummary).toBe('Completed on fallback (opencode) due to rate limit');
+  });
+
+  test('includes agentSwitches when provided', () => {
+    const result = createTestIterationResult();
+
+    const metadata = buildMetadata(result, {
+      config: {},
+      agentSwitches: [
+        { from: 'claude', to: 'opencode', reason: 'fallback', at: '2024-01-15T10:01:00.000Z' },
+        { from: 'opencode', to: 'claude', reason: 'primary', at: '2024-01-15T10:02:00.000Z' },
+      ],
+    });
+
+    expect(metadata.agentSwitches).toHaveLength(2);
+    expect(metadata.agentSwitches![0].from).toBe('claude');
+    expect(metadata.agentSwitches![0].to).toBe('opencode');
+    expect(metadata.agentSwitches![0].reason).toBe('fallback');
+    expect(metadata.agentSwitches![1].reason).toBe('primary');
+  });
+
+  test('omits empty agentSwitches array', () => {
+    const result = createTestIterationResult();
+
+    const metadata = buildMetadata(result, {
+      config: {},
+      agentSwitches: [],
+    });
+
+    expect(metadata.agentSwitches).toBeUndefined();
+  });
+
+  test('includes task description from result', () => {
+    const result = createTestIterationResult({
+      task: {
+        id: 'test-task-1',
+        title: 'Test Task',
+        description: 'This is a test task description',
+        status: 'in_progress',
+        priority: 2,
+      },
+    });
+
+    const metadata = buildMetadata(result, { config: {} });
+
+    expect(metadata.taskDescription).toBe('This is a test task description');
+  });
+
+  test('copies all basic fields from result', () => {
+    const result = createTestIterationResult({
+      iteration: 5,
+      status: 'failed',
+      taskCompleted: false,
+      promiseComplete: true,
+      durationMs: 12345,
+      startedAt: '2024-01-15T10:00:00.000Z',
+      endedAt: '2024-01-15T10:00:12.345Z',
+    });
+
+    const metadata = buildMetadata(result, { config: {} });
+
+    expect(metadata.iteration).toBe(5);
+    expect(metadata.status).toBe('failed');
+    expect(metadata.taskCompleted).toBe(false);
+    expect(metadata.promiseComplete).toBe(true);
+    expect(metadata.durationMs).toBe(12345);
+    expect(metadata.startedAt).toBe('2024-01-15T10:00:00.000Z');
+    expect(metadata.endedAt).toBe('2024-01-15T10:00:12.345Z');
+  });
 });
 
 // Note: These tests pass in isolation but may fail when run with the full test suite
