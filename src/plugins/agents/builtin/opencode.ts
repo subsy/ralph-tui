@@ -443,6 +443,20 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
+   * Get OpenCode-specific suggestions for preflight failures.
+   * Provides actionable guidance for common configuration issues.
+   */
+  protected override getPreflightSuggestion(): string {
+    return (
+      'Common fixes for OpenCode:\n' +
+      '  1. Test OpenCode directly: opencode run "hello"\n' +
+      '  2. Configure a default model in ~/.config/opencode/opencode.json\n' +
+      '  3. Verify your API key is set for the chosen provider\n' +
+      '  4. Try specifying a model: ralph-tui run --model anthropic/claude-3-5-sonnet'
+    );
+  }
+
+  /**
     * Validate a model name for the OpenCode agent.
     * Accepts either "provider/model" format or just "model" name.
     * Provider validation is delegated to the OpenCode CLI which supports 75+ providers.

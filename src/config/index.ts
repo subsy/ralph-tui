@@ -139,6 +139,9 @@ async function findProjectConfigPath(startDir: string): Promise<string | null> {
 function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig {
   const merged: StoredConfig = { ...global };
 
+  // Config version from project takes precedence
+  if (project.configVersion !== undefined) merged.configVersion = project.configVersion;
+
   // Override scalar values from project
   if (project.defaultAgent !== undefined) merged.defaultAgent = project.defaultAgent;
   if (project.defaultTracker !== undefined) merged.defaultTracker = project.defaultTracker;

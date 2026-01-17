@@ -68,3 +68,8 @@ export {
   parseDocsArgs,
   printDocsHelp,
 } from './docs.js';
+
+export {
+  executeDoctorCommand,
+  printDoctorHelp,
+} from './doctor.js';

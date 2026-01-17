@@ -48,7 +48,7 @@ import { EpicSelectionApp } from '../tui/components/EpicSelectionApp.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import { BeadsTrackerPlugin } from '../plugins/trackers/builtin/beads/index.js';
 import type { RalphConfig } from '../config/types.js';
-import { projectConfigExists, runSetupWizard } from '../setup/index.js';
+import { projectConfigExists, runSetupWizard, checkAndMigrate } from '../setup/index.js';
 import { createInterruptHandler } from '../interruption/index.js';
 import type { InterruptHandler } from '../interruption/types.js';
 import { createStructuredLogger, clearProgress } from '../logs/index.js';
@@ -58,10 +58,11 @@ import { detectSandboxMode } from '../sandbox/index.js';
 import type { SandboxMode } from '../sandbox/index.js';
 
 /**
- * Extended runtime options with noSetup flag
+ * Extended runtime options with noSetup and verify flags
  */
 interface ExtendedRuntimeOptions extends RuntimeOptions {
   noSetup?: boolean;
+  verify?: boolean;
 }
 
 /**
@@ -226,6 +227,10 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--no-notify':
         options.notify = false;
         break;
+
+      case '--verify':
+        options.verify = true;
+        break;
     }
   }
 
@@ -259,6 +264,7 @@ Options:
   --headless          Run without TUI (alias: --no-tui)
   --no-tui            Run without TUI, output structured logs to stdout
   --no-setup          Skip interactive setup even if no config exists
+  --verify            Run agent preflight check before starting
   --notify            Force enable desktop notifications
   --no-notify         Force disable desktop notifications
   --sandbox           Enable sandboxing (auto mode)
@@ -1324,6 +1330,14 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     console.log('No .ralph-tui/config.toml found. Using default configuration.');
   }
 
+  // Check for config migrations (auto-upgrade on version changes)
+  if (configExists) {
+    const migrationResult = await checkAndMigrate(cwd, { quiet: false });
+    if (migrationResult?.error) {
+      console.warn(`Warning: Config migration failed: ${migrationResult.error}`);
+    }
+  }
+
   console.log('Initializing Ralph TUI...');
 
   // Initialize plugins
@@ -1351,6 +1365,41 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Show warnings
   for (const warning of validation.warnings) {
     console.warn(`Warning: ${warning}`);
+  }
+
+  // Run preflight check if --verify flag is specified
+  if (options.verify) {
+    console.log('');
+    console.log('Running agent preflight check...');
+
+    const agentRegistry = getAgentRegistry();
+    const agentInstance = await agentRegistry.getInstance(config.agent);
+
+    const preflightResult = await agentInstance.preflight({ timeout: 30000 });
+
+    if (preflightResult.success) {
+      console.log('✓ Agent is ready');
+      if (preflightResult.durationMs) {
+        console.log(`  Response time: ${preflightResult.durationMs}ms`);
+      }
+      console.log('');
+    } else {
+      console.error('');
+      console.error('❌ Agent preflight check failed');
+      if (preflightResult.error) {
+        console.error(`   ${preflightResult.error}`);
+      }
+      if (preflightResult.suggestion) {
+        console.error('');
+        console.error('Suggestions:');
+        for (const line of preflightResult.suggestion.split('\n')) {
+          console.error(`  ${line}`);
+        }
+      }
+      console.error('');
+      console.error('Run "ralph-tui doctor" for detailed diagnostics.');
+      process.exit(1);
+    }
   }
 
   // If using beads tracker without epic, show epic selection TUI

@@ -514,6 +514,20 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
+   * Get Claude-specific suggestions for preflight failures.
+   * Provides actionable guidance for common configuration issues.
+   */
+  protected override getPreflightSuggestion(): string {
+    return (
+      'Common fixes for Claude Code:\n' +
+      '  1. Test Claude Code directly: claude "hello"\n' +
+      '  2. Verify your Anthropic API key: echo $ANTHROPIC_API_KEY\n' +
+      '  3. Check Claude Code is installed: claude --version\n' +
+      '  4. Try running: claude --print-system-prompt (should show system prompt)'
+    );
+  }
+
+  /**
    * Parse a single line of JSONL output from Claude Code.
    * Attempts to parse as JSON, falls back to raw text on failure.
    *

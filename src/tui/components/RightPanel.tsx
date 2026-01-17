@@ -569,7 +569,7 @@ function PromptPreviewView({
         }}
       >
         <text fg={colors.status.warning}>
-          ⚠ Preview only - dynamic content (progress, etc.) may change before execution
+          ⚠ Preview only - dynamic content may change before execution
         </text>
       </box>
 

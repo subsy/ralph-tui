@@ -1,0 +1,298 @@
+/**
+ * ABOUTME: Doctor command for ralph-tui.
+ * Runs diagnostics on the configured agent to verify it's fully operational.
+ * Helps users identify and fix configuration issues before starting work.
+ */
+
+import { loadStoredConfig } from '../config/index.js';
+import { getAgentRegistry } from '../plugins/agents/registry.js';
+import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
+import type { AgentPlugin, AgentPreflightResult, AgentDetectResult } from '../plugins/agents/types.js';
+
+/**
+ * Result of the doctor command diagnostics
+ */
+export interface DoctorResult {
+  /** Overall health status */
+  healthy: boolean;
+
+  /** Agent being checked */
+  agent: {
+    name: string;
+    plugin: string;
+  };
+
+  /** Detection result */
+  detection: AgentDetectResult;
+
+  /** Preflight result (only if detection passed) */
+  preflight?: AgentPreflightResult;
+
+  /** Summary message */
+  message: string;
+}
+
+/**
+ * Run diagnostics on the configured agent
+ */
+async function runDiagnostics(
+  cwd: string,
+  agentOverride?: string,
+  quiet = false
+): Promise<DoctorResult> {
+  const log = quiet ? () => {} : console.log.bind(console);
+  // Load configuration
+  const storedConfig = await loadStoredConfig(cwd);
+
+  // Register built-in agents
+  registerBuiltinAgents();
+
+  // Get agent registry
+  const registry = getAgentRegistry();
+
+  // Determine which agent to check
+  const agentName = agentOverride ?? storedConfig.agent ?? 'claude';
+
+  // Check if agent plugin exists
+  if (!registry.hasPlugin(agentName)) {
+    return {
+      healthy: false,
+      agent: { name: agentName, plugin: agentName },
+      detection: { available: false, error: `Unknown agent plugin: ${agentName}` },
+      message: `Agent plugin '${agentName}' is not registered`,
+    };
+  }
+
+  // Get agent instance
+  let agent: AgentPlugin;
+  try {
+    agent = await registry.getInstance({
+      name: agentName,
+      plugin: agentName,
+      options: storedConfig.agentOptions ?? {},
+    });
+  } catch (error) {
+    return {
+      healthy: false,
+      agent: { name: agentName, plugin: agentName },
+      detection: { available: false, error: error instanceof Error ? error.message : String(error) },
+      message: `Failed to initialize agent '${agentName}'`,
+    };
+  }
+
+  // Run detection
+  log(`\n🔍 Checking ${agent.meta.name}...\n`);
+  log('  Step 1: Detection (checking if CLI is available)...');
+
+  const detection = await agent.detect();
+
+  if (!detection.available) {
+    return {
+      healthy: false,
+      agent: { name: agent.meta.name, plugin: agent.meta.id },
+      detection,
+      message: detection.error ?? 'Agent CLI not available',
+    };
+  }
+
+  log(`    ✓ Found at: ${detection.executablePath}`);
+  if (detection.version) {
+    log(`    ✓ Version: ${detection.version}`);
+  }
+
+  // Run preflight
+  log('\n  Step 2: Preflight (testing if agent can respond)...');
+  log('    Running test prompt...');
+
+  const preflight = await agent.preflight({ timeout: 30000 });
+
+  if (!preflight.success) {
+    return {
+      healthy: false,
+      agent: { name: agent.meta.name, plugin: agent.meta.id },
+      detection,
+      preflight,
+      message: preflight.error ?? 'Agent failed preflight check',
+    };
+  }
+
+  log(`    ✓ Agent responded successfully (${preflight.durationMs}ms)`);
+
+  return {
+    healthy: true,
+    agent: { name: agent.meta.name, plugin: agent.meta.id },
+    detection,
+    preflight,
+    message: 'Agent is healthy and ready to use',
+  };
+}
+
+/**
+ * Print doctor results in human-readable format
+ */
+function printHumanResult(result: DoctorResult): void {
+  console.log('\n═══════════════════════════════════════════════════════════════');
+  console.log('                    Ralph TUI Doctor Report                     ');
+  console.log('═══════════════════════════════════════════════════════════════\n');
+
+  // Status
+  const statusIcon = result.healthy ? '✓' : '✗';
+  const statusText = result.healthy ? 'HEALTHY' : 'UNHEALTHY';
+  console.log(`  Status:    ${statusIcon} ${statusText}`);
+  console.log(`  Agent:     ${result.agent.name} (${result.agent.plugin})`);
+  console.log('');
+
+  // Detection details
+  console.log('  Detection:');
+  if (result.detection.available) {
+    console.log(`    ✓ CLI available`);
+    if (result.detection.executablePath) {
+      console.log(`    ✓ Path: ${result.detection.executablePath}`);
+    }
+    if (result.detection.version) {
+      console.log(`    ✓ Version: ${result.detection.version}`);
+    }
+  } else {
+    console.log(`    ✗ CLI not available`);
+    if (result.detection.error) {
+      console.log(`    ✗ Error: ${result.detection.error}`);
+    }
+  }
+  console.log('');
+
+  // Preflight details
+  if (result.preflight) {
+    console.log('  Preflight:');
+    if (result.preflight.success) {
+      console.log(`    ✓ Agent responded to test prompt`);
+      if (result.preflight.durationMs) {
+        console.log(`    ✓ Response time: ${result.preflight.durationMs}ms`);
+      }
+    } else {
+      console.log(`    ✗ Agent failed to respond`);
+      if (result.preflight.error) {
+        console.log(`    ✗ Error: ${result.preflight.error}`);
+      }
+      if (result.preflight.suggestion) {
+        console.log('');
+        console.log('  Suggestions:');
+        // Split suggestion by newlines and indent each line
+        const lines = result.preflight.suggestion.split('\n');
+        for (const line of lines) {
+          console.log(`    ${line}`);
+        }
+      }
+    }
+    console.log('');
+  }
+
+  // Summary
+  console.log('───────────────────────────────────────────────────────────────');
+  if (result.healthy) {
+    console.log('  ✓ Your agent is configured correctly and ready to use.');
+    console.log('');
+    console.log('  Start working: ralph-tui run');
+  } else {
+    console.log(`  ✗ ${result.message}`);
+    console.log('');
+    console.log('  Please fix the issues above and run: ralph-tui doctor');
+  }
+  console.log('───────────────────────────────────────────────────────────────');
+  console.log('');
+}
+
+/**
+ * Execute the doctor command
+ */
+export async function executeDoctorCommand(args: string[]): Promise<void> {
+  let cwd = process.cwd();
+  let outputJson = false;
+  let agentOverride: string | undefined;
+
+  // Parse arguments
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--cwd' && args[i + 1]) {
+      cwd = args[i + 1]!;
+      i++;
+    } else if (args[i] === '--json') {
+      outputJson = true;
+    } else if (args[i] === '--agent' && args[i + 1]) {
+      agentOverride = args[i + 1];
+      i++;
+    } else if (args[i] === '--help' || args[i] === '-h') {
+      printDoctorHelp();
+      return;
+    }
+  }
+
+  try {
+    const result = await runDiagnostics(cwd, agentOverride, outputJson);
+
+    if (outputJson) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      printHumanResult(result);
+    }
+
+    // Exit with appropriate code
+    process.exit(result.healthy ? 0 : 1);
+  } catch (error) {
+    if (outputJson) {
+      console.log(JSON.stringify({
+        healthy: false,
+        error: error instanceof Error ? error.message : String(error),
+      }, null, 2));
+    } else {
+      console.error('');
+      console.error(`✗ Doctor failed: ${error instanceof Error ? error.message : error}`);
+      console.error('');
+    }
+    process.exit(1);
+  }
+}
+
+/**
+ * Print doctor command help
+ */
+export function printDoctorHelp(): void {
+  console.log(`
+ralph-tui doctor - Diagnose agent configuration
+
+Usage: ralph-tui doctor [options]
+
+Options:
+  --agent <name>    Check specific agent (default: configured agent)
+  --json            Output in JSON format
+  --cwd <path>      Working directory (default: current directory)
+  -h, --help        Show this help message
+
+Description:
+  Runs diagnostics on your configured AI agent to verify it's fully
+  operational before you start working. This helps identify common
+  configuration issues like:
+
+  - Missing CLI tools
+  - Unconfigured API keys
+  - Missing default model settings
+  - Network connectivity issues
+
+  The doctor command runs two checks:
+
+  1. Detection: Verifies the agent CLI is installed and accessible
+  2. Preflight: Sends a test prompt to verify the agent can respond
+
+Exit Codes:
+  0    Agent is healthy and ready to use
+  1    Agent has configuration issues
+
+Examples:
+  ralph-tui doctor                # Check configured agent
+  ralph-tui doctor --agent claude # Check specific agent
+  ralph-tui doctor --json         # JSON output for scripts
+
+Common Issues:
+  OpenCode: Configure a default model in ~/.config/opencode/opencode.json
+  Claude:   Set ANTHROPIC_API_KEY environment variable
+  Droid:    Ensure Factory platform credentials are configured
+`);
+}

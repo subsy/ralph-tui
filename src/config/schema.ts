@@ -102,6 +102,9 @@ export const TrackerPluginConfigSchema = z.object({
  */
 export const StoredConfigSchema = z
   .object({
+    // Config version for migrations (e.g., "2.0")
+    configVersion: z.string().optional(),
+
     // Default selections
     defaultAgent: z.string().optional(),
     defaultTracker: z.string().optional(),

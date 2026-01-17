@@ -244,6 +244,30 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
   const timeout = parsedArgs.timeout == undefined ? 180000 : parsedArgs.timeout;
 
   console.log(`Using agent: ${agent.meta.name}`);
+
+  // Run preflight check to verify agent can respond before starting conversation
+  console.log('Verifying agent configuration...');
+  const preflightResult = await agent.preflight({ timeout: 30000 });
+
+  if (!preflightResult.success) {
+    console.error('');
+    console.error('❌ Agent preflight check failed');
+    if (preflightResult.error) {
+      console.error(`   ${preflightResult.error}`);
+    }
+    if (preflightResult.suggestion) {
+      console.error('');
+      console.error('Suggestions:');
+      for (const line of preflightResult.suggestion.split('\n')) {
+        console.error(`  ${line}`);
+      }
+    }
+    console.error('');
+    console.error('Run "ralph-tui doctor" to diagnose agent issues.');
+    process.exit(1);
+  }
+
+  console.log('✓ Agent is ready');
   console.log('');
 
   // Create renderer and render the chat app

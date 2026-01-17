@@ -18,6 +18,7 @@ import {
   executeCreatePrdCommand,
   executeConvertCommand,
   executeDocsCommand,
+  executeDoctorCommand,
 } from './commands/index.js';
 
 /**
@@ -38,6 +39,7 @@ Commands:
   status [options]    Check session status (headless, for CI/scripts)
   logs [options]      View/manage iteration output logs
   setup [options]     Run interactive project setup (alias: init)
+  doctor [options]    Diagnose agent configuration issues
   config show         Display merged configuration
   template show       Display current prompt template
   template init       Copy default template for customization
@@ -58,6 +60,7 @@ Run Options:
   --headless          Run without TUI (alias: --no-tui)
   --no-tui            Run without TUI, output structured logs to stdout
   --no-setup          Skip interactive setup even if no config exists
+  --verify            Run agent preflight check before starting
   --notify            Force enable desktop notifications
   --no-notify         Force disable desktop notifications
   --sandbox           Enable sandboxing (auto mode)
@@ -100,6 +103,8 @@ Examples:
   ralph-tui plugins trackers             # List tracker plugins
   ralph-tui template show                # Show current prompt template
   ralph-tui template init                # Create custom template
+  ralph-tui doctor                       # Check if agent is properly configured
+  ralph-tui doctor --json                # JSON output for scripts
   ralph-tui docs                         # Open documentation in browser
   ralph-tui docs quickstart              # Open quick start guide
 `);
@@ -189,6 +194,12 @@ async function handleSubcommand(args: string[]): Promise<boolean> {
   // Docs command
   if (command === 'docs') {
     await executeDocsCommand(args.slice(1));
+    return true;
+  }
+
+  // Doctor command
+  if (command === 'doctor') {
+    await executeDoctorCommand(args.slice(1));
     return true;
   }
 

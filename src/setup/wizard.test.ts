@@ -20,7 +20,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 
-import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 
 // Store mock implementations that can be changed per test
@@ -49,6 +48,36 @@ mock.module('./skill-installer.js', () => ({
   isSkillInstalled: () => Promise.resolve(false),
 }));
 
+// Mock agent preflight to avoid timeouts in tests
+// Create a function to generate mock agent instances
+const createMockAgentInstance = (id: string, name: string) => ({
+  preflight: () => Promise.resolve({ success: true, durationMs: 100 }),
+  meta: { id, name, description: `${name} AI`, version: '1.0.0' },
+  detect: () => Promise.resolve({ available: true, version: '1.0.0' }),
+  initialize: () => Promise.resolve(),
+  dispose: () => Promise.resolve(),
+  isReady: () => Promise.resolve(true),
+  getSetupQuestions: () => [],
+});
+
+// Mock the agent registry to return our mock instance
+mock.module('../plugins/agents/registry.js', () => ({
+  getAgentRegistry: () => ({
+    getInstance: () => Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
+    initialize: () => Promise.resolve(),
+    getRegisteredPlugins: () => [
+      { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
+      { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
+      { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
+    ],
+    createInstance: (id: string) => createMockAgentInstance(id, id),
+    hasPlugin: (name: string) => ['claude', 'opencode', 'droid'].includes(name),
+    // Mock registerBuiltin to prevent errors when registerBuiltinAgents is called
+    registerBuiltin: () => {},
+  }),
+  registerAgentPlugin: () => {},
+}));
+
 // Import after mocking
 import {
   projectConfigExists,
@@ -61,9 +90,8 @@ async function createTempDir(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'ralph-tui-wizard-test-'));
 }
 
-// Register built-in plugins before tests
+// Register built-in tracker plugins before tests (agents are mocked)
 beforeAll(() => {
-  registerBuiltinAgents();
   registerBuiltinTrackers();
 });
 

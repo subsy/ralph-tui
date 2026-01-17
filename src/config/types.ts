@@ -145,6 +145,9 @@ export interface RuntimeOptions {
  * Stored configuration (from YAML config file)
  */
 export interface StoredConfig {
+  /** Config version for migrations (e.g., "2.0") */
+  configVersion?: string;
+
   /** Default agent to use */
   defaultAgent?: string;
 
