@@ -26,17 +26,37 @@ import type {
 import { toEngineSubagentState } from './types.js';
 import type { RalphConfig, RateLimitHandlingConfig } from '../config/types.js';
 import { DEFAULT_RATE_LIMIT_HANDLING } from '../config/types.js';
-import { RateLimitDetector, type RateLimitDetectionResult } from './rate-limit-detector.js';
+import {
+  RateLimitDetector,
+  type RateLimitDetectionResult,
+} from './rate-limit-detector.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
-import type { AgentPlugin, AgentExecutionHandle } from '../plugins/agents/types.js';
+import type {
+  AgentPlugin,
+  AgentExecutionHandle,
+} from '../plugins/agents/types.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { SubagentTraceParser } from '../plugins/agents/tracing/parser.js';
 import type { SubagentEvent } from '../plugins/agents/tracing/types.js';
 import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
-import { createDroidStreamingJsonlParser, isDroidJsonlMessage, toClaudeJsonlMessages } from '../plugins/agents/droid/outputParser.js';
-import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
-import { saveIterationLog, buildSubagentTrace, createProgressEntry, appendProgress, getRecentProgressSummary } from '../logs/index.js';
+import {
+  createDroidStreamingJsonlParser,
+  isDroidJsonlMessage,
+  toClaudeJsonlMessages,
+} from '../plugins/agents/droid/outputParser.js';
+import {
+  updateSessionIteration,
+  updateSessionStatus,
+  updateSessionMaxIterations,
+} from '../session/index.js';
+import {
+  saveIterationLog,
+  buildSubagentTrace,
+  createProgressEntry,
+  appendProgress,
+  getRecentProgressSummary,
+} from '../logs/index.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 
@@ -62,7 +82,10 @@ const PRIMARY_RECOVERY_TEST_PROMPT = 'Reply with just the word "ok".';
  * Falls back to a hardcoded default if template rendering fails.
  * Includes recent progress from previous iterations for context.
  */
-async function buildPrompt(task: TrackerTask, config: RalphConfig): Promise<string> {
+async function buildPrompt(
+  task: TrackerTask,
+  config: RalphConfig,
+): Promise<string> {
   // Load recent progress for context (last 5 iterations)
   const recentProgress = await getRecentProgressSummary(config.cwd, 5);
 
@@ -90,7 +113,9 @@ async function buildPrompt(task: TrackerTask, config: RalphConfig): Promise<stri
 
   lines.push('');
   lines.push('## Instructions');
-  lines.push('Complete the task described above. When finished, signal completion with:');
+  lines.push(
+    'Complete the task described above. When finished, signal completion with:',
+  );
   lines.push('<promise>COMPLETE</promise>');
 
   return lines.join('\n');
@@ -172,7 +197,7 @@ export class ExecutionEngine {
     const detectResult = await this.agent.detect();
     if (!detectResult.available) {
       throw new Error(
-        `Agent '${this.config.agent.plugin}' not available: ${detectResult.error}`
+        `Agent '${this.config.agent.plugin}' not available: ${detectResult.error}`,
       );
     }
 
@@ -208,7 +233,9 @@ export class ExecutionEngine {
     await this.tracker.sync();
 
     // Get initial task count
-    const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress'] });
+    const tasks = await this.tracker.getTasks({
+      status: ['open', 'in_progress'],
+    });
     this.state.totalTasks = tasks.length;
   }
 
@@ -268,7 +295,7 @@ export class ExecutionEngine {
 
     // Update total task count (open/in_progress only)
     const activeTasks = tasks.filter(
-      (t) => t.status === 'open' || t.status === 'in_progress'
+      (t) => t.status === 'open' || t.status === 'in_progress',
     );
     this.state.totalTasks = activeTasks.length;
 
@@ -419,7 +446,10 @@ export class ExecutionEngine {
       const result = await this.runIterationWithErrorHandling(task);
 
       // Check if we should abort
-      if (result.status === 'failed' && this.config.errorHandling.strategy === 'abort') {
+      if (
+        result.status === 'failed' &&
+        this.config.errorHandling.strategy === 'abort'
+      ) {
         this.emit({
           type: 'engine:stopped',
           timestamp: new Date().toISOString(),
@@ -434,7 +464,7 @@ export class ExecutionEngine {
       await updateSessionIteration(
         this.config.cwd,
         this.state.currentIteration,
-        this.state.tasksCompleted
+        this.state.tasksCompleted,
       );
 
       // Wait between iterations
@@ -466,7 +496,9 @@ export class ExecutionEngine {
   /**
    * Run iteration with error handling strategy
    */
-  private async runIterationWithErrorHandling(task: TrackerTask): Promise<IterationResult> {
+  private async runIterationWithErrorHandling(
+    task: TrackerTask,
+  ): Promise<IterationResult> {
     const errorConfig = this.config.errorHandling;
     let result = await this.runIteration(task);
     this.state.iterations.push(result);
@@ -593,7 +625,7 @@ export class ExecutionEngine {
   private checkForRateLimit(
     stdout: string,
     stderr: string,
-    exitCode?: number
+    exitCode?: number,
   ): RateLimitDetectionResult {
     if (!this.rateLimitConfig.enabled) {
       return { isRateLimit: false };
@@ -619,7 +651,7 @@ export class ExecutionEngine {
   private async handleRateLimitWithBackoff(
     task: TrackerTask,
     rateLimitResult: RateLimitDetectionResult,
-    iteration: number
+    iteration: number,
   ): Promise<boolean> {
     const currentRetries = this.rateLimitRetryMap.get(task.id) ?? 0;
     const maxRetries = this.rateLimitConfig.maxRetries;
@@ -634,7 +666,7 @@ export class ExecutionEngine {
     // Calculate backoff delay
     const { delayMs, usedRetryAfter } = this.calculateBackoffDelay(
       currentRetries,
-      rateLimitResult.retryAfter
+      rateLimitResult.retryAfter,
     );
 
     // Increment retry count
@@ -656,9 +688,11 @@ export class ExecutionEngine {
 
     // Log retry attempt
     const delaySeconds = Math.round(delayMs / 1000);
-    const retrySource = usedRetryAfter ? 'from retryAfter header' : 'exponential backoff';
+    const retrySource = usedRetryAfter
+      ? 'from retryAfter header'
+      : 'exponential backoff';
     console.log(
-      `[rate-limit] Retry ${currentRetries + 1}/${maxRetries} in ${delaySeconds}s (${retrySource})`
+      `[rate-limit] Retry ${currentRetries + 1}/${maxRetries} in ${delaySeconds}s (${retrySource})`,
     );
 
     // Wait for backoff delay
@@ -763,7 +797,9 @@ export class ExecutionEngine {
             for (const result of results) {
               if (result.success) {
                 if (isDroidJsonlMessage(result.message)) {
-                  for (const normalized of toClaudeJsonlMessages(result.message)) {
+                  for (const normalized of toClaudeJsonlMessages(
+                    result.message,
+                  )) {
                     this.subagentParser.processMessage(normalized);
                   }
                 } else {
@@ -811,7 +847,7 @@ export class ExecutionEngine {
       const rateLimitResult = this.checkForRateLimit(
         agentResult.stdout,
         agentResult.stderr,
-        agentResult.exitCode
+        agentResult.exitCode,
       );
 
       if (rateLimitResult.isRateLimit) {
@@ -819,7 +855,7 @@ export class ExecutionEngine {
         const shouldRetry = await this.handleRateLimitWithBackoff(
           task,
           rateLimitResult,
-          iteration
+          iteration,
         );
 
         if (shouldRetry) {
@@ -830,11 +866,16 @@ export class ExecutionEngine {
         }
 
         // Max retries exceeded for current agent - try fallback agent
-        const currentAgentPlugin = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+        const currentAgentPlugin =
+          this.state.activeAgent?.plugin ?? this.config.agent.plugin;
         this.rateLimitedAgents.add(currentAgentPlugin);
 
         // Try to switch to fallback agent
-        const fallbackResult = await this.tryFallbackAgent(task, iteration, startedAt);
+        const fallbackResult = await this.tryFallbackAgent(
+          task,
+          iteration,
+          startedAt,
+        );
         if (fallbackResult.switched) {
           // Successfully switched to fallback - retry the iteration with new agent
           this.state.currentIteration--;
@@ -932,13 +973,22 @@ export class ExecutionEngine {
       // Build completion summary if agent switches occurred
       const completionSummary = this.buildCompletionSummary(result);
 
-      await saveIterationLog(this.config.cwd, result, agentResult.stdout, agentResult.stderr ?? this.state.currentStderr, {
-        config: this.config,
-        subagentTrace,
-        agentSwitches: this.currentIterationAgentSwitches.length > 0 ? [...this.currentIterationAgentSwitches] : undefined,
-        completionSummary,
-        sandboxConfig: this.config.sandbox,
-      });
+      await saveIterationLog(
+        this.config.cwd,
+        result,
+        agentResult.stdout,
+        agentResult.stderr ?? this.state.currentStderr,
+        {
+          config: this.config,
+          subagentTrace,
+          agentSwitches:
+            this.currentIterationAgentSwitches.length > 0
+              ? [...this.currentIterationAgentSwitches]
+              : undefined,
+          completionSummary,
+          sandboxConfig: this.config.sandbox,
+        },
+      );
 
       // Append progress entry for cross-iteration context
       // This provides agents with history of what's been done
@@ -1207,7 +1257,7 @@ export class ExecutionEngine {
    */
   private calculateBackoffDelay(
     attempt: number,
-    retryAfter?: number
+    retryAfter?: number,
   ): { delayMs: number; usedRetryAfter: boolean } {
     // If retryAfter is provided from the rate limit response, use it
     if (retryAfter !== undefined && retryAfter > 0) {
@@ -1351,7 +1401,8 @@ export class ExecutionEngine {
    * @param reason - Why the switch is happening (primary recovery or fallback)
    */
   private switchAgent(newAgentPlugin: string, reason: ActiveAgentReason): void {
-    const previousAgent = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+    const previousAgent =
+      this.state.activeAgent?.plugin ?? this.config.agent.plugin;
     const now = new Date().toISOString();
 
     // Update active agent state
@@ -1388,7 +1439,7 @@ export class ExecutionEngine {
     // Log the switch to console for visibility
     if (reason === 'fallback') {
       console.log(
-        `[agent-switch] Switching to fallback: ${previousAgent} → ${newAgentPlugin} (rate limit)`
+        `[agent-switch] Switching to fallback: ${previousAgent} → ${newAgentPlugin} (rate limit)`,
       );
     } else {
       // Calculate duration on fallback for recovery logging
@@ -1406,7 +1457,7 @@ export class ExecutionEngine {
         }
       }
       console.log(
-        `[agent-switch] Recovering to primary: ${previousAgent} → ${newAgentPlugin}${durationOnFallback}`
+        `[agent-switch] Recovering to primary: ${previousAgent} → ${newAgentPlugin}${durationOnFallback}`,
       );
     }
 
@@ -1445,7 +1496,8 @@ export class ExecutionEngine {
    * Returns true if recovery was successful.
    */
   private async attemptPrimaryAgentRecovery(): Promise<boolean> {
-    const primaryAgent = this.state.rateLimitState?.primaryAgent ?? this.config.agent.plugin;
+    const primaryAgent =
+      this.state.rateLimitState?.primaryAgent ?? this.config.agent.plugin;
     const fallbackAgent = this.state.activeAgent?.plugin ?? '';
 
     // Must have preserved primary agent instance
@@ -1454,7 +1506,9 @@ export class ExecutionEngine {
       return false;
     }
 
-    console.log(`[recovery] Testing if primary agent '${primaryAgent}' rate limit has lifted...`);
+    console.log(
+      `[recovery] Testing if primary agent '${primaryAgent}' rate limit has lifted...`,
+    );
     const startTime = Date.now();
 
     try {
@@ -1465,7 +1519,7 @@ export class ExecutionEngine {
         {
           cwd: this.config.cwd,
           timeout: PRIMARY_RECOVERY_TEST_TIMEOUT_MS,
-        }
+        },
       );
 
       const result = await handle.promise;
@@ -1494,7 +1548,7 @@ export class ExecutionEngine {
       if (rateLimitResult.isRateLimit) {
         // Primary still rate limited
         console.log(
-          `[recovery] Primary agent '${primaryAgent}' still rate limited: ${rateLimitResult.message ?? 'rate limit detected'}`
+          `[recovery] Primary agent '${primaryAgent}' still rate limited: ${rateLimitResult.message ?? 'rate limit detected'}`,
         );
         return false;
       }
@@ -1502,14 +1556,14 @@ export class ExecutionEngine {
       if (result.status !== 'completed') {
         // Test failed for other reason (timeout, error, etc.)
         console.log(
-          `[recovery] Primary agent test failed with status: ${result.status}`
+          `[recovery] Primary agent test failed with status: ${result.status}`,
         );
         return false;
       }
 
       // Recovery successful - switch back to primary
       console.log(
-        `[recovery] Primary agent '${primaryAgent}' recovered! Switching back from '${fallbackAgent}'`
+        `[recovery] Primary agent '${primaryAgent}' recovered! Switching back from '${fallbackAgent}'`,
       );
       this.agent = this.primaryAgentInstance;
       this.switchAgent(primaryAgent, 'primary');
@@ -1520,7 +1574,8 @@ export class ExecutionEngine {
       return true;
     } catch (error) {
       const testDurationMs = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       // Emit recovery attempted event with failure
       const event: AgentRecoveryAttemptedEvent = {
@@ -1550,7 +1605,8 @@ export class ExecutionEngine {
     }
 
     // Switch back to primary agent without testing (legacy behavior)
-    const primaryAgent = this.state.rateLimitState?.primaryAgent ?? this.config.agent.plugin;
+    const primaryAgent =
+      this.state.rateLimitState?.primaryAgent ?? this.config.agent.plugin;
     if (this.primaryAgentInstance) {
       this.agent = this.primaryAgentInstance;
     }
@@ -1600,7 +1656,7 @@ export class ExecutionEngine {
   private async tryFallbackAgent(
     task: TrackerTask,
     iteration: number,
-    startedAt: Date
+    startedAt: Date,
   ): Promise<{ switched: boolean; allAgentsLimited: boolean }> {
     const nextFallback = this.getNextFallbackAgent();
 
@@ -1629,7 +1685,7 @@ export class ExecutionEngine {
       if (!detectResult.available) {
         // Fallback not available - mark as limited and try next
         console.log(
-          `[fallback] Agent '${nextFallback}' not available: ${detectResult.error}`
+          `[fallback] Agent '${nextFallback}' not available: ${detectResult.error}`,
         );
         this.rateLimitedAgents.add(nextFallback);
         return this.tryFallbackAgent(task, iteration, startedAt);
@@ -1643,14 +1699,15 @@ export class ExecutionEngine {
       this.clearRateLimitRetryCount(task.id);
 
       console.log(
-        `[fallback] Switched from '${this.config.agent.plugin}' to '${nextFallback}'`
+        `[fallback] Switched from '${this.config.agent.plugin}' to '${nextFallback}'`,
       );
 
       return { switched: true, allAgentsLimited: false };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       console.error(
-        `[fallback] Failed to initialize fallback agent '${nextFallback}': ${errorMessage}`
+        `[fallback] Failed to initialize fallback agent '${nextFallback}': ${errorMessage}`,
       );
 
       // Mark this fallback as unavailable and try the next one
@@ -1672,18 +1729,28 @@ export class ExecutionEngine {
       return undefined;
     }
 
-    const currentAgent = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
-    const statusWord = result.taskCompleted ? 'Completed' : result.status === 'failed' ? 'Failed' : 'Finished';
+    const currentAgent =
+      this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+    const statusWord = result.taskCompleted
+      ? 'Completed'
+      : result.status === 'failed'
+        ? 'Failed'
+        : 'Finished';
 
     // Check if we're on a fallback agent
-    const lastSwitch = this.currentIterationAgentSwitches[this.currentIterationAgentSwitches.length - 1];
+    const lastSwitch =
+      this.currentIterationAgentSwitches[
+        this.currentIterationAgentSwitches.length - 1
+      ];
     if (lastSwitch && lastSwitch.reason === 'fallback') {
       return `${statusWord} on fallback (${currentAgent}) due to rate limit`;
     }
 
     // Check if we recovered to primary during this iteration
     if (lastSwitch && lastSwitch.reason === 'primary') {
-      const fallbackSwitches = this.currentIterationAgentSwitches.filter(s => s.reason === 'fallback');
+      const fallbackSwitches = this.currentIterationAgentSwitches.filter(
+        (s) => s.reason === 'fallback',
+      );
       if (fallbackSwitches.length > 0) {
         const fallbackAgent = fallbackSwitches[0].to;
         return `${statusWord} on primary after recovering from fallback (${fallbackAgent})`;

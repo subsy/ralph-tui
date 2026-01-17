@@ -5,7 +5,12 @@
  */
 
 import type { ReactNode } from 'react';
-import { colors, statusIndicators, layout, type RalphStatus } from '../theme.js';
+import {
+  colors,
+  statusIndicators,
+  layout,
+  type RalphStatus,
+} from '../theme.js';
 import type { SandboxConfig, SandboxMode } from '../../config/types.js';
 
 /**
@@ -47,7 +52,7 @@ function truncateText(text: string, maxWidth: number): string {
  */
 function getSandboxDisplay(
   sandboxConfig?: SandboxConfig,
-  resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>
+  resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>,
 ): string | null {
   if (!sandboxConfig?.enabled) {
     return null;
@@ -59,9 +64,10 @@ function getSandboxDisplay(
   }
 
   // Show resolved mode when mode is 'auto' (e.g., "auto (bwrap)")
-  const modeDisplay = mode === 'auto' && resolvedSandboxMode
-    ? `auto (${resolvedSandboxMode})`
-    : mode;
+  const modeDisplay =
+    mode === 'auto' && resolvedSandboxMode
+      ? `auto (${resolvedSandboxMode})`
+      : mode;
   const networkSuffix = sandboxConfig.network === false ? ' (no-net)' : '';
   return `${modeDisplay}${networkSuffix}`;
 }
@@ -71,31 +77,71 @@ function getSandboxDisplay(
  */
 function getStatusDisplay(
   status: RalphStatus,
-  currentTaskId?: string
+  currentTaskId?: string,
 ): { label: string; color: string; indicator: string } {
   switch (status) {
     case 'ready':
-      return { label: 'Ready - Press Enter or s to start', color: colors.status.info, indicator: statusIndicators.ready };
+      return {
+        label: 'Ready - Press Enter or s to start',
+        color: colors.status.info,
+        indicator: statusIndicators.ready,
+      };
     case 'running':
-      return { label: 'Running', color: colors.status.success, indicator: statusIndicators.running };
+      return {
+        label: 'Running',
+        color: colors.status.success,
+        indicator: statusIndicators.running,
+      };
     case 'selecting':
-      return { label: 'Selecting next task...', color: colors.status.info, indicator: statusIndicators.selecting };
+      return {
+        label: 'Selecting next task...',
+        color: colors.status.info,
+        indicator: statusIndicators.selecting,
+      };
     case 'executing': {
       const taskLabel = currentTaskId ? ` (${currentTaskId})` : '';
-      return { label: `Agent running${taskLabel}`, color: colors.status.success, indicator: statusIndicators.executing };
+      return {
+        label: `Agent running${taskLabel}`,
+        color: colors.status.success,
+        indicator: statusIndicators.executing,
+      };
     }
     case 'pausing':
-      return { label: 'Pausing after current iteration...', color: colors.status.warning, indicator: statusIndicators.pausing };
+      return {
+        label: 'Pausing after current iteration...',
+        color: colors.status.warning,
+        indicator: statusIndicators.pausing,
+      };
     case 'paused':
-      return { label: 'Paused - Press p to resume', color: colors.status.warning, indicator: statusIndicators.paused };
+      return {
+        label: 'Paused - Press p to resume',
+        color: colors.status.warning,
+        indicator: statusIndicators.paused,
+      };
     case 'stopped':
-      return { label: 'Stopped', color: colors.fg.muted, indicator: statusIndicators.stopped };
+      return {
+        label: 'Stopped',
+        color: colors.fg.muted,
+        indicator: statusIndicators.stopped,
+      };
     case 'complete':
-      return { label: 'All tasks complete!', color: colors.status.success, indicator: statusIndicators.complete };
+      return {
+        label: 'All tasks complete!',
+        color: colors.status.success,
+        indicator: statusIndicators.complete,
+      };
     case 'idle':
-      return { label: 'No more tasks available', color: colors.fg.muted, indicator: statusIndicators.idle };
+      return {
+        label: 'No more tasks available',
+        color: colors.fg.muted,
+        indicator: statusIndicators.idle,
+      };
     case 'error':
-      return { label: 'Failed - Check logs for details', color: colors.status.error, indicator: statusIndicators.blocked };
+      return {
+        label: 'Failed - Check logs for details',
+        color: colors.status.error,
+        indicator: statusIndicators.blocked,
+      };
   }
 }
 
@@ -118,15 +164,23 @@ export function ProgressDashboard({
   const sandboxDisplay = getSandboxDisplay(sandboxConfig, resolvedSandboxMode);
 
   // Show current task title when executing
-  const taskDisplay = currentTaskTitle && (status === 'executing' || status === 'running')
-    ? truncateText(currentTaskTitle, 50)
-    : null;
+  const taskDisplay =
+    currentTaskTitle && (status === 'executing' || status === 'running')
+      ? truncateText(currentTaskTitle, 50)
+      : null;
 
   // Parse model info for display
   const modelDisplay = currentModel
     ? (() => {
-        const [provider, model] = currentModel.includes('/') ? currentModel.split('/') : ['', currentModel];
-        return { provider, model, full: currentModel, display: provider ? `${provider}/${model}` : model };
+        const [provider, model] = currentModel.includes('/')
+          ? currentModel.split('/')
+          : ['', currentModel];
+        return {
+          provider,
+          model,
+          full: currentModel,
+          display: provider ? `${provider}/${model}` : model,
+        };
       })()
     : null;
 
@@ -150,9 +204,7 @@ export function ProgressDashboard({
             <span fg={statusDisplay.color}>{statusDisplay.indicator}</span>
             <span fg={statusDisplay.color}> {statusDisplay.label}</span>
           </text>
-          {epicName && (
-            <text fg={colors.accent.primary}>{epicName}</text>
-          )}
+          {epicName && <text fg={colors.accent.primary}>{epicName}</text>}
         </box>
         <box style={{ flexDirection: 'row', gap: 2 }}>
           <text fg={colors.fg.secondary}>Agent: </text>
@@ -185,7 +237,6 @@ export function ProgressDashboard({
           <text fg={colors.fg.primary}>{taskDisplay}</text>
         </box>
       )}
-
     </box>
   );
 }

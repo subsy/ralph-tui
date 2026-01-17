@@ -4,19 +4,24 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { printConfigHelp, executeConfigCommand } from '../../src/commands/config.js';
+import {
+  printConfigHelp,
+  executeConfigCommand,
+} from '../../src/commands/config.js';
 import type { StoredConfig, ConfigSource } from '../../src/config/index.js';
 
 // Mock the config module
-const mockLoadStoredConfigWithSource = mock(() => Promise.resolve({
-  config: {},
-  source: {
-    globalPath: null,
-    projectPath: null,
-    globalLoaded: false,
-    projectLoaded: false,
-  },
-}));
+const mockLoadStoredConfigWithSource = mock(() =>
+  Promise.resolve({
+    config: {},
+    source: {
+      globalPath: null,
+      projectPath: null,
+      globalLoaded: false,
+      projectLoaded: false,
+    },
+  }),
+);
 const mockSerializeConfig = mock((config: StoredConfig) => '# Empty config');
 
 mock.module('../../src/config/index.js', () => ({
@@ -224,7 +229,9 @@ describe('config command', () => {
       };
 
       expect(source.globalPath).toBeNull();
-      expect(source.projectPath).toBe('/home/user/project/.ralph-tui/config.toml');
+      expect(source.projectPath).toBe(
+        '/home/user/project/.ralph-tui/config.toml',
+      );
       expect(source.globalLoaded).toBe(false);
       expect(source.projectLoaded).toBe(true);
     });
@@ -238,7 +245,9 @@ describe('config command', () => {
       };
 
       expect(source.globalPath).toBe('~/.config/ralph-tui/config.toml');
-      expect(source.projectPath).toBe('/home/user/project/.ralph-tui/config.toml');
+      expect(source.projectPath).toBe(
+        '/home/user/project/.ralph-tui/config.toml',
+      );
       expect(source.globalLoaded).toBe(true);
       expect(source.projectLoaded).toBe(true);
     });
@@ -249,7 +258,7 @@ describe('config command', () => {
       // Simulate merging behavior
       const mergeConfigs = (
         global: Partial<StoredConfig>,
-        project: Partial<StoredConfig>
+        project: Partial<StoredConfig>,
       ): StoredConfig => {
         return {
           ...global,
@@ -277,7 +286,7 @@ describe('config command', () => {
     test('empty project config uses global', () => {
       const mergeConfigs = (
         global: Partial<StoredConfig>,
-        project: Partial<StoredConfig>
+        project: Partial<StoredConfig>,
       ): StoredConfig => {
         return {
           ...global,
@@ -301,7 +310,7 @@ describe('config command', () => {
     test('empty global config uses project', () => {
       const mergeConfigs = (
         global: Partial<StoredConfig>,
-        project: Partial<StoredConfig>
+        project: Partial<StoredConfig>,
       ): StoredConfig => {
         return {
           ...global,
@@ -400,17 +409,21 @@ describe('config command', () => {
         return true;
       };
 
-      expect(validateAgentConfig({
-        name: 'claude',
-        plugin: 'claude',
-        default: true,
-        options: { model: 'opus' },
-      })).toBe(true);
+      expect(
+        validateAgentConfig({
+          name: 'claude',
+          plugin: 'claude',
+          default: true,
+          options: { model: 'opus' },
+        }),
+      ).toBe(true);
 
-      expect(validateAgentConfig({
-        name: 'opencode',
-        plugin: 'opencode',
-      })).toBe(true);
+      expect(
+        validateAgentConfig({
+          name: 'opencode',
+          plugin: 'opencode',
+        }),
+      ).toBe(true);
     });
 
     test('invalid agent config - missing name', () => {
@@ -425,9 +438,11 @@ describe('config command', () => {
         return true;
       };
 
-      expect(validateAgentConfig({
-        plugin: 'claude',
-      })).toBe(false);
+      expect(
+        validateAgentConfig({
+          plugin: 'claude',
+        }),
+      ).toBe(false);
     });
 
     test('invalid agent config - missing plugin', () => {
@@ -442,9 +457,11 @@ describe('config command', () => {
         return true;
       };
 
-      expect(validateAgentConfig({
-        name: 'claude',
-      })).toBe(false);
+      expect(
+        validateAgentConfig({
+          name: 'claude',
+        }),
+      ).toBe(false);
     });
   });
 
@@ -463,17 +480,21 @@ describe('config command', () => {
         return true;
       };
 
-      expect(validateTrackerConfig({
-        name: 'beads',
-        plugin: 'beads-bv',
-        default: true,
-      })).toBe(true);
+      expect(
+        validateTrackerConfig({
+          name: 'beads',
+          plugin: 'beads-bv',
+          default: true,
+        }),
+      ).toBe(true);
 
-      expect(validateTrackerConfig({
-        name: 'json',
-        plugin: 'json',
-        options: { path: './prd.json' },
-      })).toBe(true);
+      expect(
+        validateTrackerConfig({
+          name: 'json',
+          plugin: 'json',
+          options: { path: './prd.json' },
+        }),
+      ).toBe(true);
     });
 
     test('invalid tracker config - missing name', () => {
@@ -482,15 +503,19 @@ describe('config command', () => {
         plugin: string;
       }
 
-      const validateTrackerConfig = (config: Partial<TrackerConfig>): boolean => {
+      const validateTrackerConfig = (
+        config: Partial<TrackerConfig>,
+      ): boolean => {
         if (!config.name || typeof config.name !== 'string') return false;
         if (!config.plugin || typeof config.plugin !== 'string') return false;
         return true;
       };
 
-      expect(validateTrackerConfig({
-        plugin: 'beads',
-      })).toBe(false);
+      expect(
+        validateTrackerConfig({
+          plugin: 'beads',
+        }),
+      ).toBe(false);
     });
 
     test('invalid tracker config - missing plugin', () => {
@@ -499,15 +524,19 @@ describe('config command', () => {
         plugin: string;
       }
 
-      const validateTrackerConfig = (config: Partial<TrackerConfig>): boolean => {
+      const validateTrackerConfig = (
+        config: Partial<TrackerConfig>,
+      ): boolean => {
         if (!config.name || typeof config.name !== 'string') return false;
         if (!config.plugin || typeof config.plugin !== 'string') return false;
         return true;
       };
 
-      expect(validateTrackerConfig({
-        name: 'beads',
-      })).toBe(false);
+      expect(
+        validateTrackerConfig({
+          name: 'beads',
+        }),
+      ).toBe(false);
     });
   });
 });

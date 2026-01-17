@@ -4,13 +4,22 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import type { EngineEvent, IterationResult } from '../../src/engine/types.js';
 import type {
-  EngineEvent,
-  IterationResult,
-} from '../../src/engine/types.js';
-import type { TrackerTask, TrackerPlugin, TaskCompletionResult } from '../../src/plugins/trackers/types.js';
-import type { AgentPlugin, AgentExecutionHandle, AgentExecutionResult, AgentDetectResult } from '../../src/plugins/agents/types.js';
-import { createTrackerTask, createTrackerTasks } from '../factories/tracker-task.js';
+  TrackerTask,
+  TrackerPlugin,
+  TaskCompletionResult,
+} from '../../src/plugins/trackers/types.js';
+import type {
+  AgentPlugin,
+  AgentExecutionHandle,
+  AgentExecutionResult,
+  AgentDetectResult,
+} from '../../src/plugins/agents/types.js';
+import {
+  createTrackerTask,
+  createTrackerTasks,
+} from '../factories/tracker-task.js';
 import {
   createMockAgentPlugin,
   createSuccessfulExecution,
@@ -20,11 +29,15 @@ import {
 } from '../mocks/agent-responses.js';
 
 // Create controllable mock agent
-function createControllableAgent(options: {
-  results?: AgentExecutionResult[];
-  detectResult?: AgentDetectResult;
-} = {}) {
-  const results = options.results ?? [createSuccessfulExecution('<promise>COMPLETE</promise>')];
+function createControllableAgent(
+  options: {
+    results?: AgentExecutionResult[];
+    detectResult?: AgentDetectResult;
+  } = {},
+) {
+  const results = options.results ?? [
+    createSuccessfulExecution('<promise>COMPLETE</promise>'),
+  ];
   let callIndex = 0;
   let currentExecution: AgentExecutionHandle | undefined;
 
@@ -35,12 +48,16 @@ function createControllableAgent(options: {
       name: 'Test Agent',
     },
     async initialize() {},
-    async isReady() { return true; },
-    async detect() { return options.detectResult ?? createDetectResult(); },
+    async isReady() {
+      return true;
+    },
+    async detect() {
+      return options.detectResult ?? createDetectResult();
+    },
     execute(prompt, files, execOptions) {
       const result = results[Math.min(callIndex, results.length - 1)];
       callIndex++;
-      
+
       const executionId = `exec-${Date.now()}`;
       let interrupted = false;
 
@@ -72,7 +89,9 @@ function createControllableAgent(options: {
       const handle: AgentExecutionHandle = {
         executionId,
         promise,
-        interrupt: () => { interrupted = true; },
+        interrupt: () => {
+          interrupted = true;
+        },
         isRunning: () => !interrupted,
       };
 
@@ -86,22 +105,36 @@ function createControllableAgent(options: {
       }
       return false;
     },
-    interruptAll() { currentExecution?.interrupt(); },
-    getCurrentExecution() { return currentExecution; },
-    getSetupQuestions() { return []; },
-    async validateSetup() { return null; },
-    validateModel() { return null; },
-    async dispose() { currentExecution = undefined; },
+    interruptAll() {
+      currentExecution?.interrupt();
+    },
+    getCurrentExecution() {
+      return currentExecution;
+    },
+    getSetupQuestions() {
+      return [];
+    },
+    async validateSetup() {
+      return null;
+    },
+    validateModel() {
+      return null;
+    },
+    async dispose() {
+      currentExecution = undefined;
+    },
   };
 
   return { agent, getCallCount: () => callIndex };
 }
 
 // Create controllable mock tracker
-function createControllableTracker(options: {
-  tasks?: TrackerTask[];
-  completesAfter?: number;
-} = {}) {
+function createControllableTracker(
+  options: {
+    tasks?: TrackerTask[];
+    completesAfter?: number;
+  } = {},
+) {
   let tasks = options.tasks ?? createTrackerTasks(2);
   let completedCount = 0;
   const completesAfter = options.completesAfter ?? tasks.length;
@@ -114,49 +147,60 @@ function createControllableTracker(options: {
       version: '1.0.0',
     },
     async initialize() {},
-    async isReady() { return true; },
-    async detect() { return { available: true }; },
+    async isReady() {
+      return true;
+    },
+    async detect() {
+      return { available: true };
+    },
     async sync() {
-      return { success: true, message: 'Synced', added: 0, updated: 0, removed: 0, syncedAt: new Date().toISOString() };
+      return {
+        success: true,
+        message: 'Synced',
+        added: 0,
+        updated: 0,
+        removed: 0,
+        syncedAt: new Date().toISOString(),
+      };
     },
     async getTasks(filter) {
       if (filter?.status) {
-        return tasks.filter(t => filter.status!.includes(t.status));
+        return tasks.filter((t) => filter.status!.includes(t.status));
       }
       return tasks;
     },
     async getTask(id) {
-      return tasks.find(t => t.id === id) ?? null;
+      return tasks.find((t) => t.id === id) ?? null;
     },
     async isComplete() {
       return completedCount >= completesAfter;
     },
     async isTaskReady(taskId) {
-      const task = tasks.find(t => t.id === taskId);
+      const task = tasks.find((t) => t.id === taskId);
       if (!task) return false;
       if (!task.dependsOn || task.dependsOn.length === 0) return true;
-      return task.dependsOn.every(depId => {
-        const dep = tasks.find(t => t.id === depId);
+      return task.dependsOn.every((depId) => {
+        const dep = tasks.find((t) => t.id === depId);
         return dep?.status === 'completed';
       });
     },
     async getNextTask(filter) {
       // Filter to open/in_progress tasks
-      const activeTasks = tasks.filter(t =>
-        t.status === 'open' || t.status === 'in_progress'
+      const activeTasks = tasks.filter(
+        (t) => t.status === 'open' || t.status === 'in_progress',
       );
 
       // Filter out excluded IDs
       const excludeSet = new Set(filter?.excludeIds ?? []);
-      const candidates = activeTasks.filter(t => !excludeSet.has(t.id));
+      const candidates = activeTasks.filter((t) => !excludeSet.has(t.id));
 
       // Find ready tasks (no unresolved dependencies)
       for (const task of candidates) {
         if (!task.dependsOn || task.dependsOn.length === 0) {
           return task;
         }
-        const allDepsComplete = task.dependsOn.every(depId => {
-          const dep = tasks.find(t => t.id === depId);
+        const allDepsComplete = task.dependsOn.every((depId) => {
+          const dep = tasks.find((t) => t.id === depId);
           return dep?.status === 'completed';
         });
         if (allDepsComplete) {
@@ -169,13 +213,13 @@ function createControllableTracker(options: {
       return [];
     },
     async updateTaskStatus(taskId, status) {
-      const task = tasks.find(t => t.id === taskId);
+      const task = tasks.find((t) => t.id === taskId);
       if (task) {
         task.status = status;
       }
     },
     async completeTask(taskId, message) {
-      const task = tasks.find(t => t.id === taskId);
+      const task = tasks.find((t) => t.id === taskId);
       if (task) {
         task.status = 'completed';
         completedCount++;
@@ -183,15 +227,29 @@ function createControllableTracker(options: {
       }
       return { success: false, message: 'Task not found' };
     },
-    async createTask() { throw new Error('Not implemented'); },
-    async updateTask() { throw new Error('Not implemented'); },
-    async deleteTask() { throw new Error('Not implemented'); },
-    getSetupQuestions() { return []; },
-    async validateSetup() { return null; },
+    async createTask() {
+      throw new Error('Not implemented');
+    },
+    async updateTask() {
+      throw new Error('Not implemented');
+    },
+    async deleteTask() {
+      throw new Error('Not implemented');
+    },
+    getSetupQuestions() {
+      return [];
+    },
+    async validateSetup() {
+      return null;
+    },
     async dispose() {},
   };
 
-  return { tracker, getTasks: () => tasks, getCompletedCount: () => completedCount };
+  return {
+    tracker,
+    getTasks: () => tasks,
+    getCompletedCount: () => completedCount,
+  };
 }
 
 // Dynamic imports for mocking
@@ -204,11 +262,11 @@ describe('ExecutionEngine Integration', () => {
 
   beforeEach(async () => {
     events = [];
-    
+
     // Reset mocks for each test
     mockAgentRegistry = createControllableAgent();
     mockTrackerRegistry = createControllableTracker();
-    
+
     // Mock the modules
     mock.module('../../src/plugins/agents/registry.js', () => ({
       getAgentRegistry: () => ({
@@ -265,7 +323,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 3, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 3,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -274,22 +337,26 @@ describe('ExecutionEngine Integration', () => {
       await engine.start();
 
       // Verify SELECT phase
-      const selectEvent = events.find(e => e.type === 'task:selected');
+      const selectEvent = events.find((e) => e.type === 'task:selected');
       expect(selectEvent).toBeDefined();
       if (selectEvent && 'task' in selectEvent) {
         expect(selectEvent.task.id).toBe('task-001');
       }
 
       // Verify EXECUTE phase (iteration started)
-      const iterationStarted = events.find(e => e.type === 'iteration:started');
+      const iterationStarted = events.find(
+        (e) => e.type === 'iteration:started',
+      );
       expect(iterationStarted).toBeDefined();
 
       // Verify DETECT phase (task completed)
-      const taskCompleted = events.find(e => e.type === 'task:completed');
+      const taskCompleted = events.find((e) => e.type === 'task:completed');
       expect(taskCompleted).toBeDefined();
 
       // Verify iteration completed
-      const iterationCompleted = events.find(e => e.type === 'iteration:completed');
+      const iterationCompleted = events.find(
+        (e) => e.type === 'iteration:completed',
+      );
       expect(iterationCompleted).toBeDefined();
       if (iterationCompleted && 'result' in iterationCompleted) {
         expect(iterationCompleted.result.taskCompleted).toBe(true);
@@ -318,7 +385,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 3, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 3,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -327,15 +399,17 @@ describe('ExecutionEngine Integration', () => {
       await engine.start();
 
       // Count completed iterations
-      const completedIterations = events.filter(e => e.type === 'iteration:completed');
+      const completedIterations = events.filter(
+        (e) => e.type === 'iteration:completed',
+      );
       expect(completedIterations.length).toBe(3);
 
       // Verify all tasks were completed
-      const tasksCompleted = events.filter(e => e.type === 'task:completed');
+      const tasksCompleted = events.filter((e) => e.type === 'task:completed');
       expect(tasksCompleted.length).toBe(3);
 
       // Verify final event
-      const allComplete = events.find(e => e.type === 'all:complete');
+      const allComplete = events.find((e) => e.type === 'all:complete');
       expect(allComplete).toBeDefined();
 
       await engine.dispose();
@@ -360,7 +434,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 3, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 3,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -370,11 +449,16 @@ describe('ExecutionEngine Integration', () => {
 
       // Should stop after 2 iterations
       const stopEvent = events.find(
-        e => e.type === 'engine:stopped' && 'reason' in e && e.reason === 'max_iterations'
+        (e) =>
+          e.type === 'engine:stopped' &&
+          'reason' in e &&
+          e.reason === 'max_iterations',
       );
       expect(stopEvent).toBeDefined();
 
-      const completedIterations = events.filter(e => e.type === 'iteration:completed');
+      const completedIterations = events.filter(
+        (e) => e.type === 'iteration:completed',
+      );
       expect(completedIterations.length).toBe(2);
 
       await engine.dispose();
@@ -400,7 +484,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -409,11 +498,11 @@ describe('ExecutionEngine Integration', () => {
       await engine.start();
 
       // First task should be skipped
-      const skippedEvent = events.find(e => e.type === 'iteration:skipped');
+      const skippedEvent = events.find((e) => e.type === 'iteration:skipped');
       expect(skippedEvent).toBeDefined();
 
       // Second task should complete
-      const taskCompleted = events.find(e => e.type === 'task:completed');
+      const taskCompleted = events.find((e) => e.type === 'task:completed');
       expect(taskCompleted).toBeDefined();
 
       await engine.dispose();
@@ -434,7 +523,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'abort', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'abort',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -444,13 +538,17 @@ describe('ExecutionEngine Integration', () => {
 
       // Should stop with error reason
       const stopEvent = events.find(
-        e => e.type === 'engine:stopped' && 'reason' in e && e.reason === 'error'
+        (e) =>
+          e.type === 'engine:stopped' && 'reason' in e && e.reason === 'error',
       );
       expect(stopEvent).toBeDefined();
 
       // Should have at most 2 iterations due to abort strategy
       // (one failed iteration may trigger retry or skip before abort)
-      const iterations = events.filter(e => e.type === 'iteration:completed' || e.type === 'iteration:failed');
+      const iterations = events.filter(
+        (e) =>
+          e.type === 'iteration:completed' || e.type === 'iteration:failed',
+      );
       expect(iterations.length).toBeLessThanOrEqual(3);
 
       await engine.dispose();
@@ -460,7 +558,11 @@ describe('ExecutionEngine Integration', () => {
   describe('output streaming', () => {
     test('emits agent:output events during execution', async () => {
       mockAgentRegistry = createControllableAgent({
-        results: [createSuccessfulExecution('Line 1\nLine 2\n<promise>COMPLETE</promise>')],
+        results: [
+          createSuccessfulExecution(
+            'Line 1\nLine 2\n<promise>COMPLETE</promise>',
+          ),
+        ],
       });
       mockTrackerRegistry = createControllableTracker({
         tasks: [createTrackerTask()],
@@ -473,7 +575,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -481,7 +588,7 @@ describe('ExecutionEngine Integration', () => {
       await engine.initialize();
       await engine.start();
 
-      const outputEvents = events.filter(e => e.type === 'agent:output');
+      const outputEvents = events.filter((e) => e.type === 'agent:output');
       expect(outputEvents.length).toBeGreaterThan(0);
 
       await engine.dispose();
@@ -491,7 +598,11 @@ describe('ExecutionEngine Integration', () => {
   describe('completion detection', () => {
     test('detects <promise>COMPLETE</promise> signal', async () => {
       mockAgentRegistry = createControllableAgent({
-        results: [createSuccessfulExecution('Working...\n<promise>COMPLETE</promise>\nDone.')],
+        results: [
+          createSuccessfulExecution(
+            'Working...\n<promise>COMPLETE</promise>\nDone.',
+          ),
+        ],
       });
       mockTrackerRegistry = createControllableTracker({
         tasks: [createTrackerTask()],
@@ -504,7 +615,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -512,7 +628,9 @@ describe('ExecutionEngine Integration', () => {
       await engine.initialize();
       await engine.start();
 
-      const iterationCompleted = events.find(e => e.type === 'iteration:completed') as any;
+      const iterationCompleted = events.find(
+        (e) => e.type === 'iteration:completed',
+      ) as any;
       expect(iterationCompleted).toBeDefined();
       expect(iterationCompleted.result.promiseComplete).toBe(true);
       expect(iterationCompleted.result.taskCompleted).toBe(true);
@@ -535,7 +653,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -543,7 +666,9 @@ describe('ExecutionEngine Integration', () => {
       await engine.initialize();
       await engine.start();
 
-      const iterationCompleted = events.find(e => e.type === 'iteration:completed') as any;
+      const iterationCompleted = events.find(
+        (e) => e.type === 'iteration:completed',
+      ) as any;
       expect(iterationCompleted?.result.promiseComplete).toBe(true);
 
       await engine.dispose();
@@ -567,7 +692,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -575,7 +705,9 @@ describe('ExecutionEngine Integration', () => {
       await engine.initialize();
       await engine.start();
 
-      const iterationCompleted = events.find(e => e.type === 'iteration:completed') as any;
+      const iterationCompleted = events.find(
+        (e) => e.type === 'iteration:completed',
+      ) as any;
       expect(iterationCompleted).toBeDefined();
       // promiseComplete should be false since no <promise>COMPLETE</promise> was in output
       expect(iterationCompleted.result.promiseComplete).toBe(false);
@@ -602,7 +734,12 @@ describe('ExecutionEngine Integration', () => {
         iterationDelay: 0,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
-        errorHandling: { strategy: 'skip', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
+        errorHandling: {
+          strategy: 'skip',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
       } as any);
 
       engine.on((event) => events.push(event));
@@ -613,7 +750,7 @@ describe('ExecutionEngine Integration', () => {
       await engine.start();
 
       // Verify task was activated
-      const activatedEvent = events.find(e => e.type === 'task:activated');
+      const activatedEvent = events.find((e) => e.type === 'task:activated');
       expect(activatedEvent).toBeDefined();
 
       await engine.dispose();

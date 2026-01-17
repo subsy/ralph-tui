@@ -107,7 +107,7 @@ async function readLockFile(cwd: string): Promise<LockFile | null> {
  * Read session metadata if it exists
  */
 async function readSessionMetadata(
-  cwd: string
+  cwd: string,
 ): Promise<SessionMetadata | null> {
   const sessionPath = getSessionPath(cwd);
   if (!(await fileExists(sessionPath))) {
@@ -156,7 +156,7 @@ export async function checkSession(cwd: string): Promise<SessionCheckResult> {
  */
 export async function acquireLock(
   cwd: string,
-  sessionId: string
+  sessionId: string,
 ): Promise<boolean> {
   await ensureSessionDir(cwd);
   const lockPath = getLockPath(cwd);
@@ -213,7 +213,7 @@ export async function cleanStaleLock(cwd: string): Promise<boolean> {
  * Create a new session
  */
 export async function createSession(
-  options: CreateSessionOptions
+  options: CreateSessionOptions,
 ): Promise<SessionMetadata> {
   await ensureSessionDir(options.cwd);
 
@@ -262,7 +262,7 @@ export async function saveSession(session: SessionMetadata): Promise<void> {
  */
 export async function updateSessionStatus(
   cwd: string,
-  status: SessionStatus
+  status: SessionStatus,
 ): Promise<SessionMetadata | null> {
   const session = await readSessionMetadata(cwd);
   if (!session) {
@@ -270,7 +270,11 @@ export async function updateSessionStatus(
   }
 
   session.status = status;
-  if (status === 'completed' || status === 'failed' || status === 'interrupted') {
+  if (
+    status === 'completed' ||
+    status === 'failed' ||
+    status === 'interrupted'
+  ) {
     session.endedAt = new Date().toISOString();
   }
 
@@ -284,7 +288,7 @@ export async function updateSessionStatus(
 export async function updateSessionIteration(
   cwd: string,
   iteration: number,
-  tasksCompleted?: number
+  tasksCompleted?: number,
 ): Promise<SessionMetadata | null> {
   const session = await readSessionMetadata(cwd);
   if (!session) {
@@ -305,7 +309,7 @@ export async function updateSessionIteration(
  */
 export async function updateSessionMaxIterations(
   cwd: string,
-  maxIterations: number
+  maxIterations: number,
 ): Promise<SessionMetadata | null> {
   const session = await readSessionMetadata(cwd);
   if (!session) {
@@ -323,7 +327,7 @@ export async function updateSessionMaxIterations(
  */
 export async function endSession(
   cwd: string,
-  status: SessionStatus = 'completed'
+  status: SessionStatus = 'completed',
 ): Promise<void> {
   await updateSessionStatus(cwd, status);
   await releaseLock(cwd);
@@ -333,7 +337,7 @@ export async function endSession(
  * Resume an existing session
  */
 export async function resumeSession(
-  cwd: string
+  cwd: string,
 ): Promise<SessionMetadata | null> {
   const session = await readSessionMetadata(cwd);
   if (!session) {

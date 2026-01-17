@@ -81,7 +81,11 @@ describe('validation utility', () => {
 
   describe('validateLength', () => {
     test('returns valid within range', () => {
-      const result = validateLength('hello', { min: 2, max: 10, fieldName: 'name' });
+      const result = validateLength('hello', {
+        min: 2,
+        max: 10,
+        fieldName: 'name',
+      });
       expect(result.valid).toBe(true);
     });
 
@@ -92,7 +96,10 @@ describe('validation utility', () => {
     });
 
     test('returns invalid above maximum', () => {
-      const result = validateLength('hello world', { max: 5, fieldName: 'name' });
+      const result = validateLength('hello world', {
+        max: 5,
+        fieldName: 'name',
+      });
       expect(result.valid).toBe(false);
       expect(result.error).toBe('name must be at most 5 characters');
     });
@@ -238,7 +245,10 @@ describe('validation utility', () => {
     });
 
     test('returns invalid for non-array', () => {
-      const result = validateNonEmptyArray('not array' as unknown as unknown[], 'items');
+      const result = validateNonEmptyArray(
+        'not array' as unknown as unknown[],
+        'items',
+      );
       expect(result.valid).toBe(false);
     });
   });
@@ -247,7 +257,7 @@ describe('validation utility', () => {
     test('returns valid when all validators pass', () => {
       const result = composeValidators(
         () => validateRequired('hello', 'name'),
-        () => validateLength('hello', { min: 2, max: 10, fieldName: 'name' })
+        () => validateLength('hello', { min: 2, max: 10, fieldName: 'name' }),
       );
       expect(result.valid).toBe(true);
     });
@@ -255,7 +265,7 @@ describe('validation utility', () => {
     test('returns first error when validator fails', () => {
       const result = composeValidators(
         () => validateRequired('', 'name'),
-        () => validateLength('', { min: 2, fieldName: 'name' })
+        () => validateLength('', { min: 2, fieldName: 'name' }),
       );
       expect(result.valid).toBe(false);
       expect(result.error).toBe('name cannot be empty');
@@ -268,7 +278,7 @@ describe('validation utility', () => {
         () => {
           secondCalled = true;
           return { valid: true };
-        }
+        },
       );
       expect(secondCalled).toBe(false);
     });

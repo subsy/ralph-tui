@@ -62,7 +62,8 @@ const CREATED_DATE_PATTERN = /^>\s*Generated:\s*(.+)$/m;
 /**
  * Pattern to match acceptance criteria section
  */
-const ACCEPTANCE_CRITERIA_PATTERN = /\*\*Acceptance Criteria:\*\*|^Acceptance Criteria:$/m;
+const ACCEPTANCE_CRITERIA_PATTERN =
+  /\*\*Acceptance Criteria:\*\*|^Acceptance Criteria:$/m;
 
 /**
  * Pattern to match priority line
@@ -100,7 +101,9 @@ function extractTitle(markdown: string): string {
  */
 function extractDescription(markdown: string): string {
   // Find the Overview section
-  const overviewMatch = markdown.match(/^##\s+Overview\s*\n+([\s\S]*?)(?=\n##|\n---|\n$)/m);
+  const overviewMatch = markdown.match(
+    /^##\s+Overview\s*\n+([\s\S]*?)(?=\n##|\n---|\n$)/m,
+  );
   if (overviewMatch && overviewMatch[1]) {
     return overviewMatch[1].trim();
   }
@@ -281,11 +284,14 @@ function extractStoryDescription(section: string, headerLine: string): string {
 /**
  * Find all user story sections in the markdown.
  */
-function findUserStorySections(markdown: string): Array<{ id: string; title: string; section: string }> {
+function findUserStorySections(
+  markdown: string,
+): Array<{ id: string; title: string; section: string }> {
   const sections: Array<{ id: string; title: string; section: string }> = [];
   const lines = markdown.split('\n');
 
-  let currentStory: { id: string; title: string; startIndex: number } | null = null;
+  let currentStory: { id: string; title: string; startIndex: number } | null =
+    null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
@@ -329,7 +335,7 @@ function findUserStorySections(markdown: string): Array<{ id: string; title: str
  */
 export function parsePrdMarkdown(
   markdown: string,
-  options: ParseOptions = {}
+  options: ParseOptions = {},
 ): ParsedPrd {
   const warnings: string[] = [];
   const storyPrefix = options.storyPrefix || 'US-';
@@ -344,7 +350,9 @@ export function parsePrdMarkdown(
   const storySections = findUserStorySections(markdown);
 
   if (storySections.length === 0) {
-    warnings.push(`No user stories found with pattern "### ${storyPrefix}XXX: Title"`);
+    warnings.push(
+      `No user stories found with pattern "### ${storyPrefix}XXX: Title"`,
+    );
   }
 
   // Parse each user story
@@ -396,7 +404,7 @@ export function parsePrdMarkdown(
  */
 export function parsedPrdToGeneratedPrd(
   parsed: ParsedPrd,
-  branchNameOverride?: string
+  branchNameOverride?: string,
 ): GeneratedPrd {
   const slug = parsed.name
     .toLowerCase()

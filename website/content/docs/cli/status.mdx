@@ -12,14 +12,15 @@ ralph-tui status [options]
 The `status` command displays the current session state without starting execution. It's designed for scripts, CI pipelines, and quick status checks.
 
 <Callout type="tip">
-Use `--json` for machine-readable output in automation scripts and CI/CD pipelines.
+  Use `--json` for machine-readable output in automation scripts and CI/CD
+  pipelines.
 </Callout>
 
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `--json` | Output in JSON format for CI/scripts |
+| Option         | Description                                        |
+| -------------- | -------------------------------------------------- |
+| `--json`       | Output in JSON format for CI/scripts               |
 | `--cwd <path>` | Working directory (where to find the session file) |
 
 ## Examples
@@ -80,12 +81,12 @@ ralph-tui status --cwd /path/to/project
 
 The `status` field can be one of:
 
-| Status | Description |
-|--------|-------------|
-| `active` | Session is currently running or paused |
-| `completed` | All tasks are finished |
-| `no_session` | No session file found |
-| `stale` | Session appears abandoned (old lock) |
+| Status       | Description                            |
+| ------------ | -------------------------------------- |
+| `active`     | Session is currently running or paused |
+| `completed`  | All tasks are finished                 |
+| `no_session` | No session file found                  |
+| `stale`      | Session appears abandoned (old lock)   |
 
 ## Use in CI/CD Pipelines
 

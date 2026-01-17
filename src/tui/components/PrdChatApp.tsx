@@ -2,12 +2,13 @@
  * ABOUTME: PRD Chat application component for the Ralph TUI.
  * Provides an interactive chat interface for generating PRDs using an AI agent.
  * After PRD generation, shows a split view with PRD preview and tracker options.
+ * Supports image attachments that are appended to prompts.
  */
 
 import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useKeyboard, useRenderer } from '@opentui/react';
-import type { KeyEvent } from '@opentui/core';
+import type { KeyEvent, PasteEvent } from '@opentui/core';
 import { platform } from 'node:os';
 import { writeToClipboard } from '../../utils/index.js';
 import { writeFile, mkdir, access } from 'node:fs/promises';
@@ -15,12 +16,28 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ChatView } from './ChatView.js';
 import { ConfirmationDialog } from './ConfirmationDialog.js';
-import { ChatEngine, createPrdChatEngine, createTaskChatEngine, slugify } from '../../chat/engine.js';
+import {
+  ChatEngine,
+  createPrdChatEngine,
+  createTaskChatEngine,
+  slugify,
+} from '../../chat/engine.js';
 import type { ChatMessage, ChatEvent } from '../../chat/types.js';
 import type { AgentPlugin } from '../../plugins/agents/types.js';
 import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
 import { parsePrdMarkdown } from '../../prd/index.js';
 import { colors } from '../theme.js';
+import {
+  useImageAttachmentWithFeedback,
+  useToast,
+  usePasteHint,
+} from '../hooks/index.js';
+import type { ImageConfig } from '../../config/types.js';
+import { DEFAULT_IMAGE_CONFIG } from '../../config/types.js';
+import {
+  isSlashCommand,
+  executeSlashCommand,
+} from '../utils/slash-commands.js';
 
 /**
  * Props for the PrdChatApp component
@@ -62,6 +79,9 @@ export interface PrdChatAppProps {
 
   /** Callback when an error occurs */
   onError?: (error: string) => void;
+
+  /** Image attachment configuration */
+  imageConfig?: ImageConfig;
 }
 
 /**
@@ -137,7 +157,8 @@ The output file MUST be saved to: tasks/prd.json`,
     {
       key: '2',
       name: 'Beads issues',
-      skillPrompt: 'Convert this PRD to beads using the ralph-tui-create-beads skill.',
+      skillPrompt:
+        'Convert this PRD to beads using the ralph-tui-create-beads skill.',
       available: hasBeads,
     },
   ];
@@ -146,7 +167,13 @@ The output file MUST be saved to: tasks/prd.json`,
 /**
  * PRD Preview component for the right panel
  */
-function PrdPreview({ content, path }: { content: string; path: string }): ReactNode {
+function PrdPreview({
+  content,
+  path,
+}: {
+  content: string;
+  path: string;
+}): ReactNode {
   return (
     <box
       style={{
@@ -195,6 +222,7 @@ export function PrdChatApp({
   onComplete,
   onCancel,
   onError,
+  imageConfig,
 }: PrdChatAppProps): ReactNode {
   const renderer = useRenderer();
   // Copy feedback message state (auto-dismissed after 2s)
@@ -214,22 +242,52 @@ export function PrdChatApp({
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
   const [streamingChunk, setStreamingChunk] = useState('');
-  const [streamingSegments, setStreamingSegments] = useState<FormattedSegment[]>([]);
+  const [streamingSegments, setStreamingSegments] = useState<
+    FormattedSegment[]
+  >([]);
   const [error, setError] = useState<string | undefined>();
 
   // Quit confirmation dialog state
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
   // Track which tracker format was selected for tasks
-  const [selectedTrackerFormat, setSelectedTrackerFormat] = useState<'json' | 'beads' | null>(null);
+  const [selectedTrackerFormat, setSelectedTrackerFormat] = useState<
+    'json' | 'beads' | null
+  >(null);
 
   // Refs
   const engineRef = useRef<ChatEngine | null>(null);
   const taskEngineRef = useRef<ChatEngine | null>(null);
   const isMountedRef = useRef(true);
+  // Ref for inserting text into the chat input (used for image markers)
+  const insertTextRef = useRef<((text: string) => void) | null>(null);
 
   // Get tracker options
   const trackerOptions = getTrackerOptions(cwd);
+
+  // Image attachment and toast hooks
+  const toast = useToast();
+  const imagesEnabled = imageConfig?.enabled ?? DEFAULT_IMAGE_CONFIG.enabled;
+  const maxImagesPerMessage =
+    imageConfig?.max_images_per_message ??
+    DEFAULT_IMAGE_CONFIG.max_images_per_message;
+  const showPasteHints =
+    imageConfig?.show_paste_hints ?? DEFAULT_IMAGE_CONFIG.show_paste_hints;
+  const {
+    attachedImages,
+    attachImage,
+    attachFromClipboard,
+    removeImageByNumber,
+    clearImages,
+    getPromptSuffix,
+  } = useImageAttachmentWithFeedback(toast, {
+    maxImagesPerMessage: imagesEnabled ? maxImagesPerMessage : 0,
+  });
+
+  // Paste hint hook for first-time users
+  const { onTextPaste } = usePasteHint(toast, {
+    enabled: showPasteHints && imagesEnabled,
+  });
 
   // Initialize chat engine
   useEffect(() => {
@@ -334,7 +392,8 @@ Press a number key to select, or continue chatting.`,
    */
   const handleTrackerSelect = useCallback(
     async (option: TrackerOption) => {
-      if (!taskEngineRef.current || !prdPath || !prdContent || isLoading) return;
+      if (!taskEngineRef.current || !prdPath || !prdContent || isLoading)
+        return;
 
       const parsedPrd = parsePrdMarkdown(prdContent);
       if (parsedPrd.userStories.length === 0) {
@@ -391,7 +450,8 @@ Read the PRD and create the appropriate tasks.`;
             // Add completion message and finish
             const doneMsg: ChatMessage = {
               role: 'assistant',
-              content: 'Tasks created! Press [3] to finish or select another format.',
+              content:
+                'Tasks created! Press [3] to finish or select another format.',
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, doneMsg]);
@@ -411,7 +471,7 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
     },
-    [prdPath, prdContent, isLoading, onError]
+    [prdPath, prdContent, isLoading, onError],
   );
 
   /**
@@ -419,8 +479,39 @@ Read the PRD and create the appropriate tasks.`;
    */
   const sendMessage = useCallback(
     async (value?: string) => {
-      const userMessage = value?.trim() ?? inputValue.trim();
-      if (!userMessage || !engineRef.current || isLoading) {
+      const rawMessage = value?.trim() ?? inputValue.trim();
+      if (!rawMessage || isLoading) {
+        return;
+      }
+
+      // Use the message as-is (no zero-width markers to clean)
+      const userMessage = rawMessage;
+
+      // Check for slash commands first
+      if (isSlashCommand(userMessage)) {
+        setInputValue('');
+        const result = await executeSlashCommand(userMessage, {
+          // Pass true to delete files - slash commands are user-initiated cancellations
+          clearPendingImages: () => clearImages(true),
+          pendingImageCount: attachedImages.length,
+        });
+
+        if (result.handled) {
+          // Show feedback via toast
+          if (result.success) {
+            toast.showSuccess(result.message ?? 'Command executed');
+          } else {
+            toast.showError(result.message ?? 'Command failed');
+          }
+          return;
+        }
+        // If command not handled, fall through to send as message
+        // (but don't - unknown commands should be ignored)
+        return;
+      }
+
+      // Regular message - requires engine
+      if (!engineRef.current) {
         return;
       }
 
@@ -431,41 +522,55 @@ Read the PRD and create the appropriate tasks.`;
       setLoadingStatus('Sending to agent...');
       setError(undefined);
 
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
+      // Get image suffix before clearing (will be empty string if no images)
+      const imageSuffix = getPromptSuffix();
 
-    try {
-      const result = await engineRef.current.sendMessage(userMessage, {
-        onSegments: (segments) => {
-          if (isMountedRef.current) {
-            setStreamingSegments((prev) => [...prev, ...segments]);
-          }
-        },
-        onStatus: (status) => {
-          if (isMountedRef.current) {
-            setLoadingStatus(status);
-          }
-        },
-      });
+      // Clear attached images after capturing suffix
+      // Pass false (default) to keep files - the agent needs to read them
+      if (attachedImages.length > 0) {
+        clearImages(false);
+      }
 
-      if (isMountedRef.current) {
-        if (result.success && result.response) {
-          setMessages((prev) => [...prev, result.response!]);
-          setStreamingChunk('');
-          setStreamingSegments([]);
-        } else if (!result.success) {
-          setError(result.error || 'Failed to get response');
+      // The user message shown in the chat
+      // The [Image N] markers in the message provide visual indication of attachments
+      const userMsg: ChatMessage = {
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      // The prompt sent to the agent includes the image paths
+      const promptToSend = userMessage + imageSuffix;
+
+      try {
+        const result = await engineRef.current.sendMessage(promptToSend, {
+          onSegments: (segments) => {
+            if (isMountedRef.current) {
+              setStreamingSegments((prev) => [...prev, ...segments]);
+            }
+          },
+          onStatus: (status) => {
+            if (isMountedRef.current) {
+              setLoadingStatus(status);
+            }
+          },
+        });
+
+        if (isMountedRef.current) {
+          if (result.success && result.response) {
+            setMessages((prev) => [...prev, result.response!]);
+            setStreamingChunk('');
+            setStreamingSegments([]);
+          } else if (!result.success) {
+            setError(result.error || 'Failed to get response');
+          }
         }
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      if (isMountedRef.current) {
-        setError(errorMsg);
-      }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        if (isMountedRef.current) {
+          setError(errorMsg);
+        }
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
@@ -473,7 +578,14 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
     },
-    [inputValue, isLoading]
+    [
+      inputValue,
+      isLoading,
+      getPromptSuffix,
+      attachedImages,
+      clearImages,
+      toast,
+    ],
   );
 
   /**
@@ -494,7 +606,8 @@ Read the PRD and create the appropriate tasks.`;
         ? key.meta && key.name === 'c'
         : isWindows
           ? key.ctrl && key.name === 'c'
-          : (key.ctrl && key.shift && key.name === 'c') || (key.option && key.name === 'c');
+          : (key.ctrl && key.shift && key.name === 'c') ||
+            (key.option && key.name === 'c');
 
       if (isCopyShortcut && selection) {
         const selectedText = selection.getSelectedText();
@@ -513,7 +626,12 @@ Read the PRD and create the appropriate tasks.`;
         if (key.name === 'y' || key.sequence === 'y' || key.sequence === 'Y') {
           setShowQuitConfirm(false);
           onCancel();
-        } else if (key.name === 'n' || key.name === 'escape' || key.sequence === 'n' || key.sequence === 'N') {
+        } else if (
+          key.name === 'n' ||
+          key.name === 'escape' ||
+          key.sequence === 'n' ||
+          key.sequence === 'N'
+        ) {
           setShowQuitConfirm(false);
         }
         return;
@@ -528,7 +646,9 @@ Read the PRD and create the appropriate tasks.`;
       if (phase === 'review' && key.sequence) {
         const keyNum = key.sequence;
         if (keyNum === '1' || keyNum === '2') {
-          const option = trackerOptions.find((t) => t.key === keyNum && t.available);
+          const option = trackerOptions.find(
+            (t) => t.key === keyNum && t.available,
+          );
           if (option) {
             void handleTrackerSelect(option);
             return;
@@ -537,7 +657,11 @@ Read the PRD and create the appropriate tasks.`;
         if (keyNum === '3') {
           // Done - complete and exit
           if (prdPath && featureName) {
-            onComplete({ prdPath, featureName, selectedTracker: selectedTrackerFormat });
+            onComplete({
+              prdPath,
+              featureName,
+              selectedTracker: selectedTrackerFormat,
+            });
           }
           return;
         }
@@ -547,17 +671,93 @@ Read the PRD and create the appropriate tasks.`;
       if (key.name === 'escape') {
         if (phase === 'review' && prdPath && featureName) {
           // In review phase, escape completes (PRD already saved)
-          onComplete({ prdPath, featureName, selectedTracker: selectedTrackerFormat });
+          onComplete({
+            prdPath,
+            featureName,
+            selectedTracker: selectedTrackerFormat,
+          });
         } else {
           // In chat phase, show confirmation dialog
           setShowQuitConfirm(true);
         }
       }
     },
-    [showQuitConfirm, isLoading, phase, trackerOptions, handleTrackerSelect, prdPath, featureName, selectedTrackerFormat, onComplete, onCancel, renderer]
+    [
+      showQuitConfirm,
+      isLoading,
+      phase,
+      trackerOptions,
+      handleTrackerSelect,
+      prdPath,
+      featureName,
+      selectedTrackerFormat,
+      onComplete,
+      onCancel,
+      renderer,
+    ],
   );
 
   useKeyboard(handleKeyboard);
+
+  /**
+   * Handle paste events - try to detect and attach images
+   *
+   * The paste handler uses a two-phase approach:
+   * 1. First, try to read actual image data from the system clipboard (via pngpaste)
+   *    This handles screenshot tools like Shottr that put images in the clipboard
+   * 2. If no clipboard image, try to parse the pasted text as an image path
+   *    This handles pasting file paths to images
+   *
+   * IMPORTANT: We must call preventDefault() SYNCHRONOUSLY before any async work
+   * to prevent the default paste behavior. Then we decide what to insert.
+   */
+  const handlePaste = useCallback(
+    async (text: string, event: PasteEvent) => {
+      // Don't process paste if images are disabled - let default paste happen
+      if (!imagesEnabled) {
+        return;
+      }
+
+      // ALWAYS prevent default first - we'll manually insert text if needed
+      // This prevents the race condition where paste completes before our async check
+      event.preventDefault();
+
+      // Phase 1: Try to read actual image data from clipboard
+      // This is the primary path for screenshot tools (Shottr, etc.)
+      const clipboardResult = await attachFromClipboard();
+      if (clipboardResult.success && clipboardResult.inlineMarker) {
+        // Insert the plain [Image N] marker at cursor
+        if (insertTextRef.current) {
+          insertTextRef.current(clipboardResult.inlineMarker + ' ');
+        }
+        return;
+      }
+
+      // Phase 2: If no clipboard image, try to parse pasted text as image path
+      // This handles cases where user pastes a file path to an image
+      if (text.trim()) {
+        const textResult = await attachImage(text);
+        if (textResult.success && textResult.inlineMarker) {
+          // Insert the plain [Image N] marker at cursor
+          if (insertTextRef.current) {
+            insertTextRef.current(textResult.inlineMarker + ' ');
+          }
+          return;
+        }
+      }
+
+      // Not an image - manually insert the pasted text
+      if (text && insertTextRef.current) {
+        insertTextRef.current(text);
+      }
+
+      // Show first-time paste hint if enabled
+      if (!clipboardResult.feedbackShown) {
+        onTextPaste();
+      }
+    },
+    [imagesEnabled, attachFromClipboard, attachImage, onTextPaste],
+  );
 
   // Auto-dismiss copy feedback after 2 seconds
   useEffect(() => {
@@ -601,6 +801,10 @@ Read the PRD and create the appropriate tasks.`;
             hint={hint}
             agentName={agent.meta.name}
             onSubmit={sendMessage}
+            onPaste={handlePaste}
+            onImageMarkerDeleted={removeImageByNumber}
+            toasts={toast.toasts}
+            insertTextRef={insertTextRef}
           />
         </box>
 
@@ -648,6 +852,10 @@ Read the PRD and create the appropriate tasks.`;
         hint={hint}
         agentName={agent.meta.name}
         onSubmit={sendMessage}
+        onPaste={handlePaste}
+        onImageMarkerDeleted={removeImageByNumber}
+        toasts={toast.toasts}
+        insertTextRef={insertTextRef}
       />
       <ConfirmationDialog
         visible={showQuitConfirm}

@@ -1,6 +1,6 @@
 ---
 name: ralph-tui-create-json
-description: "Convert PRDs to prd.json format for ralph-tui execution. Creates JSON task files with user stories, acceptance criteria, and dependencies. Triggers on: create prd.json, convert to json, ralph json, create json tasks."
+description: 'Convert PRDs to prd.json format for ralph-tui execution. Creates JSON task files with user stories, acceptance criteria, and dependencies. Triggers on: create prd.json, convert to json, ralph json, create json tasks.'
 ---
 
 # Ralph TUI - Create JSON Tasks
@@ -14,6 +14,7 @@ Converts PRDs to prd.json format for ralph-tui autonomous execution.
 ## The Job
 
 Take a PRD (markdown file or text) and create a prd.json file:
+
 1. **Extract Quality Gates** from the PRD's "Quality Gates" section
 2. Parse user stories from the PRD
 3. Append quality gates to each story's acceptance criteria
@@ -30,14 +31,17 @@ Look for the "Quality Gates" section in the PRD:
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
 For UI stories, also include:
+
 - Verify in browser using dev-browser skill
 ```
 
 Extract:
+
 - **Universal gates:** Commands that apply to ALL stories (e.g., `pnpm typecheck`)
 - **UI gates:** Commands that apply only to UI stories (e.g., browser verification)
 
@@ -96,12 +100,14 @@ Extract:
 Ralph-tui spawns a fresh agent instance per iteration with no memory of previous work. If a story is too big, the agent runs out of context before finishing.
 
 ### Right-sized stories:
+
 - Add a database column + migration
 - Add a UI component to an existing page
 - Update a server action with new logic
 - Add a filter dropdown to a list
 
 ### Too big (split these):
+
 - "Build the entire dashboard" → Split into: schema, queries, UI components, filters
 - "Add authentication" → Split into: schema, middleware, login UI, session handling
 - "Refactor the API" → Split into one story per endpoint or pattern
@@ -124,11 +130,13 @@ Use the `dependsOn` array to specify which stories must complete first:
 ```
 
 Ralph-tui will:
+
 - Show US-002 as "blocked" until US-001 completes
 - Never select US-002 for execution while US-001 is open
 - Include "Prerequisites: US-001" in the prompt when working on US-002
 
 **Correct dependency order:**
+
 1. Schema/database changes (no dependencies)
 2. Backend logic (depends on schema)
 3. UI components (depends on backend)
@@ -139,15 +147,18 @@ Ralph-tui will:
 ## Acceptance Criteria: Quality Gates + Story-Specific
 
 Each story's acceptance criteria should include:
+
 1. **Story-specific criteria** from the PRD (what this story accomplishes)
 2. **Quality gates** from the PRD's Quality Gates section (appended at the end)
 
 ### Good criteria (verifiable):
+
 - "Add `status` column to tasks table with default 'open'"
 - "Filter dropdown has options: All, Open, Closed"
 - "Clicking delete shows confirmation dialog"
 
 ### Bad criteria (vague):
+
 - ❌ "Works correctly"
 - ❌ "User can do X easily"
 - ❌ "Good UX"
@@ -176,6 +187,7 @@ Default: `./tasks/prd.json` (alongside the PRD markdown files)
 This keeps all PRD-related files together in the `tasks/` directory.
 
 Or specify a different path - ralph-tui will use it with:
+
 ```bash
 ralph-tui run --prd ./path/to/prd.json
 ```
@@ -185,6 +197,7 @@ ralph-tui run --prd ./path/to/prd.json
 ## Example
 
 **Input PRD:**
+
 ```markdown
 # PRD: Task Priority System
 
@@ -193,37 +206,46 @@ Add priority levels to tasks.
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
 For UI stories, also include:
+
 - Verify in browser using dev-browser skill
 
 ## User Stories
 
 ### US-001: Add priority field to database
+
 **Description:** As a developer, I need to store task priority.
 
 **Acceptance Criteria:**
+
 - [ ] Add priority column: 1-4 (default 2)
 - [ ] Migration runs successfully
 
 ### US-002: Display priority badge on task cards
+
 **Description:** As a user, I want to see task priority at a glance.
 
 **Acceptance Criteria:**
+
 - [ ] Badge shows P1/P2/P3/P4 with colors
 - [ ] Badge visible without hovering
 
 ### US-003: Add priority filter dropdown
+
 **Description:** As a user, I want to filter tasks by priority.
 
 **Acceptance Criteria:**
+
 - [ ] Filter dropdown: All, P1, P2, P3, P4
 - [ ] Filter persists in URL
 ```
 
 **Output prd.json:**
+
 ```json
 {
   "project": "my-app",
@@ -286,11 +308,13 @@ For UI stories, also include:
 ## Running with ralph-tui
 
 After creating prd.json:
+
 ```bash
 ralph-tui run --prd ./tasks/prd.json
 ```
 
 Ralph-tui will:
+
 1. Load stories from prd.json
 2. Select the highest-priority story with `passes: false` and no blocking dependencies
 3. Generate a prompt with story details + acceptance criteria

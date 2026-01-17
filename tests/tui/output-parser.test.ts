@@ -32,7 +32,8 @@ describe('output-parser', () => {
         JSON.stringify({ type: 'result', result: 'Short' }),
         JSON.stringify({
           type: 'result',
-          result: 'This is a much longer result that provides more detail about what was accomplished in the task execution and should be preferred over shorter results',
+          result:
+            'This is a much longer result that provides more detail about what was accomplished in the task execution and should be preferred over shorter results',
         }),
       ].join('\n');
       const result = parseAgentOutput(events);
@@ -187,7 +188,9 @@ describe('output-parser', () => {
     });
 
     test('should process complete JSONL lines', () => {
-      const chunk = JSON.stringify({ type: 'assistant', message: { content: 'Hello' } }) + '\n';
+      const chunk =
+        JSON.stringify({ type: 'assistant', message: { content: 'Hello' } }) +
+        '\n';
       const newContent = parser.push(chunk);
       expect(newContent).toBe('Hello\n');
       expect(parser.getOutput()).toBe('Hello\n');
@@ -209,22 +212,25 @@ describe('output-parser', () => {
     });
 
     test('should store result event text separately', () => {
-      const resultEvent = JSON.stringify({
-        type: 'result',
-        result: 'Final result text',
-      }) + '\n';
+      const resultEvent =
+        JSON.stringify({
+          type: 'result',
+          result: 'Final result text',
+        }) + '\n';
       parser.push(resultEvent);
       expect(parser.getResultText()).toBe('Final result text');
     });
 
     test('should skip user events', () => {
-      const userEvent = JSON.stringify({ type: 'user', content: 'user input' }) + '\n';
+      const userEvent =
+        JSON.stringify({ type: 'user', content: 'user input' }) + '\n';
       parser.push(userEvent);
       expect(parser.getOutput()).toBe('');
     });
 
     test('should skip system events', () => {
-      const systemEvent = JSON.stringify({ type: 'system', message: 'system msg' }) + '\n';
+      const systemEvent =
+        JSON.stringify({ type: 'system', message: 'system msg' }) + '\n';
       parser.push(systemEvent);
       expect(parser.getOutput()).toBe('');
     });
@@ -273,14 +279,13 @@ describe('output-parser', () => {
     });
 
     test('should handle assistant events with array content', () => {
-      const event = JSON.stringify({
-        type: 'assistant',
-        message: {
-          content: [
-            { type: 'text', text: 'Array content text' },
-          ],
-        },
-      }) + '\n';
+      const event =
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Array content text' }],
+          },
+        }) + '\n';
       parser.push(event);
       expect(parser.getOutput()).toContain('Array content text');
     });

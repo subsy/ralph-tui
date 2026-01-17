@@ -24,7 +24,9 @@ describe('commandExists', () => {
   });
 
   test('returns false for non-existent command', async () => {
-    const result = await commandExists('this-command-definitely-does-not-exist-12345');
+    const result = await commandExists(
+      'this-command-definitely-does-not-exist-12345',
+    );
     expect(result).toBe(false);
   });
 

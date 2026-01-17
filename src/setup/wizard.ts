@@ -43,7 +43,9 @@ const CONFIG_FILENAME = 'config.toml';
 /**
  * Check if a project config file exists
  */
-export async function projectConfigExists(cwd: string = process.cwd()): Promise<boolean> {
+export async function projectConfigExists(
+  cwd: string = process.cwd(),
+): Promise<boolean> {
   const configPath = join(cwd, CONFIG_DIR, CONFIG_FILENAME);
   try {
     await access(configPath, constants.R_OK);
@@ -128,7 +130,7 @@ async function detectAgentPlugins(): Promise<PluginDetection[]> {
  * Collect tracker-specific options via setup questions
  */
 async function collectTrackerOptions(
-  trackerId: string
+  trackerId: string,
 ): Promise<Record<string, unknown>> {
   const registry = getTrackerRegistry();
   const instance = registry.createInstance(trackerId);
@@ -159,10 +161,7 @@ async function collectTrackerOptions(
 /**
  * Save configuration to .ralph-tui/config.toml
  */
-async function saveConfig(
-  answers: SetupAnswers,
-  cwd: string
-): Promise<string> {
+async function saveConfig(answers: SetupAnswers, cwd: string): Promise<string> {
   const configDir = join(cwd, CONFIG_DIR);
   const configPath = join(configDir, CONFIG_FILENAME);
 
@@ -199,7 +198,7 @@ ${toml}`;
  * Run the interactive setup wizard
  */
 export async function runSetupWizard(
-  options: SetupOptions = {}
+  options: SetupOptions = {},
 ): Promise<SetupResult> {
   const cwd = options.cwd ?? process.cwd();
 
@@ -217,11 +216,19 @@ export async function runSetupWizard(
 
     // Print welcome banner
     console.log();
-    console.log('╔════════════════════════════════════════════════════════════╗');
-    console.log('║                   Ralph TUI Setup Wizard                    ║');
-    console.log('╚════════════════════════════════════════════════════════════╝');
+    console.log(
+      '╔════════════════════════════════════════════════════════════╗',
+    );
+    console.log(
+      '║                   Ralph TUI Setup Wizard                    ║',
+    );
+    console.log(
+      '╚════════════════════════════════════════════════════════════╝',
+    );
     console.log();
-    printInfo('This wizard will help you configure Ralph TUI for your project.');
+    printInfo(
+      'This wizard will help you configure Ralph TUI for your project.',
+    );
     printInfo('Press Ctrl+C at any time to cancel.');
 
     // === Step 1: Select Tracker ===
@@ -250,7 +257,7 @@ export async function runSetupWizard(
       {
         default: trackerPlugins.find((p) => p.available)?.id,
         help: 'Ralph will use this tracker to manage tasks.',
-      }
+      },
     );
 
     // Collect tracker-specific options
@@ -281,7 +288,9 @@ export async function runSetupWizard(
 
     printInfo('Ralph supports multiple AI coding agents.');
     if (defaultAgent) {
-      printSuccess(`Auto-detected: ${agentPlugins.find((p) => p.id === defaultAgent)?.name}`);
+      printSuccess(
+        `Auto-detected: ${agentPlugins.find((p) => p.id === defaultAgent)?.name}`,
+      );
     }
     console.log();
 
@@ -291,7 +300,7 @@ export async function runSetupWizard(
       {
         default: defaultAgent,
         help: 'The AI agent that will execute coding tasks.',
-      }
+      },
     );
 
     // Collect agent-specific options (skip for default setup)
@@ -302,23 +311,17 @@ export async function runSetupWizard(
     // === Step 3: Iteration Settings ===
     printSection('Iteration Settings');
 
-    const maxIterations = await promptNumber(
-      'Maximum iterations per run?',
-      {
-        default: 10,
-        min: 0,
-        max: 1000,
-        help: 'How many tasks to process before stopping (0 = unlimited).',
-      }
-    );
+    const maxIterations = await promptNumber('Maximum iterations per run?', {
+      default: 10,
+      min: 0,
+      max: 1000,
+      help: 'How many tasks to process before stopping (0 = unlimited).',
+    });
 
-    const autoCommit = await promptBoolean(
-      'Auto-commit on task completion?',
-      {
-        default: false,
-        help: 'Automatically commit changes after each successful task.',
-      }
-    );
+    const autoCommit = await promptBoolean('Auto-commit on task completion?', {
+      default: false,
+      help: 'Automatically commit changes after each successful task.',
+    });
 
     // === Step 4: Skills Installation ===
     printSection('AI Skills Installation');
@@ -326,7 +329,9 @@ export async function runSetupWizard(
     const bundledSkills = await listBundledSkills();
 
     if (bundledSkills.length > 0) {
-      printInfo('Ralph TUI includes AI skills that enhance agent capabilities.');
+      printInfo(
+        'Ralph TUI includes AI skills that enhance agent capabilities.',
+      );
       printInfo('Installing skills ensures you have the latest versions.');
       console.log();
 
@@ -341,19 +346,23 @@ export async function runSetupWizard(
             help: alreadyInstalled
               ? `${skill.description} (currently installed - update to latest)`
               : skill.description,
-          }
+          },
         );
 
         if (installThisSkill) {
           // Always use force to overwrite existing skills with latest version
           const result = await installSkill(skill.name, { force: true });
           if (result.success) {
-            printSuccess(`  ${alreadyInstalled ? 'Updated' : 'Installed'}: ${skill.name}`);
+            printSuccess(
+              `  ${alreadyInstalled ? 'Updated' : 'Installed'}: ${skill.name}`,
+            );
             if (result.path) {
               printInfo(`    Location: ${result.path}`);
             }
           } else {
-            printError(`  Failed to ${actionLabel.toLowerCase()} ${skill.name}: ${result.error}`);
+            printError(
+              `  Failed to ${actionLabel.toLowerCase()} ${skill.name}: ${result.error}`,
+            );
           }
         } else if (alreadyInstalled) {
           printInfo(`  ${skill.name}: Keeping existing version`);
@@ -386,7 +395,9 @@ export async function runSetupWizard(
       printInfo('You can now run Ralph TUI with:');
       console.log();
       console.log('  Create a PRD and tasks:        ralph-tui create-prd');
-      console.log('  Run Ralph on existing tasks:   ralph-tui run --prd <path-to-prd.json>');
+      console.log(
+        '  Run Ralph on existing tasks:   ralph-tui run --prd <path-to-prd.json>',
+      );
     } else {
       printInfo('You can now run Ralph TUI with:');
       console.log();
@@ -405,7 +416,10 @@ export async function runSetupWizard(
     };
   } catch (error) {
     // Check for user cancellation (Ctrl+C)
-    if (error instanceof Error && error.message.includes('readline was closed')) {
+    if (
+      error instanceof Error &&
+      error.message.includes('readline was closed')
+    ) {
       console.log();
       printInfo('Setup cancelled.');
       return {
@@ -425,7 +439,7 @@ export async function runSetupWizard(
  * Check if setup is needed and optionally run the wizard
  */
 export async function checkAndRunSetup(
-  options: SetupOptions & { skipSetup?: boolean } = {}
+  options: SetupOptions & { skipSetup?: boolean } = {},
 ): Promise<SetupResult | null> {
   const cwd = options.cwd ?? process.cwd();
 

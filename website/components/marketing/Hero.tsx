@@ -53,8 +53,6 @@ function ArrowRightIcon({ className }: { className?: string }) {
   );
 }
 
-
-
 /**
  * Animated typing cursor that blinks.
  */
@@ -168,7 +166,8 @@ export function Hero() {
           className="mb-8 max-w-2xl animate-slide-up text-center text-lg leading-relaxed text-fg-secondary sm:mb-10 sm:text-xl"
           style={{ animationDelay: '200ms' }}
         >
-          Orchestrate autonomous AI coding agents with ease - all from your terminal.
+          Orchestrate autonomous AI coding agents with ease - all from your
+          terminal.
         </p>
 
         {/* Install command */}
@@ -177,7 +176,9 @@ export function Hero() {
           style={{ animationDelay: '300ms' }}
         >
           <div className="flex justify-center">
-            <CopyableCommand variant="hero">bun install -g ralph-tui</CopyableCommand>
+            <CopyableCommand variant="hero">
+              bun install -g ralph-tui
+            </CopyableCommand>
           </div>
         </div>
 

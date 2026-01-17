@@ -168,13 +168,17 @@ async function handleShowTemplate(args: string[]): Promise<void> {
   }
 
   // Display template info
-  console.log(`${BOLD}Template Source:${RESET} ${CYAN}${result.source}${RESET}`);
+  console.log(
+    `${BOLD}Template Source:${RESET} ${CYAN}${result.source}${RESET}`,
+  );
   console.log(`${DIM}${'─'.repeat(60)}${RESET}`);
   console.log(result.content);
   console.log(`${DIM}${'─'.repeat(60)}${RESET}`);
 
   // Show available variables reminder
-  console.log(`\n${DIM}Tip: Use {{variableName}} for template variables${RESET}`);
+  console.log(
+    `\n${DIM}Tip: Use {{variableName}} for template variables${RESET}`,
+  );
 }
 
 /**
@@ -213,9 +217,7 @@ async function handleInitTemplate(args: string[]): Promise<void> {
 
   // Check if file exists
   if (fs.existsSync(outputPath) && !force) {
-    console.error(
-      `${RED}Error:${RESET} File already exists: ${outputPath}`
-    );
+    console.error(`${RED}Error:${RESET} File already exists: ${outputPath}`);
     console.log(`${DIM}Use --force to overwrite${RESET}`);
     process.exit(1);
   }
@@ -228,13 +230,19 @@ async function handleInitTemplate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`${GREEN}✓${RESET} Template created: ${CYAN}${outputPath}${RESET}`);
+  console.log(
+    `${GREEN}✓${RESET} Template created: ${CYAN}${outputPath}${RESET}`,
+  );
   console.log(`${DIM}Template type: ${trackerType}${RESET}`);
   console.log(`\n${BOLD}Next steps:${RESET}`);
   console.log(`  1. Edit ${path.basename(outputPath)} to customize the prompt`);
   console.log(`  2. Add to your ${CYAN}.ralph-tui/config.toml${RESET}:`);
-  console.log(`     ${DIM}prompt_template: ${path.relative(cwd, outputPath)}${RESET}`);
-  console.log(`\n${DIM}See 'ralph-tui template show' for available variables${RESET}`);
+  console.log(
+    `     ${DIM}prompt_template: ${path.relative(cwd, outputPath)}${RESET}`,
+  );
+  console.log(
+    `\n${DIM}See 'ralph-tui template show' for available variables${RESET}`,
+  );
 }
 
 /**
@@ -254,7 +262,9 @@ function handleInitPrompts(args: string[]): void {
     if (r.created) {
       console.log(`${GREEN}✓${RESET} Created: ${CYAN}${r.file}${RESET}`);
     } else if (r.skipped) {
-      console.log(`${DIM}⊘${RESET} Skipped: ${r.file} ${DIM}(already exists, use --force to overwrite)${RESET}`);
+      console.log(
+        `${DIM}⊘${RESET} Skipped: ${r.file} ${DIM}(already exists, use --force to overwrite)${RESET}`,
+      );
     } else if (r.error) {
       console.log(`${RED}✗${RESET} Failed: ${r.file} - ${r.error}`);
     }
@@ -263,10 +273,18 @@ function handleInitPrompts(args: string[]): void {
   if (result.success) {
     console.log(`\n${GREEN}Done!${RESET}`);
     console.log(`\n${BOLD}Prompt files will be used automatically:${RESET}`);
-    console.log(`  • ${CYAN}prompt.md${RESET} - for json tracker (PRD-based workflows)`);
-    console.log(`  • ${CYAN}prompt-beads.md${RESET} - for beads/beads-bv trackers`);
-    console.log(`\n${DIM}Edit these files to customize agent behavior.${RESET}`);
-    console.log(`${DIM}Use --prompt <path> in 'ralph-tui run' for one-off custom prompts.${RESET}`);
+    console.log(
+      `  • ${CYAN}prompt.md${RESET} - for json tracker (PRD-based workflows)`,
+    );
+    console.log(
+      `  • ${CYAN}prompt-beads.md${RESET} - for beads/beads-bv trackers`,
+    );
+    console.log(
+      `\n${DIM}Edit these files to customize agent behavior.${RESET}`,
+    );
+    console.log(
+      `${DIM}Use --prompt <path> in 'ralph-tui run' for one-off custom prompts.${RESET}`,
+    );
   } else {
     console.log(`\n${RED}Some files could not be created.${RESET}`);
     process.exit(1);

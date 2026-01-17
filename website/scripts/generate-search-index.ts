@@ -88,41 +88,47 @@ function slugify(text: string): string {
  * Extracts plain text from MDX content by stripping markdown syntax.
  */
 function stripMarkdown(content: string): string {
-  return content
-    // Remove code blocks
-    .replace(/```[\s\S]*?```/g, '')
-    // Remove inline code
-    .replace(/`[^`]+`/g, '')
-    // Remove links but keep text
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    // Remove images
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
-    // Remove headings markers
-    .replace(/^#{1,6}\s+/gm, '')
-    // Remove bold/italic
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/_([^_]+)_/g, '$1')
-    // Remove HTML tags
-    .replace(/<[^>]+>/g, '')
-    // Remove JSX/MDX components
-    .replace(/<\w+[^>]*\/>/g, '')
-    .replace(/<\w+[^>]*>[\s\S]*?<\/\w+>/g, '')
-    // Collapse whitespace
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    content
+      // Remove code blocks
+      .replace(/```[\s\S]*?```/g, '')
+      // Remove inline code
+      .replace(/`[^`]+`/g, '')
+      // Remove links but keep text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Remove images
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
+      // Remove headings markers
+      .replace(/^#{1,6}\s+/gm, '')
+      // Remove bold/italic
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/_([^_]+)_/g, '$1')
+      // Remove HTML tags
+      .replace(/<[^>]+>/g, '')
+      // Remove JSX/MDX components
+      .replace(/<\w+[^>]*\/>/g, '')
+      .replace(/<\w+[^>]*>[\s\S]*?<\/\w+>/g, '')
+      // Collapse whitespace
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /**
  * Extracts headings and their content sections from MDX.
  */
 function extractSections(
-  content: string
+  content: string,
 ): Array<{ title: string; content: string; level: number }> {
   const sections: Array<{ title: string; content: string; level: number }> = [];
   const lines = content.split('\n');
-  let currentSection: { title: string; content: string[]; level: number } | null = null;
+  let currentSection: {
+    title: string;
+    content: string[];
+    level: number;
+  } | null = null;
 
   for (const line of lines) {
     const headingMatch = line.match(/^(#{2,3})\s+(.+)$/);
@@ -175,7 +181,10 @@ function getCategoryFromPath(slug: string): string {
     troubleshooting: 'Troubleshooting',
   };
 
-  return categoryMap[parts[0]] || parts[0].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return (
+    categoryMap[parts[0]] ||
+    parts[0].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }
 
 /**
@@ -222,7 +231,9 @@ async function generateSearchIndex(): Promise<void> {
             href,
             category,
             snippet: description || createSnippet(fullContent),
-            searchableContent: [title, description, fullContent].join(' ').toLowerCase(),
+            searchableContent: [title, description, fullContent]
+              .join(' ')
+              .toLowerCase(),
           });
 
           // Add entries for each heading section
@@ -258,7 +269,9 @@ async function generateSearchIndex(): Promise<void> {
   // Write the index
   await writeFile(outputPath, JSON.stringify(items, null, 2), 'utf-8');
 
-  console.log(`✓ Generated search index with ${items.length} items at ${outputPath}`);
+  console.log(
+    `✓ Generated search index with ${items.length} items at ${outputPath}`,
+  );
 }
 
 // Run the generator

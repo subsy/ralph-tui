@@ -8,7 +8,8 @@ description: How to debug Ralph TUI issues using logs, verbose mode, session ins
 When something goes wrong with Ralph TUI, systematic debugging helps identify the root cause quickly. This guide covers the diagnostic tools and techniques available.
 
 <Callout type="tip">
-Start with the simplest diagnostic (logs) before moving to more complex debugging. Most issues can be resolved by examining iteration output.
+  Start with the simplest diagnostic (logs) before moving to more complex
+  debugging. Most issues can be resolved by examining iteration output.
 </Callout>
 
 ---
@@ -44,6 +45,7 @@ ralph-tui logs --iteration 5 --verbose
 ```
 
 Each log file contains:
+
 - Task ID and details
 - Full agent stdout/stderr
 - Timestamps and duration
@@ -149,6 +151,7 @@ cat .ralph-tui/session.json | jq .
     # Force resume if it doesn't
     ralph-tui resume --force
     ```
+
   </TabsContent>
   <TabsContent value="corrupted">
     If the session file is malformed:
@@ -161,6 +164,7 @@ cat .ralph-tui/session.json | jq .
     mv .ralph-tui/session.json .ralph-tui/session.json.bak
     ralph-tui run --prd ./prd.json
     ```
+
   </TabsContent>
   <TabsContent value="missing">
     If the session file doesn't exist:
@@ -169,6 +173,7 @@ cat .ralph-tui/session.json | jq .
     # There's no session to resume - start fresh
     ralph-tui run --prd ./prd.json
     ```
+
   </TabsContent>
 </TabsRoot>
 
@@ -184,6 +189,7 @@ ralph-tui config show
 ```
 
 This shows the final configuration after merging:
+
 1. Default values
 2. Global config (`~/.config/ralph-tui/config.toml`)
 3. Project config (`.ralph-tui/config.toml`)
@@ -199,6 +205,7 @@ cat .ralph-tui/config.toml | npx toml2json 2>&1
 ```
 
 Common TOML mistakes:
+
 - Missing quotes around strings with special characters
 - Incorrect table nesting with `[section]`
 - Using `=` instead of `:` (TOML uses `=`)
@@ -320,6 +327,7 @@ To see what prompt is actually sent to the agent:
 ### Template Variables
 
 Available Handlebars variables:
+
 - `{{task.id}}` - Task identifier
 - `{{task.title}}` - Task title
 - `{{task.description}}` - Full description
@@ -369,15 +377,13 @@ rm .ralph-tui/progress.md
     Look for the `<promise>COMPLETE</promise>` token in output.
   </Step>
 
-  <Step title="Verify template includes completion instruction">
-    ```bash
-    ralph-tui template show | grep -i "promise\|complete"
-    ```
-  </Step>
+<Step title="Verify template includes completion instruction">
+  ```bash ralph-tui template show | grep -i "promise\|complete" ```
+</Step>
 
-  <Step title="Test agent directly">
-    Run the agent manually with the same prompt to see if it completes.
-  </Step>
+<Step title="Test agent directly">
+  Run the agent manually with the same prompt to see if it completes.
+</Step>
 
   <Step title="Check acceptance criteria">
     If criteria are impossible to meet, the agent may never signal completion.
@@ -394,17 +400,11 @@ rm .ralph-tui/progress.md
     Verify settings match your expectations.
   </Step>
 
-  <Step title="Review session state">
-    ```bash
-    ralph-tui status --json
-    ```
-  </Step>
+<Step title="Review session state">```bash ralph-tui status --json ```</Step>
 
-  <Step title="Examine recent iterations">
-    ```bash
-    ralph-tui logs --verbose
-    ```
-  </Step>
+<Step title="Examine recent iterations">
+  ```bash ralph-tui logs --verbose ```
+</Step>
 
   <Step title="Check for dependency issues">
     ```bash
@@ -414,6 +414,7 @@ rm .ralph-tui/progress.md
     # For prd.json
     cat prd.json | jq '.userStories[] | select(.blockedBy | length > 0)'
     ```
+
   </Step>
 </Steps>
 
@@ -434,11 +435,12 @@ rm .ralph-tui/progress.md
     # Environment
     echo $ANTHROPIC_API_KEY
     ```
+
   </Step>
 
-  <Step title="Check rate limits">
-    Look for rate limit messages in iteration logs.
-  </Step>
+<Step title="Check rate limits">
+  Look for rate limit messages in iteration logs.
+</Step>
 
   <Step title="Review error handling config">
     ```toml
@@ -456,11 +458,13 @@ rm .ralph-tui/progress.md
 When reporting issues to GitHub, include:
 
 1. **Ralph TUI version:**
+
    ```bash
    ralph-tui --version
    ```
 
 2. **Configuration (sanitized):**
+
    ```bash
    ralph-tui config show
    ```
@@ -468,6 +472,7 @@ When reporting issues to GitHub, include:
 3. **Relevant iteration logs** (remove sensitive data)
 
 4. **Session status:**
+
    ```bash
    ralph-tui status --json
    ```
@@ -475,7 +480,8 @@ When reporting issues to GitHub, include:
 5. **Steps to reproduce** the issue
 
 <Callout type="warning">
-Before sharing logs, remove any API keys, passwords, or other sensitive information.
+  Before sharing logs, remove any API keys, passwords, or other sensitive
+  information.
 </Callout>
 
 ---

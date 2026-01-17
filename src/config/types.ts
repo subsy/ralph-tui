@@ -5,7 +5,10 @@
 
 import type { AgentPluginConfig } from '../plugins/agents/types.js';
 import type { TrackerPluginConfig } from '../plugins/trackers/types.js';
-import type { ErrorHandlingConfig, ErrorHandlingStrategy } from '../engine/types.js';
+import type {
+  ErrorHandlingConfig,
+  ErrorHandlingStrategy,
+} from '../engine/types.js';
 
 /**
  * Rate limit handling configuration for agents.
@@ -51,6 +54,41 @@ export type SubagentDetailLevel = 'off' | 'minimal' | 'moderate' | 'full';
  * - 'ralph': Play random Ralph Wiggum sound clips
  */
 export type NotificationSoundMode = 'off' | 'system' | 'ralph';
+
+/**
+ * Image cleanup policy for attached images.
+ * - 'on_exit': Clean up images when ralph-tui exits (default)
+ * - 'manual': Keep images until manually deleted
+ * - 'never': Never clean up images automatically
+ */
+export type ImageCleanupPolicy = 'on_exit' | 'manual' | 'never';
+
+/**
+ * Image attachment configuration.
+ */
+export interface ImageConfig {
+  /** Whether image attachments are enabled (default: true) */
+  enabled?: boolean;
+  /** Cleanup policy for attached images (default: 'on_exit') */
+  cleanup_policy?: ImageCleanupPolicy;
+  /** Skip confirmation prompt when cleaning up images (default: false) */
+  skip_cleanup_confirmation?: boolean;
+  /** Maximum images allowed per message (default: 10, 0 = unlimited) */
+  max_images_per_message?: number;
+  /** Show hint about image paste on first text paste of session (default: true) */
+  show_paste_hints?: boolean;
+}
+
+/**
+ * Default image configuration
+ */
+export const DEFAULT_IMAGE_CONFIG: Required<ImageConfig> = {
+  enabled: true,
+  cleanup_policy: 'on_exit',
+  skip_cleanup_confirmation: false,
+  max_images_per_message: 0, // 0 = unlimited
+  show_paste_hints: true,
+};
 
 /**
  * Notifications configuration for desktop notifications.
@@ -208,6 +246,9 @@ export interface StoredConfig {
 
   /** Notifications configuration */
   notifications?: NotificationsConfig;
+
+  /** Image attachment configuration */
+  images?: ImageConfig;
 }
 
 /**

@@ -11,33 +11,36 @@
   - {{currentDate}}, {{currentTimestamp}}
   - {{recentProgress}} - Summary of completed work from previous iterations
 --}}
-## Task
-**ID**: {{taskId}}
-**Title**: {{taskTitle}}
+## Task **ID**:
+{{taskId}}
+**Title**:
+{{taskTitle}}
 
 {{#if taskDescription}}
-## Description
-{{taskDescription}}
+  ## Description
+  {{taskDescription}}
 {{/if}}
 
 {{#if acceptanceCriteria}}
-## Acceptance Criteria
-{{acceptanceCriteria}}
+  ## Acceptance Criteria
+  {{acceptanceCriteria}}
 {{/if}}
 
 {{#if labels}}
-**Labels**: {{labels}}
+  **Labels**:
+  {{labels}}
 {{/if}}
 
 {{#if dependsOn}}
-**Dependencies**: {{dependsOn}}
+  **Dependencies**:
+  {{dependsOn}}
 {{/if}}
 
 {{#if recentProgress}}
-## Recent Progress
-{{recentProgress}}
+  ## Recent Progress
+  {{recentProgress}}
 {{/if}}
 
-## Instructions
-Complete the task described above. When finished, signal completion with:
+## Instructions Complete the task described above. When finished, signal
+completion with:
 <promise>COMPLETE</promise>

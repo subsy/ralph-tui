@@ -4,14 +4,7 @@
  * skill listing, installation, and related functionality.
  */
 
-import {
-  describe,
-  expect,
-  test,
-  beforeEach,
-  afterEach,
-  mock,
-} from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
@@ -141,10 +134,12 @@ describe('listBundledSkills', () => {
     const skills = await listBundledSkills();
     // Skip assertion if no skills found (CI environment may not have skills dir accessible)
     if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found (expected in some CI environments)');
+      console.log(
+        'Skipping: No bundled skills found (expected in some CI environments)',
+      );
       return;
     }
-    const prdSkill = skills.find(s => s.name === 'ralph-tui-prd');
+    const prdSkill = skills.find((s) => s.name === 'ralph-tui-prd');
     expect(prdSkill).toBeDefined();
     expect(prdSkill?.description).toBeTruthy();
   });
@@ -177,7 +172,9 @@ describe('isSkillInstalled', () => {
   });
 
   test('returns false for non-existent skill', async () => {
-    const installed = await isSkillInstalled('definitely-not-a-real-skill-12345');
+    const installed = await isSkillInstalled(
+      'definitely-not-a-real-skill-12345',
+    );
     expect(installed).toBe(false);
   });
 });

@@ -37,7 +37,10 @@ export default tseslint.config(
       'react-hooks/exhaustive-deps': 'warn',
 
       // TypeScript rules
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_' },
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
 
       // General rules
@@ -45,11 +48,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: [
-      '.next/**',
-      'node_modules/**',
-      'out/**',
-      '*.config.{js,mjs,ts}',
-    ],
-  }
+    ignores: ['.next/**', 'node_modules/**', 'out/**', '*.config.{js,mjs,ts}'],
+  },
 );

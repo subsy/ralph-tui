@@ -64,7 +64,8 @@ describe('BeadsTrackerPlugin', () => {
   describe('completeTask', () => {
     test('uses bd close command with --force flag', async () => {
       // Return valid array format for both close (ignored) and getTask calls
-      mockSpawnStdout = '[{"id": "test-001", "title": "Test", "status": "closed", "priority": 2}]';
+      mockSpawnStdout =
+        '[{"id": "test-001", "title": "Test", "status": "closed", "priority": 2}]';
       mockSpawnExitCode = 0;
 
       const plugin = await createPlugin();
@@ -82,7 +83,8 @@ describe('BeadsTrackerPlugin', () => {
 
     test('includes --force flag even without reason', async () => {
       // Return valid array format for both close (ignored) and getTask calls
-      mockSpawnStdout = '[{"id": "test-002", "title": "Test", "status": "closed", "priority": 2}]';
+      mockSpawnStdout =
+        '[{"id": "test-002", "title": "Test", "status": "closed", "priority": 2}]';
       mockSpawnExitCode = 0;
 
       const plugin = await createPlugin();
@@ -97,7 +99,8 @@ describe('BeadsTrackerPlugin', () => {
 
     test('returns success result on successful close', async () => {
       // Return valid JSON for both close and subsequent getTask calls
-      mockSpawnStdout = '[{"id": "test-003", "title": "Test Task", "status": "closed", "priority": 2}]';
+      mockSpawnStdout =
+        '[{"id": "test-003", "title": "Test Task", "status": "closed", "priority": 2}]';
       mockSpawnExitCode = 0;
 
       const plugin = await createPlugin();

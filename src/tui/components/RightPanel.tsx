@@ -7,10 +7,23 @@
 
 import type { ReactNode } from 'react';
 import { useMemo, useState, useEffect } from 'react';
-import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
-import type { RightPanelProps, DetailsViewMode, IterationTimingInfo, SubagentTreeNode, TaskPriority } from '../types.js';
+import {
+  colors,
+  getTaskStatusColor,
+  getTaskStatusIndicator,
+} from '../theme.js';
+import type {
+  RightPanelProps,
+  DetailsViewMode,
+  IterationTimingInfo,
+  SubagentTreeNode,
+  TaskPriority,
+} from '../types.js';
 import type { SubagentDetailLevel } from '../../config/types.js';
-import { stripAnsiCodes, type FormattedSegment } from '../../plugins/agents/output-formatting.js';
+import {
+  stripAnsiCodes,
+  type FormattedSegment,
+} from '../../plugins/agents/output-formatting.js';
 import { formatElapsedTime } from '../theme.js';
 import { SubagentSections } from './SubagentSection.js';
 import { parseAgentOutput } from '../output-parser.js';
@@ -52,7 +65,7 @@ function getPriorityColor(priority: TaskPriority): string {
 function parseAcceptanceCriteria(
   description?: string,
   acceptanceCriteria?: string,
-  metadataCriteria?: unknown
+  metadataCriteria?: unknown,
 ): Array<{ text: string; checked: boolean }> {
   // If metadata contains criteria array (from JSON tracker), use that
   if (Array.isArray(metadataCriteria) && metadataCriteria.length > 0) {
@@ -135,7 +148,11 @@ function extractDescription(description?: string): string {
  */
 function formatTimestamp(isoString: string): string {
   const date = new Date(isoString);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 /**
@@ -162,7 +179,8 @@ function NoSelection(): ReactNode {
       <box style={{ flexDirection: 'column', gap: 1 }}>
         <text fg={colors.fg.muted}>
           <span fg={colors.accent.primary}>1.</span> Run{' '}
-          <span fg={colors.fg.secondary}>ralph-tui setup</span> to configure your project
+          <span fg={colors.fg.secondary}>ralph-tui setup</span> to configure
+          your project
         </text>
         <text fg={colors.fg.muted}>
           <span fg={colors.accent.primary}>2.</span> Run{' '}
@@ -170,7 +188,8 @@ function NoSelection(): ReactNode {
         </text>
         <text fg={colors.fg.muted}>
           <span fg={colors.accent.primary}>3.</span> Or run{' '}
-          <span fg={colors.fg.secondary}>ralph-tui --help</span> for more options
+          <span fg={colors.fg.secondary}>ralph-tui --help</span> for more
+          options
         </text>
       </box>
       <box style={{ marginTop: 2 }}>
@@ -194,7 +213,11 @@ function TaskMetadataView({
   const statusIndicator = getTaskStatusIndicator(task.status);
   // Check metadata for acceptance criteria (JSON tracker stores it there)
   const metadataCriteria = task.metadata?.acceptanceCriteria;
-  const criteria = parseAcceptanceCriteria(task.description, undefined, metadataCriteria);
+  const criteria = parseAcceptanceCriteria(
+    task.description,
+    undefined,
+    metadataCriteria,
+  );
   const cleanDescription = extractDescription(task.description);
 
   return (
@@ -234,7 +257,9 @@ function TaskMetadataView({
           {task.priority !== undefined && (
             <box style={{ flexDirection: 'row', marginBottom: 0 }}>
               <text fg={colors.fg.muted}>Priority: </text>
-              <text fg={getPriorityColor(task.priority)}>{priorityLabels[task.priority]}</text>
+              <text fg={getPriorityColor(task.priority)}>
+                {priorityLabels[task.priority]}
+              </text>
             </box>
           )}
 
@@ -313,12 +338,21 @@ function TaskMetadataView({
               }}
             >
               {criteria.map((item, index) => (
-                <box key={index} style={{ flexDirection: 'row', marginBottom: 0 }}>
+                <box
+                  key={index}
+                  style={{ flexDirection: 'row', marginBottom: 0 }}
+                >
                   <text>
-                    <span fg={item.checked ? colors.status.success : colors.fg.muted}>
+                    <span
+                      fg={
+                        item.checked ? colors.status.success : colors.fg.muted
+                      }
+                    >
                       {item.checked ? '[x]' : '[ ]'}
                     </span>
-                    <span fg={item.checked ? colors.fg.muted : colors.fg.secondary}>
+                    <span
+                      fg={item.checked ? colors.fg.muted : colors.fg.secondary}
+                    >
                       {' '}
                       {item.text}
                     </span>
@@ -349,7 +383,9 @@ function TaskMetadataView({
               {/* Show detailed blocker info if available (with title and status) */}
               {task.blockedByTasks && task.blockedByTasks.length > 0 && (
                 <box style={{ marginBottom: 1 }}>
-                  <text fg={colors.status.error}>⊘ Blocked by (unresolved):</text>
+                  <text fg={colors.status.error}>
+                    ⊘ Blocked by (unresolved):
+                  </text>
                   {task.blockedByTasks.map((blocker) => (
                     <text key={blocker.id} fg={colors.fg.secondary}>
                       {'  '}- {blocker.id}: {blocker.title}
@@ -361,16 +397,17 @@ function TaskMetadataView({
 
               {/* Fallback to dependsOn IDs if blockedByTasks not available */}
               {(!task.blockedByTasks || task.blockedByTasks.length === 0) &&
-                task.dependsOn && task.dependsOn.length > 0 && (
-                <box style={{ marginBottom: 1 }}>
-                  <text fg={colors.status.warning}>Depends on:</text>
-                  {task.dependsOn.map((dep) => (
-                    <text key={dep} fg={colors.fg.secondary}>
-                      {'  '}- {dep}
-                    </text>
-                  ))}
-                </box>
-              )}
+                task.dependsOn &&
+                task.dependsOn.length > 0 && (
+                  <box style={{ marginBottom: 1 }}>
+                    <text fg={colors.status.warning}>Depends on:</text>
+                    {task.dependsOn.map((dep) => (
+                      <text key={dep} fg={colors.fg.secondary}>
+                        {'  '}- {dep}
+                      </text>
+                    ))}
+                  </box>
+                )}
 
               {task.blocks && task.blocks.length > 0 && (
                 <box>
@@ -415,7 +452,8 @@ function TaskMetadataView({
             )}
             {task.updatedAt && (
               <text fg={colors.fg.dim}>
-                {' '}| Updated: {new Date(task.updatedAt).toLocaleString()}
+                {' '}
+                | Updated: {new Date(task.updatedAt).toLocaleString()}
               </text>
             )}
           </box>
@@ -430,7 +468,11 @@ function TaskMetadataView({
  * Shows started time immediately, duration that updates every second while running,
  * and ended time when complete. Also displays model info when available.
  */
-function TimingSummary({ timing }: { timing?: IterationTimingInfo }): ReactNode {
+function TimingSummary({
+  timing,
+}: {
+  timing?: IterationTimingInfo;
+}): ReactNode {
   // Track elapsed time for running iterations
   const [elapsedMs, setElapsedMs] = useState<number>(0);
 
@@ -474,8 +516,15 @@ function TimingSummary({ timing }: { timing?: IterationTimingInfo }): ReactNode 
   // Parse model info for display
   const modelDisplay = timing.model
     ? (() => {
-        const [provider, model] = timing.model!.includes('/') ? timing.model!.split('/') : ['', timing.model!];
-        return { provider, model, full: timing.model!, display: provider ? `${provider}/${model}` : model };
+        const [provider, model] = timing.model!.includes('/')
+          ? timing.model!.split('/')
+          : ['', timing.model!];
+        return {
+          provider,
+          model,
+          full: timing.model!,
+          display: provider ? `${provider}/${model}` : model,
+        };
       })()
     : null;
 
@@ -512,7 +561,9 @@ function TimingSummary({ timing }: { timing?: IterationTimingInfo }): ReactNode 
         </text>
         <text fg={colors.fg.muted}>
           Duration:{' '}
-          <span fg={timing.isRunning ? colors.status.info : colors.accent.primary}>
+          <span
+            fg={timing.isRunning ? colors.status.info : colors.accent.primary}
+          >
             {durationDisplay}
           </span>
         </text>
@@ -581,15 +632,28 @@ function TaskOutputView({
   // Parse model info for display
   const modelDisplay = currentModel
     ? (() => {
-        const [provider, model] = currentModel.includes('/') ? currentModel.split('/') : ['', currentModel];
-        return { provider, model, full: currentModel, display: provider ? `${provider}/${model}` : model };
+        const [provider, model] = currentModel.includes('/')
+          ? currentModel.split('/')
+          : ['', currentModel];
+        return {
+          provider,
+          model,
+          full: currentModel,
+          display: provider ? `${provider}/${model}` : model,
+        };
       })()
     : null;
 
   return (
     <box style={{ flexDirection: 'column', padding: 1, flexGrow: 1 }}>
       {/* Compact task header with agent/model info */}
-      <box style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1 }}>
+      <box
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginBottom: 1,
+        }}
+      >
         <box>
           <text>
             <span fg={statusColor}>{statusIndicator}</span>
@@ -760,7 +824,8 @@ export function RightPanel({
 }: RightPanelProps): ReactNode {
   // Build title with view mode indicator and subagent level
   const modeIndicator = viewMode === 'details' ? '[Details]' : '[Output]';
-  const subagentIndicator = subagentDetailLevel !== 'off' ? ` [Trace: ${subagentDetailLevel}]` : '';
+  const subagentIndicator =
+    subagentDetailLevel !== 'off' ? ` [Trace: ${subagentDetailLevel}]` : '';
   const title = `Details ${modeIndicator}${subagentIndicator}`;
 
   return (

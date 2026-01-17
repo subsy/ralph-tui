@@ -29,7 +29,8 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     id: 'select',
     number: '01',
     title: 'SELECT',
-    description: 'Pick next task from the issue tracker based on priority and dependencies',
+    description:
+      'Pick next task from the issue tracker based on priority and dependencies',
     icon: Crosshair,
     accentColor: 'text-accent-primary',
     glowColor: 'rgba(122, 162, 247, 0.4)',
@@ -38,7 +39,8 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     id: 'prompt',
     number: '02',
     title: 'PROMPT',
-    description: 'Generate smart prompts from templates with minimal relevant context injection',
+    description:
+      'Generate smart prompts from templates with minimal relevant context injection',
     icon: Hammer,
     accentColor: 'text-accent-secondary',
     glowColor: 'rgba(187, 154, 247, 0.4)',
@@ -47,7 +49,8 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     id: 'evaluate',
     number: '04',
     title: 'EVALUATE',
-    description: 'Analyze output to determine completion status and next actions',
+    description:
+      'Analyze output to determine completion status and next actions',
     icon: CheckCircle,
     accentColor: 'text-status-success',
     glowColor: 'rgba(158, 206, 106, 0.4)',
@@ -56,7 +59,8 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     id: 'execute',
     number: '03',
     title: 'EXECUTE',
-    description: 'Run autonomous AI coding agent with real-time progress monitoring',
+    description:
+      'Run autonomous AI coding agent with real-time progress monitoring',
     icon: Zap,
     accentColor: 'text-status-warning',
     glowColor: 'rgba(224, 175, 104, 0.4)',
@@ -120,7 +124,13 @@ const _arrowVariants: Variants = {
 /**
  * Single workflow step card component.
  */
-function WorkflowStepCard({ step, index: _index }: { step: WorkflowStep; index: number }) {
+function WorkflowStepCard({
+  step,
+  index: _index,
+}: {
+  step: WorkflowStep;
+  index: number;
+}) {
   const Icon = step.icon;
 
   return (
@@ -189,19 +199,67 @@ function CircularFlowArrows() {
     >
       {/* Lines - centered in gaps between card pairs */}
       {/* Arrow 1: SELECT → PROMPT (top horizontal gap, centered at x=50) */}
-      <line x1="46" y1="25" x2="51" y2="25" stroke="rgb(var(--fg-muted))" strokeWidth="0.8" opacity="0.5" />
+      <line
+        x1="46"
+        y1="25"
+        x2="51"
+        y2="25"
+        stroke="rgb(var(--fg-muted))"
+        strokeWidth="0.8"
+        opacity="0.5"
+      />
       {/* Arrow 2: PROMPT → EXECUTE (right vertical gap, centered at y=50) */}
-      <line x1="75" y1="46" x2="75" y2="51" stroke="rgb(var(--fg-muted))" strokeWidth="0.8" opacity="0.5" />
+      <line
+        x1="75"
+        y1="46"
+        x2="75"
+        y2="51"
+        stroke="rgb(var(--fg-muted))"
+        strokeWidth="0.8"
+        opacity="0.5"
+      />
       {/* Arrow 3: EXECUTE → EVALUATE (bottom horizontal gap, centered at x=50) */}
-      <line x1="54" y1="75" x2="49" y2="75" stroke="rgb(var(--fg-muted))" strokeWidth="0.8" opacity="0.5" />
+      <line
+        x1="54"
+        y1="75"
+        x2="49"
+        y2="75"
+        stroke="rgb(var(--fg-muted))"
+        strokeWidth="0.8"
+        opacity="0.5"
+      />
       {/* Arrow 4: EVALUATE → SELECT (left vertical gap, centered at y=50) */}
-      <line x1="25" y1="54" x2="25" y2="49" stroke="rgb(var(--fg-muted))" strokeWidth="0.8" opacity="0.5" />
+      <line
+        x1="25"
+        y1="54"
+        x2="25"
+        y2="49"
+        stroke="rgb(var(--fg-muted))"
+        strokeWidth="0.8"
+        opacity="0.5"
+      />
 
       {/* Arrowheads - centered with lines */}
-      <path d="M 51 23.5 L 54 25 L 51 26.5 Z" fill="rgb(var(--fg-muted))" opacity="0.5" />
-      <path d="M 73.5 51 L 75 54 L 76.5 51 Z" fill="rgb(var(--fg-muted))" opacity="0.5" />
-      <path d="M 49 76.5 L 46 75 L 49 73.5 Z" fill="rgb(var(--fg-muted))" opacity="0.5" />
-      <path d="M 26.5 49 L 25 46 L 23.5 49 Z" fill="rgb(var(--fg-muted))" opacity="0.5" />
+      <path
+        d="M 51 23.5 L 54 25 L 51 26.5 Z"
+        fill="rgb(var(--fg-muted))"
+        opacity="0.5"
+      />
+      <path
+        d="M 73.5 51 L 75 54 L 76.5 51 Z"
+        fill="rgb(var(--fg-muted))"
+        opacity="0.5"
+      />
+      <path
+        d="M 49 76.5 L 46 75 L 49 73.5 Z"
+        fill="rgb(var(--fg-muted))"
+        opacity="0.5"
+      />
+      <path
+        d="M 26.5 49 L 25 46 L 23.5 49 Z"
+        fill="rgb(var(--fg-muted))"
+        opacity="0.5"
+      />
     </svg>
   );
 }
@@ -217,10 +275,7 @@ function MobileFlowArrow({ color }: { color: string }) {
       transition={{ delay: 0.3 }}
       className="flex justify-center py-2"
     >
-      <ArrowRight
-        className={`h-6 w-6 rotate-90 ${color}`}
-        aria-hidden="true"
-      />
+      <ArrowRight className={`h-6 w-6 rotate-90 ${color}`} aria-hidden="true" />
     </motion.div>
   );
 }

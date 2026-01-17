@@ -53,7 +53,9 @@ export function getBuiltinTemplate(trackerType: BuiltinTemplateType): string {
  * @param pluginName The tracker plugin name
  * @returns The matching built-in template type
  */
-export function getTemplateTypeFromPlugin(pluginName: string): BuiltinTemplateType {
+export function getTemplateTypeFromPlugin(
+  pluginName: string,
+): BuiltinTemplateType {
   if (pluginName.includes('beads-bv')) {
     return 'beads-bv';
   }
@@ -79,7 +81,9 @@ export function getUserConfigDir(): string {
  * @param trackerType The tracker type
  * @returns The default prompt filename
  */
-export function getDefaultPromptFilename(trackerType: BuiltinTemplateType): string {
+export function getDefaultPromptFilename(
+  trackerType: BuiltinTemplateType,
+): string {
   switch (trackerType) {
     case 'beads':
     case 'beads-bv':
@@ -115,7 +119,7 @@ export function getUserPromptPath(trackerType: BuiltinTemplateType): string {
 export function loadTemplate(
   customPath: string | undefined,
   trackerType: BuiltinTemplateType,
-  cwd: string
+  cwd: string,
 ): TemplateLoadResult {
   // 1. Try explicit custom template first (from --prompt or config)
   if (customPath) {
@@ -181,15 +185,17 @@ function extractAcceptanceCriteria(description: string | undefined): string {
   if (!description) return '';
 
   // Look for explicit "Acceptance Criteria" section
-  const acMatch = description.match(/##\s*Acceptance\s*Criteria[\s\S]*?(?=##|$)/i);
+  const acMatch = description.match(
+    /##\s*Acceptance\s*Criteria[\s\S]*?(?=##|$)/i,
+  );
   if (acMatch) {
     return acMatch[0].replace(/##\s*Acceptance\s*Criteria\s*/i, '').trim();
   }
 
   // Look for checklist patterns
-  const checklistLines = description.split('\n').filter(
-    (line) => /^[-*]\s*\[[\sx]\]/.test(line.trim())
-  );
+  const checklistLines = description
+    .split('\n')
+    .filter((line) => /^[-*]\s*\[[\sx]\]/.test(line.trim()));
   if (checklistLines.length > 0) {
     return checklistLines.join('\n');
   }
@@ -230,7 +236,7 @@ export function buildTemplateVariables(
   task: TrackerTask,
   config: Partial<RalphConfig>,
   epic?: { id: string; title: string; description?: string },
-  recentProgress?: string
+  recentProgress?: string,
 ): TemplateVariables {
   return {
     taskId: task.id,
@@ -262,8 +268,11 @@ export function buildTemplateVariables(
  * Used for the --db flag when running bd commands from external directories.
  */
 function computeBeadsDbPath(config: Partial<RalphConfig>): string {
-  const trackerOptions = config.tracker?.options as Record<string, unknown> | undefined;
-  const workingDir = (trackerOptions?.workingDir as string) ?? config.cwd ?? process.cwd();
+  const trackerOptions = config.tracker?.options as
+    | Record<string, unknown>
+    | undefined;
+  const workingDir =
+    (trackerOptions?.workingDir as string) ?? config.cwd ?? process.cwd();
   const beadsDir = (trackerOptions?.beadsDir as string) ?? '.beads';
   return path.join(workingDir, beadsDir, 'beads.db');
 }
@@ -280,7 +289,7 @@ export function buildTemplateContext(
   task: TrackerTask,
   config: Partial<RalphConfig>,
   epic?: { id: string; title: string; description?: string },
-  recentProgress?: string
+  recentProgress?: string,
 ): TemplateContext {
   return {
     vars: buildTemplateVariables(task, config, epic, recentProgress),
@@ -298,7 +307,7 @@ export function buildTemplateContext(
  */
 function compileTemplate(
   templateContent: string,
-  source: string
+  source: string,
 ): Handlebars.TemplateDelegate {
   // Check cache
   const cached = templateCache.get(source);
@@ -327,7 +336,7 @@ export function renderPrompt(
   task: TrackerTask,
   config: RalphConfig,
   epic?: { id: string; title: string; description?: string },
-  recentProgress?: string
+  recentProgress?: string,
 ): TemplateRenderResult {
   // Determine template to use
   const trackerType = getTemplateTypeFromPlugin(config.tracker.plugin);
@@ -386,7 +395,10 @@ export function clearTemplateCache(): void {
  * @param filename Optional custom filename (default: 'ralph-prompt.hbs')
  * @returns The full path for the custom template
  */
-export function getCustomTemplatePath(cwd: string, filename = 'ralph-prompt.hbs'): string {
+export function getCustomTemplatePath(
+  cwd: string,
+  filename = 'ralph-prompt.hbs',
+): string {
   return path.join(cwd, filename);
 }
 
@@ -398,7 +410,7 @@ export function getCustomTemplatePath(cwd: string, filename = 'ralph-prompt.hbs'
  */
 export function copyBuiltinTemplate(
   trackerType: BuiltinTemplateType,
-  destPath: string
+  destPath: string,
 ): { success: boolean; error?: string } {
   try {
     const content = getBuiltinTemplate(trackerType);
@@ -446,10 +458,20 @@ export function getBundledPrompt(trackerType: BuiltinTemplateType): string {
  */
 export function initializeUserPrompts(force = false): {
   success: boolean;
-  results: Array<{ file: string; created: boolean; skipped: boolean; error?: string }>;
+  results: Array<{
+    file: string;
+    created: boolean;
+    skipped: boolean;
+    error?: string;
+  }>;
 } {
   const configDir = getUserConfigDir();
-  const results: Array<{ file: string; created: boolean; skipped: boolean; error?: string }> = [];
+  const results: Array<{
+    file: string;
+    created: boolean;
+    skipped: boolean;
+    error?: string;
+  }> = [];
 
   // Ensure config directory exists
   try {
@@ -459,12 +481,14 @@ export function initializeUserPrompts(force = false): {
   } catch (error) {
     return {
       success: false,
-      results: [{
-        file: configDir,
-        created: false,
-        skipped: false,
-        error: `Failed to create config directory: ${error instanceof Error ? error.message : String(error)}`,
-      }],
+      results: [
+        {
+          file: configDir,
+          created: false,
+          skipped: false,
+          error: `Failed to create config directory: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
     };
   }
 

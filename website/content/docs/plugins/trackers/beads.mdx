@@ -8,7 +8,8 @@ description: Git-backed issue tracking with hierarchy and dependencies using the
 The Beads tracker integrates with [Beads](https://github.com/steveyegge/beads), a git-backed issue tracker. Issues are stored as JSONL in your repo and sync across team members via git.
 
 <Callout type="tip">
-Beads is ideal for team projects - everyone sees the same issues, and changes are tracked in git history.
+  Beads is ideal for team projects - everyone sees the same issues, and changes
+  are tracked in git history.
 </Callout>
 
 ## Prerequisites
@@ -27,7 +28,9 @@ This creates a `.beads/` directory with your issue tracker.
 ## Basic Usage
 
 <Callout type="warning">
-**Important:** By default, Ralph TUI only shows issues with the `ralph` label. Either add this label to your issues, or change the label filter during setup (leave blank to see all issues).
+  **Important:** By default, Ralph TUI only shows issues with the `ralph` label.
+  Either add this label to your issues, or change the label filter during setup
+  (leave blank to see all issues).
 </Callout>
 
 <Steps>
@@ -38,6 +41,7 @@ This creates a `.beads/` directory with your issue tracker.
     bd create --title "User Authentication" --type epic --label ralph
     # Created: beads-abc123
     ```
+
   </Step>
 
   <Step title="Add Tasks as Children of the Epic">
@@ -51,6 +55,7 @@ This creates a `.beads/` directory with your issue tracker.
     <Callout type="info">
     The `--parent` flag creates a parent-child relationship. Without it, tasks won't appear when filtering by epic.
     </Callout>
+
   </Step>
 
   <Step title="Add Dependencies (Optional)">
@@ -60,6 +65,7 @@ This creates a `.beads/` directory with your issue tracker.
     # Login form depends on Auth API being done first
     bd dep add beads-login beads-api
     ```
+
   </Step>
 
   <Step title="Run Ralph TUI">
@@ -68,6 +74,7 @@ This creates a `.beads/` directory with your issue tracker.
     ```bash
     ralph-tui run --tracker beads --epic beads-abc123
     ```
+
   </Step>
 </Steps>
 
@@ -96,15 +103,16 @@ labels = "ralph"
 
 ### Options Reference
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `beadsDir` | string | `.beads` | Path to .beads directory |
-| `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
-| `labels` | string | `ralph` | Comma-separated label filter (issues must have these labels) |
-| `workingDir` | string | `.` | Working directory for bd commands |
+| Option       | Type   | Default  | Description                                                  |
+| ------------ | ------ | -------- | ------------------------------------------------------------ |
+| `beadsDir`   | string | `.beads` | Path to .beads directory                                     |
+| `epicId`     | string | -        | Epic ID to filter tasks (set via `--epic` flag)              |
+| `labels`     | string | `ralph`  | Comma-separated label filter (issues must have these labels) |
+| `workingDir` | string | `.`      | Working directory for bd commands                            |
 
 <Callout type="info">
-The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
+  The `epicId` should be set via `--epic` flag rather than config, since you'll
+  likely work on different epics.
 </Callout>
 
 ## Beads Concepts
@@ -147,24 +155,24 @@ bd show beads-task-b
 
 ### Statuses
 
-| Beads Status | Ralph TUI Status | Description |
-|--------------|------------------|-------------|
-| `open` | `open` | Ready to work |
-| `in_progress` | `in_progress` | Currently being worked on |
-| `closed` | `completed` | Finished |
-| `cancelled` | `cancelled` | Won't do |
+| Beads Status  | Ralph TUI Status | Description               |
+| ------------- | ---------------- | ------------------------- |
+| `open`        | `open`           | Ready to work             |
+| `in_progress` | `in_progress`    | Currently being worked on |
+| `closed`      | `completed`      | Finished                  |
+| `cancelled`   | `cancelled`      | Won't do                  |
 
 ### Priorities
 
 Beads uses 0-4 priority scale (0 = critical):
 
-| Priority | Meaning |
-|----------|---------|
-| 0 | Critical |
-| 1 | High |
-| 2 | Medium (default) |
-| 3 | Low |
-| 4 | Backlog |
+| Priority | Meaning          |
+| -------- | ---------------- |
+| 0        | Critical         |
+| 1        | High             |
+| 2        | Medium (default) |
+| 3        | Low              |
+| 4        | Backlog          |
 
 ## Task Selection
 
@@ -214,7 +222,8 @@ labels = "ralph,frontend"  # Multiple labels (comma-separated)
 ```
 
 <Callout type="warning">
-If no tasks appear, check that your issues have the `ralph` label (or whatever labels you configured).
+  If no tasks appear, check that your issues have the `ralph` label (or whatever
+  labels you configured).
 </Callout>
 
 ## How It Works
@@ -231,13 +240,13 @@ When Ralph TUI runs with the Beads tracker:
 
 ### bd Commands Used
 
-| Action | Command |
-|--------|---------|
-| List tasks | `bd list --json --parent <epic>` |
-| Get task | `bd show <id> --json` |
-| Start task | `bd update <id> --status in_progress` |
-| Complete task | `bd update <id> --status closed` |
-| Sync | `bd sync` |
+| Action        | Command                               |
+| ------------- | ------------------------------------- |
+| List tasks    | `bd list --json --parent <epic>`      |
+| Get task      | `bd show <id> --json`                 |
+| Start task    | `bd update <id> --status in_progress` |
+| Complete task | `bd update <id> --status closed`      |
+| Sync          | `bd sync`                             |
 
 ## Switching Epics
 
@@ -266,6 +275,7 @@ Install the Beads CLI from the **[Beads GitHub repo](https://github.com/steveyeg
 ### "No tasks available"
 
 Check that:
+
 1. **Tasks have the `ralph` label**: `bd list --label ralph` (or run `bd label add <task> ralph`)
 2. **Tasks are children of the epic**: `bd list --parent <epic>` (create with `--parent <epic>`)
 3. **Tasks are `open` status**: `bd list --status open`
@@ -296,14 +306,14 @@ ralph-tui convert --to beads ./tasks/my-prd.md
 
 ## Beads vs JSON Tracker
 
-| Feature | JSON | Beads |
-|---------|------|-------|
-| Setup complexity | Lowest | Medium |
-| External tools | None | `bd` CLI |
-| Git sync | Manual | Automatic |
-| Epic hierarchy | No | Yes |
-| Team collaboration | Limited | Full |
-| Offline support | Full | Full |
+| Feature            | JSON    | Beads     |
+| ------------------ | ------- | --------- |
+| Setup complexity   | Lowest  | Medium    |
+| External tools     | None    | `bd` CLI  |
+| Git sync           | Manual  | Automatic |
+| Epic hierarchy     | No      | Yes       |
+| Team collaboration | Limited | Full      |
+| Offline support    | Full    | Full      |
 
 Choose JSON for quick experiments, Beads for team projects.
 

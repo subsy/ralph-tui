@@ -57,7 +57,10 @@ describe('StreamingOutputParser', () => {
 
   test('skips user/tool_result JSONL events', () => {
     const parser = new StreamingOutputParser();
-    const userEvent = JSON.stringify({ type: 'user', content: 'should not appear' });
+    const userEvent = JSON.stringify({
+      type: 'user',
+      content: 'should not appear',
+    });
     parser.push(userEvent + '\n');
     expect(parser.getOutput()).toBe('');
   });

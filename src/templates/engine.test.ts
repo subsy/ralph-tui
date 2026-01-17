@@ -9,7 +9,9 @@ import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
 
 describe('buildTemplateVariables', () => {
-  const createMinimalTask = (overrides: Partial<TrackerTask> = {}): TrackerTask => ({
+  const createMinimalTask = (
+    overrides: Partial<TrackerTask> = {},
+  ): TrackerTask => ({
     id: 'test-001',
     title: 'Test Task',
     status: 'open',
@@ -33,7 +35,9 @@ describe('buildTemplateVariables', () => {
 
       const vars = buildTemplateVariables(task, config);
 
-      expect(vars.beadsDbPath).toBe(path.join('/custom/project', '.beads', 'beads.db'));
+      expect(vars.beadsDbPath).toBe(
+        path.join('/custom/project', '.beads', 'beads.db'),
+      );
     });
 
     test('uses custom beadsDir when provided', () => {
@@ -51,7 +55,9 @@ describe('buildTemplateVariables', () => {
 
       const vars = buildTemplateVariables(task, config);
 
-      expect(vars.beadsDbPath).toBe(path.join('/project', '.custom-beads', 'beads.db'));
+      expect(vars.beadsDbPath).toBe(
+        path.join('/project', '.custom-beads', 'beads.db'),
+      );
     });
 
     test('falls back to config.cwd when tracker workingDir not set', () => {
@@ -67,7 +73,9 @@ describe('buildTemplateVariables', () => {
 
       const vars = buildTemplateVariables(task, config);
 
-      expect(vars.beadsDbPath).toBe(path.join('/config/cwd', '.beads', 'beads.db'));
+      expect(vars.beadsDbPath).toBe(
+        path.join('/config/cwd', '.beads', 'beads.db'),
+      );
     });
 
     test('falls back to process.cwd when no paths configured', () => {
@@ -83,7 +91,9 @@ describe('buildTemplateVariables', () => {
       const vars = buildTemplateVariables(task, config);
 
       // Should use process.cwd() as fallback
-      expect(vars.beadsDbPath).toBe(path.join(process.cwd(), '.beads', 'beads.db'));
+      expect(vars.beadsDbPath).toBe(
+        path.join(process.cwd(), '.beads', 'beads.db'),
+      );
     });
 
     test('handles empty config gracefully', () => {
@@ -93,7 +103,9 @@ describe('buildTemplateVariables', () => {
       const vars = buildTemplateVariables(task, config);
 
       // Should use process.cwd() as ultimate fallback
-      expect(vars.beadsDbPath).toBe(path.join(process.cwd(), '.beads', 'beads.db'));
+      expect(vars.beadsDbPath).toBe(
+        path.join(process.cwd(), '.beads', 'beads.db'),
+      );
     });
   });
 
@@ -161,7 +173,12 @@ describe('buildTemplateVariables', () => {
       const task = createMinimalTask();
       const config: Partial<RalphConfig> = {};
 
-      const vars = buildTemplateVariables(task, config, undefined, 'Completed step 1 and 2');
+      const vars = buildTemplateVariables(
+        task,
+        config,
+        undefined,
+        'Completed step 1 and 2',
+      );
 
       expect(vars.recentProgress).toBe('Completed step 1 and 2');
     });

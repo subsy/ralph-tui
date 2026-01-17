@@ -28,7 +28,10 @@ export function shouldLog(level: LogLevel, minLevel: LogLevel): boolean {
 /**
  * Format a timestamp for logging
  */
-export function formatTimestamp(date: Date, format: 'iso' | 'time' | 'datetime' = 'time'): string {
+export function formatTimestamp(
+  date: Date,
+  format: 'iso' | 'time' | 'datetime' = 'time',
+): string {
   switch (format) {
     case 'iso':
       return date.toISOString();
@@ -60,7 +63,7 @@ export function formatLogMessage(
     timestamp?: Date;
     timestampFormat?: 'iso' | 'time' | 'datetime';
     component?: string;
-  } = {}
+  } = {},
 ): string {
   const parts: string[] = [];
 
@@ -96,7 +99,9 @@ export function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   if (minutes < 60) {
-    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+    return remainingSeconds > 0
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`;
   }
 
   const hours = Math.floor(minutes / 60);
@@ -120,7 +125,11 @@ export function formatBytes(bytes: number): string {
 /**
  * Truncate a string to a maximum length with ellipsis
  */
-export function truncate(str: string, maxLength: number, ellipsis = '...'): string {
+export function truncate(
+  str: string,
+  maxLength: number,
+  ellipsis = '...',
+): string {
   if (str.length <= maxLength) {
     return str;
   }
@@ -180,7 +189,9 @@ export function createConsoleLogger(minLevel: LogLevel = 'info') {
   return {
     debug: (msg: string) => {
       if (shouldLog('debug', minLevel)) {
-        console.debug(formatLogMessage('debug', msg, { timestamp: new Date() }));
+        console.debug(
+          formatLogMessage('debug', msg, { timestamp: new Date() }),
+        );
       }
     },
     info: (msg: string) => {
@@ -195,7 +206,9 @@ export function createConsoleLogger(minLevel: LogLevel = 'info') {
     },
     error: (msg: string) => {
       if (shouldLog('error', minLevel)) {
-        console.error(formatLogMessage('error', msg, { timestamp: new Date() }));
+        console.error(
+          formatLogMessage('error', msg, { timestamp: new Date() }),
+        );
       }
     },
   };

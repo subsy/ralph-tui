@@ -19,7 +19,7 @@ export const DEFAULT_TRACKER_CONFIG: TrackerPluginConfig = {
  * Create a TrackerPluginConfig with optional overrides
  */
 export function createTrackerConfig(
-  overrides: Partial<TrackerPluginConfig> = {}
+  overrides: Partial<TrackerPluginConfig> = {},
 ): TrackerPluginConfig {
   return {
     ...DEFAULT_TRACKER_CONFIG,
@@ -36,7 +36,7 @@ export function createTrackerConfig(
  */
 export function createJsonTrackerConfig(
   prdPath = './prd.json',
-  overrides: Partial<Omit<TrackerPluginConfig, 'plugin'>> = {}
+  overrides: Partial<Omit<TrackerPluginConfig, 'plugin'>> = {},
 ): TrackerPluginConfig {
   const { options: overrideOptions, ...rest } = overrides;
   return createTrackerConfig({
@@ -55,7 +55,7 @@ export function createJsonTrackerConfig(
  */
 export function createBeadsTrackerConfig(
   epicId = 'test-epic',
-  overrides: Partial<Omit<TrackerPluginConfig, 'plugin'>> = {}
+  overrides: Partial<Omit<TrackerPluginConfig, 'plugin'>> = {},
 ): TrackerPluginConfig {
   const { options: overrideOptions, ...rest } = overrides;
   return createTrackerConfig({
@@ -74,7 +74,7 @@ export function createBeadsTrackerConfig(
  */
 export function createBeadsBvTrackerConfig(
   epicId = 'test-epic',
-  overrides: Partial<Omit<TrackerPluginConfig, 'plugin'>> = {}
+  overrides: Partial<Omit<TrackerPluginConfig, 'plugin'>> = {},
 ): TrackerPluginConfig {
   const { options: overrideOptions, ...rest } = overrides;
   return createTrackerConfig({

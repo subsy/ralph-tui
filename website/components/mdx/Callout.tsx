@@ -99,11 +99,7 @@ export interface CalloutProps {
  *   Be careful with this operation.
  * </Callout>
  */
-export function Callout({
-  variant = 'info',
-  title,
-  children,
-}: CalloutProps) {
+export function Callout({ variant = 'info', title, children }: CalloutProps) {
   const config = variants[variant];
   const Icon = config.icon;
 
@@ -152,9 +148,7 @@ export function Callout({
           className={[config.accentColor, 'w-4 h-4'].join(' ')}
           aria-hidden="true"
         />
-        <span className={config.accentColor}>
-          {title || config.label}
-        </span>
+        <span className={config.accentColor}>{title || config.label}</span>
       </div>
 
       {/* Content area */}

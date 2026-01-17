@@ -4,13 +4,36 @@
  * It showcases factories, mocks, spying, and common test patterns.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from 'bun:test';
 
 // Import factories for creating test data
-import { createTrackerTask, createTrackerTasks, createOpenTask, createCompletedTask } from './factories/tracker-task.js';
-import { createSessionMetadata, createRunningSession, createPausedSession } from './factories/session-state.js';
-import { createAgentConfig, createClaudeAgentConfig } from './factories/agent-config.js';
-import { createTrackerConfig, createJsonTrackerConfig } from './factories/tracker-config.js';
+import {
+  createTrackerTask,
+  createTrackerTasks,
+  createOpenTask,
+  createCompletedTask,
+} from './factories/tracker-task.js';
+import {
+  createSessionMetadata,
+  createRunningSession,
+  createPausedSession,
+} from './factories/session-state.js';
+import {
+  createAgentConfig,
+  createClaudeAgentConfig,
+} from './factories/agent-config.js';
+import {
+  createTrackerConfig,
+  createJsonTrackerConfig,
+} from './factories/tracker-config.js';
 
 // Import mocks for simulating dependencies
 import {
@@ -22,7 +45,7 @@ import {
 
 /**
  * Example 1: Basic Test Structure
- * 
+ *
  * Shows how to organize tests with describe blocks,
  * setup/teardown with beforeEach/afterEach, and assertions.
  */
@@ -78,7 +101,7 @@ describe('Example: Basic Test Structure', () => {
 
 /**
  * Example 2: Using Factories
- * 
+ *
  * Demonstrates how to use factory functions to create
  * consistent test data with sensible defaults.
  */
@@ -177,7 +200,7 @@ describe('Example: Using Factories', () => {
 
 /**
  * Example 3: Using Mocks
- * 
+ *
  * Shows how to create and use mock objects for testing
  * code that depends on external systems.
  */
@@ -219,7 +242,7 @@ describe('Example: Using Mocks', () => {
 
 /**
  * Example 4: Spying on Methods
- * 
+ *
  * Demonstrates how to spy on object methods to verify
  * they are called with expected arguments.
  */
@@ -258,7 +281,7 @@ describe('Example: Spying', () => {
 
 /**
  * Example 5: Testing Async Code
- * 
+ *
  * Shows patterns for testing promises, async/await,
  * and handling async errors.
  */
@@ -305,7 +328,7 @@ describe('Example: Async Testing', () => {
 
 /**
  * Example 6: Module Mocking
- * 
+ *
  * Demonstrates how to mock entire modules using Bun's
  * mock.module() function for dependency injection.
  */
@@ -328,7 +351,7 @@ describe('Example: Module Mocking', () => {
 
 /**
  * Example 7: Testing Edge Cases
- * 
+ *
  * Shows how to test boundary conditions, null/undefined
  * handling, and error scenarios.
  */

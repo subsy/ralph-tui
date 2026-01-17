@@ -3,7 +3,15 @@
  * Provides path operations, file discovery, and common file helpers.
  */
 
-import { join, dirname, basename, extname, resolve, normalize, isAbsolute } from 'node:path';
+import {
+  join,
+  dirname,
+  basename,
+  extname,
+  resolve,
+  normalize,
+  isAbsolute,
+} from 'node:path';
 import { access, readdir, stat, constants } from 'node:fs/promises';
 
 /**
@@ -54,7 +62,7 @@ export async function findFiles(
     recursive?: boolean;
     /** Maximum depth for recursive search (0 = current dir only) */
     maxDepth?: number;
-  } = {}
+  } = {},
 ): Promise<string[]> {
   const { extension, recursive = false, maxDepth = Infinity } = options;
   const results: string[] = [];
@@ -88,7 +96,10 @@ export async function findFiles(
 /**
  * Ensure a path is absolute, resolving relative paths from cwd
  */
-export function ensureAbsolute(filePath: string, cwd: string = process.cwd()): string {
+export function ensureAbsolute(
+  filePath: string,
+  cwd: string = process.cwd(),
+): string {
   if (isAbsolute(filePath)) {
     return normalize(filePath);
   }
@@ -171,7 +182,7 @@ export function hasExtension(filePath: string, extensions: string[]): boolean {
  */
 export async function findProjectRoot(
   startDir: string,
-  markers: string[] = ['package.json', '.git']
+  markers: string[] = ['package.json', '.git'],
 ): Promise<string | null> {
   let currentDir = resolve(startDir);
 

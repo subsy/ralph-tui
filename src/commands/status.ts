@@ -18,10 +18,10 @@ import type { LockCheckResult } from '../session/lock.js';
  * Overall status of Ralph in the current directory
  */
 export type RalphStatus =
-  | 'running'    // Active lock held by running process
-  | 'paused'     // Session paused, resumable
-  | 'completed'  // Session completed successfully
-  | 'failed'     // Session failed
+  | 'running' // Active lock held by running process
+  | 'paused' // Session paused, resumable
+  | 'completed' // Session completed successfully
+  | 'failed' // Session failed
   | 'no-session'; // No session file exists
 
 /**
@@ -149,7 +149,7 @@ function formatDate(isoString: string): string {
  */
 function determineStatus(
   session: PersistedSessionState | null,
-  lockCheck: LockCheckResult
+  lockCheck: LockCheckResult,
 ): RalphStatus {
   // Check if Ralph is actively running (lock held by running process)
   if (lockCheck.isLocked) {
@@ -203,7 +203,7 @@ function getExitCode(status: RalphStatus): StatusExitCode {
 function buildJsonOutput(
   status: RalphStatus,
   session: PersistedSessionState | null,
-  lockCheck: LockCheckResult
+  lockCheck: LockCheckResult,
 ): StatusJsonOutput {
   const output: StatusJsonOutput = {
     status,
@@ -212,9 +212,10 @@ function buildJsonOutput(
   // Add session details if available
   if (session) {
     const summary = getSessionSummary(session);
-    const progressPercent = summary.totalTasks > 0
-      ? Math.round((summary.tasksCompleted / summary.totalTasks) * 100)
-      : 0;
+    const progressPercent =
+      summary.totalTasks > 0
+        ? Math.round((summary.tasksCompleted / summary.totalTasks) * 100)
+        : 0;
 
     output.session = {
       id: summary.sessionId,
@@ -259,7 +260,7 @@ function buildJsonOutput(
 function printHumanStatus(
   status: RalphStatus,
   session: PersistedSessionState | null,
-  lockCheck: LockCheckResult
+  lockCheck: LockCheckResult,
 ): void {
   // No session
   if (!session && status === 'no-session') {
@@ -274,9 +275,15 @@ function printHumanStatus(
 
   // Display session info
   console.log('');
-  console.log('═══════════════════════════════════════════════════════════════');
-  console.log('                    Ralph TUI Session Status                    ');
-  console.log('═══════════════════════════════════════════════════════════════');
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
+  console.log(
+    '                    Ralph TUI Session Status                    ',
+  );
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
   console.log('');
 
   // Status with icon
@@ -288,19 +295,26 @@ function printHumanStatus(
     console.log(`  Session ID:      ${summary.sessionId.slice(0, 8)}...`);
     console.log(`  Started:         ${formatDate(summary.startedAt)}`);
     console.log(`  Last Updated:    ${formatDate(summary.updatedAt)}`);
-    console.log(`  Elapsed:         ${formatDuration(summary.startedAt, summary.updatedAt)}`);
+    console.log(
+      `  Elapsed:         ${formatDuration(summary.startedAt, summary.updatedAt)}`,
+    );
     console.log('');
 
     // Progress
-    const progressPercent = summary.totalTasks > 0
-      ? Math.round((summary.tasksCompleted / summary.totalTasks) * 100)
-      : 0;
+    const progressPercent =
+      summary.totalTasks > 0
+        ? Math.round((summary.tasksCompleted / summary.totalTasks) * 100)
+        : 0;
     const progressBar = createProgressBar(progressPercent, 30);
 
     console.log('  Progress:');
     console.log(`    ${progressBar} ${progressPercent}%`);
-    console.log(`    Tasks: ${summary.tasksCompleted}/${summary.totalTasks} completed`);
-    console.log(`    Iteration: ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`);
+    console.log(
+      `    Tasks: ${summary.tasksCompleted}/${summary.totalTasks} completed`,
+    );
+    console.log(
+      `    Iteration: ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`,
+    );
     console.log('');
 
     // Configuration
@@ -326,7 +340,9 @@ function printHumanStatus(
     console.log(`    Host:          ${lockCheck.lock.hostname}`);
     console.log('');
   } else if (lockCheck.lock && lockCheck.isStale) {
-    console.log('  ⚠️  Stale lock detected (PID ${lockCheck.lock.pid} not running)');
+    console.log(
+      '  ⚠️  Stale lock detected (PID ${lockCheck.lock.pid} not running)',
+    );
     console.log('');
   }
 
@@ -338,7 +354,7 @@ function printHumanStatus(
       const iterStatus = getIterationStatusIcon(iter.status);
       const duration = Math.round(iter.durationMs / 1000);
       console.log(
-        `    ${iterStatus} Iteration ${iter.iteration}: ${iter.taskTitle.slice(0, 40)}${iter.taskTitle.length > 40 ? '...' : ''} (${duration}s)`
+        `    ${iterStatus} Iteration ${iter.iteration}: ${iter.taskTitle.slice(0, 40)}${iter.taskTitle.length > 40 ? '...' : ''} (${duration}s)`,
       );
     }
     if (session.iterations.length > 5) {
@@ -354,7 +370,9 @@ function printHumanStatus(
   }
 
   // Actions
-  console.log('───────────────────────────────────────────────────────────────');
+  console.log(
+    '───────────────────────────────────────────────────────────────',
+  );
   if (resumable) {
     console.log('  This session can be resumed.');
     console.log('');
@@ -373,7 +391,9 @@ function printHumanStatus(
     console.log('');
     console.log('  To stop:    Use Ctrl+C in the running terminal');
   }
-  console.log('───────────────────────────────────────────────────────────────');
+  console.log(
+    '───────────────────────────────────────────────────────────────',
+  );
   console.log('');
 }
 

@@ -123,7 +123,10 @@ describe('files utility', () => {
     });
 
     test('combines extension and recursive options', async () => {
-      const files = await findFiles(tempDir, { extension: '.ts', recursive: true });
+      const files = await findFiles(tempDir, {
+        extension: '.ts',
+        recursive: true,
+      });
       expect(files.length).toBe(3);
     });
 
@@ -145,7 +148,10 @@ describe('files utility', () => {
     });
 
     test('normalizes path with . and ..', () => {
-      const result = ensureAbsolute('./src/../lib/index.ts', '/home/user/project');
+      const result = ensureAbsolute(
+        './src/../lib/index.ts',
+        '/home/user/project',
+      );
       expect(result).toBe('/home/user/project/lib/index.ts');
     });
   });
@@ -226,7 +232,9 @@ describe('files utility', () => {
 
   describe('normalizePath', () => {
     test('normalizes path with . and ..', () => {
-      expect(normalizePath('/home/user/../admin/./project')).toBe('/home/admin/project');
+      expect(normalizePath('/home/user/../admin/./project')).toBe(
+        '/home/admin/project',
+      );
     });
 
     test('handles paths with trailing slash', () => {
@@ -293,7 +301,9 @@ describe('files utility', () => {
     test('uses custom markers', async () => {
       const customMarker = 'custom.marker';
       await writeFile(join(tempDir, customMarker), '');
-      const result = await findProjectRoot(join(tempDir, 'src'), [customMarker]);
+      const result = await findProjectRoot(join(tempDir, 'src'), [
+        customMarker,
+      ]);
       expect(normalizePath(result || '')).toBe(normalizePath(tempDir));
     });
   });

@@ -101,7 +101,7 @@ export interface SubagentTreeNode {
  */
 export function toEngineSubagentState(
   parserState: ParserSubagentState,
-  depth: number
+  depth: number,
 ): EngineSubagentState {
   return {
     id: parserState.id,
@@ -554,7 +554,12 @@ export type EngineEventListener = (event: EngineEvent) => void;
  * - 'paused': Paused, waiting to resume
  * - 'stopping': Stop requested, shutting down
  */
-export type EngineStatus = 'idle' | 'running' | 'pausing' | 'paused' | 'stopping';
+export type EngineStatus =
+  | 'idle'
+  | 'running'
+  | 'pausing'
+  | 'paused'
+  | 'stopping';
 
 /**
  * Engine state snapshot

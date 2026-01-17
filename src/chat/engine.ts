@@ -14,7 +14,10 @@ import type {
   ChatEvent,
   ChatEventListener,
 } from './types.js';
-import type { AgentPlugin, AgentExecuteOptions } from '../plugins/agents/types.js';
+import type {
+  AgentPlugin,
+  AgentExecuteOptions,
+} from '../plugins/agents/types.js';
 
 /**
  * Default system prompt for PRD generation.
@@ -36,7 +39,8 @@ The user can respond with shorthand like "1A, 2C" for quick iteration.
 
 export const PRD_SYSTEM_PROMPT = buildPrdSystemPrompt(DEFAULT_PRD_SKILL);
 
-const TASK_SYSTEM_PROMPT = 'You are a helpful assistant. Follow the user instructions carefully.';
+const TASK_SYSTEM_PROMPT =
+  'You are a helpful assistant. Follow the user instructions carefully.';
 
 const PRD_COMPATIBILITY_GUIDANCE = `
 # PRD Output Requirements
@@ -55,7 +59,9 @@ function stripSkillFrontMatter(skillSource: string): string {
   return skillSource.replace(frontMatterRegex, '').trim();
 }
 
-export function buildPrdSystemPromptFromSkillSource(skillSource: string): string {
+export function buildPrdSystemPromptFromSkillSource(
+  skillSource: string,
+): string {
   const cleanedSource = stripSkillFrontMatter(skillSource);
   if (!cleanedSource) {
     return PRD_COMPATIBILITY_GUIDANCE.trim();
@@ -145,7 +151,9 @@ export class ChatEngine {
     parts.push(`<system>\n${this.config.systemPrompt}\n</system>\n`);
 
     // Add conversation history (limited by maxHistoryMessages)
-    const historyToInclude = this.messages.slice(-this.config.maxHistoryMessages);
+    const historyToInclude = this.messages.slice(
+      -this.config.maxHistoryMessages,
+    );
 
     if (historyToInclude.length > 0) {
       parts.push('<conversation>');
@@ -171,7 +179,7 @@ export class ChatEngine {
    */
   async sendMessage(
     content: string,
-    options: SendMessageOptions = {}
+    options: SendMessageOptions = {},
   ): Promise<SendMessageResult> {
     if (this.status === 'processing') {
       return {
@@ -231,7 +239,8 @@ export class ChatEngine {
         this.setStatus('error');
         // Build a useful error message: prefer explicit error, then stderr, then generic status
         const trimmedStderr = result.stderr?.trim();
-        const errorMessage = result.error || trimmedStderr || `Execution ${result.status}`;
+        const errorMessage =
+          result.error || trimmedStderr || `Execution ${result.status}`;
         this.emit({
           type: 'error:occurred',
           timestamp: new Date(),
@@ -283,7 +292,8 @@ export class ChatEngine {
       };
     } catch (error) {
       const durationMs = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       this.setStatus('error');
       this.emit({
@@ -377,7 +387,7 @@ export function createPrdChatEngine(
     timeout?: number;
     prdSkill?: string;
     prdSkillSource?: string;
-  } = {}
+  } = {},
 ): ChatEngine {
   const systemPrompt = options.prdSkillSource
     ? buildPrdSystemPromptFromSkillSource(options.prdSkillSource)
@@ -398,7 +408,7 @@ export function createTaskChatEngine(
   options: {
     cwd?: string;
     timeout?: number;
-  } = {}
+  } = {},
 ): ChatEngine {
   return new ChatEngine({
     agent,

@@ -74,7 +74,7 @@ export class MockChildProcess extends EventEmitter {
     stdoutChunks.forEach((chunk, i) => {
       const timeout = setTimeout(
         () => this.stdout.emit('data', chunk),
-        chunkDelay * i
+        chunkDelay * i,
       );
       this.timeouts.push(timeout);
     });
@@ -84,7 +84,7 @@ export class MockChildProcess extends EventEmitter {
     stderrChunks.forEach((chunk, i) => {
       const timeout = setTimeout(
         () => this.stderr.emit('data', chunk),
-        chunkDelay * i
+        chunkDelay * i,
       );
       this.timeouts.push(timeout);
     });
@@ -92,7 +92,7 @@ export class MockChildProcess extends EventEmitter {
     // Emit close after all output
     const totalDelay = Math.max(
       chunkDelay * stdoutChunks.length,
-      chunkDelay * stderrChunks.length
+      chunkDelay * stderrChunks.length,
     );
 
     const exitTimeout = setTimeout(() => {
@@ -142,7 +142,11 @@ export class MockChildProcess extends EventEmitter {
 export class MockSpawnFactory {
   private configs: MockProcessConfig[] = [];
   private callIndex = 0;
-  public spawnCalls: Array<{ command: string; args: string[]; options: unknown }> = [];
+  public spawnCalls: Array<{
+    command: string;
+    args: string[];
+    options: unknown;
+  }> = [];
 
   /**
    * Set the configuration for the next spawn call
@@ -174,7 +178,7 @@ export class MockSpawnFactory {
   createSpawn(): (
     command: string,
     args: string[],
-    options?: unknown
+    options?: unknown,
   ) => MockChildProcess {
     return (command: string, args: string[], options?: unknown) => {
       this.spawnCalls.push({ command, args, options });

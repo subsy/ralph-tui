@@ -21,9 +21,21 @@ describe('retry utility', () => {
     });
 
     test('applies exponential multiplier', () => {
-      const delay1 = calculateBackoff(1, { initialDelay: 1000, multiplier: 2, jitter: 0 });
-      const delay2 = calculateBackoff(2, { initialDelay: 1000, multiplier: 2, jitter: 0 });
-      const delay3 = calculateBackoff(3, { initialDelay: 1000, multiplier: 2, jitter: 0 });
+      const delay1 = calculateBackoff(1, {
+        initialDelay: 1000,
+        multiplier: 2,
+        jitter: 0,
+      });
+      const delay2 = calculateBackoff(2, {
+        initialDelay: 1000,
+        multiplier: 2,
+        jitter: 0,
+      });
+      const delay3 = calculateBackoff(3, {
+        initialDelay: 1000,
+        multiplier: 2,
+        jitter: 0,
+      });
 
       expect(delay1).toBe(1000);
       expect(delay2).toBe(2000);
@@ -40,16 +52,36 @@ describe('retry utility', () => {
     });
 
     test('applies fixed backoff strategy', () => {
-      const delay1 = calculateBackoff(1, { strategy: 'fixed', initialDelay: 1000, jitter: 0 });
-      const delay2 = calculateBackoff(5, { strategy: 'fixed', initialDelay: 1000, jitter: 0 });
+      const delay1 = calculateBackoff(1, {
+        strategy: 'fixed',
+        initialDelay: 1000,
+        jitter: 0,
+      });
+      const delay2 = calculateBackoff(5, {
+        strategy: 'fixed',
+        initialDelay: 1000,
+        jitter: 0,
+      });
       expect(delay1).toBe(1000);
       expect(delay2).toBe(1000);
     });
 
     test('applies linear backoff strategy', () => {
-      const delay1 = calculateBackoff(1, { strategy: 'linear', initialDelay: 1000, jitter: 0 });
-      const delay2 = calculateBackoff(2, { strategy: 'linear', initialDelay: 1000, jitter: 0 });
-      const delay3 = calculateBackoff(3, { strategy: 'linear', initialDelay: 1000, jitter: 0 });
+      const delay1 = calculateBackoff(1, {
+        strategy: 'linear',
+        initialDelay: 1000,
+        jitter: 0,
+      });
+      const delay2 = calculateBackoff(2, {
+        strategy: 'linear',
+        initialDelay: 1000,
+        jitter: 0,
+      });
+      const delay3 = calculateBackoff(3, {
+        strategy: 'linear',
+        initialDelay: 1000,
+        jitter: 0,
+      });
 
       expect(delay1).toBe(1000);
       expect(delay2).toBe(2000);
@@ -119,7 +151,7 @@ describe('retry utility', () => {
           }
           return 'success';
         },
-        { maxRetries: 5, initialDelay: 10 }
+        { maxRetries: 5, initialDelay: 10 },
       );
 
       expect(result.success).toBe(true);
@@ -134,7 +166,7 @@ describe('retry utility', () => {
           attempts++;
           throw new Error('Persistent failure');
         },
-        { maxRetries: 3, initialDelay: 10 }
+        { maxRetries: 3, initialDelay: 10 },
       );
 
       expect(result.success).toBe(false);
@@ -153,7 +185,7 @@ describe('retry utility', () => {
           maxRetries: 5,
           initialDelay: 10,
           isRetryable: () => false,
-        }
+        },
       );
 
       expect(result.success).toBe(false);
@@ -179,7 +211,7 @@ describe('retry utility', () => {
           onRetry: (attempt, _error, delay) => {
             retryCalls.push({ attempt, delay });
           },
-        }
+        },
       );
 
       expect(retryCalls.length).toBe(2);
@@ -193,7 +225,7 @@ describe('retry utility', () => {
           await sleep(20);
           return 'success';
         },
-        { maxRetries: 0 }
+        { maxRetries: 0 },
       );
 
       expect(result.totalTime).toBeGreaterThanOrEqual(15);
@@ -229,7 +261,7 @@ describe('retry utility', () => {
           return counter;
         },
         (value) => value >= 3,
-        { maxRetries: 5, pollingInterval: 10 }
+        { maxRetries: 5, pollingInterval: 10 },
       );
 
       expect(result.success).toBe(true);
@@ -240,7 +272,7 @@ describe('retry utility', () => {
       const result = await retryUntil(
         async () => 1,
         (value) => value > 10,
-        { maxRetries: 2, pollingInterval: 10 }
+        { maxRetries: 2, pollingInterval: 10 },
       );
 
       expect(result.success).toBe(false);

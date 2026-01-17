@@ -22,7 +22,7 @@ const USER_PLUGINS_DIR = join(
   '.config',
   'ralph-tui',
   'plugins',
-  'trackers'
+  'trackers',
 );
 
 /**
@@ -313,7 +313,7 @@ export class TrackerRegistry {
    */
   async disposeAll(): Promise<void> {
     const disposals = Array.from(this.loadedInstances.values()).map(
-      (instance) => instance.dispose()
+      (instance) => instance.dispose(),
     );
     await Promise.all(disposals);
     this.loadedInstances.clear();

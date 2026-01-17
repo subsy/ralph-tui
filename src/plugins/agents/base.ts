@@ -28,7 +28,7 @@ function debugLog(msg: string): void {
  * @returns Promise with found status and path
  */
 export function findCommandPath(
-  command: string
+  command: string,
 ): Promise<{ found: boolean; path: string }> {
   return new Promise((resolve) => {
     const isWindows = platform() === 'win32';
@@ -133,7 +133,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
     if (Array.isArray(config.defaultFlags)) {
       this.defaultFlags = config.defaultFlags.filter(
-        (f): f is string => typeof f === 'string'
+        (f): f is string => typeof f === 'string',
       );
     }
 
@@ -232,7 +232,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   protected abstract buildArgs(
     prompt: string,
     files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): string[];
 
   /**
@@ -247,7 +247,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   protected getStdinInput(
     _prompt: string,
     _files?: AgentFileContext[],
-    _options?: AgentExecuteOptions
+    _options?: AgentExecuteOptions,
   ): string | undefined {
     return undefined;
   }
@@ -259,7 +259,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   execute(
     prompt: string,
     files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): AgentExecutionHandle {
     const executionId = randomUUID();
     const command = this.commandPath ?? this.meta.defaultCommand;
@@ -350,7 +350,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       proc.on('close', (code, signal) => {
         // Debug: log close event
         if (process.env.RALPH_DEBUG) {
-          debugLog(`[DEBUG] Process close: code=${code}, signal=${signal}, execId=${executionId}`);
+          debugLog(
+            `[DEBUG] Process close: code=${code}, signal=${signal}, execId=${executionId}`,
+          );
         }
 
         // Determine status
@@ -371,7 +373,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // Backup: also listen for 'exit' event in case 'close' doesn't fire
       proc.on('exit', (code, signal) => {
         if (process.env.RALPH_DEBUG) {
-          debugLog(`[DEBUG] Process exit: code=${code}, signal=${signal}, execId=${executionId}`);
+          debugLog(
+            `[DEBUG] Process exit: code=${code}, signal=${signal}, execId=${executionId}`,
+          );
         }
         // Note: We don't call completeExecution here to avoid double-completion
         // 'close' should fire after 'exit' once stdio streams are closed
@@ -397,7 +401,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       }
     };
 
-    const resolveSandboxConfig = async (): Promise<SandboxConfig | undefined> => {
+    const resolveSandboxConfig = async (): Promise<
+      SandboxConfig | undefined
+    > => {
       const sandboxConfig = options?.sandbox;
       if (!sandboxConfig?.enabled) {
         return undefined;
@@ -419,7 +425,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
         if (sandboxConfig) {
           const wrapper = new SandboxWrapper(
             sandboxConfig,
-            this.getSandboxRequirements()
+            this.getSandboxRequirements(),
           );
           const wrapped = wrapper.wrapCommand(command, allArgs, {
             cwd: options?.cwd,
@@ -468,18 +474,22 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     executionId: string,
     status: AgentExecutionStatus,
     exitCode?: number,
-    error?: string
+    error?: string,
   ): void {
     const execution = this.executions.get(executionId);
     if (!execution) {
       if (process.env.RALPH_DEBUG) {
-        debugLog(`[DEBUG] completeExecution: execution not found for ${executionId}`);
+        debugLog(
+          `[DEBUG] completeExecution: execution not found for ${executionId}`,
+        );
       }
       return;
     }
 
     if (process.env.RALPH_DEBUG) {
-      debugLog(`[DEBUG] completeExecution: status=${status}, exitCode=${exitCode}, execId=${executionId}`);
+      debugLog(
+        `[DEBUG] completeExecution: status=${status}, exitCode=${exitCode}, execId=${executionId}`,
+      );
     }
 
     // Clear timeout if set
@@ -511,7 +521,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
     // Resolve the promise
     if (process.env.RALPH_DEBUG) {
-      debugLog(`[DEBUG] Resolving promise for ${executionId}, stdout length=${result.stdout.length}`);
+      debugLog(
+        `[DEBUG] Resolving promise for ${executionId}, stdout length=${result.stdout.length}`,
+      );
     }
     execution.resolve(result);
   }
@@ -604,7 +616,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
    * Subclasses should override for validation.
    */
   async validateSetup(
-    _answers: Record<string, unknown>
+    _answers: Record<string, unknown>,
   ): Promise<string | null> {
     return null;
   }

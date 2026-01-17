@@ -55,7 +55,7 @@ export class SandboxWrapper {
   wrapCommand(
     command: string,
     args: string[],
-    options: SandboxWrapOptions = {}
+    options: SandboxWrapOptions = {},
   ): WrappedCommand {
     if (this.config.enabled === false || this.config.mode === 'off') {
       return { command, args };
@@ -79,11 +79,17 @@ export class SandboxWrapper {
   wrapWithBwrap(
     command: string,
     args: string[],
-    options: SandboxWrapOptions = {}
+    options: SandboxWrapOptions = {},
   ): WrappedCommand {
     const cwd = options.cwd ?? process.cwd();
     const workDir = resolve(cwd);
-    const bwrapArgs: string[] = ['--die-with-parent', '--dev', '/dev', '--proc', '/proc'];
+    const bwrapArgs: string[] = [
+      '--die-with-parent',
+      '--dev',
+      '/dev',
+      '--proc',
+      '/proc',
+    ];
 
     if (this.config.network === false) {
       bwrapArgs.push('--unshare-net');
@@ -132,7 +138,7 @@ export class SandboxWrapper {
   wrapWithSandboxExec(
     command: string,
     args: string[],
-    options: SandboxWrapOptions = {}
+    options: SandboxWrapOptions = {},
   ): WrappedCommand {
     const cwd = options.cwd ?? process.cwd();
     const workDir = resolve(cwd);
@@ -188,13 +194,20 @@ export class SandboxWrapper {
 
     // Working directory (read-write)
     lines.push('; Working directory (read-write)');
-    lines.push(`(allow file-read* file-write* (subpath "${escapeSeatbeltPath(workDir)}"))`);
+    lines.push(
+      `(allow file-read* file-write* (subpath "${escapeSeatbeltPath(workDir)}"))`,
+    );
 
     // Additional allowed paths (read-write)
-    const allowPaths = this.normalizePaths(this.config.allowPaths ?? [], workDir);
+    const allowPaths = this.normalizePaths(
+      this.config.allowPaths ?? [],
+      workDir,
+    );
     for (const path of allowPaths) {
       if (path !== workDir && existsSync(path)) {
-        lines.push(`(allow file-read* file-write* (subpath "${escapeSeatbeltPath(path)}"))`);
+        lines.push(
+          `(allow file-read* file-write* (subpath "${escapeSeatbeltPath(path)}"))`,
+        );
       }
     }
 
@@ -204,7 +217,9 @@ export class SandboxWrapper {
     const authPaths = this.normalizePaths(this.requirements.authPaths, workDir);
     for (const path of authPaths) {
       if (existsSync(path)) {
-        lines.push(`(allow file-read* file-write* (subpath "${escapeSeatbeltPath(path)}"))`);
+        lines.push(
+          `(allow file-read* file-write* (subpath "${escapeSeatbeltPath(path)}"))`,
+        );
       }
     }
     lines.push('');
@@ -218,7 +233,9 @@ export class SandboxWrapper {
     ]);
     for (const path of readOnlyPaths) {
       if (existsSync(path)) {
-        lines.push(`(allow file-read* (subpath "${escapeSeatbeltPath(path)}"))`);
+        lines.push(
+          `(allow file-read* (subpath "${escapeSeatbeltPath(path)}"))`,
+        );
       }
     }
 

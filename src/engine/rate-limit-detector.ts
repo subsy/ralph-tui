@@ -54,7 +54,8 @@ const COMMON_PATTERNS: RateLimitPattern[] = [
   // Matches: "429 Too Many", "HTTP 429", "status 429", "error 429", "code 429"
   // Excludes: line numbers like "429→" or "line 429"
   {
-    pattern: /(?:HTTP|status|error|code|response)[\s:]*429|429\s*(?:too many|rate limit|error)/i,
+    pattern:
+      /(?:HTTP|status|error|code|response)[\s:]*429|429\s*(?:too many|rate limit|error)/i,
     retryAfterPattern: /retry[- ]?after[:\s]+(\d+)\s*s/i,
   },
   // Generic rate limit phrases
@@ -240,7 +241,10 @@ export class RateLimitDetector {
   /**
    * Extract retry-after duration in seconds from output.
    */
-  private extractRetryAfter(output: string, pattern: RegExp): number | undefined {
+  private extractRetryAfter(
+    output: string,
+    pattern: RegExp,
+  ): number | undefined {
     const match = output.match(pattern);
     if (match && match[1]) {
       const seconds = parseInt(match[1], 10);

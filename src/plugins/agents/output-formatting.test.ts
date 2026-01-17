@@ -68,7 +68,9 @@ describe('formatCommand', () => {
   });
 
   test('normalizes newlines to spaces', () => {
-    expect(formatCommand('git commit\n-m "message"')).toBe('$ git commit -m "message"');
+    expect(formatCommand('git commit\n-m "message"')).toBe(
+      '$ git commit -m "message"',
+    );
   });
 
   test('trims whitespace', () => {
@@ -77,7 +79,9 @@ describe('formatCommand', () => {
 
   test('extracts command after semicolon (env var setup)', () => {
     expect(formatCommand('CI=true ; git status')).toBe('$ git status');
-    expect(formatCommand('VAR1=a ; VAR2=b ; actual-command')).toBe('$ actual-command');
+    expect(formatCommand('VAR1=a ; VAR2=b ; actual-command')).toBe(
+      '$ actual-command',
+    );
   });
 
   test('removes inline env var prefixes', () => {
@@ -104,7 +108,9 @@ describe('formatCommand', () => {
 
 describe('formatError', () => {
   test('wraps message in Error brackets with pink color', () => {
-    expect(formatError('Something went wrong')).toContain('[Error: Something went wrong]');
+    expect(formatError('Something went wrong')).toContain(
+      '[Error: Something went wrong]',
+    );
     expect(formatError('Something went wrong')).toContain(COLORS.pink);
     expect(formatError('Something went wrong')).toContain(COLORS.reset);
     expect(formatError('File not found')).toContain('[Error: File not found]');
@@ -134,7 +140,9 @@ describe('formatUrl', () => {
     expect(formatUrl('https://example.com')).toContain('https://example.com');
     expect(formatUrl('https://example.com')).toContain(COLORS.cyan);
     expect(formatUrl('https://example.com')).toContain(COLORS.reset);
-    expect(formatUrl('http://localhost:3000')).toContain('http://localhost:3000');
+    expect(formatUrl('http://localhost:3000')).toContain(
+      'http://localhost:3000',
+    );
   });
 
   test('handles empty string', () => {
@@ -179,7 +187,10 @@ describe('formatToolCall', () => {
   });
 
   test('prefers file_path over path when both provided', () => {
-    const result = formatToolCall('read', { file_path: '/correct', path: '/wrong' });
+    const result = formatToolCall('read', {
+      file_path: '/correct',
+      path: '/wrong',
+    });
     expect(result).toContain('[read]');
     expect(result).toContain('/correct');
     expect(result).not.toContain('/wrong');
@@ -278,7 +289,13 @@ describe('processAgentEvents', () => {
   });
 
   test('displays tool_use events with formatting', () => {
-    const events = [{ type: 'tool_use' as const, name: 'read', input: { file_path: '/test.ts' } }];
+    const events = [
+      {
+        type: 'tool_use' as const,
+        name: 'read',
+        input: { file_path: '/test.ts' },
+      },
+    ];
     const result = processAgentEvents(events);
     expect(result).toContain('[read]');
     expect(result).toContain('/test.ts');
@@ -287,7 +304,9 @@ describe('processAgentEvents', () => {
   });
 
   test('displays error events', () => {
-    const events = [{ type: 'error' as const, message: 'Something went wrong' }];
+    const events = [
+      { type: 'error' as const, message: 'Something went wrong' },
+    ];
     const result = processAgentEvents(events);
     expect(result).toContain('[Error: Something went wrong]');
   });
@@ -332,7 +351,11 @@ describe('processAgentEvents', () => {
   test('tool_use always starts on its own line', () => {
     const events = [
       { type: 'text' as const, content: 'Let me check that' },
-      { type: 'tool_use' as const, name: 'read', input: { file_path: '/test.ts' } },
+      {
+        type: 'tool_use' as const,
+        name: 'read',
+        input: { file_path: '/test.ts' },
+      },
     ];
     const result = processAgentEvents(events);
     // Tool call should be on its own line (newline before the color-coded [read])
@@ -343,7 +366,11 @@ describe('processAgentEvents', () => {
   test('tool_use alone does not have leading newline', () => {
     // Tool calls only get leading newline when following content that doesn't end with newline
     const events = [
-      { type: 'tool_use' as const, name: 'read', input: { file_path: '/test.ts' } },
+      {
+        type: 'tool_use' as const,
+        name: 'read',
+        input: { file_path: '/test.ts' },
+      },
     ];
     const result = processAgentEvents(events);
     // No preceding content, so no leading newline needed

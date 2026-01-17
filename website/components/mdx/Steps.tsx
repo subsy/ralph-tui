@@ -149,11 +149,7 @@ export function Step({
         {/* Optional description */}
         {description && (
           <p
-            className={[
-              'text-sm text-fg-muted',
-              'mb-3',
-              'font-mono',
-            ].join(' ')}
+            className={['text-sm text-fg-muted', 'mb-3', 'font-mono'].join(' ')}
           >
             {description}
           </p>

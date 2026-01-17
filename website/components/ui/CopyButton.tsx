@@ -95,7 +95,8 @@ const sizeStyles = {
 };
 
 const stateStyles = {
-  default: 'bg-bg-tertiary/50 text-fg-muted hover:bg-bg-tertiary hover:text-fg-secondary',
+  default:
+    'bg-bg-tertiary/50 text-fg-muted hover:bg-bg-tertiary hover:text-fg-secondary',
   copied: 'bg-status-success/20 text-status-success',
 };
 
@@ -128,12 +129,18 @@ export function CopyButton({
     >
       {copied ? (
         <>
-          <Check className={size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />
+          <Check
+            className={size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+            aria-hidden="true"
+          />
           {showLabel && <span className="hidden sm:inline">Copied!</span>}
         </>
       ) : (
         <>
-          <Copy className={size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />
+          <Copy
+            className={size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+            aria-hidden="true"
+          />
           {showLabel && <span className="hidden sm:inline">Copy</span>}
         </>
       )}

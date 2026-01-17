@@ -5,7 +5,11 @@
 
 import type { ReactNode } from 'react';
 import { memo } from 'react';
-import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
+import {
+  colors,
+  getTaskStatusColor,
+  getTaskStatusIndicator,
+} from '../theme.js';
 import type { LeftPanelProps, TaskItem } from '../types.js';
 
 /**
@@ -105,7 +109,11 @@ function buildIndentMap(tasks: TaskItem[]): Map<string, number> {
  * Displays tasks with hierarchical indentation based on parent/child relationships
  * Wrapped in React.memo to prevent re-renders when only sibling state changes (e.g., detailsViewMode)
  */
-export const LeftPanel = memo(function LeftPanel({ tasks, selectedIndex, width = 45 }: LeftPanelProps & { width?: number }): ReactNode {
+export const LeftPanel = memo(function LeftPanel({
+  tasks,
+  selectedIndex,
+  width = 45,
+}: LeftPanelProps & { width?: number }): ReactNode {
   // Calculate max width for task row content (panel width minus padding and border)
   const maxRowWidth = Math.max(20, width - 4);
 

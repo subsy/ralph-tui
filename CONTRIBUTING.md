@@ -123,6 +123,7 @@ Longer explanation if needed.
 ```
 
 Types:
+
 - `feat:` - New feature
 - `fix:` - Bug fix
 - `docs:` - Documentation changes
@@ -130,6 +131,7 @@ Types:
 - `chore:` - Maintenance tasks
 
 Examples:
+
 ```
 feat: add support for custom prompt templates
 fix: handle empty task lists gracefully
@@ -263,7 +265,10 @@ describe('ModuleName', () => {
 Factories provide consistent test data with sensible defaults. Import from `tests/factories/`:
 
 ```typescript
-import { createTrackerTask, createTrackerTasks } from '../factories/tracker-task.js';
+import {
+  createTrackerTask,
+  createTrackerTasks,
+} from '../factories/tracker-task.js';
 import { createSessionState } from '../factories/session-state.js';
 
 test('should process task', () => {
@@ -287,14 +292,17 @@ test('should process task', () => {
 Mocks simulate external dependencies. Import from `tests/mocks/`:
 
 ```typescript
-import { createMockAgentPlugin, createSuccessfulExecution } from '../mocks/agent-responses.js';
+import {
+  createMockAgentPlugin,
+  createSuccessfulExecution,
+} from '../mocks/agent-responses.js';
 import { createMockChildProcess } from '../mocks/child-process.js';
 import { createMockFileSystem } from '../mocks/file-system.js';
 
 test('should execute agent', async () => {
   const mockAgent = createMockAgentPlugin();
   const mockExecution = createSuccessfulExecution('Task completed');
-  
+
   // Use bun:test mock for module mocking
   mock.module('../../src/plugins/agents/registry.js', () => ({
     getAgentRegistry: () => ({
@@ -311,9 +319,9 @@ import { spyOn } from 'bun:test';
 
 test('should call dependency', () => {
   const spy = spyOn(dependency, 'method');
-  
+
   instance.doSomething();
-  
+
   expect(spy).toHaveBeenCalledTimes(1);
   expect(spy).toHaveBeenCalledWith('expected-arg');
 });
@@ -341,6 +349,7 @@ bun run ./src/cli.tsx config show
 ```
 
 When testing changes manually:
+
 - Test with different trackers (beads, json)
 - Test with different agents (claude, opencode)
 - Test TUI keyboard navigation
@@ -362,6 +371,7 @@ When reporting issues, please include:
 ## Questions?
 
 If you have questions about contributing, feel free to:
+
 - Open a GitHub issue with the `question` label
 - Check existing issues for similar questions
 

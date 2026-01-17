@@ -76,20 +76,20 @@ Ralph selects the highest-priority task, builds a prompt, executes your AI agent
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `ralph-tui` | Launch the interactive TUI |
-| `ralph-tui run [options]` | Start Ralph execution |
-| `ralph-tui resume` | Resume an interrupted session |
-| `ralph-tui status` | Check session status |
-| `ralph-tui logs` | View iteration output logs |
-| `ralph-tui setup` | Run interactive project setup |
-| `ralph-tui create-prd` | Create a new PRD interactively |
-| `ralph-tui convert` | Convert PRD to tracker format |
-| `ralph-tui config show` | Display merged configuration |
-| `ralph-tui template show` | Display current prompt template |
-| `ralph-tui plugins agents` | List available agent plugins |
-| `ralph-tui plugins trackers` | List available tracker plugins |
+| Command                      | Description                     |
+| ---------------------------- | ------------------------------- |
+| `ralph-tui`                  | Launch the interactive TUI      |
+| `ralph-tui run [options]`    | Start Ralph execution           |
+| `ralph-tui resume`           | Resume an interrupted session   |
+| `ralph-tui status`           | Check session status            |
+| `ralph-tui logs`             | View iteration output logs      |
+| `ralph-tui setup`            | Run interactive project setup   |
+| `ralph-tui create-prd`       | Create a new PRD interactively  |
+| `ralph-tui convert`          | Convert PRD to tracker format   |
+| `ralph-tui config show`      | Display merged configuration    |
+| `ralph-tui template show`    | Display current prompt template |
+| `ralph-tui plugins agents`   | List available agent plugins    |
+| `ralph-tui plugins trackers` | List available tracker plugins  |
 
 ### Common Options
 
@@ -134,15 +134,15 @@ ralph-tui create-prd --output ./docs
 
 ### TUI Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `s` | Start execution |
-| `p` | Pause/Resume |
-| `d` | Toggle dashboard |
+| Key | Action                   |
+| --- | ------------------------ |
+| `s` | Start execution          |
+| `p` | Pause/Resume             |
+| `d` | Toggle dashboard         |
 | `i` | Toggle iteration history |
-| `u` | Toggle subagent tracing |
-| `q` | Quit |
-| `?` | Show help |
+| `u` | Toggle subagent tracing  |
+| `q` | Quit                     |
+| `?` | Show help                |
 
 See the [full CLI reference](https://ralph-tui.com/docs/cli/overview) for all options.
 
@@ -202,6 +202,7 @@ bun test --coverage # Run tests with coverage
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md#testing) for detailed testing documentation including:
+
 - Test file naming conventions
 - Using factories and mocks
 - Writing new tests

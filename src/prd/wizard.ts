@@ -13,11 +13,7 @@ import type {
   PrdGenerationResult,
 } from './types.js';
 import { CLARIFYING_QUESTIONS } from './questions.js';
-import {
-  generatePrd,
-  renderPrdMarkdown,
-  slugify,
-} from './generator.js';
+import { generatePrd, renderPrdMarkdown, slugify } from './generator.js';
 import {
   promptText,
   promptBoolean,
@@ -61,7 +57,9 @@ async function collectAnswers(): Promise<ClarifyingAnswers | null> {
   printSection('Feature Description');
 
   printInfo('Describe the feature you want to build.');
-  printInfo('Be as detailed as you like - this will help generate a better PRD.');
+  printInfo(
+    'Be as detailed as you like - this will help generate a better PRD.',
+  );
   console.log();
 
   const featureDescription = await promptText(
@@ -69,7 +67,7 @@ async function collectAnswers(): Promise<ClarifyingAnswers | null> {
     {
       required: true,
       help: 'Describe the feature in 1-3 sentences',
-    }
+    },
   );
 
   if (!featureDescription) {
@@ -78,7 +76,9 @@ async function collectAnswers(): Promise<ClarifyingAnswers | null> {
 
   printSection('Clarifying Questions');
 
-  printInfo(`Let me ask ${CLARIFYING_QUESTIONS.length} questions to better understand your needs.`);
+  printInfo(
+    `Let me ask ${CLARIFYING_QUESTIONS.length} questions to better understand your needs.`,
+  );
   console.log();
 
   const answers: Record<string, string> = {};
@@ -126,7 +126,8 @@ function displayPrdSummary(prd: GeneratedPrd): void {
 
   console.log('  User Stories:');
   for (const story of prd.userStories) {
-    const status = story.priority === 1 ? '🔴' : story.priority === 2 ? '🟡' : '🟢';
+    const status =
+      story.priority === 1 ? '🔴' : story.priority === 2 ? '🟡' : '🟢';
     console.log(`    ${status} ${story.id}: ${story.title}`);
   }
 }
@@ -135,7 +136,7 @@ function displayPrdSummary(prd: GeneratedPrd): void {
  * Run the interactive PRD creation wizard.
  */
 export async function runPrdWizard(
-  options: PrdGenerationOptions = {}
+  options: PrdGenerationOptions = {},
 ): Promise<PrdGenerationResult> {
   const cwd = options.cwd ?? process.cwd();
   const outputDir = resolve(cwd, options.outputDir ?? DEFAULT_OUTPUT_DIR);
@@ -143,11 +144,19 @@ export async function runPrdWizard(
   try {
     // Print welcome banner
     console.log();
-    console.log('╔════════════════════════════════════════════════════════════╗');
-    console.log('║                  Ralph TUI - PRD Creator                   ║');
-    console.log('╚════════════════════════════════════════════════════════════╝');
+    console.log(
+      '╔════════════════════════════════════════════════════════════╗',
+    );
+    console.log(
+      '║                  Ralph TUI - PRD Creator                   ║',
+    );
+    console.log(
+      '╚════════════════════════════════════════════════════════════╝',
+    );
     console.log();
-    printInfo('This wizard will help you create a Product Requirements Document.');
+    printInfo(
+      'This wizard will help you create a Product Requirements Document.',
+    );
     printInfo('Press Ctrl+C at any time to cancel.');
 
     // Collect answers
@@ -180,7 +189,7 @@ export async function runPrdWizard(
     if (!options.force && (await fileExists(mdPath))) {
       const overwrite = await promptBoolean(
         `File ${mdFilename} already exists. Overwrite?`,
-        { default: false }
+        { default: false },
       );
 
       if (!overwrite) {
@@ -206,7 +215,10 @@ export async function runPrdWizard(
     };
   } catch (error) {
     // Check for user cancellation (Ctrl+C)
-    if (error instanceof Error && error.message.includes('readline was closed')) {
+    if (
+      error instanceof Error &&
+      error.message.includes('readline was closed')
+    ) {
       console.log();
       printInfo('PRD creation cancelled.');
       return {
@@ -227,7 +239,7 @@ export async function runPrdWizard(
  */
 export async function prdExists(
   featureName: string,
-  options: PrdGenerationOptions = {}
+  options: PrdGenerationOptions = {},
 ): Promise<string | null> {
   const cwd = options.cwd ?? process.cwd();
   const outputDir = resolve(cwd, options.outputDir ?? DEFAULT_OUTPUT_DIR);

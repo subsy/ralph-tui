@@ -58,40 +58,47 @@ export async function promptText(
     required?: boolean;
     pattern?: string;
     help?: string;
-  } = {}
+  } = {},
 ): Promise<string> {
   const rl = createReadline();
-  const defaultStr = options.default ? ` ${colors.dim}(${options.default})${colors.reset}` : '';
+  const defaultStr = options.default
+    ? ` ${colors.dim}(${options.default})${colors.reset}`
+    : '';
 
   return new Promise((resolve) => {
     if (options.help) {
       console.log(formatHelp(options.help));
     }
 
-    rl.question(formatPrompt(prompt, options.required ?? false) + defaultStr + ' ', (answer) => {
-      rl.close();
+    rl.question(
+      formatPrompt(prompt, options.required ?? false) + defaultStr + ' ',
+      (answer) => {
+        rl.close();
 
-      const value = answer.trim() || options.default || '';
+        const value = answer.trim() || options.default || '';
 
-      // Validate pattern if provided
-      if (options.pattern && value) {
-        const regex = new RegExp(options.pattern);
-        if (!regex.test(value)) {
-          console.log(`${colors.yellow}Invalid format. Please try again.${colors.reset}`);
+        // Validate pattern if provided
+        if (options.pattern && value) {
+          const regex = new RegExp(options.pattern);
+          if (!regex.test(value)) {
+            console.log(
+              `${colors.yellow}Invalid format. Please try again.${colors.reset}`,
+            );
+            resolve(promptText(prompt, options));
+            return;
+          }
+        }
+
+        // Check required
+        if (options.required && !value) {
+          console.log(`${colors.yellow}This field is required.${colors.reset}`);
           resolve(promptText(prompt, options));
           return;
         }
-      }
 
-      // Check required
-      if (options.required && !value) {
-        console.log(`${colors.yellow}This field is required.${colors.reset}`);
-        resolve(promptText(prompt, options));
-        return;
-      }
-
-      resolve(value);
-    });
+        resolve(value);
+      },
+    );
   });
 }
 
@@ -103,12 +110,13 @@ export async function promptBoolean(
   options: {
     default?: boolean;
     help?: string;
-  } = {}
+  } = {},
 ): Promise<boolean> {
   const rl = createReadline();
-  const defaultStr = options.default !== undefined
-    ? ` ${colors.dim}(${options.default ? 'Y/n' : 'y/N'})${colors.reset}`
-    : ` ${colors.dim}(y/n)${colors.reset}`;
+  const defaultStr =
+    options.default !== undefined
+      ? ` ${colors.dim}(${options.default ? 'Y/n' : 'y/N'})${colors.reset}`
+      : ` ${colors.dim}(y/n)${colors.reset}`;
 
   return new Promise((resolve) => {
     if (options.help) {
@@ -151,7 +159,7 @@ export async function promptSelect<T extends string = string>(
   options: {
     default?: T;
     help?: string;
-  } = {}
+  } = {},
 ): Promise<T> {
   const rl = createReadline();
 
@@ -180,30 +188,35 @@ export async function promptSelect<T extends string = string>(
 
     console.log();
     const defaultHint = options.default
-      ? ` ${colors.dim}(default: ${choices.find(c => c.value === options.default)?.label})${colors.reset}`
+      ? ` ${colors.dim}(default: ${choices.find((c) => c.value === options.default)?.label})${colors.reset}`
       : '';
 
-    rl.question(`  Enter number (1-${choices.length})${defaultHint}: `, (answer) => {
-      rl.close();
+    rl.question(
+      `  Enter number (1-${choices.length})${defaultHint}: `,
+      (answer) => {
+        rl.close();
 
-      const value = answer.trim();
+        const value = answer.trim();
 
-      // Use default if no input
-      if (!value && options.default) {
-        resolve(options.default);
-        return;
-      }
+        // Use default if no input
+        if (!value && options.default) {
+          resolve(options.default);
+          return;
+        }
 
-      // Parse number
-      const num = parseInt(value, 10);
-      if (isNaN(num) || num < 1 || num > choices.length) {
-        console.log(`${colors.yellow}Please enter a number between 1 and ${choices.length}.${colors.reset}`);
-        resolve(promptSelect(prompt, choices, options));
-        return;
-      }
+        // Parse number
+        const num = parseInt(value, 10);
+        if (isNaN(num) || num < 1 || num > choices.length) {
+          console.log(
+            `${colors.yellow}Please enter a number between 1 and ${choices.length}.${colors.reset}`,
+          );
+          resolve(promptSelect(prompt, choices, options));
+          return;
+        }
 
-      resolve(choices[num - 1]!.value);
-    });
+        resolve(choices[num - 1]!.value);
+      },
+    );
   });
 }
 
@@ -216,7 +229,7 @@ export async function promptPath(
     default?: string;
     required?: boolean;
     help?: string;
-  } = {}
+  } = {},
 ): Promise<string> {
   // Path input is essentially text input with different semantics
   return promptText(prompt, {
@@ -236,64 +249,77 @@ export async function promptNumber(
     max?: number;
     required?: boolean;
     help?: string;
-  } = {}
+  } = {},
 ): Promise<number> {
   const rl = createReadline();
-  const defaultStr = options.default !== undefined
-    ? ` ${colors.dim}(${options.default})${colors.reset}`
-    : '';
+  const defaultStr =
+    options.default !== undefined
+      ? ` ${colors.dim}(${options.default})${colors.reset}`
+      : '';
 
   return new Promise((resolve) => {
     if (options.help) {
       console.log(formatHelp(options.help));
     }
 
-    rl.question(formatPrompt(prompt, options.required ?? false) + defaultStr + ' ', (answer) => {
-      rl.close();
+    rl.question(
+      formatPrompt(prompt, options.required ?? false) + defaultStr + ' ',
+      (answer) => {
+        rl.close();
 
-      const value = answer.trim();
+        const value = answer.trim();
 
-      // Use default if no input
-      if (!value && options.default !== undefined) {
-        resolve(options.default);
-        return;
-      }
+        // Use default if no input
+        if (!value && options.default !== undefined) {
+          resolve(options.default);
+          return;
+        }
 
-      // Parse number
-      const num = parseInt(value, 10);
-      if (isNaN(num)) {
-        console.log(`${colors.yellow}Please enter a valid number.${colors.reset}`);
-        resolve(promptNumber(prompt, options));
-        return;
-      }
+        // Parse number
+        const num = parseInt(value, 10);
+        if (isNaN(num)) {
+          console.log(
+            `${colors.yellow}Please enter a valid number.${colors.reset}`,
+          );
+          resolve(promptNumber(prompt, options));
+          return;
+        }
 
-      // Validate range
-      if (options.min !== undefined && num < options.min) {
-        console.log(`${colors.yellow}Value must be at least ${options.min}.${colors.reset}`);
-        resolve(promptNumber(prompt, options));
-        return;
-      }
+        // Validate range
+        if (options.min !== undefined && num < options.min) {
+          console.log(
+            `${colors.yellow}Value must be at least ${options.min}.${colors.reset}`,
+          );
+          resolve(promptNumber(prompt, options));
+          return;
+        }
 
-      if (options.max !== undefined && num > options.max) {
-        console.log(`${colors.yellow}Value must be at most ${options.max}.${colors.reset}`);
-        resolve(promptNumber(prompt, options));
-        return;
-      }
+        if (options.max !== undefined && num > options.max) {
+          console.log(
+            `${colors.yellow}Value must be at most ${options.max}.${colors.reset}`,
+          );
+          resolve(promptNumber(prompt, options));
+          return;
+        }
 
-      resolve(num);
-    });
+        resolve(num);
+      },
+    );
   });
 }
 
 /**
  * Prompt based on a question definition
  */
-export async function promptQuestion(question: AnySetupQuestion): Promise<unknown> {
+export async function promptQuestion(
+  question: AnySetupQuestion,
+): Promise<unknown> {
   switch (question.type) {
     case 'text':
     case 'password':
       return promptText(question.prompt, {
-        default: typeof question.default === 'string' ? question.default : undefined,
+        default:
+          typeof question.default === 'string' ? question.default : undefined,
         required: question.required,
         pattern: question.pattern,
         help: question.help,
@@ -301,7 +327,8 @@ export async function promptQuestion(question: AnySetupQuestion): Promise<unknow
 
     case 'boolean':
       return promptBoolean(question.prompt, {
-        default: typeof question.default === 'boolean' ? question.default : undefined,
+        default:
+          typeof question.default === 'boolean' ? question.default : undefined,
         help: question.help,
       });
 
@@ -310,7 +337,8 @@ export async function promptQuestion(question: AnySetupQuestion): Promise<unknow
         throw new Error(`Select question '${question.id}' has no choices`);
       }
       return promptSelect(question.prompt, question.choices, {
-        default: typeof question.default === 'string' ? question.default : undefined,
+        default:
+          typeof question.default === 'string' ? question.default : undefined,
         help: question.help,
       });
 
@@ -321,14 +349,17 @@ export async function promptQuestion(question: AnySetupQuestion): Promise<unknow
         throw new Error(`Multiselect question '${question.id}' has no choices`);
       }
       const selected = await promptSelect(question.prompt, question.choices, {
-        default: Array.isArray(question.default) ? question.default[0] : undefined,
+        default: Array.isArray(question.default)
+          ? question.default[0]
+          : undefined,
         help: question.help,
       });
       return [selected];
 
     case 'path':
       return promptPath(question.prompt, {
-        default: typeof question.default === 'string' ? question.default : undefined,
+        default:
+          typeof question.default === 'string' ? question.default : undefined,
         required: question.required,
         help: question.help,
       });
@@ -350,7 +381,9 @@ export async function promptQuestion(question: AnySetupQuestion): Promise<unknow
  */
 export function printSection(title: string): void {
   console.log();
-  console.log(`${colors.magenta}━━━ ${colors.bold}${title}${colors.reset}${colors.magenta} ${'━'.repeat(50 - title.length)}${colors.reset}`);
+  console.log(
+    `${colors.magenta}━━━ ${colors.bold}${title}${colors.reset}${colors.magenta} ${'━'.repeat(50 - title.length)}${colors.reset}`,
+  );
   console.log();
 }
 

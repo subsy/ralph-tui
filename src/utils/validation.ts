@@ -16,7 +16,10 @@ export interface ValidationResult {
 /**
  * Validate a required string
  */
-export function validateRequired(value: unknown, fieldName: string): ValidationResult {
+export function validateRequired(
+  value: unknown,
+  fieldName: string,
+): ValidationResult {
   if (value === undefined || value === null) {
     return { valid: false, error: `${fieldName} is required` };
   }
@@ -35,7 +38,7 @@ export function validatePattern(
   value: string,
   pattern: RegExp,
   fieldName: string,
-  patternDesc?: string
+  patternDesc?: string,
 ): ValidationResult {
   if (!pattern.test(value)) {
     const desc = patternDesc || `valid ${fieldName} format`;
@@ -50,16 +53,22 @@ export function validatePattern(
  */
 export function validateLength(
   value: string,
-  options: { min?: number; max?: number; fieldName: string }
+  options: { min?: number; max?: number; fieldName: string },
 ): ValidationResult {
   const { min, max, fieldName } = options;
 
   if (min !== undefined && value.length < min) {
-    return { valid: false, error: `${fieldName} must be at least ${min} characters` };
+    return {
+      valid: false,
+      error: `${fieldName} must be at least ${min} characters`,
+    };
   }
 
   if (max !== undefined && value.length > max) {
-    return { valid: false, error: `${fieldName} must be at most ${max} characters` };
+    return {
+      valid: false,
+      error: `${fieldName} must be at most ${max} characters`,
+    };
   }
 
   return { valid: true };
@@ -70,7 +79,7 @@ export function validateLength(
  */
 export function validateRange(
   value: number,
-  options: { min?: number; max?: number; fieldName: string }
+  options: { min?: number; max?: number; fieldName: string },
 ): ValidationResult {
   const { min, max, fieldName } = options;
 
@@ -95,7 +104,7 @@ export function validateRange(
 export function validateOneOf<T>(
   value: T,
   allowedValues: T[],
-  fieldName: string
+  fieldName: string,
 ): ValidationResult {
   if (!allowedValues.includes(value)) {
     const allowed = allowedValues.map((v) => String(v)).join(', ');
@@ -108,7 +117,10 @@ export function validateOneOf<T>(
 /**
  * Validate an email address
  */
-export function validateEmail(value: string, fieldName = 'Email'): ValidationResult {
+export function validateEmail(
+  value: string,
+  fieldName = 'Email',
+): ValidationResult {
   // Basic email pattern
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return validatePattern(value, emailPattern, fieldName, 'valid email address');
@@ -117,7 +129,10 @@ export function validateEmail(value: string, fieldName = 'Email'): ValidationRes
 /**
  * Validate a URL
  */
-export function validateUrl(value: string, fieldName = 'URL'): ValidationResult {
+export function validateUrl(
+  value: string,
+  fieldName = 'URL',
+): ValidationResult {
   try {
     new URL(value);
     return { valid: true };
@@ -129,7 +144,10 @@ export function validateUrl(value: string, fieldName = 'URL'): ValidationResult 
 /**
  * Validate an integer
  */
-export function validateInteger(value: number, fieldName: string): ValidationResult {
+export function validateInteger(
+  value: number,
+  fieldName: string,
+): ValidationResult {
   if (!Number.isInteger(value)) {
     return { valid: false, error: `${fieldName} must be an integer` };
   }
@@ -140,7 +158,10 @@ export function validateInteger(value: number, fieldName: string): ValidationRes
 /**
  * Validate a positive number
  */
-export function validatePositive(value: number, fieldName: string): ValidationResult {
+export function validatePositive(
+  value: number,
+  fieldName: string,
+): ValidationResult {
   if (value <= 0) {
     return { valid: false, error: `${fieldName} must be positive` };
   }
@@ -151,7 +172,10 @@ export function validatePositive(value: number, fieldName: string): ValidationRe
 /**
  * Validate a non-negative number
  */
-export function validateNonNegative(value: number, fieldName: string): ValidationResult {
+export function validateNonNegative(
+  value: number,
+  fieldName: string,
+): ValidationResult {
   if (value < 0) {
     return { valid: false, error: `${fieldName} must be non-negative` };
   }
@@ -162,7 +186,10 @@ export function validateNonNegative(value: number, fieldName: string): Validatio
 /**
  * Validate an array is not empty
  */
-export function validateNonEmptyArray(value: unknown[], fieldName: string): ValidationResult {
+export function validateNonEmptyArray(
+  value: unknown[],
+  fieldName: string,
+): ValidationResult {
   if (!Array.isArray(value) || value.length === 0) {
     return { valid: false, error: `${fieldName} must be a non-empty array` };
   }
@@ -191,11 +218,13 @@ export function composeValidators(
  */
 export function validateObject<T extends Record<string, unknown>>(
   obj: T,
-  schema: { [K in keyof T]?: (value: T[K]) => ValidationResult }
+  schema: { [K in keyof T]?: (value: T[K]) => ValidationResult },
 ): ValidationResult {
   for (const [key, validator] of Object.entries(schema)) {
     if (validator) {
-      const result = (validator as (value: unknown) => ValidationResult)(obj[key as keyof T]);
+      const result = (validator as (value: unknown) => ValidationResult)(
+        obj[key as keyof T],
+      );
       if (!result.valid) {
         return result;
       }
@@ -229,20 +258,32 @@ export function sanitizeString(value: string): string {
 /**
  * Validate a slug (URL-safe identifier)
  */
-export function validateSlug(value: string, fieldName = 'Slug'): ValidationResult {
+export function validateSlug(
+  value: string,
+  fieldName = 'Slug',
+): ValidationResult {
   const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
   return validatePattern(
     value,
     slugPattern,
     fieldName,
-    'lowercase letters, numbers, and hyphens'
+    'lowercase letters, numbers, and hyphens',
   );
 }
 
 /**
  * Validate a semantic version string
  */
-export function validateSemver(value: string, fieldName = 'Version'): ValidationResult {
-  const semverPattern = /^v?\d+\.\d+\.\d+(?:-[\da-z-]+(?:\.[\da-z-]+)*)?(?:\+[\da-z-]+(?:\.[\da-z-]+)*)?$/i;
-  return validatePattern(value, semverPattern, fieldName, 'semantic version (e.g., 1.0.0)');
+export function validateSemver(
+  value: string,
+  fieldName = 'Version',
+): ValidationResult {
+  const semverPattern =
+    /^v?\d+\.\d+\.\d+(?:-[\da-z-]+(?:\.[\da-z-]+)*)?(?:\+[\da-z-]+(?:\.[\da-z-]+)*)?$/i;
+  return validatePattern(
+    value,
+    semverPattern,
+    fieldName,
+    'semantic version (e.g., 1.0.0)',
+  );
 }

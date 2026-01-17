@@ -53,7 +53,7 @@ export function MobileNav({ isOpen, onClose, links }: MobileNavProps) {
         onClose();
       }
     },
-    [onClose]
+    [onClose],
   );
 
   useEffect(() => {

@@ -89,7 +89,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       variant = 'default',
       ...props
     },
-    ref
+    ref,
   ) => {
     const classes = [
       baseStyles,
@@ -102,7 +102,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       .join(' ');
 
     return <div ref={ref} className={classes} {...props} />;
-  }
+  },
 );
 
 Card.displayName = 'Card';
@@ -123,7 +123,7 @@ export const CardHeader = forwardRef<HTMLDivElement, CardHeaderProps>(
       .join(' ');
 
     return <div ref={ref} className={classes} {...props} />;
-  }
+  },
 );
 
 CardHeader.displayName = 'CardHeader';
@@ -138,7 +138,7 @@ export const CardContent = forwardRef<HTMLDivElement, CardContentProps>(
       .join(' ');
 
     return <div ref={ref} className={classes} {...props} />;
-  }
+  },
 );
 
 CardContent.displayName = 'CardContent';
@@ -158,7 +158,7 @@ export const CardFooter = forwardRef<HTMLDivElement, CardFooterProps>(
       .join(' ');
 
     return <div ref={ref} className={classes} {...props} />;
-  }
+  },
 );
 
 CardFooter.displayName = 'CardFooter';

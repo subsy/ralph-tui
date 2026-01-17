@@ -12,7 +12,9 @@ import { readFileSync } from 'fs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Read version from package.json
-const packageJson = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
+const packageJson = JSON.parse(
+  readFileSync(join(__dirname, '../package.json'), 'utf-8'),
+);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

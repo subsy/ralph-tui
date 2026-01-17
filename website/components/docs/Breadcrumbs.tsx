@@ -107,7 +107,9 @@ export function Breadcrumbs({ slug, className = '' }: BreadcrumbsProps) {
       aria-label="Breadcrumb navigation"
     >
       {/* Terminal prompt */}
-      <span className="text-accent-primary mr-0.5" aria-hidden="true">~</span>
+      <span className="text-accent-primary mr-0.5" aria-hidden="true">
+        ~
+      </span>
 
       {/* Docs root link */}
       <Link
@@ -127,12 +129,14 @@ export function Breadcrumbs({ slug, className = '' }: BreadcrumbsProps) {
       <ChevronRight className="h-3 w-3 text-fg-dim" aria-hidden="true" />
 
       {/* Parent section (if found) */}
-      {parentSection && crumbs.length > 0 && crumbs[0].title !== parentSection && (
-        <>
-          <span className="text-fg-muted">{parentSection}</span>
-          <ChevronRight className="h-3 w-3 text-fg-dim" aria-hidden="true" />
-        </>
-      )}
+      {parentSection &&
+        crumbs.length > 0 &&
+        crumbs[0].title !== parentSection && (
+          <>
+            <span className="text-fg-muted">{parentSection}</span>
+            <ChevronRight className="h-3 w-3 text-fg-dim" aria-hidden="true" />
+          </>
+        )}
 
       {/* Breadcrumb trail */}
       {crumbs.map((crumb, index) => (
@@ -141,10 +145,7 @@ export function Breadcrumbs({ slug, className = '' }: BreadcrumbsProps) {
             <ChevronRight className="h-3 w-3 text-fg-dim" aria-hidden="true" />
           )}
           {crumb.isCurrent ? (
-            <span
-              className="text-fg-secondary font-medium"
-              aria-current="page"
-            >
+            <span className="text-fg-secondary font-medium" aria-current="page">
               {crumb.title}
             </span>
           ) : (

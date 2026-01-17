@@ -8,7 +8,10 @@ import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { EpicSelectionView } from './EpicSelectionView.js';
-import type { TrackerPlugin, TrackerTask } from '../../plugins/trackers/types.js';
+import type {
+  TrackerPlugin,
+  TrackerTask,
+} from '../../plugins/trackers/types.js';
 
 /**
  * Props for the EpicSelectionApp component
@@ -83,7 +86,7 @@ export function EpicSelectionApp({
           break;
       }
     },
-    [epics, selectedIndex, onEpicSelected, onQuit]
+    [epics, selectedIndex, onEpicSelected, onQuit],
   );
 
   useKeyboard(handleKeyboard);

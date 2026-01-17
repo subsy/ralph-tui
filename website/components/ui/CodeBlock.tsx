@@ -5,11 +5,7 @@
 
 'use client';
 
-import {
-  forwardRef,
-  type HTMLAttributes,
-  type ReactNode,
-} from 'react';
+import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
 import { CopyButton } from './CopyButton';
 
 interface CodeBlockProps extends HTMLAttributes<HTMLDivElement> {
@@ -73,8 +69,6 @@ function getLanguageLabel(lang?: string): string {
   return languageLabels[normalized] || lang.toUpperCase();
 }
 
-
-
 /**
  * Base container styles - terminal window aesthetic.
  */
@@ -113,8 +107,6 @@ const badgeStyles = [
   'text-fg-muted',
   'select-none',
 ].join(' ');
-
-
 
 /**
  * Code content wrapper styles.
@@ -205,7 +197,7 @@ export const CodeBlock = forwardRef<HTMLDivElement, CodeBlockProps>(
       children,
       ...props
     },
-    ref
+    ref,
   ) => {
     const displayLabel = getLanguageLabel(language);
     const showHeader = displayLabel || title || code;
@@ -250,7 +242,7 @@ export const CodeBlock = forwardRef<HTMLDivElement, CodeBlockProps>(
         </div>
       </div>
     );
-  }
+  },
 );
 
 CodeBlock.displayName = 'CodeBlock';

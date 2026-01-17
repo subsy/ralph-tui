@@ -39,7 +39,7 @@ export function generateBranchName(featureName: string): string {
  */
 export function generateUserStories(
   answers: ClarifyingAnswers,
-  options: PrdGenerationOptions = {}
+  options: PrdGenerationOptions = {},
 ): PrdUserStory[] {
   const prefix = options.storyPrefix || 'US-';
   const targetCount = options.storyCount || 5;
@@ -132,7 +132,15 @@ export function generateUserStories(
  */
 function getFeatureVerb(description: string): string {
   const words = description.toLowerCase().split(/\s+/);
-  const verbs = ['implement', 'add', 'create', 'build', 'develop', 'enable', 'support'];
+  const verbs = [
+    'implement',
+    'add',
+    'create',
+    'build',
+    'develop',
+    'enable',
+    'support',
+  ];
 
   for (const word of words) {
     if (verbs.includes(word)) {
@@ -148,7 +156,9 @@ function getFeatureVerb(description: string): string {
  */
 function parseSuccessCriteria(successAnswer: string): string[] {
   // Try to split on common delimiters
-  const parts = successAnswer.split(/[,;]\s*|\s+and\s+|\s*-\s*/i).filter(Boolean);
+  const parts = successAnswer
+    .split(/[,;]\s*|\s+and\s+|\s*-\s*/i)
+    .filter(Boolean);
 
   if (parts.length >= 2) {
     return parts.map((p) => p.trim()).filter((p) => p.length > 5);
@@ -163,7 +173,7 @@ function parseSuccessCriteria(successAnswer: string): string[] {
  */
 export function generatePrd(
   answers: ClarifyingAnswers,
-  options: PrdGenerationOptions = {}
+  options: PrdGenerationOptions = {},
 ): GeneratedPrd {
   const name = extractFeatureName(answers.featureDescription);
   const slug = slugify(name);
@@ -191,7 +201,7 @@ function extractFeatureName(description: string): string {
   const truncated = description.slice(0, 50);
   const endIndex = Math.min(
     truncated.indexOf('.') > 0 ? truncated.indexOf('.') : truncated.length,
-    truncated.indexOf('\n') > 0 ? truncated.indexOf('\n') : truncated.length
+    truncated.indexOf('\n') > 0 ? truncated.indexOf('\n') : truncated.length,
   );
 
   return truncated.slice(0, endIndex).trim() || 'New Feature';

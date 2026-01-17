@@ -1,6 +1,6 @@
 ---
 name: ralph-tui-prd
-description: "Generate a Product Requirements Document (PRD) for ralph-tui task orchestration. Creates PRDs with user stories that can be converted to beads issues or prd.json for automated execution. Triggers on: create a prd, write prd for, plan this feature, requirements for, spec out."
+description: 'Generate a Product Requirements Document (PRD) for ralph-tui task orchestration. Creates PRDs with user stories that can be converted to beads issues or prd.json for automated execution. Triggers on: create a prd, write prd for, plan this feature, requirements for, spec out.'
 ---
 
 # Ralph TUI PRD Generator
@@ -70,6 +70,7 @@ For UI stories, should we include browser verification?
 ### Adaptive Questioning
 
 After each response, decide whether to:
+
 - Ask follow-up questions (if answers reveal complexity)
 - Ask about a new aspect (if current area is clear)
 - Generate the PRD (if you have enough context)
@@ -83,29 +84,36 @@ Typically 2-4 rounds of questions are needed.
 Generate the PRD with these sections:
 
 ### 1. Introduction/Overview
+
 Brief description of the feature and the problem it solves.
 
 ### 2. Goals
+
 Specific, measurable objectives (bullet list).
 
 ### 3. Quality Gates
+
 **CRITICAL:** List the commands that must pass for every user story.
 
 ```markdown
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
 For UI stories, also include:
+
 - Verify in browser using dev-browser skill
 ```
 
 This section is extracted by conversion tools (ralph-tui-create-json, ralph-tui-create-beads) and appended to each story's acceptance criteria.
 
 ### 4. User Stories
+
 Each story needs:
+
 - **Title:** Short descriptive name
 - **Description:** "As a [user], I want [feature] so that [benefit]"
 - **Acceptance Criteria:** Verifiable checklist of what "done" means
@@ -113,11 +121,14 @@ Each story needs:
 Each story should be small enough to implement in one focused AI agent session.
 
 **Format:**
+
 ```markdown
 ### US-001: [Title]
+
 **Description:** As a [user], I want [feature] so that [benefit].
 
 **Acceptance Criteria:**
+
 - [ ] Specific verifiable criterion
 - [ ] Another criterion
 ```
@@ -125,30 +136,37 @@ Each story should be small enough to implement in one focused AI agent session.
 **Note:** Do NOT include quality gate commands in individual story criteria - they are defined once in the Quality Gates section and applied automatically during conversion.
 
 **Important:**
+
 - Acceptance criteria must be verifiable, not vague
 - "Works correctly" is bad
 - "Button shows confirmation dialog before deleting" is good
 - Each story should be independently completable
 
 ### 5. Functional Requirements
+
 Numbered list of specific functionalities:
+
 - "FR-1: The system must allow users to..."
 - "FR-2: When a user clicks X, the system must..."
 
 Be explicit and unambiguous.
 
 ### 6. Non-Goals (Out of Scope)
+
 What this feature will NOT include. Critical for managing scope.
 
 ### 7. Technical Considerations (Optional)
+
 - Known constraints or dependencies
 - Integration points with existing systems
 - Performance requirements
 
 ### 8. Success Metrics
+
 How will success be measured?
 
 ### 9. Open Questions
+
 Remaining questions or areas needing clarification.
 
 ---
@@ -230,12 +248,15 @@ The PRD will be executed by AI coding agents via ralph-tui. Therefore:
 **Assistant:** Perfect, I have enough to generate the PRD.
 
 [PRD]
+
 # PRD: Dark Mode for Ralph TUI
 
 ## Overview
+
 Add dark mode support to ralph-tui to reduce eye strain during long orchestration sessions. The feature will apply to all TUI components and persist the user's preference in the config file.
 
 ## Goals
+
 - Provide a comfortable viewing experience in low-light environments
 - Persist theme preference across sessions
 - Apply consistent styling to all TUI components
@@ -243,34 +264,42 @@ Add dark mode support to ralph-tui to reduce eye strain during long orchestratio
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
 For UI stories, also include:
+
 - Verify in browser using dev-browser skill
 
 ## User Stories
 
 ### US-001: Add theme configuration
+
 **Description:** As a user, I want to set my preferred theme (light/dark) so that it persists across sessions.
 
 **Acceptance Criteria:**
+
 - [ ] Add `theme` field to `.ralph-tui.yaml` schema
 - [ ] Support values: "light", "dark", "system"
 - [ ] Default to "light" for backwards compatibility
 
 ### US-002: Create dark theme color palette
+
 **Description:** As a user, I want a soft-contrast dark theme that's easy on the eyes.
 
 **Acceptance Criteria:**
+
 - [ ] Define dark palette with gray tones (not pure black)
 - [ ] Ensure sufficient contrast ratios (WCAG AA)
 - [ ] Colors work well for all UI states (selected, hover, disabled)
 
 ### US-003: Apply theme to TUI components
+
 **Description:** As a user, I want all TUI components to respect my theme preference.
 
 **Acceptance Criteria:**
+
 - [ ] Header component uses theme colors
 - [ ] Task list uses theme colors
 - [ ] Detail panels use theme colors
@@ -278,37 +307,44 @@ For UI stories, also include:
 - [ ] Dialogs use theme colors
 
 ### US-004: Add theme toggle in settings
+
 **Description:** As a user, I want to toggle themes from within the TUI settings.
 
 **Acceptance Criteria:**
+
 - [ ] Theme option visible in settings view
 - [ ] Changes apply immediately without restart
 - [ ] Changes persist to config file
 
 ## Functional Requirements
+
 - FR-1: Theme setting must be readable from `.ralph-tui.yaml`
 - FR-2: Theme must apply on TUI startup
 - FR-3: Theme changes in settings must apply immediately
 - FR-4: All text must maintain readability in both themes
 
 ## Non-Goals
+
 - System theme auto-detection (future enhancement)
 - Custom color schemes beyond light/dark
 - Per-component theme overrides
 
 ## Technical Considerations
+
 - Use existing OpenTUI theming capabilities if available
 - Consider creating a ThemeContext for React components
 - Minimize re-renders when theme changes
 
 ## Success Metrics
+
 - All components render correctly in dark mode
 - No accessibility contrast issues
 - Theme persists across sessions
 
 ## Open Questions
+
 - Should we detect system theme preference automatically in v2?
-[/PRD]
+  [/PRD]
 
 ---
 

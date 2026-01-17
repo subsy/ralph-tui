@@ -4,7 +4,10 @@
  * used primarily for PRD generation but designed to be reusable.
  */
 
-import type { AgentPlugin, AgentExecuteOptions } from '../plugins/agents/types.js';
+import type {
+  AgentPlugin,
+  AgentExecuteOptions,
+} from '../plugins/agents/types.js';
 import type { FormattedSegment } from '../plugins/agents/output-formatting.js';
 
 /**

@@ -193,7 +193,7 @@ async function promptCleanStaleLock(lock: LockFile): Promise<boolean> {
 
   const shouldClean = await promptBoolean(
     'Remove the stale lock and continue?',
-    { default: true }
+    { default: true },
   );
 
   return shouldClean;
@@ -221,7 +221,7 @@ export async function acquireLockWithPrompt(
     force?: boolean;
     /** Skip interactive prompt for stale lock cleanup */
     nonInteractive?: boolean;
-  } = {}
+  } = {},
 ): Promise<LockAcquisitionResult> {
   const { force = false, nonInteractive = false } = options;
 
@@ -271,7 +271,9 @@ export async function acquireLockWithPrompt(
 
   // Force flag set - override the lock
   if (force) {
-    console.log(`Warning: Forcing lock acquisition (previous PID: ${lockStatus.lock.pid})`);
+    console.log(
+      `Warning: Forcing lock acquisition (previous PID: ${lockStatus.lock.pid})`,
+    );
     await deleteLockFile(cwd);
     await writeLockFile(cwd, sessionId);
     return { acquired: true };

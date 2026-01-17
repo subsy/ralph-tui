@@ -13,13 +13,23 @@ import {
   parseDroidJsonlLine,
   type DroidJsonlMessage,
 } from '../plugins/agents/droid/outputParser.js';
-import { stripAnsiCodes, type FormattedSegment } from '../plugins/agents/output-formatting.js';
+import {
+  stripAnsiCodes,
+  type FormattedSegment,
+} from '../plugins/agents/output-formatting.js';
 
 /**
  * Known JSONL event types from agent output.
  * Claude Code emits events like 'result', 'assistant', 'tool_use', etc.
  */
-type AgentEventType = 'result' | 'assistant' | 'tool_use' | 'tool_result' | 'error' | 'system' | string;
+type AgentEventType =
+  | 'result'
+  | 'assistant'
+  | 'tool_use'
+  | 'tool_result'
+  | 'error'
+  | 'system'
+  | string;
 
 /**
  * Structure of a Claude Code result event.
@@ -115,7 +125,10 @@ function parseJsonlLine(line: string): string | undefined {
  * @param rawOutput - The raw stdout from the agent
  * @returns Parsed readable content
  */
-export function parseAgentOutput(rawOutput: string, agentPlugin?: string): string {
+export function parseAgentOutput(
+  rawOutput: string,
+  agentPlugin?: string,
+): string {
   if (!rawOutput || !rawOutput.trim()) {
     return '';
   }
@@ -124,7 +137,9 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
   const parsedParts: string[] = [];
   const plainTextLines: string[] = [];
   const useDroidParser = isDroidAgent(agentPlugin);
-  const droidCostAccumulator = useDroidParser ? new DroidCostAccumulator() : null;
+  const droidCostAccumulator = useDroidParser
+    ? new DroidCostAccumulator()
+    : null;
   let hasJsonl = false;
 
   for (const line of lines) {
@@ -162,7 +177,7 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
   // This ensures tool calls and intermediate output are visible, not just the final result
   if (hasJsonl && parsedParts.length > 0) {
     // Strip ANSI codes from each part and join with newlines
-    return parsedParts.map(p => stripAnsiCodes(p)).join('\n');
+    return parsedParts.map((p) => stripAnsiCodes(p)).join('\n');
   }
 
   // If we have plain text lines and no JSONL, return the plain text
@@ -172,8 +187,11 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
 
   // Fallback: return raw output truncated if it looks like unparseable JSON
   if (rawOutput.startsWith('{') && rawOutput.length > 500) {
-    return '[Agent output could not be parsed - showing raw JSON]\n' +
-           rawOutput.slice(0, 200) + '...\n[truncated]';
+    return (
+      '[Agent output could not be parsed - showing raw JSON]\n' +
+      rawOutput.slice(0, 200) +
+      '...\n[truncated]'
+    );
   }
 
   return stripAnsiCodes(rawOutput);
@@ -183,15 +201,19 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
  * Format output for display in the TUI.
  * Applies any final transformations for readability.
  */
-export function formatOutputForDisplay(output: string, maxLines?: number): string {
+export function formatOutputForDisplay(
+  output: string,
+  maxLines?: number,
+): string {
   let formatted = output;
 
   // Limit lines if requested
   if (maxLines && maxLines > 0) {
     const lines = formatted.split('\n');
     if (lines.length > maxLines) {
-      formatted = lines.slice(0, maxLines).join('\n') +
-                 `\n... (${lines.length - maxLines} more lines)`;
+      formatted =
+        lines.slice(0, maxLines).join('\n') +
+        `\n... (${lines.length - maxLines} more lines)`;
     }
   }
 
@@ -284,8 +306,10 @@ export class StreamingOutputParser {
 
       // Trim if exceeding max size (keep the end, trim the start)
       if (this.parsedOutput.length > MAX_PARSED_OUTPUT_SIZE) {
-        const trimPoint = this.parsedOutput.length - MAX_PARSED_OUTPUT_SIZE + 1000;
-        this.parsedOutput = '[...output trimmed...]\n' + this.parsedOutput.slice(trimPoint);
+        const trimPoint =
+          this.parsedOutput.length - MAX_PARSED_OUTPUT_SIZE + 1000;
+        this.parsedOutput =
+          '[...output trimmed...]\n' + this.parsedOutput.slice(trimPoint);
       }
     }
 
@@ -294,7 +318,10 @@ export class StreamingOutputParser {
       this.parsedSegments.push(...newSegments);
 
       // Trim segments if total text exceeds max size
-      const totalLength = this.parsedSegments.reduce((acc, s) => acc + s.text.length, 0);
+      const totalLength = this.parsedSegments.reduce(
+        (acc, s) => acc + s.text.length,
+        0,
+      );
       if (totalLength > MAX_PARSED_OUTPUT_SIZE) {
         // Simple trim: keep last N segments that fit within limit
         let kept = 0;
@@ -308,7 +335,10 @@ export class StreamingOutputParser {
           kept++;
         }
         // Note: slice(-0) === slice(0) returns full array, so handle kept === 0 specially
-        const start = kept === 0 ? this.parsedSegments.length : this.parsedSegments.length - kept;
+        const start =
+          kept === 0
+            ? this.parsedSegments.length
+            : this.parsedSegments.length - kept;
         this.parsedSegments = [
           { text: '[...output trimmed...]\n', color: 'muted' },
           ...this.parsedSegments.slice(start),
@@ -334,7 +364,9 @@ export class StreamingOutputParser {
           this.droidCostAccumulator.add(droidResult.message.cost);
         }
 
-        const costSummary = this.formatDroidCostSummaryIfFinal(droidResult.message);
+        const costSummary = this.formatDroidCostSummaryIfFinal(
+          droidResult.message,
+        );
         const droidDisplay = formatDroidEventForDisplay(droidResult.message);
 
         if (droidDisplay && costSummary) {
@@ -381,7 +413,10 @@ export class StreamingOutputParser {
         }
         if (Array.isArray(content)) {
           const textParts = content
-            .filter((c): c is { type: string; text: string } => c.type === 'text' && !!c.text)
+            .filter(
+              (c): c is { type: string; text: string } =>
+                c.type === 'text' && !!c.text,
+            )
             .map((c) => c.text);
           if (textParts.length > 0) {
             return textParts.join('');
@@ -429,7 +464,7 @@ export class StreamingOutputParser {
         const segments = formatDroidEventToSegments(droidResult.message);
         if (segments.length > 0) {
           // Strip ANSI codes from all segment texts
-          return segments.map(s => ({ ...s, text: stripAnsiCodes(s.text) }));
+          return segments.map((s) => ({ ...s, text: stripAnsiCodes(s.text) }));
         }
         // Droid event was recognized but nothing to display
         return [];
@@ -458,7 +493,10 @@ export class StreamingOutputParser {
         }
         if (Array.isArray(content)) {
           const textParts = content
-            .filter((c): c is { type: string; text: string } => c.type === 'text' && !!c.text)
+            .filter(
+              (c): c is { type: string; text: string } =>
+                c.type === 'text' && !!c.text,
+            )
             .map((c) => c.text);
           if (textParts.length > 0) {
             return [{ text: stripAnsiCodes(textParts.join('')) }];
@@ -481,7 +519,9 @@ export class StreamingOutputParser {
     }
   }
 
-  private formatDroidCostSummaryIfFinal(message: DroidJsonlMessage): string | undefined {
+  private formatDroidCostSummaryIfFinal(
+    message: DroidJsonlMessage,
+  ): string | undefined {
     if (!this.droidCostAccumulator || !this.droidCostAccumulator.hasData()) {
       return undefined;
     }
@@ -501,7 +541,9 @@ export class StreamingOutputParser {
       return undefined;
     }
 
-    const summary = formatDroidCostSummary(this.droidCostAccumulator.getSummary());
+    const summary = formatDroidCostSummary(
+      this.droidCostAccumulator.getSummary(),
+    );
     if (summary === this.lastCostSummary) {
       return undefined;
     }

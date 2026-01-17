@@ -129,7 +129,9 @@ describe('BeadsTrackerPlugin status mapping', () => {
   // These tests verify the conversion between bd status and TrackerTaskStatus
 
   describe('task conversion', () => {
-    test.todo('bead ID with dot infers parent ID - requires mocking bd CLI output');
+    test.todo(
+      'bead ID with dot infers parent ID - requires mocking bd CLI output',
+    );
     // When a bead has ID like "epic-123.45", parent should be "epic-123"
     // This tests the ID parsing logic in beadToTask/getTasks
     // Implementation would require mocking the bd CLI to return beads with dotted IDs
@@ -222,7 +224,9 @@ describe('BeadsTrackerPlugin getNextTask', () => {
     test('accepts TaskFilter with labels', async () => {
       await plugin.initialize({ workingDir: '/tmp/nonexistent-beads-test' });
 
-      const result = await plugin.getNextTask({ labels: ['feature', 'backend'] });
+      const result = await plugin.getNextTask({
+        labels: ['feature', 'backend'],
+      });
       expect(result).toBeUndefined();
     });
   });
@@ -250,7 +254,9 @@ describe('BeadsTrackerPlugin getNextTask', () => {
       expect(result).toBeUndefined();
     });
 
-    test.todo('excludeIds filters out specified tasks from bd ready results - requires CLI mocking');
+    test.todo(
+      'excludeIds filters out specified tasks from bd ready results - requires CLI mocking',
+    );
     // When bd ready returns tasks [task-1, task-2, task-3] and excludeIds=['task-1'],
     // getNextTask should return task-2 instead of task-1
     // This is critical for the engine's skipped task handling
@@ -264,19 +270,27 @@ describe('BeadsTrackerPlugin getNextTask', () => {
     // bd ready --json returns tasks with no unresolved dependencies
     // This is the fix for issue #97 where chained tasks were shown in wrong order
 
-    test.todo('in_progress tasks are preferred over open tasks - requires CLI mocking');
+    test.todo(
+      'in_progress tasks are preferred over open tasks - requires CLI mocking',
+    );
     // When bd ready returns multiple tasks, getNextTask should prefer
     // tasks with status 'in_progress' over 'open'
 
-    test.todo('tasks are returned in priority order from bd ready - requires CLI mocking');
+    test.todo(
+      'tasks are returned in priority order from bd ready - requires CLI mocking',
+    );
     // bd ready uses hybrid sorting (priority + other factors)
     // getNextTask trusts this ordering
 
-    test.todo('parent filter is passed to bd ready --parent flag - requires CLI mocking');
+    test.todo(
+      'parent filter is passed to bd ready --parent flag - requires CLI mocking',
+    );
     // When filter.parentId or epicId is set, getNextTask should use
     // bd ready --parent <id> to filter to epic descendants
 
-    test.todo('labels are passed to bd ready --label flag - requires CLI mocking');
+    test.todo(
+      'labels are passed to bd ready --label flag - requires CLI mocking',
+    );
     // When filter.labels or plugin.labels is set, getNextTask should use
     // bd ready --label <labels> to filter by labels
   });

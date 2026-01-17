@@ -11,16 +11,9 @@ export {
   printPluginsHelp,
 } from './plugins.js';
 
-export {
-  executeRunCommand,
-  parseRunArgs,
-  printRunHelp,
-} from './run.jsx';
+export { executeRunCommand, parseRunArgs, printRunHelp } from './run.jsx';
 
-export {
-  executeStatusCommand,
-  printStatusHelp,
-} from './status.js';
+export { executeStatusCommand, printStatusHelp } from './status.js';
 
 export {
   executeResumeCommand,
@@ -40,16 +33,9 @@ export {
   printSetupHelp,
 } from './setup.js';
 
-export {
-  executeLogsCommand,
-  parseLogsArgs,
-  printLogsHelp,
-} from './logs.js';
+export { executeLogsCommand, parseLogsArgs, printLogsHelp } from './logs.js';
 
-export {
-  executeTemplateCommand,
-  printTemplateHelp,
-} from './template.js';
+export { executeTemplateCommand, printTemplateHelp } from './template.js';
 
 export {
   executeCreatePrdCommand,
@@ -63,8 +49,4 @@ export {
   printConvertHelp,
 } from './convert.js';
 
-export {
-  executeDocsCommand,
-  parseDocsArgs,
-  printDocsHelp,
-} from './docs.js';
+export { executeDocsCommand, parseDocsArgs, printDocsHelp } from './docs.js';

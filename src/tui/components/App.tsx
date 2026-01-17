@@ -89,7 +89,10 @@ export function App({ initialState, onQuit }: AppProps): ReactNode {
             setState((prev) => ({
               ...prev,
               leftPanel: { ...prev.leftPanel, selectedIndex: newIndex },
-              rightPanel: { ...prev.rightPanel, selectedTask: tasks[newIndex] ?? null },
+              rightPanel: {
+                ...prev.rightPanel,
+                selectedTask: tasks[newIndex] ?? null,
+              },
             }));
           }
           break;
@@ -101,7 +104,10 @@ export function App({ initialState, onQuit }: AppProps): ReactNode {
             setState((prev) => ({
               ...prev,
               leftPanel: { ...prev.leftPanel, selectedIndex: newIndex },
-              rightPanel: { ...prev.rightPanel, selectedTask: tasks[newIndex] ?? null },
+              rightPanel: {
+                ...prev.rightPanel,
+                selectedTask: tasks[newIndex] ?? null,
+              },
             }));
           }
           break;
@@ -118,13 +124,16 @@ export function App({ initialState, onQuit }: AppProps): ReactNode {
           break;
       }
     },
-    [state.leftPanel, onQuit]
+    [state.leftPanel, onQuit],
   );
 
   useKeyboard(handleKeyboard);
 
   // Calculate content area height (total height minus header and footer)
-  const contentHeight = Math.max(1, height - layout.header.height - layout.footer.height);
+  const contentHeight = Math.max(
+    1,
+    height - layout.header.height - layout.footer.height,
+  );
 
   // Determine if we should use a compact layout for narrow terminals
   const isCompact = width < 80;

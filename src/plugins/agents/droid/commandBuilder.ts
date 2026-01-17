@@ -3,7 +3,10 @@
  * Uses 'droid exec' subcommand for non-interactive execution.
  */
 
-import { DROID_EXEC_SUBCOMMAND, DROID_NON_INTERACTIVE_FLAGS } from './config.js';
+import {
+  DROID_EXEC_SUBCOMMAND,
+  DROID_NON_INTERACTIVE_FLAGS,
+} from './config.js';
 
 export interface DroidCommandArgs {
   prompt: string;
@@ -24,7 +27,10 @@ export function buildDroidCommandArgs({
 }: DroidCommandArgs): string[] {
   // Start with 'exec' subcommand for non-interactive mode
   // Format: droid exec [flags] "prompt"
-  const args: string[] = [DROID_EXEC_SUBCOMMAND, ...DROID_NON_INTERACTIVE_FLAGS];
+  const args: string[] = [
+    DROID_EXEC_SUBCOMMAND,
+    ...DROID_NON_INTERACTIVE_FLAGS,
+  ];
 
   if (model) {
     args.push('--model', model);

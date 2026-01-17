@@ -32,7 +32,7 @@ export const DEFAULT_SESSION_METADATA: SessionMetadata = {
  * Create a SessionMetadata with optional overrides
  */
 export function createSessionMetadata(
-  overrides: Partial<SessionMetadata> = {}
+  overrides: Partial<SessionMetadata> = {},
 ): SessionMetadata {
   return {
     ...DEFAULT_SESSION_METADATA,
@@ -44,7 +44,7 @@ export function createSessionMetadata(
  * Create a running session
  */
 export function createRunningSession(
-  overrides: Partial<SessionMetadata> = {}
+  overrides: Partial<SessionMetadata> = {},
 ): SessionMetadata {
   return createSessionMetadata({
     status: 'running',
@@ -56,7 +56,7 @@ export function createRunningSession(
  * Create a paused session
  */
 export function createPausedSession(
-  overrides: Partial<SessionMetadata> = {}
+  overrides: Partial<SessionMetadata> = {},
 ): SessionMetadata {
   return createSessionMetadata({
     status: 'paused',
@@ -68,7 +68,7 @@ export function createPausedSession(
  * Create a completed session
  */
 export function createCompletedSession(
-  overrides: Partial<SessionMetadata> = {}
+  overrides: Partial<SessionMetadata> = {},
 ): SessionMetadata {
   return createSessionMetadata({
     status: 'completed',
@@ -82,7 +82,7 @@ export function createCompletedSession(
  * Create a failed session
  */
 export function createFailedSession(
-  overrides: Partial<SessionMetadata> = {}
+  overrides: Partial<SessionMetadata> = {},
 ): SessionMetadata {
   return createSessionMetadata({
     status: 'failed',
@@ -116,7 +116,7 @@ export function createLockFile(overrides: Partial<LockFile> = {}): LockFile {
  * Create a SessionCheckResult with optional overrides
  */
 export function createSessionCheckResult(
-  overrides: Partial<SessionCheckResult> = {}
+  overrides: Partial<SessionCheckResult> = {},
 ): SessionCheckResult {
   return {
     hasSession: false,
@@ -131,7 +131,7 @@ export function createSessionCheckResult(
  */
 export function createActiveSessionCheckResult(
   session: Partial<SessionMetadata> = {},
-  lock: Partial<LockFile> = {}
+  lock: Partial<LockFile> = {},
 ): SessionCheckResult {
   return createSessionCheckResult({
     hasSession: true,
@@ -147,7 +147,7 @@ export function createActiveSessionCheckResult(
  */
 export function createStaleSessionCheckResult(
   session: Partial<SessionMetadata> = {},
-  lock: Partial<LockFile> = {}
+  lock: Partial<LockFile> = {},
 ): SessionCheckResult {
   return createSessionCheckResult({
     hasSession: true,
@@ -162,7 +162,7 @@ export function createStaleSessionCheckResult(
  * Create CreateSessionOptions with optional overrides
  */
 export function createSessionOptions(
-  overrides: Partial<CreateSessionOptions> = {}
+  overrides: Partial<CreateSessionOptions> = {},
 ): CreateSessionOptions {
   return {
     agentPlugin: 'claude',

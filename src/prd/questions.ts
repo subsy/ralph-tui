@@ -31,7 +31,8 @@ export const CLARIFYING_QUESTIONS: readonly ClarifyingQuestion[] = [
   },
   {
     id: 'constraints',
-    question: 'Are there any constraints or limitations to consider? (e.g., time, technology, compatibility)',
+    question:
+      'Are there any constraints or limitations to consider? (e.g., time, technology, compatibility)',
     category: 'constraints',
   },
   {

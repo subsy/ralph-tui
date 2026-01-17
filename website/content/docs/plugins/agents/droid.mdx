@@ -8,7 +8,8 @@ description: Run Factory Droid CLI (droid) as an autonomous agent in Ralph TUI.
 The Factory Droid agent plugin integrates with the `droid` CLI so Ralph TUI can execute tasks with Factory Droid alongside Claude Code and OpenCode.
 
 <Callout type="tip">
-Factory Droid supports subagent tracing via JSONL stream output. Enable tracing to view tool calls, costs, and execution events.
+  Factory Droid supports subagent tracing via JSONL stream output. Enable
+  tracing to view tool calls, costs, and execution events.
 </Callout>
 
 ## Prerequisites
@@ -33,6 +34,7 @@ Set `FACTORY_API_KEY` in your environment (or run `droid auth`).
     ```bash
     ralph-tui run --prd ./prd.json --agent droid
     ```
+
   </Step>
 </Steps>
 
@@ -70,11 +72,11 @@ enableTracing = true
 
 ### Options Reference
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `model` | string | - | Model name passed to the droid CLI via `--model` |
-| `reasoningEffort` | `low` \| `medium` \| `high` | - | Reasoning effort level passed via `--reasoning-effort` |
-| `enableTracing` | boolean | `true` | Enables JSONL stream output (`--output-format stream-json`) |
+| Option            | Type                        | Default | Description                                                 |
+| ----------------- | --------------------------- | ------- | ----------------------------------------------------------- |
+| `model`           | string                      | -       | Model name passed to the droid CLI via `--model`            |
+| `reasoningEffort` | `low` \| `medium` \| `high` | -       | Reasoning effort level passed via `--reasoning-effort`      |
+| `enableTracing`   | boolean                     | `true`  | Enables JSONL stream output (`--output-format stream-json`) |
 
 ## Models and Reasoning Effort
 
@@ -98,11 +100,12 @@ When `enableTracing = true` and subagent tracing is enabled in the TUI, Ralph TU
 - Cost metrics (tokens, cache stats, USD)
 
 Toggle tracing in the TUI:
+
 - Press `t` to cycle tracing detail levels
 - Press `u` to show/hide the tracing panel
 
 <Callout type="info">
-Tracing requires `subagentTracingDetail` to be set above `"off"`.
+  Tracing requires `subagentTracingDetail` to be set above `"off"`.
 </Callout>
 
 ## Autonomous Operation
@@ -110,7 +113,8 @@ Tracing requires `subagentTracingDetail` to be set above `"off"`.
 Ralph TUI runs Factory Droid in fully autonomous mode with `--skip-permissions-unsafe`. This is required because ralph-tui cannot relay interactive prompts back to droid.
 
 <Callout type="info">
-Factory Droid will execute tool actions without asking for confirmation. Review tasks carefully before starting execution.
+  Factory Droid will execute tool actions without asking for confirmation.
+  Review tasks carefully before starting execution.
 </Callout>
 
 ## How It Works
@@ -128,6 +132,7 @@ droid exec \
 ```
 
 Key behaviors:
+
 1. **Non-interactive mode**: Uses `droid exec` subcommand with prompt as argument
 2. **Tracing**: `--output-format stream-json` when tracing is enabled
 3. **Working directory**: `--cwd` set to the current task workspace

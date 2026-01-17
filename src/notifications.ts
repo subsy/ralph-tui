@@ -6,7 +6,10 @@
  */
 
 import notifier from 'node-notifier';
-import type { NotificationsConfig, NotificationSoundMode } from './config/types.js';
+import type {
+  NotificationsConfig,
+  NotificationSoundMode,
+} from './config/types.js';
 import { playNotificationSound } from './sound.js';
 
 /**
@@ -50,9 +53,11 @@ export function sendNotification(options: NotificationOptions): void {
       },
       (err: Error | null) => {
         if (err) {
-          console.warn(`[notifications] Failed to send notification: ${err.message}`);
+          console.warn(
+            `[notifications] Failed to send notification: ${err.message}`,
+          );
         }
-      }
+      },
     );
 
     // Play sound separately for cross-platform support
@@ -81,7 +86,7 @@ export function sendNotification(options: NotificationOptions): void {
  */
 export function resolveNotificationsEnabled(
   config?: NotificationsConfig,
-  cliNotify?: boolean
+  cliNotify?: boolean,
 ): boolean {
   // CLI flag takes highest priority
   if (cliNotify !== undefined) {
@@ -136,7 +141,9 @@ export interface CompletionNotificationOptions {
  *
  * @param options - The completion notification options
  */
-export function sendCompletionNotification(options: CompletionNotificationOptions): void {
+export function sendCompletionNotification(
+  options: CompletionNotificationOptions,
+): void {
   const { durationMs, taskCount, sound } = options;
   const durationStr = formatDuration(durationMs);
 
@@ -172,11 +179,15 @@ export interface MaxIterationsNotificationOptions {
  *
  * @param options - The max iterations notification options
  */
-export function sendMaxIterationsNotification(options: MaxIterationsNotificationOptions): void {
-  const { iterationsRun, tasksCompleted, tasksRemaining, durationMs, sound } = options;
+export function sendMaxIterationsNotification(
+  options: MaxIterationsNotificationOptions,
+): void {
+  const { iterationsRun, tasksCompleted, tasksRemaining, durationMs, sound } =
+    options;
   const durationStr = formatDuration(durationMs);
 
-  const body = `Iteration limit reached after ${iterationsRun} iteration${iterationsRun !== 1 ? 's' : ''}. ` +
+  const body =
+    `Iteration limit reached after ${iterationsRun} iteration${iterationsRun !== 1 ? 's' : ''}. ` +
     `Completed ${tasksCompleted}, ${tasksRemaining} remaining. Duration: ${durationStr}`;
 
   sendNotification({
@@ -215,11 +226,13 @@ export function sendErrorNotification(options: ErrorNotificationOptions): void {
 
   // Truncate error summary if too long for notification
   const maxErrorLength = 100;
-  const truncatedError = errorSummary.length > maxErrorLength
-    ? errorSummary.substring(0, maxErrorLength) + '...'
-    : errorSummary;
+  const truncatedError =
+    errorSummary.length > maxErrorLength
+      ? errorSummary.substring(0, maxErrorLength) + '...'
+      : errorSummary;
 
-  const body = `Error: ${truncatedError}\n` +
+  const body =
+    `Error: ${truncatedError}\n` +
     `Completed ${tasksCompleted} task${tasksCompleted !== 1 ? 's' : ''} before failure. Duration: ${durationStr}`;
 
   sendNotification({

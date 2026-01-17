@@ -9,7 +9,8 @@
 
 /* Callout status dot animation */
 @keyframes callout-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -42,7 +43,8 @@
 
 /* Step number glow effect */
 @keyframes step-number-glow {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 8px rgba(122, 162, 247, 0.15);
   }
   50% {
@@ -151,10 +153,12 @@
 
 /* Typing cursor animation for decorative use */
 @keyframes terminal-cursor-blink {
-  0%, 50% {
+  0%,
+  50% {
     opacity: 1;
   }
-  51%, 100% {
+  51%,
+  100% {
     opacity: 0;
   }
 }

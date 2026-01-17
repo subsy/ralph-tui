@@ -10,7 +10,8 @@ description: FAQ-style solutions for common Ralph TUI problems including task se
 This error occurs when Ralph TUI cannot find any tasks to execute.
 
 <Callout type="warning">
-Check your task source first - the cause differs depending on whether you're using prd.json or Beads.
+  Check your task source first - the cause differs depending on whether you're
+  using prd.json or Beads.
 </Callout>
 
 **For prd.json users:**
@@ -80,17 +81,20 @@ Ralph TUI cannot locate your AI agent CLI executable.
 **Solutions:**
 
 1. Verify the agent is installed:
+
    ```bash
    which claude      # For Claude Code
    which opencode    # For OpenCode
    ```
 
 2. Check your PATH includes the agent:
+
    ```bash
    echo $PATH
    ```
 
 3. See detected agents:
+
    ```bash
    ralph-tui plugins agents
    ```
@@ -101,7 +105,8 @@ Ralph TUI cannot locate your AI agent CLI executable.
    ```
 
 <Callout type="tip">
-If you installed an agent with a different package manager (npm, cargo, pip), you may need to add its bin directory to your PATH.
+  If you installed an agent with a different package manager (npm, cargo, pip),
+  you may need to add its bin directory to your PATH.
 </Callout>
 
 ### Agent Output Not Streaming
@@ -109,6 +114,7 @@ If you installed an agent with a different package manager (npm, cargo, pip), yo
 If you don't see real-time output from the agent:
 
 1. **Check subagent tracing settings**: High filtering may hide output
+
    ```toml
    # In .ralph-tui/config.toml
    subagentTracingDetail = "full"  # Try "full" for maximum visibility
@@ -145,6 +151,7 @@ If you don't see real-time output from the agent:
     # Check environment variables
     echo $ANTHROPIC_API_KEY
     ```
+
   </TabsContent>
 </TabsRoot>
 
@@ -159,6 +166,7 @@ Another Ralph TUI instance may be running, or a previous session didn't shut dow
 **Solutions:**
 
 1. **Check for running processes:**
+
    ```bash
    ps aux | grep ralph-tui
    ```
@@ -166,6 +174,7 @@ Another Ralph TUI instance may be running, or a previous session didn't shut dow
 2. **Wait for the existing session** to complete
 
 3. **Force override the lock:**
+
    ```bash
    ralph-tui resume --force
    ```
@@ -176,7 +185,8 @@ Another Ralph TUI instance may be running, or a previous session didn't shut dow
    ```
 
 <Callout type="warning">
-Force overriding or deleting the lock file can lead to parallel runs. Only do this if you're certain no other session is running.
+  Force overriding or deleting the lock file can lead to parallel runs. Only do
+  this if you're certain no other session is running.
 </Callout>
 
 ### Session Won't Resume
@@ -184,16 +194,19 @@ Force overriding or deleting the lock file can lead to parallel runs. Only do th
 If `ralph-tui resume` fails:
 
 1. **Check session file exists:**
+
    ```bash
    ls -la .ralph-tui/session.json
    ```
 
 2. **Verify session file is valid JSON:**
+
    ```bash
    cat .ralph-tui/session.json | jq .
    ```
 
 3. **Check for stale locks:**
+
    ```bash
    ralph-tui status --json
    ```
@@ -209,11 +222,13 @@ If `ralph-tui resume` fails:
 Ralph TUI saves progress after each iteration. If progress was lost:
 
 1. **Check iteration logs** for completed work:
+
    ```bash
    ralph-tui logs --iteration 1
    ```
 
 2. **Review the progress file:**
+
    ```bash
    cat .ralph-tui/progress.md
    ```
@@ -232,7 +247,8 @@ Ralph TUI saves progress after each iteration. If progress was lost:
 When using Claude Code or other API-based agents, you may hit rate limits during long sessions.
 
 <Callout type="info">
-Rate limiting is common with high-volume usage. Ralph TUI has built-in strategies to handle this gracefully.
+  Rate limiting is common with high-volume usage. Ralph TUI has built-in
+  strategies to handle this gracefully.
 </Callout>
 
 **Configure rate limit handling:**
@@ -251,15 +267,16 @@ fallbackAgents = ["opencode"]
 
 **Strategy options:**
 
-| Strategy | Behavior |
-|----------|----------|
-| `wait` | Pause and retry with exponential backoff |
-| `fallback` | Switch to a fallback agent |
-| `abort` | Stop execution immediately |
+| Strategy   | Behavior                                 |
+| ---------- | ---------------------------------------- |
+| `wait`     | Pause and retry with exponential backoff |
+| `fallback` | Switch to a fallback agent               |
+| `abort`    | Stop execution immediately               |
 
 **Reducing rate limit issues:**
 
 1. **Use iteration delays:**
+
    ```bash
    ralph-tui run --delay 5000 --prd ./prd.json
    ```
@@ -292,11 +309,13 @@ bd sync
 Ralph TUI detects completion when the agent outputs `<promise>COMPLETE</promise>`. If tasks aren't being marked complete:
 
 1. **Verify the agent outputs the token:**
+
    ```bash
    ralph-tui logs --iteration 5 --verbose | grep -i "promise"
    ```
 
 2. **Check your prompt template** includes completion instructions:
+
    ```bash
    ralph-tui template show
    ```
@@ -308,6 +327,7 @@ Ralph TUI detects completion when the agent outputs `<promise>COMPLETE</promise>
 If tasks are marked complete prematurely:
 
 1. **Review the iteration logs:**
+
    ```bash
    ralph-tui logs --task US-005 --verbose
    ```
@@ -323,6 +343,7 @@ If tasks are marked complete prematurely:
 ### Config File Not Found
 
 Ralph TUI looks for configuration in this order:
+
 1. CLI flags
 2. Project config: `.ralph-tui/config.toml`
 3. Global config: `~/.config/ralph-tui/config.toml`
@@ -340,6 +361,7 @@ ralph-tui config show
 ### Config Options Not Taking Effect
 
 1. **Check config file syntax:**
+
    ```bash
    cat .ralph-tui/config.toml
    ```
@@ -362,6 +384,7 @@ If your issue isn't covered here:
 1. **Check the [Debugging Guide](/docs/troubleshooting/debugging)** for detailed diagnostic steps
 
 2. **Review iteration logs** for error details:
+
    ```bash
    ralph-tui logs --verbose
    ```

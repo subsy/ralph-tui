@@ -8,7 +8,8 @@ description: Track tasks with a simple prd.json file - no external dependencies 
 The JSON tracker is the simplest way to use Ralph TUI. It reads tasks from a local `prd.json` file with no external dependencies - perfect for getting started quickly.
 
 <Callout type="tip">
-The JSON tracker is ideal for single-developer projects or when you want to try Ralph TUI without installing additional tools.
+  The JSON tracker is ideal for single-developer projects or when you want to
+  try Ralph TUI without installing additional tools.
 </Callout>
 
 ## Prerequisites
@@ -41,13 +42,10 @@ None! Just create a `prd.json` file.
       ]
     }
     ```
+
   </Step>
 
-  <Step title="Run Ralph TUI">
-    ```bash
-    ralph-tui run --prd ./prd.json
-    ```
-  </Step>
+<Step title="Run Ralph TUI">```bash ralph-tui run --prd ./prd.json ```</Step>
 
   <Step title="Watch Progress">
     As tasks complete, Ralph updates `passes: true` in your `prd.json`.
@@ -65,6 +63,7 @@ ralph-tui run --prd ./path/to/prd.json
 ```
 
 This flag:
+
 - Selects the JSON tracker automatically
 - Sets the file path
 
@@ -81,7 +80,8 @@ path = "./prd.json"
 ```
 
 <Callout type="warning">
-The `--prd` flag is recommended over config-file path because you likely have different prd.json files for different features.
+  The `--prd` flag is recommended over config-file path because you likely have
+  different prd.json files for different features.
 </Callout>
 
 ## prd.json Schema
@@ -90,27 +90,27 @@ The JSON tracker validates your file against a specific schema.
 
 ### Root Object
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Project or feature name |
-| `description` | string | No | Project description |
-| `branchName` | string | No | Git branch for this work |
-| `userStories` | array | Yes | List of user stories/tasks |
-| `metadata` | object | No | Optional metadata |
+| Field         | Type   | Required | Description                |
+| ------------- | ------ | -------- | -------------------------- |
+| `name`        | string | Yes      | Project or feature name    |
+| `description` | string | No       | Project description        |
+| `branchName`  | string | No       | Git branch for this work   |
+| `userStories` | array  | Yes      | List of user stories/tasks |
+| `metadata`    | object | No       | Optional metadata          |
 
 ### User Story Object
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique identifier (e.g., "US-001") |
-| `title` | string | Yes | Short title |
-| `description` | string | No | Detailed description |
-| `acceptanceCriteria` | string[] | No | List of criteria |
-| `priority` | number | No | Priority (1 = highest, default: 2) |
-| `passes` | boolean | Yes | Whether task is complete |
-| `labels` | string[] | No | Tags for categorization |
-| `dependsOn` | string[] | No | IDs of blocking tasks |
-| `notes` | string | No | Additional notes |
+| Field                | Type     | Required | Description                        |
+| -------------------- | -------- | -------- | ---------------------------------- |
+| `id`                 | string   | Yes      | Unique identifier (e.g., "US-001") |
+| `title`              | string   | Yes      | Short title                        |
+| `description`        | string   | No       | Detailed description               |
+| `acceptanceCriteria` | string[] | No       | List of criteria                   |
+| `priority`           | number   | No       | Priority (1 = highest, default: 2) |
+| `passes`             | boolean  | Yes      | Whether task is complete           |
+| `labels`             | string[] | No       | Tags for categorization            |
+| `dependsOn`          | string[] | No       | IDs of blocking tasks              |
+| `notes`              | string   | No       | Additional notes                   |
 
 ### Complete Example
 
@@ -226,12 +226,12 @@ Ralph TUI won't select a task until all its dependencies have `passes: true`.
 
 Lower priority numbers = higher priority (processed first):
 
-| Priority | Meaning |
-|----------|---------|
-| 1 | Highest priority |
-| 2 | Medium priority (default) |
-| 3 | Lower priority |
-| 4+ | Backlog |
+| Priority | Meaning                   |
+| -------- | ------------------------- |
+| 1        | Highest priority          |
+| 2        | Medium priority (default) |
+| 3        | Lower priority            |
+| 4+       | Backlog                   |
 
 Tasks are selected by priority, then by order in the array.
 
@@ -283,6 +283,7 @@ The JSON tracker validates your file and provides helpful error messages:
       "userStories": [ ... ]
     }
     ```
+
   </TabsContent>
   <TabsContent value="status">
     ```json
@@ -300,6 +301,7 @@ The JSON tracker validates your file and provides helpful error messages:
       "passes": false
     }
     ```
+
   </TabsContent>
   <TabsContent value="unsupported">
     ```json
@@ -317,6 +319,7 @@ The JSON tracker validates your file and provides helpful error messages:
       "passes": false
     }
     ```
+
   </TabsContent>
 </TabsRoot>
 
@@ -333,13 +336,13 @@ ralph-tui convert --to json ./tasks/my-prd.md --force
 
 The JSON tracker is simple by design:
 
-| Feature | JSON | Beads |
-|---------|------|-------|
-| External CLI | None | Required |
-| Git sync | No | Yes |
-| Epic hierarchy | No | Yes |
-| Team collaboration | Limited | Full |
-| Graph analysis | No | With BV |
+| Feature            | JSON    | Beads    |
+| ------------------ | ------- | -------- |
+| External CLI       | None    | Required |
+| Git sync           | No      | Yes      |
+| Epic hierarchy     | No      | Yes      |
+| Team collaboration | Limited | Full     |
+| Graph analysis     | No      | With BV  |
 
 For larger projects or team collaboration, consider the [Beads tracker](/docs/plugins/trackers/beads).
 
@@ -348,6 +351,7 @@ For larger projects or team collaboration, consider the [Beads tracker](/docs/pl
 ### "Invalid prd.json schema"
 
 Your file doesn't match the expected schema. Common issues:
+
 - Using `tasks` instead of `userStories`
 - Using `status` instead of `passes`
 - Missing required fields (`id`, `title`, `passes`)
@@ -361,6 +365,7 @@ Ensure the task ID exists in `userStories` and has `passes: false`.
 ### "No tasks available"
 
 All tasks either:
+
 - Have `passes: true` (completed)
 - Are blocked by incomplete dependencies
 

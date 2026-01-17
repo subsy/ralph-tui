@@ -166,14 +166,27 @@ export function EpicLoaderOverlay({
 
           default:
             // Handle character input
-            if (key.sequence && key.sequence.length === 1 && key.name !== 'backspace') {
+            if (
+              key.sequence &&
+              key.sequence.length === 1 &&
+              key.name !== 'backspace'
+            ) {
               setFilePath((prev) => prev + key.sequence);
             }
             break;
         }
       }
     },
-    [visible, mode, epics, selectedIndex, filePath, onSelect, onCancel, onFilePath]
+    [
+      visible,
+      mode,
+      epics,
+      selectedIndex,
+      filePath,
+      onSelect,
+      onCancel,
+      onFilePath,
+    ],
   );
 
   useKeyboard(handleKeyboard);
@@ -306,10 +319,15 @@ export function EpicLoaderOverlay({
                 const isSelected = index === selectedIndex;
                 const isCurrent = epic.id === currentEpicId;
                 const statusColor = getEpicStatusColor(epic);
-                const meta = epic.metadata as Record<string, unknown> | undefined;
-                const storyCount = (meta?.storyCount as number | undefined) ?? 0;
-                const completedCount = (meta?.completedCount as number | undefined) ?? 0;
-                const childCount = (meta?.childCount as number | undefined) ?? storyCount;
+                const meta = epic.metadata as
+                  | Record<string, unknown>
+                  | undefined;
+                const storyCount =
+                  (meta?.storyCount as number | undefined) ?? 0;
+                const completedCount =
+                  (meta?.completedCount as number | undefined) ?? 0;
+                const childCount =
+                  (meta?.childCount as number | undefined) ?? storyCount;
 
                 let progressText = '';
                 if (childCount > 0) {
@@ -323,16 +341,22 @@ export function EpicLoaderOverlay({
                       width: '100%',
                       height: 1,
                       flexDirection: 'row',
-                      backgroundColor: isSelected ? colors.bg.highlight : 'transparent',
+                      backgroundColor: isSelected
+                        ? colors.bg.highlight
+                        : 'transparent',
                     }}
                   >
                     {/* Selection indicator */}
-                    <text fg={isSelected ? colors.accent.primary : 'transparent'}>
+                    <text
+                      fg={isSelected ? colors.accent.primary : 'transparent'}
+                    >
                       {isSelected ? '▸ ' : '  '}
                     </text>
 
                     {/* Current epic marker */}
-                    <text fg={isCurrent ? colors.status.success : 'transparent'}>
+                    <text
+                      fg={isCurrent ? colors.status.success : 'transparent'}
+                    >
                       {isCurrent ? '● ' : '  '}
                     </text>
 
@@ -344,10 +368,14 @@ export function EpicLoaderOverlay({
                     </text>
 
                     {/* Epic ID */}
-                    <text fg={colors.fg.muted}>{truncateText(epic.id, 20)} </text>
+                    <text fg={colors.fg.muted}>
+                      {truncateText(epic.id, 20)}{' '}
+                    </text>
 
                     {/* Epic title */}
-                    <text fg={isSelected ? colors.fg.primary : colors.fg.secondary}>
+                    <text
+                      fg={isSelected ? colors.fg.primary : colors.fg.secondary}
+                    >
                       {truncateText(epic.title, 30)}
                     </text>
 

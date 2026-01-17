@@ -29,7 +29,9 @@ import type { SandboxConfig } from '../../src/config/types.js';
 /**
  * Create a minimal IterationResult for testing
  */
-function createTestIterationResult(overrides: Partial<IterationResult> = {}): IterationResult {
+function createTestIterationResult(
+  overrides: Partial<IterationResult> = {},
+): IterationResult {
   return {
     iteration: 1,
     status: 'completed',
@@ -172,7 +174,9 @@ describe('buildMetadata', () => {
       completionSummary: 'Completed on fallback (opencode) due to rate limit',
     });
 
-    expect(metadata.completionSummary).toBe('Completed on fallback (opencode) due to rate limit');
+    expect(metadata.completionSummary).toBe(
+      'Completed on fallback (opencode) due to rate limit',
+    );
   });
 
   test('includes agentSwitches when provided', () => {
@@ -181,8 +185,18 @@ describe('buildMetadata', () => {
     const metadata = buildMetadata(result, {
       config: {},
       agentSwitches: [
-        { from: 'claude', to: 'opencode', reason: 'fallback', at: '2024-01-15T10:01:00.000Z' },
-        { from: 'opencode', to: 'claude', reason: 'primary', at: '2024-01-15T10:02:00.000Z' },
+        {
+          from: 'claude',
+          to: 'opencode',
+          reason: 'fallback',
+          at: '2024-01-15T10:01:00.000Z',
+        },
+        {
+          from: 'opencode',
+          to: 'claude',
+          reason: 'primary',
+          at: '2024-01-15T10:02:00.000Z',
+        },
       ],
     });
 
@@ -246,121 +260,120 @@ describe('buildMetadata', () => {
 // Note: These tests pass in isolation but may fail when run with the full test suite
 // due to module mocking interference from other test files (execution-engine.test.ts
 // mocks the logs module globally). Run `bun test tests/logs/persistence.test.ts` to verify.
-describe.skipIf(process.env.CI === 'true')('saveIterationLog and loadIterationLog', () => {
-  let tempDir: string;
+describe.skipIf(process.env.CI === 'true')(
+  'saveIterationLog and loadIterationLog',
+  () => {
+    let tempDir: string;
 
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'ralph-test-'));
-  });
+    beforeEach(async () => {
+      tempDir = await mkdtemp(join(tmpdir(), 'ralph-test-'));
+    });
 
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
+    afterEach(async () => {
+      await rm(tempDir, { recursive: true, force: true });
+    });
 
-  test('round-trips sandbox configuration', async () => {
-    const result = createTestIterationResult();
-    const sandboxConfig: SandboxConfig = {
-      enabled: true,
-      mode: 'bwrap',
-      network: false,
-    };
+    test('round-trips sandbox configuration', async () => {
+      const result = createTestIterationResult();
+      const sandboxConfig: SandboxConfig = {
+        enabled: true,
+        mode: 'bwrap',
+        network: false,
+      };
 
-    const filePath = await saveIterationLog(
-      tempDir,
-      result,
-      'Test stdout output',
-      'Test stderr output',
-      {
-        config: {
-          agent: { name: 'claude', plugin: 'claude', options: {} },
-          model: 'claude-sonnet-4-20250514',
+      const filePath = await saveIterationLog(
+        tempDir,
+        result,
+        'Test stdout output',
+        'Test stderr output',
+        {
+          config: {
+            agent: { name: 'claude', plugin: 'claude', options: {} },
+            model: 'claude-sonnet-4-20250514',
+          },
+          sandboxConfig,
+          resolvedSandboxMode: 'bwrap',
         },
-        sandboxConfig,
-        resolvedSandboxMode: 'bwrap',
-      }
-    );
+      );
 
-    const loaded = await loadIterationLog(filePath);
+      const loaded = await loadIterationLog(filePath);
 
-    expect(loaded).not.toBeNull();
-    expect(loaded!.metadata.sandboxMode).toBe('bwrap');
-    expect(loaded!.metadata.sandboxNetwork).toBe(false);
-    expect(loaded!.metadata.agentPlugin).toBe('claude');
-    expect(loaded!.metadata.model).toBe('claude-sonnet-4-20250514');
-  });
+      expect(loaded).not.toBeNull();
+      expect(loaded!.metadata.sandboxMode).toBe('bwrap');
+      expect(loaded!.metadata.sandboxNetwork).toBe(false);
+      expect(loaded!.metadata.agentPlugin).toBe('claude');
+      expect(loaded!.metadata.model).toBe('claude-sonnet-4-20250514');
+    });
 
-  test('round-trips auto sandbox mode with resolved value', async () => {
-    const result = createTestIterationResult();
-    const sandboxConfig: SandboxConfig = {
-      enabled: true,
-      mode: 'auto',
-      network: true,
-    };
+    test('round-trips auto sandbox mode with resolved value', async () => {
+      const result = createTestIterationResult();
+      const sandboxConfig: SandboxConfig = {
+        enabled: true,
+        mode: 'auto',
+        network: true,
+      };
 
-    const filePath = await saveIterationLog(
-      tempDir,
-      result,
-      'Test output',
-      '',
-      {
+      const filePath = await saveIterationLog(
+        tempDir,
+        result,
+        'Test output',
+        '',
+        {
+          config: {},
+          sandboxConfig,
+          resolvedSandboxMode: 'sandbox-exec',
+        },
+      );
+
+      const loaded = await loadIterationLog(filePath);
+
+      expect(loaded).not.toBeNull();
+      expect(loaded!.metadata.sandboxMode).toBe('auto');
+      expect(loaded!.metadata.resolvedSandboxMode).toBe('sandbox-exec');
+      expect(loaded!.metadata.sandboxNetwork).toBe(true);
+    });
+
+    test('handles logs without sandbox config (backward compatibility)', async () => {
+      const result = createTestIterationResult();
+
+      const filePath = await saveIterationLog(
+        tempDir,
+        result,
+        'Test output',
+        '',
+        {
+          config: {
+            agent: { name: 'opencode', plugin: 'opencode', options: {} },
+          },
+        },
+      );
+
+      const loaded = await loadIterationLog(filePath);
+
+      expect(loaded).not.toBeNull();
+      expect(loaded!.metadata.sandboxMode).toBeUndefined();
+      expect(loaded!.metadata.resolvedSandboxMode).toBeUndefined();
+      expect(loaded!.metadata.sandboxNetwork).toBeUndefined();
+      expect(loaded!.metadata.agentPlugin).toBe('opencode');
+    });
+
+    test('preserves stdout and stderr content', async () => {
+      const result = createTestIterationResult();
+      const stdout = 'Line 1\nLine 2\nLine 3';
+      const stderr = 'Warning: something happened';
+
+      const filePath = await saveIterationLog(tempDir, result, stdout, stderr, {
         config: {},
-        sandboxConfig,
-        resolvedSandboxMode: 'sandbox-exec',
-      }
-    );
+      });
 
-    const loaded = await loadIterationLog(filePath);
+      const loaded = await loadIterationLog(filePath);
 
-    expect(loaded).not.toBeNull();
-    expect(loaded!.metadata.sandboxMode).toBe('auto');
-    expect(loaded!.metadata.resolvedSandboxMode).toBe('sandbox-exec');
-    expect(loaded!.metadata.sandboxNetwork).toBe(true);
-  });
-
-  test('handles logs without sandbox config (backward compatibility)', async () => {
-    const result = createTestIterationResult();
-
-    const filePath = await saveIterationLog(
-      tempDir,
-      result,
-      'Test output',
-      '',
-      {
-        config: {
-          agent: { name: 'opencode', plugin: 'opencode', options: {} },
-        },
-      }
-    );
-
-    const loaded = await loadIterationLog(filePath);
-
-    expect(loaded).not.toBeNull();
-    expect(loaded!.metadata.sandboxMode).toBeUndefined();
-    expect(loaded!.metadata.resolvedSandboxMode).toBeUndefined();
-    expect(loaded!.metadata.sandboxNetwork).toBeUndefined();
-    expect(loaded!.metadata.agentPlugin).toBe('opencode');
-  });
-
-  test('preserves stdout and stderr content', async () => {
-    const result = createTestIterationResult();
-    const stdout = 'Line 1\nLine 2\nLine 3';
-    const stderr = 'Warning: something happened';
-
-    const filePath = await saveIterationLog(
-      tempDir,
-      result,
-      stdout,
-      stderr,
-      { config: {} }
-    );
-
-    const loaded = await loadIterationLog(filePath);
-
-    expect(loaded).not.toBeNull();
-    expect(loaded!.stdout).toBe(stdout);
-    expect(loaded!.stderr).toBe(stderr);
-  });
-});
+      expect(loaded).not.toBeNull();
+      expect(loaded!.stdout).toBe(stdout);
+      expect(loaded!.stderr).toBe(stderr);
+    });
+  },
+);
 
 describe('generateLogFilename', () => {
   test('generates filename with padded iteration number', () => {
@@ -511,8 +524,18 @@ describe('formatMetadataHeader', () => {
     const metadata = buildMetadata(createTestIterationResult(), {
       config: {},
       agentSwitches: [
-        { from: 'claude', to: 'opencode', reason: 'fallback', at: '2024-01-15T10:01:00.000Z' },
-        { from: 'opencode', to: 'claude', reason: 'primary', at: '2024-01-15T10:02:00.000Z' },
+        {
+          from: 'claude',
+          to: 'opencode',
+          reason: 'fallback',
+          at: '2024-01-15T10:01:00.000Z',
+        },
+        {
+          from: 'opencode',
+          to: 'claude',
+          reason: 'primary',
+          at: '2024-01-15T10:02:00.000Z',
+        },
       ],
     });
     const header = formatMetadataHeader(metadata);
@@ -575,7 +598,10 @@ describe('parseMetadataHeader', () => {
   });
 
   test('parses error field', () => {
-    const original = buildMetadata(createTestIterationResult({ error: 'Test error' }), { config: {} });
+    const original = buildMetadata(
+      createTestIterationResult({ error: 'Test error' }),
+      { config: {} },
+    );
     const header = formatMetadataHeader(original);
     const parsed = parseMetadataHeader(header);
 

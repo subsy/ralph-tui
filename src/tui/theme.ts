@@ -108,23 +108,47 @@ export const fullKeyboardShortcuts = [
   { key: 'q', description: 'Quit Ralph', category: 'General' },
   { key: 'Esc', description: 'Go back / Cancel', category: 'General' },
   { key: ',', description: 'Open settings', category: 'General' },
-  { key: 's', description: 'Start execution (when ready)', category: 'Execution' },
+  {
+    key: 's',
+    description: 'Start execution (when ready)',
+    category: 'Execution',
+  },
   { key: 'p', description: 'Pause / Resume execution', category: 'Execution' },
   { key: '+', description: 'Add 10 iterations', category: 'Execution' },
   { key: '-', description: 'Remove 10 iterations', category: 'Execution' },
-  { key: 'r', description: 'Refresh task list from tracker', category: 'Execution' },
+  {
+    key: 'r',
+    description: 'Refresh task list from tracker',
+    category: 'Execution',
+  },
   { key: 'l', description: 'Load / switch epic', category: 'Execution' },
   { key: 'd', description: 'Toggle progress dashboard', category: 'Views' },
   { key: 'h', description: 'Toggle show/hide closed tasks', category: 'Views' },
-  { key: 'v', description: 'Toggle iterations / tasks view', category: 'Views' },
+  {
+    key: 'v',
+    description: 'Toggle iterations / tasks view',
+    category: 'Views',
+  },
   { key: 'o', description: 'Toggle details / output view', category: 'Views' },
   { key: 't', description: 'Cycle subagent detail level', category: 'Views' },
   { key: 'T', description: 'Toggle subagent tree panel', category: 'Views' },
   { key: '↑ / k', description: 'Move selection up', category: 'Navigation' },
   { key: '↓ / j', description: 'Move selection down', category: 'Navigation' },
-  { key: 'Enter', description: 'View selected item details', category: 'Navigation' },
-  { key: 'Ctrl+C', description: 'Interrupt (with confirmation)', category: 'System' },
-  { key: 'Ctrl+C ×2', description: 'Force quit immediately', category: 'System' },
+  {
+    key: 'Enter',
+    description: 'View selected item details',
+    category: 'Navigation',
+  },
+  {
+    key: 'Ctrl+C',
+    description: 'Interrupt (with confirmation)',
+    category: 'System',
+  },
+  {
+    key: 'Ctrl+C ×2',
+    description: 'Force quit immediately',
+    category: 'System',
+  },
 ] as const;
 
 /**
@@ -169,7 +193,17 @@ export const layout = {
  * - 'idle': Stopped, no more tasks available
  * - 'error': Stopped due to error
  */
-export type RalphStatus = 'ready' | 'running' | 'selecting' | 'executing' | 'pausing' | 'paused' | 'stopped' | 'complete' | 'idle' | 'error';
+export type RalphStatus =
+  | 'ready'
+  | 'running'
+  | 'selecting'
+  | 'executing'
+  | 'pausing'
+  | 'paused'
+  | 'stopped'
+  | 'complete'
+  | 'idle'
+  | 'error';
 
 /**
  * Task status types matching the acceptance criteria
@@ -181,7 +215,14 @@ export type RalphStatus = 'ready' | 'running' | 'selecting' | 'executing' | 'pau
  * - 'error': Task execution failed (red X)
  * - 'closed': Previously completed task (greyed out checkmark for historical tasks)
  */
-export type TaskStatus = 'done' | 'active' | 'actionable' | 'pending' | 'blocked' | 'error' | 'closed';
+export type TaskStatus =
+  | 'done'
+  | 'active'
+  | 'actionable'
+  | 'pending'
+  | 'blocked'
+  | 'error'
+  | 'closed';
 
 /**
  * Get the color for a given task status

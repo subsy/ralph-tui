@@ -8,7 +8,10 @@ import { writeFile, mkdir, rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { JsonTrackerPlugin, validatePrdJsonSchema } from '../../src/plugins/trackers/builtin/json.js';
+import {
+  JsonTrackerPlugin,
+  validatePrdJsonSchema,
+} from '../../src/plugins/trackers/builtin/json.js';
 import { PrdJsonSchemaError } from '../../src/plugins/trackers/builtin/json.js';
 
 describe('JsonTrackerPlugin', () => {
@@ -151,7 +154,10 @@ describe('JsonTrackerPlugin', () => {
       const tasks = await plugin.getTasks();
       const task = tasks[0];
 
-      expect(task?.metadata?.acceptanceCriteria).toEqual(['Criterion 1', 'Criterion 2']);
+      expect(task?.metadata?.acceptanceCriteria).toEqual([
+        'Criterion 1',
+        'Criterion 2',
+      ]);
     });
 
     test('filters by status', async () => {
@@ -230,7 +236,9 @@ describe('JsonTrackerPlugin', () => {
 
       const content = await readFile(prdPath, 'utf-8');
       const data = JSON.parse(content);
-      expect(data.userStories[0].completionNotes).toBe('Completed successfully');
+      expect(data.userStories[0].completionNotes).toBe(
+        'Completed successfully',
+      );
     });
 
     test('returns failure for non-existent task', async () => {
@@ -364,9 +372,7 @@ describe('validatePrdJsonSchema', () => {
   test('accepts valid prd.json', () => {
     const data = {
       name: 'Project',
-      userStories: [
-        { id: 'US-1', title: 'Story', passes: false },
-      ],
+      userStories: [{ id: 'US-1', title: 'Story', passes: false }],
     };
 
     const result = validatePrdJsonSchema(data, 'test.json');
@@ -386,13 +392,13 @@ describe('validatePrdJsonSchema', () => {
 
   test('throws for non-object data', () => {
     expect(() => validatePrdJsonSchema('string', 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
   test('throws for null data', () => {
     expect(() => validatePrdJsonSchema(null, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -402,7 +408,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -413,7 +419,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -423,7 +429,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -433,7 +439,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -444,7 +450,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -455,7 +461,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -466,7 +472,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 
@@ -477,7 +483,7 @@ describe('validatePrdJsonSchema', () => {
     };
 
     expect(() => validatePrdJsonSchema(data, 'test.json')).toThrow(
-      PrdJsonSchemaError
+      PrdJsonSchemaError,
     );
   });
 

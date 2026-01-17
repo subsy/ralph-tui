@@ -110,7 +110,9 @@ describe('logger utility', () => {
         timestampFormat: 'iso',
         component: 'tracker',
       });
-      expect(result).toBe('[2024-06-15T14:30:45.123Z] [DEBUG] [tracker] Debug info');
+      expect(result).toBe(
+        '[2024-06-15T14:30:45.123Z] [DEBUG] [tracker] Debug info',
+      );
     });
   });
 

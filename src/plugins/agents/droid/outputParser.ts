@@ -118,7 +118,9 @@ function extractTextFromContent(content: unknown): string | undefined {
   return undefined;
 }
 
-function extractMessageText(payload: Record<string, unknown>): string | undefined {
+function extractMessageText(
+  payload: Record<string, unknown>,
+): string | undefined {
   const directMessage = extractTextFromContent(payload.message);
   if (directMessage) {
     return directMessage;
@@ -137,7 +139,9 @@ function extractMessageText(payload: Record<string, unknown>): string | undefine
   return readString(payload.text);
 }
 
-function extractResultText(payload: Record<string, unknown>): string | undefined {
+function extractResultText(
+  payload: Record<string, unknown>,
+): string | undefined {
   const resultText = extractTextFromContent(payload.result);
   if (resultText) {
     return resultText;
@@ -148,7 +152,9 @@ function extractResultText(payload: Record<string, unknown>): string | undefined
     return outputText;
   }
 
-  const finalText = extractTextFromContent(payload.finalText ?? payload.final_text);
+  const finalText = extractTextFromContent(
+    payload.finalText ?? payload.final_text,
+  );
   if (finalText) {
     return finalText;
   }
@@ -173,7 +179,8 @@ function parseToolCall(value: unknown): DroidToolCall | null {
     return null;
   }
 
-  const args = record.arguments ?? record.args ?? record.input ?? record.parameters;
+  const args =
+    record.arguments ?? record.args ?? record.input ?? record.parameters;
   const id =
     readString(record.id) ??
     readString(record.tool_use_id) ??
@@ -185,7 +192,8 @@ function parseToolCall(value: unknown): DroidToolCall | null {
     return {
       id,
       name,
-      arguments: typeof args === 'string' ? args : (args as Record<string, unknown>),
+      arguments:
+        typeof args === 'string' ? args : (args as Record<string, unknown>),
     };
   }
 
@@ -223,11 +231,15 @@ function extractToolCalls(payload: Record<string, unknown>): DroidToolCall[] {
 
   // Also check for Anthropic/Claude format: content[] with tool_use blocks
   // This handles agents that output in the standard Anthropic message format
-  const content = payload.content ?? (payload.message as Record<string, unknown>)?.content;
+  const content =
+    payload.content ?? (payload.message as Record<string, unknown>)?.content;
   if (Array.isArray(content)) {
     for (const block of content) {
       const blockRecord = asRecord(block);
-      if (blockRecord?.type === 'tool_use' && typeof blockRecord.name === 'string') {
+      if (
+        blockRecord?.type === 'tool_use' &&
+        typeof blockRecord.name === 'string'
+      ) {
         const input = asRecord(blockRecord.input);
         calls.push({
           id: readString(blockRecord.id),
@@ -263,7 +275,8 @@ function parseToolResult(value: unknown): DroidToolResult | null {
   const isError =
     record.is_error === true ||
     record.isError === true ||
-    (typeof record.status === 'string' && record.status.toLowerCase() === 'error');
+    (typeof record.status === 'string' &&
+      record.status.toLowerCase() === 'error');
 
   const status = readString(record.status);
 
@@ -279,7 +292,9 @@ function parseToolResult(value: unknown): DroidToolResult | null {
   return null;
 }
 
-function extractToolResults(payload: Record<string, unknown>): DroidToolResult[] {
+function extractToolResults(
+  payload: Record<string, unknown>,
+): DroidToolResult[] {
   const results: DroidToolResult[] = [];
   const toolResults = payload.tool_results ?? payload.toolResults;
 
@@ -311,7 +326,9 @@ function extractToolResults(payload: Record<string, unknown>): DroidToolResult[]
   return results;
 }
 
-function extractErrorInfo(payload: Record<string, unknown>): DroidErrorInfo | undefined {
+function extractErrorInfo(
+  payload: Record<string, unknown>,
+): DroidErrorInfo | undefined {
   const errorObj = asRecord(payload.error);
   const message =
     readString(errorObj?.message) ??
@@ -319,7 +336,12 @@ function extractErrorInfo(payload: Record<string, unknown>): DroidErrorInfo | un
     readString(payload.errorMessage) ??
     readString(payload.message);
 
-  const status = readNumber(errorObj?.status ?? payload.status ?? payload.status_code ?? payload.statusCode);
+  const status = readNumber(
+    errorObj?.status ??
+      payload.status ??
+      payload.status_code ??
+      payload.statusCode,
+  );
   const code = readString(errorObj?.code ?? payload.code);
 
   if (message) {
@@ -342,7 +364,9 @@ function extractErrorInfo(payload: Record<string, unknown>): DroidErrorInfo | un
   return undefined;
 }
 
-function extractCost(payload: Record<string, unknown>): DroidCostEvent | undefined {
+function extractCost(
+  payload: Record<string, unknown>,
+): DroidCostEvent | undefined {
   const usageObj =
     asRecord(payload.usage) ??
     asRecord(payload.cost) ??
@@ -378,8 +402,7 @@ function extractCost(payload: Record<string, unknown>): DroidCostEvent | undefin
     readNumber(usageObj.cacheCreationInputTokens);
 
   const totalTokens =
-    readNumber(usageObj.totalTokens) ??
-    readNumber(usageObj.total_tokens);
+    readNumber(usageObj.totalTokens) ?? readNumber(usageObj.total_tokens);
 
   const totalUSD =
     readNumber(usageObj.totalUSD) ??
@@ -409,7 +432,7 @@ function extractCost(payload: Record<string, unknown>): DroidCostEvent | undefin
 }
 
 function normalizeToolInput(
-  argumentsValue?: Record<string, unknown> | string
+  argumentsValue?: Record<string, unknown> | string,
 ): Record<string, unknown> | undefined {
   if (!argumentsValue) {
     return undefined;
@@ -520,7 +543,8 @@ export function formatDroidCostSummary(summary: DroidCostSummary): string {
   }
 
   const costLine = parts.length > 0 ? parts.join(', ') : 'tokens unavailable';
-  const usdSuffix = summary.totalUSD > 0 ? ` ($${summary.totalUSD.toFixed(4)})` : '';
+  const usdSuffix =
+    summary.totalUSD > 0 ? ` ($${summary.totalUSD.toFixed(4)})` : '';
 
   return `Cost: ${costLine}${usdSuffix}`;
 }
@@ -529,20 +553,30 @@ export function formatDroidCostSummary(summary: DroidCostSummary): string {
  * Parse a DroidJsonlMessage into standardized display events.
  * Returns AgentDisplayEvent[] - the shared processAgentEvents decides what to show.
  */
-export function parseDroidMessageToEvents(message: DroidJsonlMessage): AgentDisplayEvent[] {
+export function parseDroidMessageToEvents(
+  message: DroidJsonlMessage,
+): AgentDisplayEvent[] {
   const events: AgentDisplayEvent[] = [];
 
   // Skip user/input message events - these are just echoes of the prompt
   const eventType = message.type?.toLowerCase();
-  const rawRole = typeof message.raw.role === 'string' ? message.raw.role.toLowerCase() : undefined;
+  const rawRole =
+    typeof message.raw.role === 'string'
+      ? message.raw.role.toLowerCase()
+      : undefined;
   if (eventType === 'user' || eventType === 'input' || rawRole === 'user') {
     return events;
   }
 
   // Parse errors
   if (message.error) {
-    const statusSuffix = message.error.status ? ` (status ${message.error.status})` : '';
-    events.push({ type: 'error', message: `${message.error.message}${statusSuffix}` });
+    const statusSuffix = message.error.status
+      ? ` (status ${message.error.status})`
+      : '';
+    events.push({
+      type: 'error',
+      message: `${message.error.message}${statusSuffix}`,
+    });
   }
 
   // Parse tool calls
@@ -583,7 +617,9 @@ export function parseDroidMessageToEvents(message: DroidJsonlMessage): AgentDisp
  * Format a DroidJsonlMessage for display using shared logic.
  * @deprecated Use parseDroidMessageToEvents + processAgentEvents instead
  */
-export function formatDroidEventForDisplay(message: DroidJsonlMessage): string | undefined {
+export function formatDroidEventForDisplay(
+  message: DroidJsonlMessage,
+): string | undefined {
   const events = parseDroidMessageToEvents(message);
   if (events.length === 0) {
     return undefined;
@@ -596,7 +632,9 @@ export function formatDroidEventForDisplay(message: DroidJsonlMessage): string |
  * Format a DroidJsonlMessage to TUI-native segments for color rendering.
  * Returns FormattedSegment[] for use with FormattedText component.
  */
-export function formatDroidEventToSegments(message: DroidJsonlMessage): FormattedSegment[] {
+export function formatDroidEventToSegments(
+  message: DroidJsonlMessage,
+): FormattedSegment[] {
   const events = parseDroidMessageToEvents(message);
   if (events.length === 0) {
     return [];
@@ -689,7 +727,11 @@ export function parseDroidJsonlLine(line: string): DroidJsonlParseResult {
 export function createDroidStreamingJsonlParser(): {
   push: (chunk: string) => DroidJsonlParseResult[];
   flush: () => DroidJsonlParseResult[];
-  getState: () => { messages: DroidJsonlMessage[]; fallback: string[]; costSummary: DroidCostSummary };
+  getState: () => {
+    messages: DroidJsonlMessage[];
+    fallback: string[];
+    costSummary: DroidCostSummary;
+  };
 } {
   let buffer = '';
   const messages: DroidJsonlMessage[] = [];
@@ -743,7 +785,11 @@ export function createDroidStreamingJsonlParser(): {
       return [result];
     },
 
-    getState(): { messages: DroidJsonlMessage[]; fallback: string[]; costSummary: DroidCostSummary } {
+    getState(): {
+      messages: DroidJsonlMessage[];
+      fallback: string[];
+      costSummary: DroidCostSummary;
+    } {
       return {
         messages,
         fallback,
@@ -753,11 +799,19 @@ export function createDroidStreamingJsonlParser(): {
   };
 }
 
-export function isDroidJsonlMessage(message: unknown): message is DroidJsonlMessage {
-  return typeof message === 'object' && message !== null && (message as DroidJsonlMessage).source === 'droid';
+export function isDroidJsonlMessage(
+  message: unknown,
+): message is DroidJsonlMessage {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    (message as DroidJsonlMessage).source === 'droid'
+  );
 }
 
-export function toClaudeJsonlMessages(message: DroidJsonlMessage): ClaudeJsonlMessage[] {
+export function toClaudeJsonlMessages(
+  message: DroidJsonlMessage,
+): ClaudeJsonlMessage[] {
   const base: ClaudeJsonlMessage = {
     raw: message.raw,
   };

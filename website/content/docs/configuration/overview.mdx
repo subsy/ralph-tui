@@ -8,7 +8,8 @@ description: Learn how to configure Ralph TUI with global, project, and CLI opti
 Ralph TUI uses a layered configuration system that allows you to set defaults at multiple levels. Each layer can override settings from the previous layer.
 
 <Callout type="info">
-Configuration files use TOML format, which is designed to be easy to read and write. All configuration is validated at runtime with helpful error messages.
+  Configuration files use TOML format, which is designed to be easy to read and
+  write. All configuration is validated at runtime with helpful error messages.
 </Callout>
 
 ## Configuration Layers
@@ -20,12 +21,14 @@ Settings are loaded in this order, with later layers overriding earlier ones:
     **Location:** `~/.config/ralph-tui/config.toml`
 
     User-wide defaults that apply to all projects. Great for setting your preferred agent or common options.
+
   </Step>
 
   <Step title="Project Config">
     **Location:** `.ralph-tui/config.toml` (in project root)
 
     Project-specific settings that override global defaults. Created automatically by `ralph-tui setup`.
+
   </Step>
 
   <Step title="CLI Flags">
@@ -47,13 +50,15 @@ iterationDelay = 1000
 
 ### File Locations
 
-| Config Level | Path | Purpose |
-|-------------|------|---------|
-| Global | `~/.config/ralph-tui/config.toml` | User-wide defaults |
-| Project | `.ralph-tui/config.toml` | Project-specific settings |
+| Config Level | Path                              | Purpose                   |
+| ------------ | --------------------------------- | ------------------------- |
+| Global       | `~/.config/ralph-tui/config.toml` | User-wide defaults        |
+| Project      | `.ralph-tui/config.toml`          | Project-specific settings |
 
 <Callout type="tip">
-The project config is searched up from your current directory, so you can run `ralph-tui` from any subdirectory and it will find the config in your project root.
+  The project config is searched up from your current directory, so you can run
+  `ralph-tui` from any subdirectory and it will find the config in your project
+  root.
 </Callout>
 
 ## Quick Setup
@@ -65,6 +70,7 @@ ralph-tui setup
 ```
 
 This interactive command will:
+
 1. Detect installed agents (Claude Code, OpenCode, Factory Droid)
 2. Create `.ralph-tui/config.toml` with your choices
 3. Install bundled skills for PRD creation

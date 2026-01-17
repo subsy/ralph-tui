@@ -44,7 +44,9 @@ export function commandExists(command: string): Promise<boolean> {
   });
 }
 
-export async function detectSandboxMode(): Promise<Exclude<SandboxMode, 'auto'>> {
+export async function detectSandboxMode(): Promise<
+  Exclude<SandboxMode, 'auto'>
+> {
   const os = platform();
 
   // bwrap is only available on Linux

@@ -4,7 +4,14 @@
  * Skills are bundled with ralph-tui and can be installed during setup.
  */
 
-import { readFile, writeFile, mkdir, access, constants, readdir } from 'node:fs/promises';
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  access,
+  constants,
+  readdir,
+} from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -104,7 +111,9 @@ export async function listBundledSkills(): Promise<SkillInfo[]> {
           const content = await readFile(skillMdPath, 'utf-8');
 
           // Extract description from YAML frontmatter
-          const descMatch = content.match(/description:\s*["']?([^"'\n]+)["']?/);
+          const descMatch = content.match(
+            /description:\s*["']?([^"'\n]+)["']?/,
+          );
           const description = descMatch?.[1] || 'No description available';
 
           skills.push({
@@ -145,7 +154,7 @@ export async function installSkill(
   skillName: string,
   options: {
     force?: boolean;
-  } = {}
+  } = {},
 ): Promise<SkillInstallResult> {
   const sourcePath = join(getBundledSkillsDir(), skillName);
   const targetPath = join(getClaudeSkillsDir(), skillName);
@@ -199,7 +208,7 @@ export async function installSkill(
 export async function installRalphTuiPrdSkill(
   options: {
     force?: boolean;
-  } = {}
+  } = {},
 ): Promise<SkillInstallResult> {
   return installSkill('ralph-tui-prd', options);
 }
@@ -210,7 +219,7 @@ export async function installRalphTuiPrdSkill(
 export async function installAllSkills(
   options: {
     force?: boolean;
-  } = {}
+  } = {},
 ): Promise<Map<string, SkillInstallResult>> {
   const results = new Map<string, SkillInstallResult>();
   const skills = await listBundledSkills();

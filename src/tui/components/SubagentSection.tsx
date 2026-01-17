@@ -6,7 +6,10 @@
 
 import type { ReactNode } from 'react';
 import { colors } from '../theme.js';
-import type { EngineSubagentState, SubagentTreeNode } from '../../engine/types.js';
+import type {
+  EngineSubagentState,
+  SubagentTreeNode,
+} from '../../engine/types.js';
 import type { SubagentDetailLevel } from '../../config/types.js';
 
 /**
@@ -28,7 +31,9 @@ function getSubagentStatusColor(status: EngineSubagentState['status']): string {
 /**
  * Status indicator symbol for subagent
  */
-function getSubagentStatusIndicator(status: EngineSubagentState['status']): string {
+function getSubagentStatusIndicator(
+  status: EngineSubagentState['status'],
+): string {
   switch (status) {
     case 'completed':
       return '✓';
@@ -80,7 +85,10 @@ function SubagentSectionHeader({
   const statusColor = getSubagentStatusColor(subagent.status);
   const statusIndicator = getSubagentStatusIndicator(subagent.status);
   const collapseIndicator = isCollapsed ? '▶' : '▼';
-  const durationStr = subagent.durationMs !== undefined ? ` [${formatDuration(subagent.durationMs)}]` : '';
+  const durationStr =
+    subagent.durationMs !== undefined
+      ? ` [${formatDuration(subagent.durationMs)}]`
+      : '';
 
   // Indent based on depth (each level adds 2 spaces)
   const indent = '  '.repeat(Math.max(0, subagent.depth - 1));
@@ -117,10 +125,14 @@ interface CollapsedSummaryProps {
 /**
  * Renders a one-line summary when the section is collapsed.
  */
-function CollapsedSummary({ subagent, childCount }: CollapsedSummaryProps): ReactNode {
+function CollapsedSummary({
+  subagent,
+  childCount,
+}: CollapsedSummaryProps): ReactNode {
   const indent = '  '.repeat(Math.max(0, subagent.depth));
   const statusColor = getSubagentStatusColor(subagent.status);
-  const statusText = subagent.status === 'running' ? 'running...' : subagent.status;
+  const statusText =
+    subagent.status === 'running' ? 'running...' : subagent.status;
   const childText = childCount > 0 ? ` (${childCount} nested)` : '';
 
   return (

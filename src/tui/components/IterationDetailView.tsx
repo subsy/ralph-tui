@@ -7,8 +7,15 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { colors, formatElapsedTime } from '../theme.js';
-import type { IterationResult, IterationStatus, EngineSubagentStatus } from '../../engine/types.js';
-import type { SubagentHierarchyNode, SubagentTraceStats } from '../../logs/types.js';
+import type {
+  IterationResult,
+  IterationStatus,
+  EngineSubagentStatus,
+} from '../../engine/types.js';
+import type {
+  SubagentHierarchyNode,
+  SubagentTraceStats,
+} from '../../logs/types.js';
 import type { SandboxConfig, SandboxMode } from '../../config/types.js';
 
 /**
@@ -18,7 +25,14 @@ interface TimelineEvent {
   /** Event timestamp */
   timestamp: string;
   /** Event type for display */
-  type: 'started' | 'agent_running' | 'task_completed' | 'completed' | 'failed' | 'skipped' | 'interrupted';
+  type:
+    | 'started'
+    | 'agent_running'
+    | 'task_completed'
+    | 'completed'
+    | 'failed'
+    | 'skipped'
+    | 'interrupted';
   /** Human-readable description */
   description: string;
 }
@@ -107,7 +121,11 @@ const statusLabels: Record<IterationStatus, string> = {
  */
 function formatTimestamp(isoString: string): string {
   const date = new Date(isoString);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 /**
@@ -303,7 +321,7 @@ function renderOutputWithHighlighting(output: string): ReactNode[] {
         <text key={`line-${i}`} fg={colors.fg.secondary}>
           {line}
           {'\n'}
-        </text>
+        </text>,
       );
     } else {
       // Inside code block
@@ -323,10 +341,13 @@ function renderOutputWithHighlighting(output: string): ReactNode[] {
             }}
           >
             {codeBlockLanguage && (
-              <text fg={colors.fg.dim}>{`[${codeBlockLanguage}]`}{'\n'}</text>
+              <text fg={colors.fg.dim}>
+                {`[${codeBlockLanguage}]`}
+                {'\n'}
+              </text>
             )}
             <text fg={colors.accent.tertiary}>{codeContent}</text>
-          </box>
+          </box>,
         );
         blockIndex++;
         inCodeBlock = false;
@@ -354,10 +375,13 @@ function renderOutputWithHighlighting(output: string): ReactNode[] {
         }}
       >
         {codeBlockLanguage && (
-          <text fg={colors.fg.dim}>{`[${codeBlockLanguage}]`}{'\n'}</text>
+          <text fg={colors.fg.dim}>
+            {`[${codeBlockLanguage}]`}
+            {'\n'}
+          </text>
         )}
         <text fg={colors.accent.tertiary}>{codeContent}</text>
-      </box>
+      </box>,
     );
   }
 
@@ -370,7 +394,7 @@ function renderOutputWithHighlighting(output: string): ReactNode[] {
 function getOutputFilePath(
   iteration: number,
   taskId: string,
-  outputDir: string
+  outputDir: string,
 ): string {
   const filename = `iteration-${String(iteration).padStart(3, '0')}-${taskId}.md`;
   // Show relative path for cleaner display
@@ -455,7 +479,10 @@ function SubagentTreeRowExpandable({
 
   // Format agent type and description
   const agentType = `[${state.agentType}]`;
-  const duration = state.durationMs !== undefined ? ` [${formatSubagentDuration(state.durationMs)}]` : '';
+  const duration =
+    state.durationMs !== undefined
+      ? ` [${formatSubagentDuration(state.durationMs)}]`
+      : '';
 
   return (
     <>
@@ -469,7 +496,9 @@ function SubagentTreeRowExpandable({
       >
         <text>
           <span fg={colors.fg.dim}>{indent}</span>
-          <span fg={hasChildren ? colors.fg.muted : colors.fg.dim}>{expandIcon}</span>
+          <span fg={hasChildren ? colors.fg.muted : colors.fg.dim}>
+            {expandIcon}
+          </span>
           <span fg={statusColor}> {statusIcon}</span>
           <span fg={colors.accent.tertiary}> {agentType}</span>
           <span fg={colors.fg.secondary}> {state.description}</span>
@@ -532,7 +561,9 @@ function SubagentTreeSection({
   // Build summary line
   const summaryParts: string[] = [];
   if (stats) {
-    summaryParts.push(`${stats.totalSubagents} subagent${stats.totalSubagents === 1 ? '' : 's'}`);
+    summaryParts.push(
+      `${stats.totalSubagents} subagent${stats.totalSubagents === 1 ? '' : 's'}`,
+    );
     if (stats.failureCount > 0) {
       summaryParts.push(`${stats.failureCount} failed`);
     }
@@ -619,7 +650,7 @@ export function IterationDetailView({
   const outputFilePath = getOutputFilePath(
     iteration.iteration,
     iteration.task.id,
-    outputDir
+    outputDir,
   );
 
   return (
@@ -640,7 +671,8 @@ export function IterationDetailView({
           <text>
             <span fg={statusColor}>{statusIndicator}</span>
             <span fg={colors.fg.primary}>
-              {' '}Iteration {iteration.iteration} of {totalIterations}
+              {' '}
+              Iteration {iteration.iteration} of {totalIterations}
             </span>
           </text>
         </box>
@@ -739,7 +771,8 @@ export function IterationDetailView({
 
         {/* Sandbox configuration section - shows if sandboxing was enabled */}
         {/* For completed iterations, use historic context; for running iterations, use current config */}
-        {(historicContext?.sandboxMode && historicContext.sandboxMode !== 'off') ? (
+        {historicContext?.sandboxMode &&
+        historicContext.sandboxMode !== 'off' ? (
           <box style={{ marginBottom: 2 }}>
             <SectionHeader title="Sandbox Configuration" />
             <box
@@ -753,7 +786,8 @@ export function IterationDetailView({
               <MetadataRow
                 label="Mode"
                 value={
-                  historicContext.sandboxMode === 'auto' && historicContext.resolvedSandboxMode
+                  historicContext.sandboxMode === 'auto' &&
+                  historicContext.resolvedSandboxMode
                     ? `auto (${historicContext.resolvedSandboxMode})`
                     : historicContext.sandboxMode
                 }
@@ -762,53 +796,72 @@ export function IterationDetailView({
               {historicContext.sandboxNetwork !== undefined && (
                 <MetadataRow
                   label="Network Access"
-                  value={historicContext.sandboxNetwork ? 'Enabled' : 'Disabled'}
-                  valueColor={historicContext.sandboxNetwork ? colors.status.success : colors.status.warning}
+                  value={
+                    historicContext.sandboxNetwork ? 'Enabled' : 'Disabled'
+                  }
+                  valueColor={
+                    historicContext.sandboxNetwork
+                      ? colors.status.success
+                      : colors.status.warning
+                  }
                 />
               )}
             </box>
           </box>
-        ) : (sandboxConfig?.enabled && sandboxConfig.mode !== 'off' && !historicContext) && (
-          <box style={{ marginBottom: 2 }}>
-            <SectionHeader title="Sandbox Configuration" />
-            <box
-              style={{
-                padding: 1,
-                backgroundColor: colors.bg.secondary,
-                border: true,
-                borderColor: colors.status.info,
-              }}
-            >
-              <MetadataRow
-                label="Mode"
-                value={
-                  (sandboxConfig.mode ?? 'auto') === 'auto' && resolvedSandboxMode
-                    ? `auto (${resolvedSandboxMode})`
-                    : sandboxConfig.mode ?? 'auto'
-                }
-                valueColor={colors.status.info}
-              />
-              <MetadataRow
-                label="Network Access"
-                value={sandboxConfig.network === false ? 'Disabled' : 'Enabled'}
-                valueColor={sandboxConfig.network === false ? colors.status.warning : colors.status.success}
-              />
-              {sandboxConfig.allowPaths && sandboxConfig.allowPaths.length > 0 && (
+        ) : (
+          sandboxConfig?.enabled &&
+          sandboxConfig.mode !== 'off' &&
+          !historicContext && (
+            <box style={{ marginBottom: 2 }}>
+              <SectionHeader title="Sandbox Configuration" />
+              <box
+                style={{
+                  padding: 1,
+                  backgroundColor: colors.bg.secondary,
+                  border: true,
+                  borderColor: colors.status.info,
+                }}
+              >
                 <MetadataRow
-                  label="Writable Paths"
-                  value={sandboxConfig.allowPaths.join(', ')}
-                  valueColor={colors.fg.secondary}
+                  label="Mode"
+                  value={
+                    (sandboxConfig.mode ?? 'auto') === 'auto' &&
+                    resolvedSandboxMode
+                      ? `auto (${resolvedSandboxMode})`
+                      : (sandboxConfig.mode ?? 'auto')
+                  }
+                  valueColor={colors.status.info}
                 />
-              )}
-              {sandboxConfig.readOnlyPaths && sandboxConfig.readOnlyPaths.length > 0 && (
                 <MetadataRow
-                  label="Read-Only Paths"
-                  value={sandboxConfig.readOnlyPaths.join(', ')}
-                  valueColor={colors.fg.secondary}
+                  label="Network Access"
+                  value={
+                    sandboxConfig.network === false ? 'Disabled' : 'Enabled'
+                  }
+                  valueColor={
+                    sandboxConfig.network === false
+                      ? colors.status.warning
+                      : colors.status.success
+                  }
                 />
-              )}
+                {sandboxConfig.allowPaths &&
+                  sandboxConfig.allowPaths.length > 0 && (
+                    <MetadataRow
+                      label="Writable Paths"
+                      value={sandboxConfig.allowPaths.join(', ')}
+                      valueColor={colors.fg.secondary}
+                    />
+                  )}
+                {sandboxConfig.readOnlyPaths &&
+                  sandboxConfig.readOnlyPaths.length > 0 && (
+                    <MetadataRow
+                      label="Read-Only Paths"
+                      value={sandboxConfig.readOnlyPaths.join(', ')}
+                      valueColor={colors.fg.secondary}
+                    />
+                  )}
+              </box>
             </box>
-          </box>
+          )
         )}
 
         {/* Timeline section */}
@@ -824,10 +877,21 @@ export function IterationDetailView({
             }}
           >
             {timeline.map((event, index) => (
-              <box key={index} style={{ flexDirection: 'row', marginBottom: index < timeline.length - 1 ? 1 : 0 }}>
+              <box
+                key={index}
+                style={{
+                  flexDirection: 'row',
+                  marginBottom: index < timeline.length - 1 ? 1 : 0,
+                }}
+              >
                 <text>
-                  <span fg={colors.fg.dim}>{formatTimestamp(event.timestamp)}</span>
-                  <span fg={getEventColor(event.type)}> {getEventSymbol(event.type)} </span>
+                  <span fg={colors.fg.dim}>
+                    {formatTimestamp(event.timestamp)}
+                  </span>
+                  <span fg={getEventColor(event.type)}>
+                    {' '}
+                    {getEventSymbol(event.type)}{' '}
+                  </span>
                   <span fg={colors.fg.secondary}>{event.description}</span>
                 </text>
               </box>
@@ -836,7 +900,9 @@ export function IterationDetailView({
         </box>
 
         {/* Subagent activity section - shows if any subagents were spawned or loading */}
-        {(subagentTraceLoading || (subagentTree && subagentTree.length > 0) || subagentStats) && (
+        {(subagentTraceLoading ||
+          (subagentTree && subagentTree.length > 0) ||
+          subagentStats) && (
           <SubagentTreeSection
             tree={subagentTree}
             stats={subagentStats}
@@ -879,7 +945,9 @@ export function IterationDetailView({
 
         {/* Hint about returning */}
         <box style={{ marginTop: 1 }}>
-          <text fg={colors.fg.dim}>Press Esc to return to iteration list, or 't' for task list</text>
+          <text fg={colors.fg.dim}>
+            Press Esc to return to iteration list, or 't' for task list
+          </text>
         </box>
       </scrollbox>
     </box>

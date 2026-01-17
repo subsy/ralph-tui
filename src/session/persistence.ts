@@ -13,7 +13,10 @@ import {
   constants,
   mkdir,
 } from 'node:fs/promises';
-import type { TrackerTask, TrackerTaskStatus } from '../plugins/trackers/types.js';
+import type {
+  TrackerTask,
+  TrackerTaskStatus,
+} from '../plugins/trackers/types.js';
 import type { IterationResult } from '../engine/types.js';
 import type { SessionStatus } from './types.js';
 
@@ -213,7 +216,7 @@ function validateLoadedSession(parsed: unknown): string | null {
  * Load persisted session state
  */
 export async function loadPersistedSession(
-  cwd: string
+  cwd: string,
 ): Promise<PersistedSessionState | null> {
   const filePath = getSessionFilePath(cwd);
 
@@ -225,12 +228,15 @@ export async function loadPersistedSession(
     const validationError = validateLoadedSession(parsed);
     if (validationError) {
       const parsedRecord = parsed as Record<string, unknown>;
-      if (typeof parsedRecord.id === 'string' && typeof parsedRecord.status === 'string') {
+      if (
+        typeof parsedRecord.id === 'string' &&
+        typeof parsedRecord.status === 'string'
+      ) {
         return null;
       }
       console.warn(
         `Invalid session file: ${validationError}. ` +
-          'Delete .ralph-tui/session.json to start fresh.'
+          'Delete .ralph-tui/session.json to start fresh.',
       );
       return null;
     }
@@ -243,7 +249,7 @@ export async function loadPersistedSession(
     if (version !== 1) {
       console.warn(
         `Unknown session file version: ${version}. ` +
-          'Session may not load correctly.'
+          'Session may not load correctly.',
       );
     }
 
@@ -263,7 +269,7 @@ export async function loadPersistedSession(
  * Save persisted session state
  */
 export async function savePersistedSession(
-  state: PersistedSessionState
+  state: PersistedSessionState,
 ): Promise<void> {
   const filePath = getSessionFilePath(state.cwd);
 
@@ -349,7 +355,7 @@ export function createPersistedSession(options: {
  */
 export function updateSessionAfterIteration(
   state: PersistedSessionState,
-  result: IterationResult
+  result: IterationResult,
 ): PersistedSessionState {
   const iterationRecord: PersistedIterationResult = {
     iteration: result.iteration,
@@ -393,7 +399,7 @@ export function updateSessionAfterIteration(
  * Mark session as paused
  */
 export function pauseSession(
-  state: PersistedSessionState
+  state: PersistedSessionState,
 ): PersistedSessionState {
   return {
     ...state,
@@ -407,7 +413,7 @@ export function pauseSession(
  * Mark session as resumed
  */
 export function resumePersistedSession(
-  state: PersistedSessionState
+  state: PersistedSessionState,
 ): PersistedSessionState {
   return {
     ...state,
@@ -421,7 +427,7 @@ export function resumePersistedSession(
  * Mark session as completed
  */
 export function completeSession(
-  state: PersistedSessionState
+  state: PersistedSessionState,
 ): PersistedSessionState {
   return {
     ...state,
@@ -435,7 +441,7 @@ export function completeSession(
  */
 export function failSession(
   state: PersistedSessionState,
-  _error?: string
+  _error?: string,
 ): PersistedSessionState {
   return {
     ...state,
@@ -449,7 +455,7 @@ export function failSession(
  */
 export function addSkippedTask(
   state: PersistedSessionState,
-  taskId: string
+  taskId: string,
 ): PersistedSessionState {
   if (state.skippedTaskIds.includes(taskId)) {
     return state;
@@ -467,7 +473,7 @@ export function addSkippedTask(
  */
 export function addActiveTask(
   state: PersistedSessionState,
-  taskId: string
+  taskId: string,
 ): PersistedSessionState {
   // Handle legacy sessions that don't have activeTaskIds
   const currentActive = state.activeTaskIds ?? [];
@@ -487,7 +493,7 @@ export function addActiveTask(
  */
 export function removeActiveTask(
   state: PersistedSessionState,
-  taskId: string
+  taskId: string,
 ): PersistedSessionState {
   // Handle legacy sessions that don't have activeTaskIds
   const currentActive = state.activeTaskIds ?? [];
@@ -502,7 +508,7 @@ export function removeActiveTask(
  * Clear all active tasks (used during graceful shutdown).
  */
 export function clearActiveTasks(
-  state: PersistedSessionState
+  state: PersistedSessionState,
 ): PersistedSessionState {
   return {
     ...state,
@@ -523,7 +529,7 @@ export function getActiveTasks(state: PersistedSessionState): string[] {
  */
 export function setSubagentPanelVisible(
   state: PersistedSessionState,
-  visible: boolean
+  visible: boolean,
 ): PersistedSessionState {
   return {
     ...state,
@@ -576,7 +582,7 @@ export interface StaleSessionRecoveryResult {
  */
 export async function detectAndRecoverStaleSession(
   cwd: string,
-  checkLock: (cwd: string) => Promise<{ isLocked: boolean; isStale: boolean }>
+  checkLock: (cwd: string) => Promise<{ isLocked: boolean; isStale: boolean }>,
 ): Promise<StaleSessionRecoveryResult> {
   const result: StaleSessionRecoveryResult = {
     wasStale: false,

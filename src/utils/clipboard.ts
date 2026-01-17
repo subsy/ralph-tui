@@ -76,13 +76,21 @@ async function tryLinuxClipboard(text: string): Promise<ClipboardResult> {
   }
 
   // Try xclip (X11 - most common)
-  const xclipResult = await runClipboardCommand('xclip', ['-selection', 'clipboard'], text);
+  const xclipResult = await runClipboardCommand(
+    'xclip',
+    ['-selection', 'clipboard'],
+    text,
+  );
   if (xclipResult.success) {
     return xclipResult;
   }
 
   // Fall back to xsel (X11)
-  const xselResult = await runClipboardCommand('xsel', ['--clipboard', '--input'], text);
+  const xselResult = await runClipboardCommand(
+    'xsel',
+    ['--clipboard', '--input'],
+    text,
+  );
   if (xselResult.success) {
     return xselResult;
   }
@@ -90,7 +98,8 @@ async function tryLinuxClipboard(text: string): Promise<ClipboardResult> {
   // Neither worked - provide helpful error
   return {
     success: false,
-    error: 'No clipboard tool available. Install: wl-clipboard (Wayland) or xclip (X11)',
+    error:
+      'No clipboard tool available. Install: wl-clipboard (Wayland) or xclip (X11)',
   };
 }
 
@@ -100,7 +109,7 @@ async function tryLinuxClipboard(text: string): Promise<ClipboardResult> {
 function runClipboardCommand(
   command: string,
   args: string[],
-  text: string
+  text: string,
 ): Promise<ClipboardResult> {
   return new Promise((resolve) => {
     try {

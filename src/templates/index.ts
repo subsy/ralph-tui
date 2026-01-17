@@ -36,7 +36,4 @@ export {
   JSON_TEMPLATE,
 } from './builtin.js';
 
-export {
-  PROMPT_JSON,
-  PROMPT_BEADS,
-} from './prompts.js';
+export { PROMPT_JSON, PROMPT_BEADS } from './prompts.js';

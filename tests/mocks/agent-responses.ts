@@ -35,7 +35,7 @@ export const DEFAULT_EXECUTION_RESULT: AgentExecutionResult = {
  * Create an AgentExecutionResult with optional overrides
  */
 export function createExecutionResult(
-  overrides: Partial<AgentExecutionResult> = {}
+  overrides: Partial<AgentExecutionResult> = {},
 ): AgentExecutionResult {
   return {
     ...DEFAULT_EXECUTION_RESULT,
@@ -48,7 +48,7 @@ export function createExecutionResult(
  */
 export function createSuccessfulExecution(
   stdout = 'Task completed successfully',
-  overrides: Partial<AgentExecutionResult> = {}
+  overrides: Partial<AgentExecutionResult> = {},
 ): AgentExecutionResult {
   return createExecutionResult({
     status: 'completed',
@@ -64,7 +64,7 @@ export function createSuccessfulExecution(
  */
 export function createFailedExecution(
   error = 'Execution failed',
-  overrides: Partial<AgentExecutionResult> = {}
+  overrides: Partial<AgentExecutionResult> = {},
 ): AgentExecutionResult {
   return createExecutionResult({
     status: 'failed',
@@ -80,7 +80,7 @@ export function createFailedExecution(
  * Create a rate-limited execution result
  */
 export function createRateLimitedExecution(
-  overrides: Partial<AgentExecutionResult> = {}
+  overrides: Partial<AgentExecutionResult> = {},
 ): AgentExecutionResult {
   return createExecutionResult({
     status: 'failed',
@@ -96,7 +96,7 @@ export function createRateLimitedExecution(
  * Create an interrupted execution result
  */
 export function createInterruptedExecution(
-  overrides: Partial<AgentExecutionResult> = {}
+  overrides: Partial<AgentExecutionResult> = {},
 ): AgentExecutionResult {
   return createExecutionResult({
     status: 'interrupted',
@@ -112,7 +112,7 @@ export function createInterruptedExecution(
  * Create a timeout execution result
  */
 export function createTimeoutExecution(
-  overrides: Partial<AgentExecutionResult> = {}
+  overrides: Partial<AgentExecutionResult> = {},
 ): AgentExecutionResult {
   return createExecutionResult({
     status: 'timeout',
@@ -127,7 +127,7 @@ export function createTimeoutExecution(
  * Create an AgentDetectResult with optional overrides
  */
 export function createDetectResult(
-  overrides: Partial<AgentDetectResult> = {}
+  overrides: Partial<AgentDetectResult> = {},
 ): AgentDetectResult {
   return {
     available: true,
@@ -141,7 +141,7 @@ export function createDetectResult(
  * Create a detect result for unavailable agent
  */
 export function createUnavailableDetectResult(
-  error = 'Agent not found'
+  error = 'Agent not found',
 ): AgentDetectResult {
   return {
     available: false,
@@ -173,7 +173,7 @@ export function createMockAgentPlugin(
     detectResult?: AgentDetectResult;
     executeResult?: AgentExecutionResult;
     isReady?: boolean;
-  } = {}
+  } = {},
 ): AgentPlugin {
   const meta: AgentPluginMeta = {
     ...DEFAULT_AGENT_META,
@@ -202,7 +202,7 @@ export function createMockAgentPlugin(
     execute(
       prompt: string,
       files?: AgentFileContext[],
-      options?: AgentExecuteOptions
+      options?: AgentExecuteOptions,
     ): AgentExecutionHandle {
       const executionId = `exec-${Date.now()}`;
       let interrupted = false;
@@ -271,7 +271,7 @@ export function createMockAgentPlugin(
  * Create a mock agent that always fails
  */
 export function createFailingAgentPlugin(
-  error = 'Agent execution failed'
+  error = 'Agent execution failed',
 ): AgentPlugin {
   return createMockAgentPlugin({
     executeResult: createFailedExecution(error),

@@ -313,7 +313,7 @@ export interface AgentPlugin {
   execute(
     prompt: string,
     files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): AgentExecutionHandle;
 
   /**

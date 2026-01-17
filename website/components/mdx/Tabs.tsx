@@ -6,7 +6,12 @@
 
 'use client';
 
-import { forwardRef, type ComponentPropsWithoutRef, type ComponentRef, type ReactNode } from 'react';
+import {
+  forwardRef,
+  type ComponentPropsWithoutRef,
+  type ComponentRef,
+  type ReactNode,
+} from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { motion } from 'framer-motion';
 
@@ -20,10 +25,7 @@ const TabsRoot = forwardRef<
 >(({ className = '', ...props }, ref) => (
   <TabsPrimitive.Root
     ref={ref}
-    className={[
-      'my-6',
-      className,
-    ].join(' ')}
+    className={['my-6', className].join(' ')}
     {...props}
   />
 ));
@@ -165,7 +167,11 @@ export interface TabsComposedProps {
  *   ]}
  * />
  */
-function TabsComposed({ items, defaultValue, className = '' }: TabsComposedProps) {
+function TabsComposed({
+  items,
+  defaultValue,
+  className = '',
+}: TabsComposedProps) {
   const firstValue = items[0]?.value || '';
 
   return (
@@ -194,11 +200,6 @@ export const Tabs = Object.assign(TabsComposed, {
   Content: TabsContent,
 });
 
-export {
-  TabsRoot,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-};
+export { TabsRoot, TabsList, TabsTrigger, TabsContent };
 
 export default Tabs;

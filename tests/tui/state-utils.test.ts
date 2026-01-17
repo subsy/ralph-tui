@@ -43,12 +43,18 @@ function recalculateDependencyStatus(tasks: TaskItem[]): TaskItem[] {
   }
 
   return tasks.map((task) => {
-    if (task.status !== 'pending' && task.status !== 'blocked' && task.status !== 'actionable') {
+    if (
+      task.status !== 'pending' &&
+      task.status !== 'blocked' &&
+      task.status !== 'actionable'
+    ) {
       return task;
     }
 
     if (!task.dependsOn || task.dependsOn.length === 0) {
-      return task.status === 'pending' ? { ...task, status: 'actionable' as TaskStatus } : task;
+      return task.status === 'pending'
+        ? { ...task, status: 'actionable' as TaskStatus }
+        : task;
     }
 
     const blockers: BlockerInfo[] = [];
@@ -136,7 +142,12 @@ describe('state-utils', () => {
     test('should mark task as blocked if dependency not complete', () => {
       const tasks: TaskItem[] = [
         { id: 'task-1', title: 'Task 1', status: 'pending' },
-        { id: 'task-2', title: 'Task 2', status: 'pending', dependsOn: ['task-1'] },
+        {
+          id: 'task-2',
+          title: 'Task 2',
+          status: 'pending',
+          dependsOn: ['task-1'],
+        },
       ];
       const result = recalculateDependencyStatus(tasks);
       expect(result[1]?.status).toBe('blocked');
@@ -147,7 +158,12 @@ describe('state-utils', () => {
     test('should mark task as actionable if dependency is done', () => {
       const tasks: TaskItem[] = [
         { id: 'task-1', title: 'Task 1', status: 'done' },
-        { id: 'task-2', title: 'Task 2', status: 'pending', dependsOn: ['task-1'] },
+        {
+          id: 'task-2',
+          title: 'Task 2',
+          status: 'pending',
+          dependsOn: ['task-1'],
+        },
       ];
       const result = recalculateDependencyStatus(tasks);
       expect(result[1]?.status).toBe('actionable');
@@ -157,7 +173,12 @@ describe('state-utils', () => {
     test('should mark task as actionable if dependency is closed', () => {
       const tasks: TaskItem[] = [
         { id: 'task-1', title: 'Task 1', status: 'closed' },
-        { id: 'task-2', title: 'Task 2', status: 'pending', dependsOn: ['task-1'] },
+        {
+          id: 'task-2',
+          title: 'Task 2',
+          status: 'pending',
+          dependsOn: ['task-1'],
+        },
       ];
       const result = recalculateDependencyStatus(tasks);
       expect(result[1]?.status).toBe('actionable');
@@ -167,7 +188,12 @@ describe('state-utils', () => {
       const tasks: TaskItem[] = [
         { id: 'task-1', title: 'Task 1', status: 'done' },
         { id: 'task-2', title: 'Task 2', status: 'pending' },
-        { id: 'task-3', title: 'Task 3', status: 'pending', dependsOn: ['task-1', 'task-2'] },
+        {
+          id: 'task-3',
+          title: 'Task 3',
+          status: 'pending',
+          dependsOn: ['task-1', 'task-2'],
+        },
       ];
       const result = recalculateDependencyStatus(tasks);
       expect(result[2]?.status).toBe('blocked');
@@ -179,7 +205,12 @@ describe('state-utils', () => {
       const tasks: TaskItem[] = [
         { id: 'task-1', title: 'Task 1', status: 'done' },
         { id: 'task-2', title: 'Task 2', status: 'closed' },
-        { id: 'task-3', title: 'Task 3', status: 'pending', dependsOn: ['task-1', 'task-2'] },
+        {
+          id: 'task-3',
+          title: 'Task 3',
+          status: 'pending',
+          dependsOn: ['task-1', 'task-2'],
+        },
       ];
       const result = recalculateDependencyStatus(tasks);
       expect(result[2]?.status).toBe('actionable');
@@ -187,7 +218,12 @@ describe('state-utils', () => {
 
     test('should not modify active status', () => {
       const tasks: TaskItem[] = [
-        { id: 'task-1', title: 'Task 1', status: 'active', dependsOn: ['task-2'] },
+        {
+          id: 'task-1',
+          title: 'Task 1',
+          status: 'active',
+          dependsOn: ['task-2'],
+        },
         { id: 'task-2', title: 'Task 2', status: 'pending' },
       ];
       const result = recalculateDependencyStatus(tasks);
@@ -212,7 +248,12 @@ describe('state-utils', () => {
 
     test('should not modify closed status', () => {
       const tasks: TaskItem[] = [
-        { id: 'task-1', title: 'Task 1', status: 'closed', dependsOn: ['task-2'] },
+        {
+          id: 'task-1',
+          title: 'Task 1',
+          status: 'closed',
+          dependsOn: ['task-2'],
+        },
         { id: 'task-2', title: 'Task 2', status: 'pending' },
       ];
       const result = recalculateDependencyStatus(tasks);
@@ -221,7 +262,12 @@ describe('state-utils', () => {
 
     test('should handle external dependencies as blockers', () => {
       const tasks: TaskItem[] = [
-        { id: 'task-1', title: 'Task 1', status: 'pending', dependsOn: ['external-task'] },
+        {
+          id: 'task-1',
+          title: 'Task 1',
+          status: 'pending',
+          dependsOn: ['external-task'],
+        },
       ];
       const result = recalculateDependencyStatus(tasks);
       expect(result[0]?.status).toBe('blocked');
@@ -235,8 +281,18 @@ describe('state-utils', () => {
 
     test('should handle circular dependencies without infinite loop', () => {
       const tasks: TaskItem[] = [
-        { id: 'task-1', title: 'Task 1', status: 'pending', dependsOn: ['task-2'] },
-        { id: 'task-2', title: 'Task 2', status: 'pending', dependsOn: ['task-1'] },
+        {
+          id: 'task-1',
+          title: 'Task 1',
+          status: 'pending',
+          dependsOn: ['task-2'],
+        },
+        {
+          id: 'task-2',
+          title: 'Task 2',
+          status: 'pending',
+          dependsOn: ['task-1'],
+        },
       ];
       // Should complete without hanging
       const result = recalculateDependencyStatus(tasks);
@@ -257,13 +313,23 @@ describe('state-utils', () => {
       // Initial state: task-2 blocked by task-1
       const initialTasks: TaskItem[] = [
         { id: 'task-1', title: 'Task 1', status: 'pending' },
-        { id: 'task-2', title: 'Task 2', status: 'blocked', dependsOn: ['task-1'] },
+        {
+          id: 'task-2',
+          title: 'Task 2',
+          status: 'blocked',
+          dependsOn: ['task-1'],
+        },
       ];
 
       // After task-1 completes
       const updatedTasks: TaskItem[] = [
         { id: 'task-1', title: 'Task 1', status: 'done' },
-        { id: 'task-2', title: 'Task 2', status: 'blocked', dependsOn: ['task-1'] },
+        {
+          id: 'task-2',
+          title: 'Task 2',
+          status: 'blocked',
+          dependsOn: ['task-1'],
+        },
       ];
 
       const result = recalculateDependencyStatus(updatedTasks);

@@ -25,7 +25,9 @@ describe('DEFAULT_RATE_LIMIT_HANDLING', () => {
     expect(DEFAULT_RATE_LIMIT_HANDLING.enabled).toBe(true);
     expect(DEFAULT_RATE_LIMIT_HANDLING.maxRetries).toBe(3);
     expect(DEFAULT_RATE_LIMIT_HANDLING.baseBackoffMs).toBe(5000);
-    expect(DEFAULT_RATE_LIMIT_HANDLING.recoverPrimaryBetweenIterations).toBe(true);
+    expect(DEFAULT_RATE_LIMIT_HANDLING.recoverPrimaryBetweenIterations).toBe(
+      true,
+    );
   });
 });
 

@@ -22,7 +22,10 @@ describe('process utility', () => {
   describe('runProcess', () => {
     test('runs simple command and captures stdout', async () => {
       // Use bun to print a string (cross-platform)
-      const result = await runProcess(process.execPath, ['-e', 'console.log("hello")']);
+      const result = await runProcess(process.execPath, [
+        '-e',
+        'console.log("hello")',
+      ]);
       expect(result.success).toBe(true);
       expect(result.exitCode).toBe(0);
       expect(result.stdout.trim()).toBe('hello');
@@ -30,7 +33,10 @@ describe('process utility', () => {
 
     test('captures stderr on failure', async () => {
       // Use bun with invalid syntax to generate stderr
-      const result = await runProcess(process.execPath, ['-e', 'process.exit(1)']);
+      const result = await runProcess(process.execPath, [
+        '-e',
+        'process.exit(1)',
+      ]);
       expect(result.success).toBe(false);
       expect(result.exitCode).not.toBe(0);
     });
@@ -50,7 +56,7 @@ describe('process utility', () => {
       const result = await runProcess(
         process.execPath,
         ['-e', 'setTimeout(() => {}, 10000)'],
-        { timeout: 100 }
+        { timeout: 100 },
       );
       expect(result.success).toBe(false);
       expect(result.signal).toBe('SIGTERM');
@@ -58,9 +64,13 @@ describe('process utility', () => {
 
     test('uses custom working directory', async () => {
       const testDir = tmpdir();
-      const result = await runProcess(process.execPath, ['-e', 'console.log(process.cwd())'], {
-        cwd: testDir,
-      });
+      const result = await runProcess(
+        process.execPath,
+        ['-e', 'console.log(process.cwd())'],
+        {
+          cwd: testDir,
+        },
+      );
       expect(result.success).toBe(true);
       expect(result.stdout.trim()).toBe(testDir);
     });
@@ -69,7 +79,7 @@ describe('process utility', () => {
       const result = await runProcess(
         process.execPath,
         ['-e', 'console.log(process.env.TEST_VAR)'],
-        { env: { ...process.env, TEST_VAR: 'test_value' } }
+        { env: { ...process.env, TEST_VAR: 'test_value' } },
       );
       expect(result.success).toBe(true);
       expect(result.stdout.trim()).toBe('test_value');
@@ -195,7 +205,7 @@ describe('process utility', () => {
 
     test('throws for non-existent variable', () => {
       expect(() => requireEnv('NONEXISTENT_VAR_XYZ')).toThrow(
-        'Required environment variable NONEXISTENT_VAR_XYZ is not set'
+        'Required environment variable NONEXISTENT_VAR_XYZ is not set',
       );
     });
   });

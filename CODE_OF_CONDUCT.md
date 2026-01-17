@@ -7,12 +7,14 @@ We are committed to providing a friendly, safe, and welcoming environment for al
 ## Our Standards
 
 **Expected behavior:**
+
 - Be respectful and inclusive
 - Give and accept constructive feedback gracefully
 - Focus on what is best for the community
 - Show empathy towards others
 
 **Unacceptable behavior:**
+
 - Harassment, insults, or derogatory comments
 - Personal or political attacks
 - Publishing others' private information without permission

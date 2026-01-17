@@ -79,15 +79,27 @@ describe('ErrorHandlingConfigSchema', () => {
   test('validates maxRetries bounds', () => {
     expect(() => ErrorHandlingConfigSchema.parse({ maxRetries: -1 })).toThrow();
     expect(() => ErrorHandlingConfigSchema.parse({ maxRetries: 11 })).toThrow();
-    expect(ErrorHandlingConfigSchema.parse({ maxRetries: 0 }).maxRetries).toBe(0);
-    expect(ErrorHandlingConfigSchema.parse({ maxRetries: 10 }).maxRetries).toBe(10);
+    expect(ErrorHandlingConfigSchema.parse({ maxRetries: 0 }).maxRetries).toBe(
+      0,
+    );
+    expect(ErrorHandlingConfigSchema.parse({ maxRetries: 10 }).maxRetries).toBe(
+      10,
+    );
   });
 
   test('validates retryDelayMs bounds', () => {
-    expect(() => ErrorHandlingConfigSchema.parse({ retryDelayMs: -1 })).toThrow();
-    expect(() => ErrorHandlingConfigSchema.parse({ retryDelayMs: 300001 })).toThrow();
-    expect(ErrorHandlingConfigSchema.parse({ retryDelayMs: 0 }).retryDelayMs).toBe(0);
-    expect(ErrorHandlingConfigSchema.parse({ retryDelayMs: 300000 }).retryDelayMs).toBe(300000);
+    expect(() =>
+      ErrorHandlingConfigSchema.parse({ retryDelayMs: -1 }),
+    ).toThrow();
+    expect(() =>
+      ErrorHandlingConfigSchema.parse({ retryDelayMs: 300001 }),
+    ).toThrow();
+    expect(
+      ErrorHandlingConfigSchema.parse({ retryDelayMs: 0 }).retryDelayMs,
+    ).toBe(0);
+    expect(
+      ErrorHandlingConfigSchema.parse({ retryDelayMs: 300000 }).retryDelayMs,
+    ).toBe(300000);
   });
 });
 
@@ -133,9 +145,15 @@ describe('RateLimitHandlingConfigSchema', () => {
   });
 
   test('validates numeric bounds', () => {
-    expect(() => RateLimitHandlingConfigSchema.parse({ maxRetries: -1 })).toThrow();
-    expect(() => RateLimitHandlingConfigSchema.parse({ maxRetries: 11 })).toThrow();
-    expect(() => RateLimitHandlingConfigSchema.parse({ baseBackoffMs: -1 })).toThrow();
+    expect(() =>
+      RateLimitHandlingConfigSchema.parse({ maxRetries: -1 }),
+    ).toThrow();
+    expect(() =>
+      RateLimitHandlingConfigSchema.parse({ maxRetries: 11 }),
+    ).toThrow();
+    expect(() =>
+      RateLimitHandlingConfigSchema.parse({ baseBackoffMs: -1 }),
+    ).toThrow();
   });
 });
 
@@ -211,24 +229,42 @@ describe('AgentPluginConfigSchema', () => {
   });
 
   test('rejects empty name', () => {
-    expect(() => AgentPluginConfigSchema.parse({ name: '', plugin: 'claude' })).toThrow();
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: '', plugin: 'claude' }),
+    ).toThrow();
   });
 
   test('rejects empty plugin', () => {
-    expect(() => AgentPluginConfigSchema.parse({ name: 'test', plugin: '' })).toThrow();
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: '' }),
+    ).toThrow();
   });
 
   test('validates timeout as non-negative integer', () => {
-    expect(() => AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', timeout: -1 })).toThrow();
-    expect(() => AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', timeout: 1.5 })).toThrow();
+    expect(() =>
+      AgentPluginConfigSchema.parse({
+        name: 'test',
+        plugin: 'claude',
+        timeout: -1,
+      }),
+    ).toThrow();
+    expect(() =>
+      AgentPluginConfigSchema.parse({
+        name: 'test',
+        plugin: 'claude',
+        timeout: 1.5,
+      }),
+    ).toThrow();
   });
 
   test('validates fallbackAgents contains non-empty strings', () => {
-    expect(() => AgentPluginConfigSchema.parse({
-      name: 'test',
-      plugin: 'claude',
-      fallbackAgents: [''],
-    })).toThrow();
+    expect(() =>
+      AgentPluginConfigSchema.parse({
+        name: 'test',
+        plugin: 'claude',
+        fallbackAgents: [''],
+      }),
+    ).toThrow();
   });
 });
 
@@ -291,9 +327,7 @@ describe('StoredConfigSchema', () => {
         { name: 'claude', plugin: 'claude' },
         { name: 'droid', plugin: 'droid' },
       ],
-      trackers: [
-        { name: 'beads', plugin: 'beads-bv' },
-      ],
+      trackers: [{ name: 'beads', plugin: 'beads-bv' }],
       agent: 'claude',
       agentOptions: { model: 'claude-sonnet-4-20250514' },
       tracker: 'beads-bv',
@@ -314,13 +348,19 @@ describe('StoredConfigSchema', () => {
   test('validates maxIterations bounds', () => {
     expect(() => StoredConfigSchema.parse({ maxIterations: -1 })).toThrow();
     expect(() => StoredConfigSchema.parse({ maxIterations: 1001 })).toThrow();
-    expect(StoredConfigSchema.parse({ maxIterations: 0 }).maxIterations).toBe(0);
-    expect(StoredConfigSchema.parse({ maxIterations: 1000 }).maxIterations).toBe(1000);
+    expect(StoredConfigSchema.parse({ maxIterations: 0 }).maxIterations).toBe(
+      0,
+    );
+    expect(
+      StoredConfigSchema.parse({ maxIterations: 1000 }).maxIterations,
+    ).toBe(1000);
   });
 
   test('validates iterationDelay bounds', () => {
     expect(() => StoredConfigSchema.parse({ iterationDelay: -1 })).toThrow();
-    expect(() => StoredConfigSchema.parse({ iterationDelay: 300001 })).toThrow();
+    expect(() =>
+      StoredConfigSchema.parse({ iterationDelay: 300001 }),
+    ).toThrow();
   });
 
   test('rejects unknown fields (strict mode)', () => {
@@ -328,15 +368,19 @@ describe('StoredConfigSchema', () => {
   });
 
   test('validates nested agent configurations', () => {
-    expect(() => StoredConfigSchema.parse({
-      agents: [{ name: '', plugin: 'claude' }],
-    })).toThrow();
+    expect(() =>
+      StoredConfigSchema.parse({
+        agents: [{ name: '', plugin: 'claude' }],
+      }),
+    ).toThrow();
   });
 
   test('validates nested tracker configurations', () => {
-    expect(() => StoredConfigSchema.parse({
-      trackers: [{ name: 'test', plugin: '' }],
-    })).toThrow();
+    expect(() =>
+      StoredConfigSchema.parse({
+        trackers: [{ name: 'test', plugin: '' }],
+      }),
+    ).toThrow();
   });
 });
 

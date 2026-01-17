@@ -48,7 +48,8 @@ export async function generateMetadata({ params }: DocPageProps) {
     const { frontmatter } = await getDocBySlug(slugPath);
     return {
       title: frontmatter.title,
-      description: frontmatter.description || `Documentation for ${frontmatter.title}`,
+      description:
+        frontmatter.description || `Documentation for ${frontmatter.title}`,
     };
   } catch {
     return {
@@ -121,10 +122,7 @@ export default async function DocPage({ params }: DocPageProps) {
       {/* Main content area */}
       <article className="min-w-0 flex-1 max-w-3xl">
         {/* Breadcrumbs */}
-        <Breadcrumbs
-          slug={slug}
-          className="mb-6"
-        />
+        <Breadcrumbs slug={slug} className="mb-6" />
 
         {/* Page title */}
         <header className="mb-8">
@@ -145,21 +143,14 @@ export default async function DocPage({ params }: DocPageProps) {
         </header>
 
         {/* MDX content */}
-        <div className="prose dark:prose-invert max-w-none">
-          {mdxContent}
-        </div>
+        <div className="prose dark:prose-invert max-w-none">{mdxContent}</div>
 
         {/* Previous/Next navigation */}
         <PrevNextNav currentPath={currentPath} />
       </article>
 
       {/* Table of Contents sidebar */}
-      <aside
-        className={[
-          'hidden xl:block',
-          'w-56 shrink-0',
-        ].join(' ')}
-      >
+      <aside className={['hidden xl:block', 'w-56 shrink-0'].join(' ')}>
         <div className="sticky top-24">
           <TableOfContents items={toc} />
         </div>

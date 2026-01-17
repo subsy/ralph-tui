@@ -8,7 +8,8 @@ description: Get up and running with Ralph TUI in 2 minutes using JSON mode - no
 The fastest way to get started is with **JSON mode** - no external dependencies required! You'll have Ralph TUI running autonomously in just a few steps.
 
 <Callout type="tip">
-JSON mode uses a simple `prd.json` file for task tracking. It's perfect for getting started quickly without setting up external tools.
+  JSON mode uses a simple `prd.json` file for task tracking. It's perfect for
+  getting started quickly without setting up external tools.
 </Callout>
 
 <Steps>
@@ -22,6 +23,7 @@ JSON mode uses a simple `prd.json` file for task tracking. It's perfect for gett
     <Callout type="info">
     Ralph TUI requires Bun as its runtime. If you don't have Bun installed, see the [Installation](/docs/getting-started/installation) guide.
     </Callout>
+
   </Step>
 
   <Step title="Setup Your Project">
@@ -37,6 +39,7 @@ JSON mode uses a simple `prd.json` file for task tracking. It's perfect for gett
     - Create a `.ralph-tui/config.toml` configuration file
     - Install bundled skills for PRD creation and task conversion
     - Optionally detect existing trackers
+
   </Step>
 
   <Step title="Create a PRD">
@@ -53,6 +56,7 @@ JSON mode uses a simple `prd.json` file for task tracking. It's perfect for gett
     <Callout type="tip">
     Answer the AI's questions about your feature. When done, you'll be prompted to create tasks automatically.
     </Callout>
+
   </Step>
 
   <Step title="Run Ralph">
@@ -68,6 +72,7 @@ JSON mode uses a simple `prd.json` file for task tracking. It's perfect for gett
     - Execute your AI agent
     - Stream output in real-time
     - Detect completion and move to the next task
+
   </Step>
 </Steps>
 
@@ -89,6 +94,7 @@ ralph-tui run --epic my-project-epic
 ```
 
 Beads provides additional features like:
+
 - Git-backed persistence
 - Task dependencies
 - Hierarchy (epics containing stories)
@@ -106,28 +112,31 @@ Prefer to stay in Claude Code or OpenCode? After running `ralph-tui setup`, you 
 ```
 
 This approach lets you:
+
 - Reference files with `@filename` during PRD creation
 - Use your existing conversation context
 - Keep your preferred agent interface
 
 <Callout type="tip">
-**Recommended hybrid workflow:** Create your PRD using `/ralph-tui-prd` in Claude Code where you can reference source files, then use `ralph-tui run` for autonomous task execution.
+  **Recommended hybrid workflow:** Create your PRD using `/ralph-tui-prd` in
+  Claude Code where you can reference source files, then use `ralph-tui run` for
+  autonomous task execution.
 </Callout>
 
 ## Controlling Execution
 
 While Ralph is running, use these keyboard shortcuts:
 
-| Key | Action |
-|-----|--------|
-| `s` | Start execution |
-| `p` | Pause/Resume execution |
-| `+` / `=` | Add 10 iterations (extends max iterations) |
+| Key       | Action                                                   |
+| --------- | -------------------------------------------------------- |
+| `s`       | Start execution                                          |
+| `p`       | Pause/Resume execution                                   |
+| `+` / `=` | Add 10 iterations (extends max iterations)               |
 | `-` / `_` | Remove 10 iterations (minimum of current iteration or 1) |
-| `d` | Toggle progress dashboard |
-| `i` | Toggle iteration history |
-| `q` | Quit |
-| `?` | Show all shortcuts |
+| `d`       | Toggle progress dashboard                                |
+| `i`       | Toggle iteration history                                 |
+| `q`       | Quit                                                     |
+| `?`       | Show all shortcuts                                       |
 
 ## Understanding the TUI
 

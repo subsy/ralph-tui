@@ -4,7 +4,10 @@
  */
 
 import type { IterationStatus, ActiveAgentReason } from '../engine/types.js';
-import type { SubagentEvent, SubagentState } from '../plugins/agents/tracing/types.js';
+import type {
+  SubagentEvent,
+  SubagentState,
+} from '../plugins/agents/tracing/types.js';
 
 /**
  * Entry recording an agent switch during an iteration.

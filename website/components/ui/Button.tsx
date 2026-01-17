@@ -115,7 +115,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       type = 'button',
       ...props
     },
-    ref
+    ref,
   ) => {
     const classes = [
       baseStyles,
@@ -128,7 +128,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       .join(' ');
 
     return <button ref={ref} type={type} className={classes} {...props} />;
-  }
+  },
 );
 
 Button.displayName = 'Button';

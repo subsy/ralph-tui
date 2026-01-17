@@ -7,7 +7,16 @@
 import type { MDXComponents } from 'mdx/types';
 import Link from 'next/link';
 import { CodeBlock } from '@/components/ui';
-import { Callout, Steps, Step, Tabs, TabsRoot, TabsList, TabsTrigger, TabsContent } from '@/components/mdx';
+import {
+  Callout,
+  Steps,
+  Step,
+  Tabs,
+  TabsRoot,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from '@/components/mdx';
 
 /**
  * Custom link component that handles internal vs external links.
@@ -59,7 +68,11 @@ function CustomLink({
 /**
  * Custom heading components with anchor links.
  */
-function H1({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+function H1({
+  children,
+  id,
+  ...props
+}: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h1
       id={id}
@@ -79,7 +92,11 @@ function H1({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>
   );
 }
 
-function H2({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+function H2({
+  children,
+  id,
+  ...props
+}: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h2
       id={id}
@@ -97,7 +114,11 @@ function H2({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>
   );
 }
 
-function H3({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+function H3({
+  children,
+  id,
+  ...props
+}: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
       id={id}
@@ -114,7 +135,11 @@ function H3({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>
   );
 }
 
-function H4({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+function H4({
+  children,
+  id,
+  ...props
+}: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h4
       id={id}
@@ -137,11 +162,7 @@ function H4({ children, id, ...props }: React.HTMLAttributes<HTMLHeadingElement>
 function P({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
     <p
-      className={[
-        'text-fg-secondary',
-        'leading-7',
-        'my-4',
-      ].join(' ')}
+      className={['text-fg-secondary', 'leading-7', 'my-4'].join(' ')}
       {...props}
     >
       {children}
@@ -191,7 +212,10 @@ function Ol({ children, ...props }: React.HTMLAttributes<HTMLOListElement>) {
 /**
  * Custom blockquote with terminal-style border.
  */
-function Blockquote({ children, ...props }: React.HTMLAttributes<HTMLQuoteElement>) {
+function Blockquote({
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLQuoteElement>) {
   return (
     <blockquote
       className={[
@@ -244,7 +268,10 @@ function extractTextContent(node: unknown): string {
 function Pre({
   children,
   ...props
-}: React.HTMLAttributes<HTMLPreElement> & { 'data-language'?: string; raw?: string }) {
+}: React.HTMLAttributes<HTMLPreElement> & {
+  'data-language'?: string;
+  raw?: string;
+}) {
   // Extract language from data attribute
   const dataLanguage =
     (props as { 'data-language'?: string })['data-language'] ||
@@ -252,14 +279,16 @@ function Pre({
     (typeof children === 'object' &&
     children !== null &&
     'props' in children &&
-    typeof (children as { props?: { className?: string } }).props?.className === 'string'
-      ? (children as { props: { className: string } }).props.className.match(/language-(\w+)/)?.[1]
+    typeof (children as { props?: { className?: string } }).props?.className ===
+      'string'
+      ? (children as { props: { className: string } }).props.className.match(
+          /language-(\w+)/,
+        )?.[1]
       : undefined);
 
   // Get raw code for copy functionality - extract text from React tree
   const rawCode =
-    (props as { raw?: string }).raw ||
-    extractTextContent(children);
+    (props as { raw?: string }).raw || extractTextContent(children);
 
   return (
     <CodeBlock language={dataLanguage} code={rawCode} className="my-6">
@@ -316,10 +345,7 @@ function Table({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   return (
     <div className="my-6 overflow-x-auto rounded-sm border border-border">
       <table
-        className={[
-          'w-full border-collapse',
-          'font-mono text-sm',
-        ].join(' ')}
+        className={['w-full border-collapse', 'font-mono text-sm'].join(' ')}
         {...props}
       >
         {children}
@@ -328,7 +354,10 @@ function Table({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   );
 }
 
-function Th({ children, ...props }: React.HTMLAttributes<HTMLTableCellElement>) {
+function Th({
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLTableCellElement>) {
   return (
     <th
       className={[
@@ -345,7 +374,10 @@ function Th({ children, ...props }: React.HTMLAttributes<HTMLTableCellElement>) 
   );
 }
 
-function Td({ children, ...props }: React.HTMLAttributes<HTMLTableCellElement>) {
+function Td({
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLTableCellElement>) {
   return (
     <td
       className={[

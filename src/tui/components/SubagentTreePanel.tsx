@@ -103,10 +103,17 @@ function SubagentTreeRow({
   // Format: [indent][icon] [Type] description [duration]
   // icon=1, space=1, type brackets and content, space=1, duration with brackets
   const typeDisplay = `[${state.type}]`;
-  const durationStr = state.durationMs !== undefined ? ` [${formatDuration(state.durationMs)}]` : '';
-  const fixedWidth = indent.length + 2 + typeDisplay.length + 1 + durationStr.length;
+  const durationStr =
+    state.durationMs !== undefined
+      ? ` [${formatDuration(state.durationMs)}]`
+      : '';
+  const fixedWidth =
+    indent.length + 2 + typeDisplay.length + 1 + durationStr.length;
   const descriptionWidth = Math.max(5, maxWidth - fixedWidth);
-  const truncatedDescription = truncateText(state.description, descriptionWidth);
+  const truncatedDescription = truncateText(
+    state.description,
+    descriptionWidth,
+  );
 
   return (
     <box
@@ -122,7 +129,10 @@ function SubagentTreeRow({
         <span fg={colors.fg.dim}>{indent}</span>
         <span fg={statusColor}>{statusIcon}</span>
         <span fg={colors.accent.tertiary}> {typeDisplay}</span>
-        <span fg={isActive ? colors.fg.primary : colors.fg.secondary}> {truncatedDescription}</span>
+        <span fg={isActive ? colors.fg.primary : colors.fg.secondary}>
+          {' '}
+          {truncatedDescription}
+        </span>
         {durationStr && <span fg={colors.fg.muted}>{durationStr}</span>}
       </text>
     </box>
@@ -240,9 +250,10 @@ export function SubagentTreePanel({
   }, 0);
 
   // Build title with counts
-  const title = runningCount > 0
-    ? `Subagents (${runningCount} running / ${totalSubagents} total)`
-    : `Subagents (${totalSubagents})`;
+  const title =
+    runningCount > 0
+      ? `Subagents (${runningCount} running / ${totalSubagents} total)`
+      : `Subagents (${totalSubagents})`;
 
   // Use a ref for auto-scroll behavior
   // Note: In @opentui/react, scrollbox auto-scrolls when content exceeds height
@@ -266,7 +277,9 @@ export function SubagentTreePanel({
         flexDirection: 'column',
         backgroundColor: colors.bg.primary,
         border: true,
-        borderColor: effectiveActiveId ? colors.border.active : colors.border.normal,
+        borderColor: effectiveActiveId
+          ? colors.border.active
+          : colors.border.normal,
       }}
     >
       <scrollbox

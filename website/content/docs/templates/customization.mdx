@@ -23,7 +23,9 @@ ralph-tui template init
 This creates `.ralph-tui-prompt.hbs` in your project root, pre-populated with the current template for your tracker type.
 
 <Callout type="tip">
-The `.hbs` extension stands for Handlebars, the templating engine Ralph uses. You can also use `.md` or any other extension—Ralph just reads the file content.
+  The `.hbs` extension stands for Handlebars, the templating engine Ralph uses.
+  You can also use `.md` or any other extension—Ralph just reads the file
+  content.
 </Callout>
 
 ## Template Locations
@@ -77,7 +79,8 @@ ralph-tui template init --global
 A minimal template needs the task details and completion signal:
 
 ```handlebars
-## Task: {{taskTitle}}
+## Task:
+{{taskTitle}}
 
 {{taskDescription}}
 
@@ -90,21 +93,22 @@ When finished, signal completion with:
 Use `{{#if}}` blocks to include content only when data exists:
 
 ```handlebars
-## Task: {{taskTitle}}
+## Task:
+{{taskTitle}}
 
 {{#if taskDescription}}
-### Description
-{{taskDescription}}
+  ### Description
+  {{taskDescription}}
 {{/if}}
 
 {{#if acceptanceCriteria}}
-### Acceptance Criteria
-{{acceptanceCriteria}}
+  ### Acceptance Criteria
+  {{acceptanceCriteria}}
 {{/if}}
 
 {{#if dependsOn}}
-### Prerequisites
-Complete these first: {{dependsOn}}
+  ### Prerequisites Complete these first:
+  {{dependsOn}}
 {{/if}}
 
 When finished, signal completion with:
@@ -116,37 +120,27 @@ When finished, signal completion with:
 Customize the instructions section for your workflow:
 
 ```handlebars
-## User Story
-**ID**: {{taskId}}
-**Title**: {{taskTitle}}
+## User Story **ID**:
+{{taskId}}
+**Title**:
+{{taskTitle}}
 
 {{#if taskDescription}}
-## Description
-{{taskDescription}}
+  ## Description
+  {{taskDescription}}
 {{/if}}
 
 {{#if acceptanceCriteria}}
-## Acceptance Criteria
-{{acceptanceCriteria}}
+  ## Acceptance Criteria
+  {{acceptanceCriteria}}
 {{/if}}
 
-## Project-Specific Instructions
-
-### Code Style
-- Use TypeScript with strict mode
-- Follow the existing patterns in `src/`
-- Add JSDoc comments for public APIs
-
-### Quality Gates (REQUIRED)
-Before marking complete, run:
-1. `bun run typecheck` - Must pass with no errors
-2. `bun run lint` - Must pass with no warnings
-3. `bun run test` - All tests must pass
-
-### Git Workflow
-- Commit with message format: `feat(scope): description`
-- Keep commits atomic and focused
-
+## Project-Specific Instructions ### Code Style - Use TypeScript with strict
+mode - Follow the existing patterns in `src/` - Add JSDoc comments for public
+APIs ### Quality Gates (REQUIRED) Before marking complete, run: 1. `bun run
+typecheck` - Must pass with no errors 2. `bun run lint` - Must pass with no
+warnings 3. `bun run test` - All tests must pass ### Git Workflow - Commit with
+message format: `feat(scope): description` - Keep commits atomic and focused
 When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
@@ -158,15 +152,18 @@ When finished, signal completion with:
 For simple, focused prompts:
 
 ```handlebars
-Task: {{taskTitle}}
+Task:
+{{taskTitle}}
 {{taskDescription}}
 
 {{#if acceptanceCriteria}}
-Requirements:
-{{acceptanceCriteria}}
+  Requirements:
+  {{acceptanceCriteria}}
 {{/if}}
 
-Signal <promise>COMPLETE</promise> when done.
+Signal
+<promise>COMPLETE</promise>
+when done.
 ```
 
 ### Verbose Template with Full Context
@@ -174,63 +171,69 @@ Signal <promise>COMPLETE</promise> when done.
 For maximum context injection:
 
 ```handlebars
-## Task Context
-- **ID**: {{taskId}}
-- **Type**: {{type}}
-- **Priority**: {{priority}}
-- **Status**: {{status}}
-- **Labels**: {{labels}}
-- **Tracker**: {{trackerName}}
-- **Agent**: {{agentName}}
-- **Date**: {{currentDate}}
+## Task Context - **ID**:
+{{taskId}}
+- **Type**:
+{{type}}
+- **Priority**:
+{{priority}}
+- **Status**:
+{{status}}
+- **Labels**:
+{{labels}}
+- **Tracker**:
+{{trackerName}}
+- **Agent**:
+{{agentName}}
+- **Date**:
+{{currentDate}}
 
 {{#if epicId}}
-## Epic Context
-- **Epic ID**: {{epicId}}
-- **Epic Title**: {{epicTitle}}
+  ## Epic Context - **Epic ID**:
+  {{epicId}}
+  - **Epic Title**:
+  {{epicTitle}}
 {{/if}}
 
-## Task Details
-**Title**: {{taskTitle}}
+## Task Details **Title**:
+{{taskTitle}}
 
 {{#if taskDescription}}
-### Description
-{{taskDescription}}
+  ### Description
+  {{taskDescription}}
 {{/if}}
 
 {{#if acceptanceCriteria}}
-### Acceptance Criteria
-{{acceptanceCriteria}}
+  ### Acceptance Criteria
+  {{acceptanceCriteria}}
 {{/if}}
 
 {{#if notes}}
-### Additional Notes
-{{notes}}
+  ### Additional Notes
+  {{notes}}
 {{/if}}
 
 ## Dependencies
 
 {{#if dependsOn}}
-**Depends On**: {{dependsOn}}
-These tasks must be complete before starting.
+  **Depends On**:
+  {{dependsOn}}
+  These tasks must be complete before starting.
 {{/if}}
 
 {{#if blocks}}
-**Blocks**: {{blocks}}
-Completing this task will unblock the above.
+  **Blocks**:
+  {{blocks}}
+  Completing this task will unblock the above.
 {{/if}}
 
 {{#if recentProgress}}
-## Previous Progress
-{{recentProgress}}
+  ## Previous Progress
+  {{recentProgress}}
 {{/if}}
 
-## Instructions
-1. Implement the requirements
-2. Run quality checks
-3. Commit changes
-
-When finished, signal completion with:
+## Instructions 1. Implement the requirements 2. Run quality checks 3. Commit
+changes When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -239,40 +242,28 @@ When finished, signal completion with:
 For UI development with browser verification:
 
 ```handlebars
-## Frontend Task: {{taskTitle}}
+## Frontend Task:
+{{taskTitle}}
 
 {{#if taskDescription}}
-### Description
-{{taskDescription}}
+  ### Description
+  {{taskDescription}}
 {{/if}}
 
 {{#if acceptanceCriteria}}
-### Acceptance Criteria
-{{acceptanceCriteria}}
+  ### Acceptance Criteria
+  {{acceptanceCriteria}}
 {{/if}}
 
-## Frontend Development Guidelines
-
-### Implementation
-1. Check for existing components in `src/components/`
-2. Follow the design system patterns
-3. Use Tailwind CSS for styling
-4. Ensure responsive design (mobile-first)
-
-### Browser Verification (REQUIRED)
-Before marking complete:
-1. Load the `dev-browser` skill
-2. Navigate to the affected page(s)
-3. Verify the UI renders correctly
-4. Test interactive elements
-5. Check responsive behavior at different viewport sizes
-
-### Quality Checks
-- `bun run typecheck` - No type errors
-- `bun run lint` - No lint warnings
-- Visual verification in browser
-
-When finished, signal completion with:
+## Frontend Development Guidelines ### Implementation 1. Check for existing
+components in `src/components/` 2. Follow the design system patterns 3. Use
+Tailwind CSS for styling 4. Ensure responsive design (mobile-first) ### Browser
+Verification (REQUIRED) Before marking complete: 1. Load the `dev-browser` skill
+2. Navigate to the affected page(s) 3. Verify the UI renders correctly 4. Test
+interactive elements 5. Check responsive behavior at different viewport sizes
+### Quality Checks - `bun run typecheck` - No type errors - `bun run lint` - No
+lint warnings - Visual verification in browser When finished, signal completion
+with:
 <promise>COMPLETE</promise>
 ```
 
@@ -281,41 +272,26 @@ When finished, signal completion with:
 For backend/API work:
 
 ```handlebars
-## API Task: {{taskTitle}}
+## API Task:
+{{taskTitle}}
 
 {{#if taskDescription}}
-### Description
-{{taskDescription}}
+  ### Description
+  {{taskDescription}}
 {{/if}}
 
 {{#if acceptanceCriteria}}
-### Requirements
-{{acceptanceCriteria}}
+  ### Requirements
+  {{acceptanceCriteria}}
 {{/if}}
 
-## API Development Guidelines
-
-### Implementation
-1. Follow REST conventions
-2. Use proper HTTP status codes
-3. Validate input with Zod schemas
-4. Handle errors gracefully
-
-### Testing Requirements
-- Write unit tests for new functions
-- Add integration tests for endpoints
-- Cover edge cases and error paths
-
-### Documentation
-- Update API docs if adding endpoints
-- Add JSDoc comments for new functions
-
-### Quality Checks
-- `bun run typecheck`
-- `bun run lint`
-- `bun run test`
-
-When finished, signal completion with:
+## API Development Guidelines ### Implementation 1. Follow REST conventions 2.
+Use proper HTTP status codes 3. Validate input with Zod schemas 4. Handle errors
+gracefully ### Testing Requirements - Write unit tests for new functions - Add
+integration tests for endpoints - Cover edge cases and error paths ###
+Documentation - Update API docs if adding endpoints - Add JSDoc comments for new
+functions ### Quality Checks - `bun run typecheck` - `bun run lint` - `bun run
+test` When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -325,8 +301,8 @@ Ralph maintains a **progress file** (`.ralph-tui/progress.md`) that summarizes w
 
 ```handlebars
 {{#if recentProgress}}
-## Recent Progress
-{{recentProgress}}
+  ## Recent Progress
+  {{recentProgress}}
 {{/if}}
 ```
 
@@ -347,7 +323,9 @@ Ralph maintains a **progress file** (`.ralph-tui/progress.md`) that summarizes w
 3. The summary includes completed tasks, key changes, and notes from previous work
 
 <Callout type="info">
-The progress file is distinct from iteration logs (`.ralph-tui/iterations/`). Use `{{recentProgress}}` for context and `ralph-tui logs` for detailed debugging.
+  The progress file is distinct from iteration logs (`.ralph-tui/iterations/`).
+  Use `{{ recentProgress }}` for context and `ralph-tui logs` for detailed
+  debugging.
 </Callout>
 
 ### Customizing Progress Content
@@ -363,18 +341,23 @@ The progress file is managed by Ralph's engine. To customize what gets included:
 For advanced templates, you can access the raw task and config objects:
 
 ```handlebars
-{{!-- Access nested task metadata --}}
+{{! Access nested task metadata }}
 {{#if task.metadata.customField}}
-Custom: {{task.metadata.customField}}
+  Custom:
+  {{task.metadata.customField}}
 {{/if}}
 
-{{!-- Access config values --}}
-Working directory: {{cwd}}
-Model: {{model}}
+{{! Access config values }}
+Working directory:
+{{cwd}}
+Model:
+{{model}}
 ```
 
 <Callout type="warning">
-The `task` and `config` objects expose internal structure that may change between versions. Prefer using the documented template variables when possible.
+  The `task` and `config` objects expose internal structure that may change
+  between versions. Prefer using the documented template variables when
+  possible.
 </Callout>
 
 ## Testing Your Template

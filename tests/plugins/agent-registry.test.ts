@@ -3,8 +3,19 @@
  * Tests plugin registration, discovery, instance management, and lifecycle.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { AgentRegistry, getAgentRegistry } from '../../src/plugins/agents/registry.js';
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from 'bun:test';
+import {
+  AgentRegistry,
+  getAgentRegistry,
+} from '../../src/plugins/agents/registry.js';
 import type {
   AgentPlugin,
   AgentPluginFactory,
@@ -104,7 +115,9 @@ describe('AgentRegistry', () => {
   describe('createInstance', () => {
     test('creates a new instance from registered factory', () => {
       const registry = AgentRegistry.getInstance();
-      const mockPlugin = createMockAgentPlugin({ meta: { id: 'factory-test' } });
+      const mockPlugin = createMockAgentPlugin({
+        meta: { id: 'factory-test' },
+      });
       const factory: AgentPluginFactory = () => mockPlugin;
 
       registry.registerBuiltin(factory);
@@ -175,7 +188,7 @@ describe('AgentRegistry', () => {
       };
 
       await expect(registry.getInstance(config)).rejects.toThrow(
-        'Unknown agent plugin: unknown-plugin'
+        'Unknown agent plugin: unknown-plugin',
       );
     });
 
@@ -215,7 +228,9 @@ describe('AgentRegistry', () => {
   describe('disposeInstance', () => {
     test('disposes and removes cached instance', async () => {
       const registry = AgentRegistry.getInstance();
-      const mockPlugin = createMockAgentPlugin({ meta: { id: 'dispose-test' } });
+      const mockPlugin = createMockAgentPlugin({
+        meta: { id: 'dispose-test' },
+      });
       const disposeSpy = spyOn(mockPlugin, 'dispose');
       const factory: AgentPluginFactory = () => mockPlugin;
 
@@ -256,8 +271,16 @@ describe('AgentRegistry', () => {
       registry.registerBuiltin(() => plugin1);
       registry.registerBuiltin(() => plugin2);
 
-      await registry.getInstance({ name: 'agent-1', plugin: 'multi-1', options: {} });
-      await registry.getInstance({ name: 'agent-2', plugin: 'multi-2', options: {} });
+      await registry.getInstance({
+        name: 'agent-1',
+        plugin: 'multi-1',
+        options: {},
+      });
+      await registry.getInstance({
+        name: 'agent-2',
+        plugin: 'multi-2',
+        options: {},
+      });
 
       await registry.disposeAll();
 

@@ -242,7 +242,8 @@ describe('RateLimitDetector', () => {
         // Regression test: Agent output mentioning package names should not trigger false positives
         // The pattern /rate[- ]?limit/ was too permissive and matched "ratelimit" without separator
         const result = detector.detect({
-          stderr: 'ESLint type-safety issues with external libraries (better-auth, stripe, @upstash/redis, @upstash/ratelimit)',
+          stderr:
+            'ESLint type-safety issues with external libraries (better-auth, stripe, @upstash/redis, @upstash/ratelimit)',
           exitCode: 0,
         });
         expect(result.isRateLimit).toBe(false);
@@ -359,7 +360,8 @@ describe('RateLimitDetector', () => {
     describe('message extraction', () => {
       test('extracts context around match', () => {
         const result = detector.detect({
-          stderr: 'Some prefix text. Rate limit exceeded for user. Some suffix text.',
+          stderr:
+            'Some prefix text. Rate limit exceeded for user. Some suffix text.',
           exitCode: 1,
         });
         expect(result.isRateLimit).toBe(true);
@@ -367,7 +369,8 @@ describe('RateLimitDetector', () => {
       });
 
       test('truncates very long messages', () => {
-        const longError = 'A'.repeat(100) + ' Rate limit exceeded ' + 'B'.repeat(200);
+        const longError =
+          'A'.repeat(100) + ' Rate limit exceeded ' + 'B'.repeat(200);
         const result = detector.detect({
           stderr: longError,
           exitCode: 1,

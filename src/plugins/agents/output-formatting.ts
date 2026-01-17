@@ -13,7 +13,15 @@
  * Semantic color names for formatted output.
  * Maps to TUI theme colors for consistent styling.
  */
-export type SegmentColor = 'blue' | 'purple' | 'cyan' | 'green' | 'yellow' | 'pink' | 'muted' | 'default';
+export type SegmentColor =
+  | 'blue'
+  | 'purple'
+  | 'cyan'
+  | 'green'
+  | 'yellow'
+  | 'pink'
+  | 'muted'
+  | 'default';
 
 /**
  * A single segment of formatted text with optional color.
@@ -28,14 +36,14 @@ export interface FormattedSegment {
  * Prefer FormattedSegment for TUI rendering.
  */
 export const COLORS = {
-  blue: '\x1b[94m',      // Bright blue for tool names
-  purple: '\x1b[95m',    // Bright magenta for file paths
-  cyan: '\x1b[96m',      // Bright cyan for patterns/URLs
-  green: '\x1b[92m',     // Bright green for success
-  yellow: '\x1b[93m',    // Bright yellow for warnings/queries
-  pink: '\x1b[91m',      // Bright red for errors
-  muted: '\x1b[90m',     // Gray for secondary info
-  reset: '\x1b[0m',      // Reset to default
+  blue: '\x1b[94m', // Bright blue for tool names
+  purple: '\x1b[95m', // Bright magenta for file paths
+  cyan: '\x1b[96m', // Bright cyan for patterns/URLs
+  green: '\x1b[92m', // Bright green for success
+  yellow: '\x1b[93m', // Bright yellow for warnings/queries
+  pink: '\x1b[91m', // Bright red for errors
+  muted: '\x1b[90m', // Gray for secondary info
+  reset: '\x1b[0m', // Reset to default
 } as const;
 
 /**
@@ -147,7 +155,10 @@ export interface ToolInputFormatters {
  * @param input The tool input object (can have various fields)
  * @returns Formatted string for display
  */
-export function formatToolCall(toolName: string, input?: ToolInputFormatters): string {
+export function formatToolCall(
+  toolName: string,
+  input?: ToolInputFormatters,
+): string {
   const parts: string[] = [formatToolName(toolName)];
 
   if (!input) {
@@ -175,18 +186,21 @@ export function formatToolCall(toolName: string, input?: ToolInputFormatters): s
   }
   if (input.content) {
     // For write/edit operations, show preview of content
-    const preview = input.content.length > 200
-      ? `${input.content.slice(0, 200)}... (${input.content.length} chars)`
-      : input.content;
+    const preview =
+      input.content.length > 200
+        ? `${input.content.slice(0, 200)}... (${input.content.length} chars)`
+        : input.content;
     parts.push(`"${preview}"`);
   }
   if (input.old_string && input.new_string) {
-    const displayOld = input.old_string.length > 50
-      ? input.old_string.slice(0, 50) + '...'
-      : input.old_string;
-    const displayNew = input.new_string.length > 50
-      ? input.new_string.slice(0, 50) + '...'
-      : input.new_string;
+    const displayOld =
+      input.old_string.length > 50
+        ? input.old_string.slice(0, 50) + '...'
+        : input.old_string;
+    const displayNew =
+      input.new_string.length > 50
+        ? input.new_string.slice(0, 50) + '...'
+        : input.new_string;
     parts.push(`edit: "${displayOld}" → "${displayNew}"`);
   }
 
@@ -226,7 +240,10 @@ function cleanCommand(command: string): string {
  * @param input The tool input object
  * @returns Array of FormattedSegment for rendering
  */
-export function formatToolCallSegments(toolName: string, input?: ToolInputFormatters): FormattedSegment[] {
+export function formatToolCallSegments(
+  toolName: string,
+  input?: ToolInputFormatters,
+): FormattedSegment[] {
   const segments: FormattedSegment[] = [];
 
   // Tool name in brackets
@@ -276,20 +293,23 @@ export function formatToolCallSegments(toolName: string, input?: ToolInputFormat
 
   // Content preview
   if (input.content) {
-    const preview = input.content.length > 200
-      ? `${input.content.slice(0, 200)}... (${input.content.length} chars)`
-      : input.content;
+    const preview =
+      input.content.length > 200
+        ? `${input.content.slice(0, 200)}... (${input.content.length} chars)`
+        : input.content;
     segments.push({ text: ` "${preview}"`, color: 'muted' });
   }
 
   // Edit diff
   if (input.old_string && input.new_string) {
-    const displayOld = input.old_string.length > 50
-      ? input.old_string.slice(0, 50) + '...'
-      : input.old_string;
-    const displayNew = input.new_string.length > 50
-      ? input.new_string.slice(0, 50) + '...'
-      : input.new_string;
+    const displayOld =
+      input.old_string.length > 50
+        ? input.old_string.slice(0, 50) + '...'
+        : input.old_string;
+    const displayNew =
+      input.new_string.length > 50
+        ? input.new_string.slice(0, 50) + '...'
+        : input.new_string;
     segments.push({ text: ' edit: "', color: 'muted' });
     segments.push({ text: displayOld, color: 'pink' });
     segments.push({ text: '" → "', color: 'muted' });
@@ -337,7 +357,9 @@ export function processAgentEvents(events: AgentDisplayEvent[]): string {
         if (event.content) {
           // Ensure text ends with newline so streaming parser treats it as a complete line
           // Otherwise text gets buffered and concatenated with the next chunk (e.g., tool call)
-          const text = event.content.endsWith('\n') ? event.content : event.content + '\n';
+          const text = event.content.endsWith('\n')
+            ? event.content
+            : event.content + '\n';
           parts.push(text);
         }
         break;
@@ -349,7 +371,9 @@ export function processAgentEvents(events: AgentDisplayEvent[]): string {
         if (parts.length > 0 && !parts[parts.length - 1]!.endsWith('\n')) {
           parts.push('\n');
         }
-        parts.push(formatToolCall(event.name, event.input as ToolInputFormatters));
+        parts.push(
+          formatToolCall(event.name, event.input as ToolInputFormatters),
+        );
         break;
 
       case 'error':
@@ -380,7 +404,9 @@ export function processAgentEvents(events: AgentDisplayEvent[]): string {
  * @param events Array of parsed agent events
  * @returns Array of FormattedSegment for TUI rendering
  */
-export function processAgentEventsToSegments(events: AgentDisplayEvent[]): FormattedSegment[] {
+export function processAgentEventsToSegments(
+  events: AgentDisplayEvent[],
+): FormattedSegment[] {
   const segments: FormattedSegment[] = [];
 
   for (const event of events) {
@@ -388,17 +414,27 @@ export function processAgentEventsToSegments(events: AgentDisplayEvent[]): Forma
       case 'text':
         if (event.content) {
           // Ensure text ends with newline so streaming parser treats it as a complete line
-          const text = event.content.endsWith('\n') ? event.content : event.content + '\n';
+          const text = event.content.endsWith('\n')
+            ? event.content
+            : event.content + '\n';
           segments.push({ text });
         }
         break;
 
       case 'tool_use':
         // Add newline before tool call if there's preceding content (like text)
-        if (segments.length > 0 && !segments[segments.length - 1]!.text.endsWith('\n')) {
+        if (
+          segments.length > 0 &&
+          !segments[segments.length - 1]!.text.endsWith('\n')
+        ) {
           segments.push({ text: '\n' });
         }
-        segments.push(...formatToolCallSegments(event.name, event.input as ToolInputFormatters));
+        segments.push(
+          ...formatToolCallSegments(
+            event.name,
+            event.input as ToolInputFormatters,
+          ),
+        );
         break;
 
       case 'error':
@@ -420,7 +456,7 @@ export function processAgentEventsToSegments(events: AgentDisplayEvent[]): Forma
  * Strips all color information.
  */
 export function segmentsToPlainText(segments: FormattedSegment[]): string {
-  return segments.map(s => s.text).join('');
+  return segments.map((s) => s.text).join('');
 }
 
 /**
@@ -440,7 +476,7 @@ export function segmentsToPlainText(segments: FormattedSegment[]): string {
 const ANSI_REGEX = new RegExp(
   // CSI sequences: ESC[...letter | OSC sequences: ESC]...BEL | Charset: ESC(/)AB012
   '\\x1b\\[[0-9;?]*[a-zA-Z]|\\x1b\\][^\\x07]*\\x07|\\x1b[()][AB012]',
-  'g'
+  'g',
 );
 
 export function stripAnsiCodes(str: string): string {

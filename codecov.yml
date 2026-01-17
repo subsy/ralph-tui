@@ -22,16 +22,16 @@ coverage:
 
 # Ignore certain paths from coverage
 ignore:
-  - "website/**/*"
-  - "tests/**/*"
-  - "**/*.test.ts"
-  - "dist/**/*"
+  - 'website/**/*'
+  - 'tests/**/*'
+  - '**/*.test.ts'
+  - 'dist/**/*'
   # TUI components are React/blessed rendering code - hard to unit test meaningfully
-  - "src/tui/**/*"
-  - "src/commands/**/*.tsx"
+  - 'src/tui/**/*'
+  - 'src/commands/**/*.tsx'
 
 # Comment settings for PRs
 comment:
-  layout: "reach,diff,flags,files"
+  layout: 'reach,diff,flags,files'
   behavior: default
   require_changes: true

@@ -26,11 +26,11 @@ Sandboxing is opt-in and controlled through configuration or CLI flags. Auto mod
 
 Sandbox mode uses different backends depending on platform:
 
-| Platform | Backend | Availability |
-|----------|---------|--------------|
-| **Linux** | Bubblewrap (`bwrap`) | Install via package manager |
-| **macOS** | `sandbox-exec` | Built-in (no installation needed) |
-| **Windows** | Not supported natively | Use WSL2 with Bubblewrap |
+| Platform    | Backend                | Availability                      |
+| ----------- | ---------------------- | --------------------------------- |
+| **Linux**   | Bubblewrap (`bwrap`)   | Install via package manager       |
+| **macOS**   | `sandbox-exec`         | Built-in (no installation needed) |
+| **Windows** | Not supported natively | Use WSL2 with Bubblewrap          |
 
 If the required backend is missing or unavailable, auto mode falls back to `off`.
 
@@ -77,17 +77,20 @@ Native Windows sandboxing is not currently supported. Windows users who want san
 ### WSL2 Setup for Sandboxing
 
 1. **Install WSL2** (if not already installed):
+
    ```powershell
    wsl --install
    ```
 
 2. **Install ralph-tui inside WSL**:
+
    ```bash
    # Inside your WSL distribution
    curl -fsSL https://get.ralph-tui.dev | bash
    ```
 
 3. **Install Bubblewrap**:
+
    ```bash
    sudo apt install bubblewrap
    ```
@@ -103,12 +106,12 @@ WSL2 provides a full Linux environment where Bubblewrap works natively.
 
 Sandbox mode is selected by the `sandbox.mode` setting or the CLI flag:
 
-| Mode | Behavior |
-|------|----------|
-| `auto` | Use Bubblewrap on Linux, sandbox-exec on macOS, otherwise `off` |
-| `bwrap` | Force Bubblewrap (Linux only) |
-| `sandbox-exec` | Force sandbox-exec (macOS only) |
-| `off` | Disable sandboxing |
+| Mode           | Behavior                                                        |
+| -------------- | --------------------------------------------------------------- |
+| `auto`         | Use Bubblewrap on Linux, sandbox-exec on macOS, otherwise `off` |
+| `bwrap`        | Force Bubblewrap (Linux only)                                   |
+| `sandbox-exec` | Force sandbox-exec (macOS only)                                 |
+| `off`          | Disable sandboxing                                              |
 
 ## Configuration Options
 
@@ -123,25 +126,25 @@ allowPaths = ["/path/to/allow"]
 readOnlyPaths = ["/path/to/read-only"]
 ```
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `sandbox.enabled` | boolean | `false` | Enable sandboxing for agent execution |
-| `sandbox.mode` | string | `"auto"` | Sandbox backend (`auto`, `bwrap`, `sandbox-exec`, `off`) |
-| `sandbox.network` | boolean | `true` | Allow network access inside sandbox |
-| `sandbox.allowPaths` | string[] | `[]` | Additional writable paths (absolute or relative to project root) |
-| `sandbox.readOnlyPaths` | string[] | `[]` | Additional read-only paths (absolute or relative to project root) |
+| Option                  | Type     | Default  | Description                                                       |
+| ----------------------- | -------- | -------- | ----------------------------------------------------------------- |
+| `sandbox.enabled`       | boolean  | `false`  | Enable sandboxing for agent execution                             |
+| `sandbox.mode`          | string   | `"auto"` | Sandbox backend (`auto`, `bwrap`, `sandbox-exec`, `off`)          |
+| `sandbox.network`       | boolean  | `true`   | Allow network access inside sandbox                               |
+| `sandbox.allowPaths`    | string[] | `[]`     | Additional writable paths (absolute or relative to project root)  |
+| `sandbox.readOnlyPaths` | string[] | `[]`     | Additional read-only paths (absolute or relative to project root) |
 
 ## CLI Flags
 
 CLI flags override config file settings:
 
-| Flag | Description |
-|------|-------------|
-| `--sandbox` | Enable sandboxing in auto mode |
-| `--sandbox=bwrap` | Force Bubblewrap sandboxing (Linux) |
-| `--sandbox=sandbox-exec` | Force sandbox-exec (macOS) |
-| `--no-sandbox` | Disable sandboxing |
-| `--no-network` | Disable network access in the sandbox |
+| Flag                     | Description                           |
+| ------------------------ | ------------------------------------- |
+| `--sandbox`              | Enable sandboxing in auto mode        |
+| `--sandbox=bwrap`        | Force Bubblewrap sandboxing (Linux)   |
+| `--sandbox=sandbox-exec` | Force sandbox-exec (macOS)            |
+| `--no-sandbox`           | Disable sandboxing                    |
+| `--no-network`           | Disable network access in the sandbox |
 
 ## Network Access Warning
 
@@ -159,12 +162,12 @@ The `--no-network` flag disables **all** network access inside the sandbox, incl
 
 The `--no-network` flag is designed for future agent plugins that don't need network access:
 
-| Use Case | Example Agents |
-|----------|----------------|
-| **Local LLMs** | Agents using Ollama, llama.cpp, LM Studio, or LocalAI |
-| **Offline tools** | Static analysis tools, code formatters, linters |
-| **Security auditing** | Testing what network calls an agent attempts |
-| **Air-gapped environments** | Enterprise setups with strict network isolation |
+| Use Case                    | Example Agents                                        |
+| --------------------------- | ----------------------------------------------------- |
+| **Local LLMs**              | Agents using Ollama, llama.cpp, LM Studio, or LocalAI |
+| **Offline tools**           | Static analysis tools, code formatters, linters       |
+| **Security auditing**       | Testing what network calls an agent attempts          |
+| **Air-gapped environments** | Enterprise setups with strict network isolation       |
 
 If you're using the built-in cloud-based agents (for example `claude`, `opencode`, `droid` etc.), leave `network = true` (the default) or omit `--no-network`.
 

@@ -8,7 +8,8 @@ description: Smart task selection using PageRank, critical path, and graph analy
 The Beads-BV tracker extends the standard Beads tracker with intelligent task selection powered by [bv](https://github.com/steveyegge/bv) (Beads Viewer). It uses graph algorithms like PageRank and critical path analysis to pick tasks that unblock the most downstream work.
 
 <Callout type="tip">
-Beads-BV is ideal for large projects with complex dependency graphs. It automatically prioritizes bottleneck tasks.
+  Beads-BV is ideal for large projects with complex dependency graphs. It
+  automatically prioritizes bottleneck tasks.
 </Callout>
 
 ## Prerequisites
@@ -32,7 +33,9 @@ bd init
 ## Basic Usage
 
 <Callout type="warning">
-**Important:** By default, Ralph TUI only shows issues with the `ralph` label. Either add this label to your issues, or change the label filter during setup (leave blank to see all issues).
+  **Important:** By default, Ralph TUI only shows issues with the `ralph` label.
+  Either add this label to your issues, or change the label filter during setup
+  (leave blank to see all issues).
 </Callout>
 
 <Steps>
@@ -43,6 +46,7 @@ bd init
     bd create --title "Backend Refactor" --type epic --label ralph
     # Created: beads-xyz
     ```
+
   </Step>
 
   <Step title="Create Tasks as Children of the Epic">
@@ -62,6 +66,7 @@ bd init
     <Callout type="info">
     The `--parent` flag creates a parent-child hierarchy. Without it, tasks won't appear when filtering by epic.
     </Callout>
+
   </Step>
 
   <Step title="Add Dependencies Between Tasks">
@@ -79,6 +84,7 @@ bd init
     ```
     schema ──▶ api ──▶ frontend
     ```
+
   </Step>
 
   <Step title="Run with Beads-BV">
@@ -87,6 +93,7 @@ bd init
     ```
 
     BV will recommend "Database schema" first because completing it unblocks the most downstream work.
+
   </Step>
 </Steps>
 
@@ -113,15 +120,16 @@ labels = "ralph"
 
 Same as the base Beads tracker:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `beadsDir` | string | `.beads` | Path to .beads directory |
-| `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
-| `labels` | string | `ralph` | Comma-separated label filter (issues must have these labels) |
-| `workingDir` | string | `.` | Working directory for commands |
+| Option       | Type   | Default  | Description                                                  |
+| ------------ | ------ | -------- | ------------------------------------------------------------ |
+| `beadsDir`   | string | `.beads` | Path to .beads directory                                     |
+| `epicId`     | string | -        | Epic ID to filter tasks (set via `--epic` flag)              |
+| `labels`     | string | `ralph`  | Comma-separated label filter (issues must have these labels) |
+| `workingDir` | string | `.`      | Working directory for commands                               |
 
 <Callout type="info">
-See the [Beads Tracker docs](/docs/plugins/trackers/beads#label-filtering) for details on label filtering.
+  See the [Beads Tracker docs](/docs/plugins/trackers/beads#label-filtering) for
+  details on label filtering.
 </Callout>
 
 ## How BV Selects Tasks
@@ -130,13 +138,13 @@ BV uses graph analysis to rank tasks. The `--robot-triage` command returns:
 
 ### Score Components
 
-| Metric | Description |
-|--------|-------------|
-| **PageRank** | Node importance in dependency graph |
-| **Betweenness** | How often task is on critical paths |
-| **Blocker Ratio** | How many tasks this unblocks |
-| **Staleness** | How long task has been open |
-| **Priority Boost** | Original priority factored in |
+| Metric             | Description                         |
+| ------------------ | ----------------------------------- |
+| **PageRank**       | Node importance in dependency graph |
+| **Betweenness**    | How often task is on critical paths |
+| **Blocker Ratio**  | How many tasks this unblocks        |
+| **Staleness**      | How long task has been open         |
+| **Priority Boost** | Original priority factored in       |
 
 ### Example Output
 
@@ -184,12 +192,12 @@ Warning: bv binary not found. Smart task selection will fall back to basic beads
 
 The plugin uses BV's robot flags for deterministic output:
 
-| Flag | Purpose |
-|------|---------|
-| `--robot-triage` | Get ranked recommendations |
-| `--robot-next` | Get single top pick |
-| `--robot-plan` | Get parallel execution tracks |
-| `--robot-insights` | Get full graph metrics |
+| Flag               | Purpose                       |
+| ------------------ | ----------------------------- |
+| `--robot-triage`   | Get ranked recommendations    |
+| `--robot-next`     | Get single top pick           |
+| `--robot-plan`     | Get parallel execution tracks |
+| `--robot-insights` | Get full graph metrics        |
 
 ### Manual BV Usage
 
@@ -223,6 +231,7 @@ Consider this dependency graph:
 **Simple priority** might pick A, B, C in order.
 
 **BV analysis** picks D first because:
+
 - D is a bottleneck (3 tasks depend on it)
 - Completing D unblocks E immediately
 - A, B, C can be done in parallel afterward
@@ -240,6 +249,7 @@ bv --robot-insights | jq '.Cycles'
 ```
 
 Fix cycles with:
+
 ```bash
 bd dep remove <task> <dependency>
 ```
@@ -279,14 +289,14 @@ After each task completes, BV triage data is refreshed in the background. This e
 
 ## Beads-BV vs Beads
 
-| Feature | Beads | Beads-BV |
-|---------|-------|----------|
-| Task selection | Priority + order | Graph-optimized |
-| PageRank | No | Yes |
-| Critical path | No | Yes |
-| Unblock analysis | No | Yes |
-| Extra dependency | None | `bv` CLI |
-| Fallback | N/A | To Beads |
+| Feature          | Beads            | Beads-BV        |
+| ---------------- | ---------------- | --------------- |
+| Task selection   | Priority + order | Graph-optimized |
+| PageRank         | No               | Yes             |
+| Critical path    | No               | Yes             |
+| Unblock analysis | No               | Yes             |
+| Extra dependency | None             | `bv` CLI        |
+| Fallback         | N/A              | To Beads        |
 
 Use Beads for simple projects, Beads-BV for complex dependency graphs.
 
@@ -299,6 +309,7 @@ Install Beads Viewer from **[beads-viewer GitHub repo](https://github.com/Dickle
 ### "Falling back to basic beads"
 
 BV failed - check:
+
 1. `bv --version` works
 2. `.beads/beads.jsonl` exists
 3. No syntax errors in beads data

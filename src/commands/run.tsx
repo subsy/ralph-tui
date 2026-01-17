@@ -8,8 +8,17 @@
 import { useState } from 'react';
 import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
-import { buildConfig, validateConfig, loadStoredConfig, saveProjectConfig } from '../config/index.js';
-import type { RuntimeOptions, StoredConfig, SandboxConfig } from '../config/types.js';
+import {
+  buildConfig,
+  validateConfig,
+  loadStoredConfig,
+  saveProjectConfig,
+} from '../config/index.js';
+import type {
+  RuntimeOptions,
+  StoredConfig,
+  SandboxConfig,
+} from '../config/types.js';
 import {
   checkSession,
   createSession,
@@ -52,7 +61,12 @@ import { projectConfigExists, runSetupWizard } from '../setup/index.js';
 import { createInterruptHandler } from '../interruption/index.js';
 import type { InterruptHandler } from '../interruption/types.js';
 import { createStructuredLogger, clearProgress } from '../logs/index.js';
-import { sendCompletionNotification, sendMaxIterationsNotification, sendErrorNotification, resolveNotificationsEnabled } from '../notifications.js';
+import {
+  sendCompletionNotification,
+  sendMaxIterationsNotification,
+  sendErrorNotification,
+  resolveNotificationsEnabled,
+} from '../notifications.js';
 import type { NotificationSoundMode } from '../config/types.js';
 import { detectSandboxMode } from '../sandbox/index.js';
 import type { SandboxMode } from '../sandbox/index.js';
@@ -328,7 +342,7 @@ interface StaleTasksResult {
 async function detectAndHandleStaleTasks(
   cwd: string,
   tracker: TrackerPlugin,
-  headless: boolean
+  headless: boolean,
 ): Promise<StaleTasksResult> {
   const result: StaleTasksResult = {
     staleTasks: [],
@@ -384,7 +398,9 @@ async function detectAndHandleStaleTasks(
   console.log('⚠️  Stale in_progress tasks detected');
   console.log('');
   console.log('A previous Ralph session did not exit cleanly.');
-  console.log(`Found ${activeTaskIds.length} task(s) stuck in "in_progress" status:`);
+  console.log(
+    `Found ${activeTaskIds.length} task(s) stuck in "in_progress" status:`,
+  );
   console.log('');
   for (const task of taskDetails) {
     console.log(`  • ${task.id}: ${task.title}`);
@@ -419,7 +435,7 @@ async function detectAndHandleStaleTasks(
   const { promptBoolean } = await import('../setup/prompts.js');
   const shouldReset = await promptBoolean(
     'Reset these tasks back to "open" status?',
-    { default: true }
+    { default: true },
   );
 
   if (!shouldReset) {
@@ -456,7 +472,9 @@ async function detectAndHandleStaleTasks(
  * Handle session resume prompt
  * Checks for persisted session state and prompts user
  */
-async function promptResumeOrNew(cwd: string): Promise<'resume' | 'new' | 'abort'> {
+async function promptResumeOrNew(
+  cwd: string,
+): Promise<'resume' | 'new' | 'abort'> {
   // Check for persisted session file first
   const hasPersistedSessionFile = await hasPersistedSession(cwd);
 
@@ -473,14 +491,24 @@ async function promptResumeOrNew(cwd: string): Promise<'resume' | 'new' | 'abort
   const resumable = isSessionResumable(persistedState);
 
   console.log('');
-  console.log('═══════════════════════════════════════════════════════════════');
-  console.log('                  Existing Session Found                        ');
-  console.log('═══════════════════════════════════════════════════════════════');
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
+  console.log(
+    '                  Existing Session Found                        ',
+  );
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
   console.log('');
   console.log(`  Status:      ${summary.status.toUpperCase()}`);
   console.log(`  Started:     ${new Date(summary.startedAt).toLocaleString()}`);
-  console.log(`  Progress:    ${summary.tasksCompleted}/${summary.totalTasks} tasks complete`);
-  console.log(`  Iteration:   ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`);
+  console.log(
+    `  Progress:    ${summary.tasksCompleted}/${summary.totalTasks} tasks complete`,
+  );
+  console.log(
+    `  Iteration:   ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`,
+  );
   console.log(`  Agent:       ${summary.agentPlugin}`);
   console.log(`  Tracker:     ${summary.trackerPlugin}`);
   if (summary.epicId) {
@@ -505,7 +533,9 @@ async function promptResumeOrNew(cwd: string): Promise<'resume' | 'new' | 'abort
     console.log('  To start fresh: ralph-tui run --force');
     console.log('');
     console.log('Starting fresh session...');
-    console.log('(Use --resume flag or "ralph-tui resume" command to continue)');
+    console.log(
+      '(Use --resume flag or "ralph-tui resume" command to continue)',
+    );
     return 'new';
   } else {
     console.log('This session has completed and cannot be resumed.');
@@ -519,7 +549,7 @@ async function promptResumeOrNew(cwd: string): Promise<'resume' | 'new' | 'abort
  * Returns the selected epic, or undefined if user quits.
  */
 async function showEpicSelectionTui(
-  tracker: TrackerPlugin
+  tracker: TrackerPlugin,
 ): Promise<TrackerTask | undefined> {
   return new Promise(async (resolve) => {
     const renderer = await createCliRenderer({
@@ -555,7 +585,7 @@ async function showEpicSelectionTui(
         tracker={tracker}
         onEpicSelected={handleEpicSelected}
         onQuit={handleQuit}
-      />
+      />,
     );
   });
 }
@@ -585,7 +615,9 @@ interface RunAppWrapperProps {
   /** Initial subagent panel visibility (from persisted session) */
   initialSubagentPanelVisible?: boolean;
   /** Callback to update persisted session state */
-  onUpdatePersistedState?: (updater: (state: PersistedSessionState) => PersistedSessionState) => void;
+  onUpdatePersistedState?: (
+    updater: (state: PersistedSessionState) => PersistedSessionState,
+  ) => void;
   /** Current model being used (provider/model format, e.g., "anthropic/claude-3-5-sonnet") */
   currentModel?: string;
   /** Sandbox configuration for display in header */
@@ -617,9 +649,13 @@ function RunAppWrapper({
   resolvedSandboxMode,
 }: RunAppWrapperProps) {
   const [showInterruptDialog, setShowInterruptDialog] = useState(false);
-  const [storedConfig, setStoredConfig] = useState<StoredConfig | undefined>(initialStoredConfig);
+  const [storedConfig, setStoredConfig] = useState<StoredConfig | undefined>(
+    initialStoredConfig,
+  );
   const [tasks, setTasks] = useState<TrackerTask[]>(initialTasks ?? []);
-  const [currentEpicId, setCurrentEpicId] = useState<string | undefined>(initialEpicId);
+  const [currentEpicId, setCurrentEpicId] = useState<string | undefined>(
+    initialEpicId,
+  );
 
   // Get available plugins from registries
   const agentRegistry = getAgentRegistry();
@@ -664,7 +700,9 @@ function RunAppWrapper({
     setCurrentEpicId(epic.id);
 
     // Refresh tasks from tracker (including completed for display)
-    const newTasks = await tracker.getTasks({ status: ['open', 'in_progress', 'completed'] });
+    const newTasks = await tracker.getTasks({
+      status: ['open', 'in_progress', 'completed'],
+    });
     setTasks(newTasks);
 
     // Trigger task refresh in engine
@@ -679,12 +717,16 @@ function RunAppWrapper({
     }
 
     // Check if tracker has setFilePath method (JsonTrackerPlugin)
-    const jsonTracker = tracker as { setFilePath?: (path: string) => Promise<boolean> };
+    const jsonTracker = tracker as {
+      setFilePath?: (path: string) => Promise<boolean>;
+    };
     if (jsonTracker.setFilePath) {
       const success = await jsonTracker.setFilePath(path);
       if (success) {
         // Refresh tasks from tracker (including completed for display)
-        const newTasks = await tracker.getTasks({ status: ['open', 'in_progress', 'completed'] });
+        const newTasks = await tracker.getTasks({
+          status: ['open', 'in_progress', 'completed'],
+        });
         setTasks(newTasks);
         engine.refreshTasks();
       }
@@ -697,7 +739,9 @@ function RunAppWrapper({
   // Handle subagent panel visibility change - persists to session state
   const handleSubagentPanelVisibilityChange = (visible: boolean): void => {
     if (onUpdatePersistedState) {
-      onUpdatePersistedState((state) => setSubagentPanelVisible(state, visible));
+      onUpdatePersistedState((state) =>
+        setSubagentPanelVisible(state, visible),
+      );
     }
   };
 
@@ -709,9 +753,12 @@ function RunAppWrapper({
   // Set up the interrupt handler callbacks
   // Note: We use a ref-like pattern here since these need to be stable references
   // that the handler can call, but the handler was created before this component mounted
-  (interruptHandler as { _showDialog?: () => void })._showDialog = handleShowDialog;
-  (interruptHandler as { _hideDialog?: () => void })._hideDialog = handleHideDialog;
-  (interruptHandler as { _cancelled?: () => void })._cancelled = handleCancelled;
+  (interruptHandler as { _showDialog?: () => void })._showDialog =
+    handleShowDialog;
+  (interruptHandler as { _hideDialog?: () => void })._hideDialog =
+    handleHideDialog;
+  (interruptHandler as { _cancelled?: () => void })._cancelled =
+    handleCancelled;
 
   return (
     <RunApp
@@ -775,7 +822,7 @@ async function runWithTui(
   config: RalphConfig,
   initialTasks: TrackerTask[],
   storedConfig?: StoredConfig,
-  notificationOptions?: NotificationRunOptions
+  notificationOptions?: NotificationRunOptions,
 ): Promise<PersistedSessionState> {
   let currentState = persistedState;
   // Track when engine starts for duration calculation
@@ -825,7 +872,12 @@ async function runWithTui(
       });
     } else if (event.type === 'engine:resumed') {
       // Clear paused state when resuming
-      currentState = { ...currentState, status: 'running', isPaused: false, pausedAt: undefined };
+      currentState = {
+        ...currentState,
+        status: 'running',
+        isPaused: false,
+        pausedAt: undefined,
+      };
       savePersistedSession(currentState).catch(() => {
         // Log but don't fail on save errors
       });
@@ -845,7 +897,10 @@ async function runWithTui(
           sound: notificationOptions.soundMode,
         });
       }
-    } else if (event.type === 'engine:stopped' && event.reason === 'max_iterations') {
+    } else if (
+      event.type === 'engine:stopped' &&
+      event.reason === 'max_iterations'
+    ) {
       // Send max iterations notification if enabled
       if (notificationOptions?.notificationsEnabled && engineStartTime) {
         const durationMs = Date.now() - engineStartTime.getTime();
@@ -941,7 +996,7 @@ async function runWithTui(
   // Handler to update persisted state and save it
   // Used by subagent panel visibility toggle to persist state changes
   const handleUpdatePersistedState = (
-    updater: (state: PersistedSessionState) => PersistedSessionState
+    updater: (state: PersistedSessionState) => PersistedSessionState,
   ): void => {
     currentState = updater(currentState);
     savePersistedSession(currentState).catch(() => {
@@ -974,7 +1029,7 @@ async function runWithTui(
       currentModel={config.model}
       sandboxConfig={config.sandbox}
       resolvedSandboxMode={resolvedSandboxMode}
-    />
+    />,
   );
 
   // Extract callback setters from the wrapper component
@@ -1023,7 +1078,7 @@ async function runHeadless(
   engine: ExecutionEngine,
   persistedState: PersistedSessionState,
   config: RalphConfig,
-  notificationOptions?: NotificationRunOptions
+  notificationOptions?: NotificationRunOptions,
 ): Promise<PersistedSessionState> {
   let currentState = persistedState;
   let lastSigintTime = 0;
@@ -1055,7 +1110,7 @@ async function runHeadless(
           event.iteration,
           config.maxIterations,
           event.task.id,
-          event.task.title
+          event.task.title,
         );
         break;
 
@@ -1065,7 +1120,7 @@ async function runHeadless(
           event.result.iteration,
           event.result.task.id,
           event.result.taskCompleted,
-          event.result.durationMs
+          event.result.durationMs,
         );
 
         // Log task completion if applicable
@@ -1095,7 +1150,7 @@ async function runHeadless(
           event.iteration,
           event.task.id,
           event.error,
-          event.action
+          event.action,
         );
         // Track error for notification if this will abort
         if (event.action === 'abort') {
@@ -1109,7 +1164,7 @@ async function runHeadless(
           event.task.id,
           event.retryAttempt,
           event.maxRetries,
-          event.delayMs
+          event.delayMs,
         );
         break;
 
@@ -1140,16 +1195,29 @@ async function runHeadless(
 
       case 'engine:resumed':
         logger.engineResumed(event.fromIteration);
-        currentState = { ...currentState, status: 'running', isPaused: false, pausedAt: undefined };
+        currentState = {
+          ...currentState,
+          status: 'running',
+          isPaused: false,
+          pausedAt: undefined,
+        };
         savePersistedSession(currentState).catch(() => {
           // Silently continue on save errors
         });
         break;
 
       case 'engine:stopped':
-        logger.engineStopped(event.reason, event.totalIterations, event.tasksCompleted);
+        logger.engineStopped(
+          event.reason,
+          event.totalIterations,
+          event.tasksCompleted,
+        );
         // Send max iterations notification if enabled
-        if (event.reason === 'max_iterations' && notificationOptions?.notificationsEnabled && engineStartTime) {
+        if (
+          event.reason === 'max_iterations' &&
+          notificationOptions?.notificationsEnabled &&
+          engineStartTime
+        ) {
           const durationMs = Date.now() - engineStartTime.getTime();
           const engineState = engine.getState();
           const tasksRemaining = engineState.totalTasks - event.tasksCompleted;
@@ -1162,7 +1230,11 @@ async function runHeadless(
           });
         }
         // Send error notification if enabled
-        if (event.reason === 'error' && notificationOptions?.notificationsEnabled && engineStartTime) {
+        if (
+          event.reason === 'error' &&
+          notificationOptions?.notificationsEnabled &&
+          engineStartTime
+        ) {
           const durationMs = Date.now() - engineStartTime.getTime();
           sendErrorNotification({
             errorSummary: lastError ?? 'Unknown error',
@@ -1205,7 +1277,10 @@ async function runHeadless(
     // Reset any active (in_progress) tasks back to open
     const activeTasks = getActiveTasks(currentState);
     if (activeTasks.length > 0) {
-      logger.info('system', `Resetting ${activeTasks.length} in_progress task(s) to open...`);
+      logger.info(
+        'system',
+        `Resetting ${activeTasks.length} in_progress task(s) to open...`,
+      );
       const resetCount = await engine.resetTasksToOpen(activeTasks);
       if (resetCount > 0) {
         currentState = clearActiveTasks(currentState);
@@ -1242,7 +1317,10 @@ async function runHeadless(
     // Reset any active (in_progress) tasks back to open
     const activeTasks = getActiveTasks(currentState);
     if (activeTasks.length > 0) {
-      logger.info('system', `Resetting ${activeTasks.length} in_progress task(s) to open...`);
+      logger.info(
+        'system',
+        `Resetting ${activeTasks.length} in_progress task(s) to open...`,
+      );
       const resetCount = await engine.resetTasksToOpen(activeTasks);
       if (resetCount > 0) {
         currentState = clearActiveTasks(currentState);
@@ -1262,7 +1340,7 @@ async function runHeadless(
   logger.sessionCreated(
     currentState.sessionId,
     config.agent.plugin,
-    config.tracker.plugin
+    config.tracker.plugin,
   );
 
   // Start the engine
@@ -1292,7 +1370,9 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   if (!configExists && !options.noSetup) {
     // No config found - offer to run setup
     console.log('');
-    console.log('No .ralph-tui/config.toml configuration found in this project.');
+    console.log(
+      'No .ralph-tui/config.toml configuration found in this project.',
+    );
     console.log('');
 
     // Run the setup wizard
@@ -1313,7 +1393,9 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     console.log('Setup complete! Starting Ralph...');
     console.log('');
   } else if (!configExists && options.noSetup) {
-    console.log('No .ralph-tui/config.toml found. Using default configuration.');
+    console.log(
+      'No .ralph-tui/config.toml found. Using default configuration.',
+    );
   }
 
   console.log('Initializing Ralph TUI...');
@@ -1346,7 +1428,8 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   }
 
   // If using beads tracker without epic, show epic selection TUI
-  const isBeadsTracker = config.tracker.plugin === 'beads' || config.tracker.plugin === 'beads-bv';
+  const isBeadsTracker =
+    config.tracker.plugin === 'beads' || config.tracker.plugin === 'beads-bv';
   if (isBeadsTracker && !config.epicId && config.showTui) {
     console.log('No epic specified. Loading epic selection...');
 
@@ -1377,12 +1460,17 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
   // Detect and recover stale sessions EARLY (before any prompts)
   // This fixes the issue where killing the TUI mid-task leaves activeTaskIds populated
-  const staleRecovery = await detectAndRecoverStaleSession(config.cwd, checkLock);
+  const staleRecovery = await detectAndRecoverStaleSession(
+    config.cwd,
+    checkLock,
+  );
   if (staleRecovery.wasStale) {
     console.log('');
     console.log('⚠️  Recovered stale session');
     if (staleRecovery.clearedTaskCount > 0) {
-      console.log(`   Cleared ${staleRecovery.clearedTaskCount} stuck in-progress task(s)`);
+      console.log(
+        `   Cleared ${staleRecovery.clearedTaskCount} stuck in-progress task(s)`,
+      );
     }
     console.log('   Session status set to "interrupted" (resumable)');
     console.log('');
@@ -1479,13 +1567,19 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
     // Detect and handle stale in_progress tasks from crashed sessions
     // This must happen before we fetch tasks, so they reflect any resets
-    await detectAndHandleStaleTasks(config.cwd, tracker, options.headless ?? false);
+    await detectAndHandleStaleTasks(
+      config.cwd,
+      tracker,
+      options.headless ?? false,
+    );
 
-    tasks = await tracker.getTasks({ status: ['open', 'in_progress', 'completed'] });
+    tasks = await tracker.getTasks({
+      status: ['open', 'in_progress', 'completed'],
+    });
   } catch (error) {
     console.error(
       'Failed to initialize engine:',
-      error instanceof Error ? error.message : error
+      error instanceof Error ? error.message : error,
     );
     await endSession(config.cwd, 'failed');
     await releaseLockNew(config.cwd);
@@ -1512,9 +1606,10 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Resolve notification settings from config + CLI flags
   const notificationsEnabled = resolveNotificationsEnabled(
     storedConfig?.notifications,
-    options.notify
+    options.notify,
   );
-  const soundMode: NotificationSoundMode = storedConfig?.notifications?.sound ?? 'off';
+  const soundMode: NotificationSoundMode =
+    storedConfig?.notifications?.sound ?? 'off';
   const notificationRunOptions: NotificationRunOptions = {
     notificationsEnabled,
     soundMode,
@@ -1525,15 +1620,27 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     if (config.showTui) {
       // Pass tasks for initial TUI display in "ready" state
       // Also pass storedConfig for settings view
-      persistedState = await runWithTui(engine, persistedState, config, tasks, storedConfig, notificationRunOptions);
+      persistedState = await runWithTui(
+        engine,
+        persistedState,
+        config,
+        tasks,
+        storedConfig,
+        notificationRunOptions,
+      );
     } else {
       // Headless mode still auto-starts (for CI/automation)
-      persistedState = await runHeadless(engine, persistedState, config, notificationRunOptions);
+      persistedState = await runHeadless(
+        engine,
+        persistedState,
+        config,
+        notificationRunOptions,
+      );
     }
   } catch (error) {
     console.error(
       'Execution error:',
-      error instanceof Error ? error.message : error
+      error instanceof Error ? error.message : error,
     );
     // Save failed state
     persistedState = failSession(persistedState);
@@ -1546,7 +1653,8 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
   // Check if all tasks completed successfully
   const finalState = engine.getState();
-  const allComplete = finalState.tasksCompleted >= finalState.totalTasks ||
+  const allComplete =
+    finalState.tasksCompleted >= finalState.totalTasks ||
     finalState.status === 'idle';
 
   if (allComplete) {

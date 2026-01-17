@@ -5,7 +5,11 @@
  */
 
 import type { ReactNode } from 'react';
-import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
+import {
+  colors,
+  getTaskStatusColor,
+  getTaskStatusIndicator,
+} from '../theme.js';
 import type { TaskDetailViewProps, TaskPriority } from '../types.js';
 
 /**
@@ -45,7 +49,7 @@ function getPriorityColor(priority: TaskPriority): string {
 function parseAcceptanceCriteria(
   description?: string,
   acceptanceCriteria?: string,
-  metadataCriteria?: unknown
+  metadataCriteria?: unknown,
 ): Array<{ text: string; checked: boolean }> {
   // If metadata contains criteria array (from JSON tracker), use that
   if (Array.isArray(metadataCriteria) && metadataCriteria.length > 0) {
@@ -128,9 +132,7 @@ function extractDescription(description?: string): string {
 function SectionHeader({ title }: { title: string }): ReactNode {
   return (
     <box style={{ marginBottom: 1 }}>
-      <text fg={colors.accent.primary}>
-        {title}
-      </text>
+      <text fg={colors.accent.primary}>{title}</text>
     </box>
   );
 }
@@ -164,12 +166,19 @@ function MetadataRow({
  * Note: onBack is provided for API completeness but navigation is handled
  * by keyboard (Esc key) in the parent component.
  */
-export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): ReactNode {
+export function TaskDetailView({
+  task,
+  onBack: _onBack,
+}: TaskDetailViewProps): ReactNode {
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
   // Check metadata for acceptance criteria (JSON tracker stores it there)
   const metadataCriteria = task.metadata?.acceptanceCriteria;
-  const criteria = parseAcceptanceCriteria(task.description, undefined, metadataCriteria);
+  const criteria = parseAcceptanceCriteria(
+    task.description,
+    undefined,
+    metadataCriteria,
+  );
   const cleanDescription = extractDescription(task.description);
 
   return (
@@ -189,10 +198,7 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
         <box style={{ marginBottom: 1 }}>
           <text>
             <span fg={statusColor}>{statusIndicator}</span>
-            <span fg={colors.fg.primary}>
-              {' '}
-              {task.title}
-            </span>
+            <span fg={colors.fg.primary}> {task.title}</span>
           </text>
         </box>
 
@@ -211,7 +217,11 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
               borderColor: colors.border.muted,
             }}
           >
-            <MetadataRow label="Status" value={task.status} valueColor={statusColor} />
+            <MetadataRow
+              label="Status"
+              value={task.status}
+              valueColor={statusColor}
+            />
 
             {task.priority !== undefined && (
               <MetadataRow
@@ -223,7 +233,9 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
 
             {task.type && <MetadataRow label="Type" value={task.type} />}
 
-            {task.assignee && <MetadataRow label="Assignee" value={task.assignee} />}
+            {task.assignee && (
+              <MetadataRow label="Assignee" value={task.assignee} />
+            )}
 
             {task.labels && task.labels.length > 0 && (
               <MetadataRow
@@ -282,12 +294,21 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
               }}
             >
               {criteria.map((item, index) => (
-                <box key={index} style={{ flexDirection: 'row', marginBottom: 0 }}>
+                <box
+                  key={index}
+                  style={{ flexDirection: 'row', marginBottom: 0 }}
+                >
                   <text>
-                    <span fg={item.checked ? colors.status.success : colors.fg.muted}>
+                    <span
+                      fg={
+                        item.checked ? colors.status.success : colors.fg.muted
+                      }
+                    >
                       {item.checked ? '[x]' : '[ ]'}
                     </span>
-                    <span fg={item.checked ? colors.fg.muted : colors.fg.secondary}>
+                    <span
+                      fg={item.checked ? colors.fg.muted : colors.fg.secondary}
+                    >
                       {' '}
                       {item.text}
                     </span>
@@ -316,7 +337,9 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
               {/* Show detailed blocker info if available (with title and status) */}
               {task.blockedByTasks && task.blockedByTasks.length > 0 && (
                 <box style={{ marginBottom: 1 }}>
-                  <text fg={colors.status.error}>⊘ Blocked by (unresolved):</text>
+                  <text fg={colors.status.error}>
+                    ⊘ Blocked by (unresolved):
+                  </text>
                   {task.blockedByTasks.map((blocker) => (
                     <text key={blocker.id} fg={colors.fg.secondary}>
                       {'  '}- {blocker.id}: {blocker.title}
@@ -328,16 +351,17 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
 
               {/* Fallback to dependsOn IDs if blockedByTasks not available */}
               {(!task.blockedByTasks || task.blockedByTasks.length === 0) &&
-                task.dependsOn && task.dependsOn.length > 0 && (
-                <box style={{ marginBottom: 1 }}>
-                  <text fg={colors.status.warning}>Depends on:</text>
-                  {task.dependsOn.map((dep) => (
-                    <text key={dep} fg={colors.fg.secondary}>
-                      {'  '}- {dep}
-                    </text>
-                  ))}
-                </box>
-              )}
+                task.dependsOn &&
+                task.dependsOn.length > 0 && (
+                  <box style={{ marginBottom: 1 }}>
+                    <text fg={colors.status.warning}>Depends on:</text>
+                    {task.dependsOn.map((dep) => (
+                      <text key={dep} fg={colors.fg.secondary}>
+                        {'  '}- {dep}
+                      </text>
+                    ))}
+                  </box>
+                )}
 
               {task.blocks && task.blocks.length > 0 && (
                 <box>

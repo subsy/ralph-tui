@@ -1,6 +1,6 @@
 ---
 name: ralph-tui-create-beads
-description: "Convert PRDs to beads for ralph-tui execution. Creates an epic with child beads for each user story. Use when you have a PRD and want to use ralph-tui with beads as the task source. Triggers on: create beads, convert prd to beads, beads for ralph, ralph beads."
+description: 'Convert PRDs to beads for ralph-tui execution. Creates an epic with child beads for each user story. Use when you have a PRD and want to use ralph-tui with beads as the task source. Triggers on: create beads, convert prd to beads, beads for ralph, ralph beads.'
 ---
 
 # Ralph TUI - Create Beads
@@ -14,6 +14,7 @@ Converts PRDs to beads (epic + child tasks) for ralph-tui autonomous execution.
 ## The Job
 
 Take a PRD (markdown file or text) and create beads in `.beads/beads.jsonl`:
+
 1. **Extract Quality Gates** from the PRD's "Quality Gates" section
 2. Create an **epic** bead for the feature
 3. Create **child beads** for each user story (with quality gates appended)
@@ -30,14 +31,17 @@ Look for the "Quality Gates" section in the PRD:
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
 For UI stories, also include:
+
 - Verify in browser using dev-browser skill
 ```
 
 Extract:
+
 - **Universal gates:** Commands that apply to ALL stories (e.g., `pnpm typecheck`)
 - **UI gates:** Commands that apply only to UI stories (e.g., browser verification)
 
@@ -74,12 +78,14 @@ bd create \
 ralph-tui spawns a fresh agent instance per iteration with no memory of previous work. If a story is too big, the agent runs out of context before finishing.
 
 ### Right-sized stories:
+
 - Add a database column + migration
 - Add a UI component to an existing page
 - Update a server action with new logic
 - Add a filter dropdown to a list
 
 ### Too big (split these):
+
 - "Build the entire dashboard" → Split into: schema, queries, UI components, filters
 - "Add authentication" → Split into: schema, middleware, login UI, session handling
 - "Refactor the API" → Split into one story per endpoint or pattern
@@ -93,12 +99,14 @@ ralph-tui spawns a fresh agent instance per iteration with no memory of previous
 Stories execute in dependency order. Earlier stories must not depend on later ones.
 
 **Correct order:**
+
 1. Schema/database changes (migrations)
 2. Server actions / backend logic
 3. UI components that use the backend
 4. Dashboard/summary views that aggregate data
 
 **Wrong order:**
+
 1. ❌ UI component (depends on schema that doesn't exist yet)
 2. ❌ Schema change
 
@@ -122,11 +130,13 @@ bd dep add ralph-tui-003 ralph-tui-002  # US-003 depends on US-002
 **Syntax:** `bd dep add <issue> <depends-on>` — the issue depends on (is blocked by) depends-on.
 
 ralph-tui will:
+
 - Show blocked beads as "blocked" until dependencies complete
 - Never select a bead for execution while its dependencies are open
 - Include dependency context in the prompt when working on a bead
 
 **Correct dependency order:**
+
 1. Schema/database changes (no dependencies)
 2. Backend logic (depends on schema)
 3. UI components (depends on backend)
@@ -137,15 +147,18 @@ ralph-tui will:
 ## Acceptance Criteria: Quality Gates + Story-Specific
 
 Each bead's description should include acceptance criteria with:
+
 1. **Story-specific criteria** from the PRD (what this story accomplishes)
 2. **Quality gates** from the PRD's Quality Gates section (appended at the end)
 
 ### Good criteria (verifiable):
+
 - "Add `investorType` column to investor table with default 'cold'"
 - "Filter dropdown has options: All, Cold, Friend"
 - "Clicking toggle shows confirmation dialog"
 
 ### Bad criteria (vague):
+
 - ❌ "Works correctly"
 - ❌ "User can do X easily"
 - ❌ "Good UX"
@@ -172,9 +185,11 @@ Each bead's description should include acceptance criteria with:
 If a PRD has big features, split them:
 
 **Original:**
+
 > "Add friends outreach track with different messaging"
 
 **Split into:**
+
 1. US-001: Add investorType field to database
 2. US-002: Add type toggle to investor list UI
 3. US-003: Create friend-specific phase progression logic
@@ -191,6 +206,7 @@ Each is one focused change that can be completed and verified independently.
 ## Example
 
 **Input PRD:**
+
 ```markdown
 # PRD: Friends Outreach
 
@@ -199,38 +215,47 @@ Add ability to mark investors as "friends" for warm outreach.
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `pnpm typecheck` - Type checking
 - `pnpm lint` - Linting
 
 For UI stories, also include:
+
 - Verify in browser using dev-browser skill
 
 ## User Stories
 
 ### US-001: Add investorType field to investor table
+
 **Description:** As a developer, I need to categorize investors as 'cold' or 'friend'.
 
 **Acceptance Criteria:**
+
 - [ ] Add investorType column: 'cold' | 'friend' (default 'cold')
 - [ ] Generate and run migration successfully
 
 ### US-002: Add type toggle to investor list rows
+
 **Description:** As Ryan, I want to toggle investor type directly from the list.
 
 **Acceptance Criteria:**
+
 - [ ] Each row has Cold | Friend toggle
 - [ ] Switching shows confirmation dialog
 - [ ] On confirm: updates type in database
 
 ### US-003: Filter investors by type
+
 **Description:** As Ryan, I want to filter the list to see just friends or cold.
 
 **Acceptance Criteria:**
+
 - [ ] Filter dropdown: All | Cold | Friend
 - [ ] Filter persists in URL params
 ```
 
 **Output beads:**
+
 ```bash
 # Create epic
 bd create --type=epic \
@@ -294,6 +319,7 @@ bd dep add ralph-tui-003 ralph-tui-002
 Beads are written to: `.beads/beads.jsonl`
 
 After creation, run ralph-tui:
+
 ```bash
 # Work on a specific epic
 ralph-tui run --tracker beads --epic ralph-tui-abc
@@ -303,6 +329,7 @@ ralph-tui run --tracker beads
 ```
 
 ralph-tui will:
+
 1. Work on beads within the specified epic (or select the best available task)
 2. Close each bead when complete
 3. Close the epic when all children are done

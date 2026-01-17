@@ -12,26 +12,27 @@ ralph-tui logs [options]
 The `logs` command lets you view, filter, and manage the output logs from Ralph's iterations. Each iteration's agent output is saved to a log file, making it easy to review what happened during execution.
 
 <Callout type="tip">
-Log files are stored in `.ralph-tui/iterations/` by default. Use the `--output-dir` flag on `run` to change this location.
+  Log files are stored in `.ralph-tui/iterations/` by default. Use the
+  `--output-dir` flag on `run` to change this location.
 </Callout>
 
 ## Options
 
 ### Viewing Options
 
-| Option | Description |
-|--------|-------------|
-| `--iteration <n>` | View specific iteration number |
-| `--task <id>` | View logs for a specific task ID |
-| `--verbose` | Show full output (not truncated) |
+| Option            | Description                      |
+| ----------------- | -------------------------------- |
+| `--iteration <n>` | View specific iteration number   |
+| `--task <id>`     | View logs for a specific task ID |
+| `--verbose`       | Show full output (not truncated) |
 
 ### Cleanup Options
 
-| Option | Description |
-|--------|-------------|
-| `--clean` | Clean up old log files |
+| Option       | Description                                    |
+| ------------ | ---------------------------------------------- |
+| `--clean`    | Clean up old log files                         |
 | `--keep <n>` | Number of recent logs to keep (with `--clean`) |
-| `--dry-run` | Preview cleanup without deleting |
+| `--dry-run`  | Preview cleanup without deleting               |
 
 ## Examples
 
@@ -90,7 +91,8 @@ ralph-tui logs --clean --keep 5
 ```
 
 <Callout type="warning">
-The `--clean` operation permanently deletes log files. Use `--dry-run` first to preview what will be removed.
+  The `--clean` operation permanently deletes log files. Use `--dry-run` first
+  to preview what will be removed.
 </Callout>
 
 ## Log File Format
@@ -125,16 +127,15 @@ When a task fails, the logs are essential for debugging:
     Look for iterations with "failed" status.
   </Step>
 
-  <Step title="View Full Output">
-    ```bash
-    ralph-tui logs --iteration 4 --verbose
-    ```
-    Review the complete agent output for error messages.
-  </Step>
+<Step title="View Full Output">
+  ```bash ralph-tui logs --iteration 4 --verbose ``` Review the complete agent
+  output for error messages.
+</Step>
 
-  <Step title="Check the Prompt">
-    The log includes the prompt that was sent. Verify it contains the expected task details and context.
-  </Step>
+<Step title="Check the Prompt">
+  The log includes the prompt that was sent. Verify it contains the expected
+  task details and context.
+</Step>
 
   <Step title="Fix and Retry">
     Address the issue (fix code, update task, adjust prompt template) and resume execution.
@@ -154,7 +155,8 @@ ralph-tui logs --clean --keep 20
 ```
 
 <Callout type="info">
-Consider adding `.ralph-tui/iterations/` to your `.gitignore` to avoid committing large log files.
+  Consider adding `.ralph-tui/iterations/` to your `.gitignore` to avoid
+  committing large log files.
 </Callout>
 
 ## Related Commands

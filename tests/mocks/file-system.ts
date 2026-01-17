@@ -194,7 +194,7 @@ export class MockFileSystem {
  * Create a pre-populated mock file system
  */
 export function createMockFileSystem(
-  files: Record<string, string> = {}
+  files: Record<string, string> = {},
 ): MockFileSystem {
   const fs = new MockFileSystem();
   for (const [path, content] of Object.entries(files)) {
@@ -210,7 +210,8 @@ export function createFsMocks(mockFs: MockFileSystem) {
   return {
     existsSync: (path: string) => mockFs.exists(path),
     readFileSync: (path: string) => mockFs.readFile(path),
-    writeFileSync: (path: string, content: string) => mockFs.writeFile(path, content),
+    writeFileSync: (path: string, content: string) =>
+      mockFs.writeFile(path, content),
     unlinkSync: (path: string) => mockFs.unlink(path),
     statSync: (path: string) => mockFs.stat(path),
     readdirSync: (path: string) => mockFs.readdir(path),

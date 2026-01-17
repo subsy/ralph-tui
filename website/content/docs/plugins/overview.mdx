@@ -8,7 +8,8 @@ description: Understanding Ralph TUI's plugin system for agent and tracker integ
 Ralph TUI uses a plugin system to support multiple AI agents and task trackers. This modular design lets you choose the tools that best fit your workflow.
 
 <Callout type="info">
-Plugins are independent - any agent can work with any tracker. Use Claude Code with Beads, or OpenCode with prd.json, or any combination.
+  Plugins are independent - any agent can work with any tracker. Use Claude Code
+  with Beads, or OpenCode with prd.json, or any combination.
 </Callout>
 
 ## Two Plugin Types
@@ -26,6 +27,7 @@ Agent plugins connect to AI coding assistants that execute tasks. They handle:
 - Model selection and configuration
 
 **Built-in agents:**
+
 - **[Claude Code](/docs/plugins/agents/claude)** - Anthropic's Claude CLI with subagent tracing
 - **[OpenCode](/docs/plugins/agents/opencode)** - Open-source multi-provider agent
 - **[Factory Droid](/docs/plugins/agents/droid)** - Factory Droid CLI with JSONL tracing
@@ -40,6 +42,7 @@ Tracker plugins connect to task management systems. They handle:
 - Syncing with external systems
 
 **Built-in trackers:**
+
 - **[JSON](/docs/plugins/trackers/json)** - Simple prd.json file format (no dependencies)
 - **[Beads](/docs/plugins/trackers/beads)** - Git-backed issue tracker with hierarchy
 - **[Beads-BV](/docs/plugins/trackers/beads-bv)** - Beads with graph analysis for smart task selection
@@ -78,26 +81,26 @@ The execution engine orchestrates plugins:
 
 ### Agents
 
-| Feature | Claude Code | OpenCode | Factory Droid |
-|---------|-------------|----------|--------------|
-| Provider | Anthropic | Multi-provider | Factory |
-| Models | sonnet, opus, haiku | Any via provider/model format | Factory model list |
-| Subagent Tracing | Yes (JSONL) | No | Yes (JSONL) |
-| File Context | Yes (--add-dir) | Yes (--file) | No (uses `--cwd`) |
-| Streaming | Yes | Yes | Yes |
-| Installation | `npm i -g @anthropic-ai/claude-code` | `curl -fsSL https://opencode.ai/install \| bash` | [Factory Droid CLI](https://docs.factory.ai/reference/cli-reference) |
+| Feature          | Claude Code                          | OpenCode                                         | Factory Droid                                                        |
+| ---------------- | ------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------- |
+| Provider         | Anthropic                            | Multi-provider                                   | Factory                                                              |
+| Models           | sonnet, opus, haiku                  | Any via provider/model format                    | Factory model list                                                   |
+| Subagent Tracing | Yes (JSONL)                          | No                                               | Yes (JSONL)                                                          |
+| File Context     | Yes (--add-dir)                      | Yes (--file)                                     | No (uses `--cwd`)                                                    |
+| Streaming        | Yes                                  | Yes                                              | Yes                                                                  |
+| Installation     | `npm i -g @anthropic-ai/claude-code` | `curl -fsSL https://opencode.ai/install \| bash` | [Factory Droid CLI](https://docs.factory.ai/reference/cli-reference) |
 
 ### Trackers
 
-| Feature | JSON | Beads | Beads-BV |
-|---------|------|-------|----------|
-| External CLI | None | `bd` | `bd` + `bv` |
-| Dependencies | Yes | Yes | Yes |
-| Priority Ordering | Yes | Yes | Yes + PageRank |
-| Hierarchy (Epics) | No | Yes | Yes |
-| Graph Analysis | No | No | Yes |
-| Git Sync | No | Yes | Yes |
-| Setup Complexity | Lowest | Medium | Highest |
+| Feature           | JSON   | Beads  | Beads-BV       |
+| ----------------- | ------ | ------ | -------------- |
+| External CLI      | None   | `bd`   | `bd` + `bv`    |
+| Dependencies      | Yes    | Yes    | Yes            |
+| Priority Ordering | Yes    | Yes    | Yes + PageRank |
+| Hierarchy (Epics) | No     | Yes    | Yes            |
+| Graph Analysis    | No     | No     | Yes            |
+| Git Sync          | No     | Yes    | Yes            |
+| Setup Complexity  | Lowest | Medium | Highest        |
 
 ## Choosing Plugins
 
@@ -115,6 +118,7 @@ The execution engine orchestrates plugins:
     ```
 
     No external dependencies needed - just create a `prd.json` file and go.
+
   </TabsContent>
   <TabsContent value="team">
     Use **Beads tracker** for git-backed issue tracking:
@@ -124,6 +128,7 @@ The execution engine orchestrates plugins:
     ```
 
     Issues sync across team members via git.
+
   </TabsContent>
   <TabsContent value="large">
     Use **Beads-BV tracker** for intelligent task selection:
@@ -133,6 +138,7 @@ The execution engine orchestrates plugins:
     ```
 
     BV uses PageRank and critical path analysis to pick tasks that unblock the most work.
+
   </TabsContent>
 </TabsRoot>
 
@@ -190,11 +196,13 @@ All plugins implement standard interfaces defined in the source:
 - **TrackerPlugin**: `src/plugins/trackers/types.ts`
 
 Key methods for agents:
+
 - `detect()` - Check if CLI is available
 - `execute(prompt, files, options)` - Run the agent
 - `interrupt(executionId)` - Stop execution
 
 Key methods for trackers:
+
 - `getTasks(filter)` - Get all matching tasks
 - `getNextTask(filter)` - Get highest priority ready task
 - `completeTask(id, reason)` - Mark task done

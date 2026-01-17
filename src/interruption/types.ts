@@ -10,7 +10,11 @@
  * - 'interrupting': User confirmed, performing graceful shutdown
  * - 'force_quit': Double Ctrl+C detected, forcing immediate exit
  */
-export type InterruptState = 'idle' | 'confirming' | 'interrupting' | 'force_quit';
+export type InterruptState =
+  | 'idle'
+  | 'confirming'
+  | 'interrupting'
+  | 'force_quit';
 
 /**
  * User response to the confirmation dialog.

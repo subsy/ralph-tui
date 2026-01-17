@@ -138,7 +138,9 @@ describe('OpenCodeAgentPlugin', () => {
       expect(await plugin.validateSetup({ provider: 'anthropic' })).toBeNull();
       expect(await plugin.validateSetup({ provider: 'openai' })).toBeNull();
       expect(await plugin.validateSetup({ provider: 'google' })).toBeNull();
-      expect(await plugin.validateSetup({ provider: 'custom-provider' })).toBeNull();
+      expect(
+        await plugin.validateSetup({ provider: 'custom-provider' }),
+      ).toBeNull();
     });
   });
 
@@ -155,8 +157,12 @@ describe('OpenCodeAgentPlugin', () => {
       const providerQuestion = questions.find((q) => q.id === 'provider');
       expect(providerQuestion).toBeDefined();
       expect(providerQuestion?.type).toBe('select');
-      expect(providerQuestion?.choices?.some((c) => c.value === 'anthropic')).toBe(true);
-      expect(providerQuestion?.choices?.some((c) => c.value === 'openai')).toBe(true);
+      expect(
+        providerQuestion?.choices?.some((c) => c.value === 'anthropic'),
+      ).toBe(true);
+      expect(providerQuestion?.choices?.some((c) => c.value === 'openai')).toBe(
+        true,
+      );
     });
 
     test('includes model question', () => {

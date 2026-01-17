@@ -20,7 +20,10 @@ interface TableOfContentsProps {
  * Table of Contents component with scroll-spy functionality.
  * Highlights the currently visible section and provides smooth scroll navigation.
  */
-export function TableOfContents({ items, className = '' }: TableOfContentsProps) {
+export function TableOfContents({
+  items,
+  className = '',
+}: TableOfContentsProps) {
   const [activeId, setActiveId] = useState<string>('');
   const observerRef = useRef<IntersectionObserver | null>(null);
   const headingIdsRef = useRef<string[]>([]);
@@ -79,7 +82,7 @@ export function TableOfContents({ items, className = '' }: TableOfContentsProps)
       {
         rootMargin: '-80px 0px -60% 0px',
         threshold: 0,
-      }
+      },
     );
 
     // Observe all headings
@@ -95,25 +98,28 @@ export function TableOfContents({ items, className = '' }: TableOfContentsProps)
     };
   }, [items]);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
-    e.preventDefault();
-    const element = document.getElementById(id);
-    if (element) {
-      // Calculate offset for sticky header
-      const offset = 100;
-      const elementPosition = element.getBoundingClientRect().top;
-      const offsetPosition = elementPosition + window.scrollY - offset;
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+      e.preventDefault();
+      const element = document.getElementById(id);
+      if (element) {
+        // Calculate offset for sticky header
+        const offset = 100;
+        const elementPosition = element.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.scrollY - offset;
 
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: 'smooth',
-      });
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth',
+        });
 
-      // Update URL hash without scrolling
-      window.history.pushState(null, '', `#${id}`);
-      setActiveId(id);
-    }
-  }, []);
+        // Update URL hash without scrolling
+        window.history.pushState(null, '', `#${id}`);
+        setActiveId(id);
+      }
+    },
+    [],
+  );
 
   if (items.length === 0) {
     return null;
@@ -121,10 +127,7 @@ export function TableOfContents({ items, className = '' }: TableOfContentsProps)
 
   return (
     <nav
-      className={[
-        'relative',
-        className,
-      ].join(' ')}
+      className={['relative', className].join(' ')}
       aria-label="Table of contents"
     >
       {/* Header with terminal styling */}
@@ -199,9 +202,7 @@ function TocEntry({
           // Hover styles
           'hover:text-accent-primary',
           // Active state
-          isActive
-            ? 'text-accent-primary font-medium'
-            : '',
+          isActive ? 'text-accent-primary font-medium' : '',
         ].join(' ')}
         aria-current={isActive ? 'location' : undefined}
       >
@@ -256,8 +257,10 @@ function ScrollProgress() {
   useEffect(() => {
     const handleScroll = () => {
       const scrollTop = window.scrollY;
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      const scrollPercent = docHeight > 0 ? Math.min((scrollTop / docHeight) * 100, 100) : 0;
+      const docHeight =
+        document.documentElement.scrollHeight - window.innerHeight;
+      const scrollPercent =
+        docHeight > 0 ? Math.min((scrollTop / docHeight) * 100, 100) : 0;
       setProgress(scrollPercent);
     };
 

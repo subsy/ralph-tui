@@ -7,7 +7,11 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -166,7 +170,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
    * Run --version to verify binary and extract version number
    */
   private runVersion(
-    command: string
+    command: string,
   ): Promise<{ success: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
       const proc = spawn(command, ['--version'], {
@@ -230,7 +234,11 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
             label: 'Text',
             description: 'Plain text output (default)',
           },
-          { value: 'json', label: 'JSON', description: 'Structured JSON output' },
+          {
+            value: 'json',
+            label: 'JSON',
+            description: 'Structured JSON output',
+          },
           {
             value: 'stream',
             label: 'Stream',
@@ -246,10 +254,26 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
         prompt: 'Model to use:',
         type: 'select',
         choices: [
-          { value: '', label: 'Default', description: 'Use configured default model' },
-          { value: 'sonnet', label: 'Sonnet', description: 'Claude Sonnet - balanced' },
-          { value: 'opus', label: 'Opus', description: 'Claude Opus - most capable' },
-          { value: 'haiku', label: 'Haiku', description: 'Claude Haiku - fastest' },
+          {
+            value: '',
+            label: 'Default',
+            description: 'Use configured default model',
+          },
+          {
+            value: 'sonnet',
+            label: 'Sonnet',
+            description: 'Claude Sonnet - balanced',
+          },
+          {
+            value: 'opus',
+            label: 'Opus',
+            description: 'Claude Opus - most capable',
+          },
+          {
+            value: 'haiku',
+            label: 'Haiku',
+            description: 'Claude Haiku - fastest',
+          },
         ],
         default: '',
         required: false,
@@ -269,7 +293,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   protected buildArgs(
     _prompt: string,
     files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): string[] {
     const args: string[] = [];
 
@@ -280,7 +304,11 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     // Always use stream-json when we want structured output (subagentTracing or json/stream modes)
     // Note: 'json' format waits until the end - we always prefer 'stream-json' for live output
     // IMPORTANT: Claude CLI requires --verbose when using --print with --output-format=stream-json
-    if (options?.subagentTracing || this.printMode === 'json' || this.printMode === 'stream') {
+    if (
+      options?.subagentTracing ||
+      this.printMode === 'json' ||
+      this.printMode === 'stream'
+    ) {
       args.push('--verbose');
       args.push('--output-format', 'stream-json');
     }
@@ -329,7 +357,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   protected override getStdinInput(
     prompt: string,
     _files?: AgentFileContext[],
-    _options?: AgentExecuteOptions
+    _options?: AgentExecuteOptions,
   ): string {
     return prompt;
   }
@@ -354,12 +382,17 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
 
       // Parse assistant messages (text and tool use)
       if (event.type === 'assistant' && event.message) {
-        const message = event.message as { content?: Array<Record<string, unknown>> };
+        const message = event.message as {
+          content?: Array<Record<string, unknown>>;
+        };
         if (message.content && Array.isArray(message.content)) {
           for (const block of message.content) {
             if (block.type === 'text' && typeof block.text === 'string') {
               events.push({ type: 'text', content: block.text });
-            } else if (block.type === 'tool_use' && typeof block.name === 'string') {
+            } else if (
+              block.type === 'tool_use' &&
+              typeof block.name === 'string'
+            ) {
               events.push({
                 type: 'tool_use',
                 name: block.name,
@@ -372,14 +405,17 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
 
       // Parse user/tool_result events - check for errors in tool results
       if (event.type === 'user') {
-        const message = event.message as { content?: Array<Record<string, unknown>> } | undefined;
+        const message = event.message as
+          | { content?: Array<Record<string, unknown>> }
+          | undefined;
         if (message?.content && Array.isArray(message.content)) {
           for (const block of message.content) {
             // Surface tool result errors
             if (block.type === 'tool_result' && block.is_error === true) {
-              const errorContent = typeof block.content === 'string'
-                ? block.content
-                : 'tool execution failed';
+              const errorContent =
+                typeof block.content === 'string'
+                  ? block.content
+                  : 'tool execution failed';
               events.push({ type: 'error', message: errorContent });
             }
           }
@@ -395,9 +431,11 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
 
       // Parse error events
       if (event.type === 'error' || event.error) {
-        const errorMsg = typeof event.error === 'string'
-          ? event.error
-          : (event.error as { message?: string })?.message ?? 'Unknown error';
+        const errorMsg =
+          typeof event.error === 'string'
+            ? event.error
+            : ((event.error as { message?: string })?.message ??
+              'Unknown error');
         events.push({ type: 'error', message: errorMsg });
       }
 
@@ -427,48 +465,53 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   override execute(
     prompt: string,
     files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): AgentExecutionHandle {
     // Wrap callbacks to parse JSONL events when using stream-json output
-    const isStreamingJson = options?.subagentTracing || this.printMode === 'json' || this.printMode === 'stream';
+    const isStreamingJson =
+      options?.subagentTracing ||
+      this.printMode === 'json' ||
+      this.printMode === 'stream';
 
     const parsedOptions: AgentExecuteOptions = {
       ...options,
       // TUI-native segments callback (preferred)
-      onStdoutSegments: options?.onStdoutSegments && isStreamingJson
-        ? (/* original segments ignored - we parse from raw */) => {
-            // This callback is set up but actual segments come from wrapping onStdout below
-          }
-        : options?.onStdoutSegments,
+      onStdoutSegments:
+        options?.onStdoutSegments && isStreamingJson
+          ? (/* original segments ignored - we parse from raw */) => {
+              // This callback is set up but actual segments come from wrapping onStdout below
+            }
+          : options?.onStdoutSegments,
       // Legacy string callback or wrapper that calls both callbacks
-      onStdout: isStreamingJson && (options?.onStdout || options?.onStdoutSegments)
-        ? (data: string) => {
-            const events = this.parseClaudeOutputToEvents(data);
-            if (events.length > 0) {
-              // Call TUI-native segments callback if provided
-              if (options?.onStdoutSegments) {
-                const segments = processAgentEventsToSegments(events);
-                if (segments.length > 0) {
-                  options.onStdoutSegments(segments);
+      onStdout:
+        isStreamingJson && (options?.onStdout || options?.onStdoutSegments)
+          ? (data: string) => {
+              const events = this.parseClaudeOutputToEvents(data);
+              if (events.length > 0) {
+                // Call TUI-native segments callback if provided
+                if (options?.onStdoutSegments) {
+                  const segments = processAgentEventsToSegments(events);
+                  if (segments.length > 0) {
+                    options.onStdoutSegments(segments);
+                  }
                 }
-              }
-              // Also call legacy string callback if provided
-              if (options?.onStdout) {
-                const parsed = processAgentEvents(events);
-                if (parsed.length > 0) {
-                  options.onStdout(parsed);
+                // Also call legacy string callback if provided
+                if (options?.onStdout) {
+                  const parsed = processAgentEvents(events);
+                  if (parsed.length > 0) {
+                    options.onStdout(parsed);
+                  }
                 }
               }
             }
-          }
-        : options?.onStdout,
+          : options?.onStdout,
     };
 
     return super.execute(prompt, files, parsedOptions);
   }
 
   override async validateSetup(
-    answers: Record<string, unknown>
+    answers: Record<string, unknown>,
   ): Promise<string | null> {
     // Validate print mode
     const printMode = answers.printMode;
@@ -507,7 +550,11 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     if (model === '' || model === undefined) {
       return null; // Empty is valid (uses default)
     }
-    if (!ClaudeAgentPlugin.VALID_MODELS.includes(model as typeof ClaudeAgentPlugin.VALID_MODELS[number])) {
+    if (
+      !ClaudeAgentPlugin.VALID_MODELS.includes(
+        model as (typeof ClaudeAgentPlugin.VALID_MODELS)[number],
+      )
+    ) {
       return `Invalid model "${model}". Claude agent accepts: ${ClaudeAgentPlugin.VALID_MODELS.join(', ')}`;
     }
     return null;

@@ -57,7 +57,7 @@ export function calculateBackoff(
     maxDelay?: number;
     multiplier?: number;
     jitter?: number;
-  } = {}
+  } = {},
 ): number {
   const {
     strategy = 'exponential',
@@ -106,7 +106,7 @@ export function sleep(ms: number): Promise<void> {
  */
 export async function retry<T>(
   fn: () => Promise<T>,
-  options: RetryOptions = {}
+  options: RetryOptions = {},
 ): Promise<RetryResult<T>> {
   const {
     maxRetries = 3,
@@ -174,7 +174,7 @@ export async function retry<T>(
  */
 export function withRetry<T extends (...args: unknown[]) => Promise<unknown>>(
   fn: T,
-  options: RetryOptions = {}
+  options: RetryOptions = {},
 ): (...args: Parameters<T>) => Promise<RetryResult<Awaited<ReturnType<T>>>> {
   return async (...args: Parameters<T>) => {
     return retry(() => fn(...args) as Promise<Awaited<ReturnType<T>>>, options);
@@ -187,7 +187,7 @@ export function withRetry<T extends (...args: unknown[]) => Promise<unknown>>(
 export async function retryUntil<T>(
   fn: () => Promise<T>,
   condition: (result: T) => boolean,
-  options: RetryOptions & { pollingInterval?: number } = {}
+  options: RetryOptions & { pollingInterval?: number } = {},
 ): Promise<RetryResult<T>> {
   const { pollingInterval = 1000, ...retryOptions } = options;
 
@@ -206,7 +206,7 @@ export async function retryUntil<T>(
       ...retryOptions,
       backoff: 'fixed',
       initialDelay: pollingInterval,
-    }
+    },
   );
 
   // If failed but we have a last value, include it

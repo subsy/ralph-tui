@@ -9,7 +9,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FileText, Hash, ArrowRight, Command as CommandIcon, CornerDownLeft } from 'lucide-react';
+import {
+  Search,
+  FileText,
+  Hash,
+  ArrowRight,
+  Command as CommandIcon,
+  CornerDownLeft,
+} from 'lucide-react';
 import { searchDocs, type SearchItem } from '@/lib/search';
 
 interface DocSearchProps {
@@ -23,7 +30,10 @@ interface DocSearchProps {
  * DocSearch command palette with terminal-inspired design.
  * Provides keyboard-first navigation through documentation.
  */
-export function DocSearch({ open: controlledOpen, onOpenChange }: DocSearchProps) {
+export function DocSearch({
+  open: controlledOpen,
+  onOpenChange,
+}: DocSearchProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchItem[]>([]);
@@ -76,20 +86,26 @@ export function DocSearch({ open: controlledOpen, onOpenChange }: DocSearchProps
     }
   }, [open]);
 
-  const handleSelect = useCallback((item: SearchItem) => {
-    const url = item.anchor ? `${item.href}#${item.anchor}` : item.href;
-    router.push(url);
-    setOpen(false);
-  }, [router, setOpen]);
+  const handleSelect = useCallback(
+    (item: SearchItem) => {
+      const url = item.anchor ? `${item.href}#${item.anchor}` : item.href;
+      router.push(url);
+      setOpen(false);
+    },
+    [router, setOpen],
+  );
 
   // Group results by category
-  const groupedResults = results.reduce((acc, item) => {
-    if (!acc[item.category]) {
-      acc[item.category] = [];
-    }
-    acc[item.category].push(item);
-    return acc;
-  }, {} as Record<string, SearchItem[]>);
+  const groupedResults = results.reduce(
+    (acc, item) => {
+      if (!acc[item.category]) {
+        acc[item.category] = [];
+      }
+      acc[item.category].push(item);
+      return acc;
+    },
+    {} as Record<string, SearchItem[]>,
+  );
 
   return (
     <AnimatePresence>
@@ -108,7 +124,8 @@ export function DocSearch({ open: controlledOpen, onOpenChange }: DocSearchProps
             <div
               className="absolute inset-0 pointer-events-none opacity-[0.03]"
               style={{
-                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.3) 2px, rgba(0,0,0,0.3) 4px)',
+                backgroundImage:
+                  'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.3) 2px, rgba(0,0,0,0.3) 4px)',
               }}
             />
           </motion.div>
@@ -175,13 +192,18 @@ export function DocSearch({ open: controlledOpen, onOpenChange }: DocSearchProps
                     <Search className="h-12 w-12 text-fg-dim" />
                     <p className="font-mono text-sm text-fg-muted">
                       {query ? (
-                        <>No results for &ldquo;<span className="text-accent-primary">{query}</span>&rdquo;</>
+                        <>
+                          No results for &ldquo;
+                          <span className="text-accent-primary">{query}</span>
+                          &rdquo;
+                        </>
                       ) : (
                         'Type to search documentation...'
                       )}
                     </p>
                     <p className="text-xs text-fg-dim">
-                      Try searching for &ldquo;configuration&rdquo;, &ldquo;cli&rdquo;, or &ldquo;plugins&rdquo;
+                      Try searching for &ldquo;configuration&rdquo;,
+                      &ldquo;cli&rdquo;, or &ldquo;plugins&rdquo;
                     </p>
                   </div>
                 </Command.Empty>
@@ -275,7 +297,8 @@ export function DocSearch({ open: controlledOpen, onOpenChange }: DocSearchProps
                   </span>
                 </div>
                 <span className="font-mono text-xs text-fg-dim">
-                  <span className="text-accent-primary">{results.length}</span> results
+                  <span className="text-accent-primary">{results.length}</span>{' '}
+                  results
                 </span>
               </div>
             </Command>
@@ -291,7 +314,7 @@ export function DocSearch({ open: controlledOpen, onOpenChange }: DocSearchProps
  */
 function SearchResultItem({
   item,
-  onSelect
+  onSelect,
 }: {
   item: SearchItem;
   onSelect: () => void;
@@ -308,12 +331,14 @@ function SearchResultItem({
       ].join(' ')}
     >
       {/* Icon */}
-      <div className={[
-        'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded',
-        'bg-bg-secondary text-fg-muted',
-        'transition-colors duration-100',
-        'group-data-[selected=true]:bg-accent-primary/20 group-data-[selected=true]:text-accent-primary',
-      ].join(' ')}>
+      <div
+        className={[
+          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded',
+          'bg-bg-secondary text-fg-muted',
+          'transition-colors duration-100',
+          'group-data-[selected=true]:bg-accent-primary/20 group-data-[selected=true]:text-accent-primary',
+        ].join(' ')}
+      >
         {item.section ? (
           <Hash className="h-3.5 w-3.5" />
         ) : (
@@ -336,17 +361,17 @@ function SearchResultItem({
             </>
           )}
         </div>
-        <p className="mt-0.5 truncate text-sm text-fg-muted">
-          {item.snippet}
-        </p>
+        <p className="mt-0.5 truncate text-sm text-fg-muted">{item.snippet}</p>
       </div>
 
       {/* Selection indicator */}
-      <div className={[
-        'absolute right-3 top-1/2 -translate-y-1/2',
-        'opacity-0 transition-opacity duration-100',
-        'group-data-[selected=true]:opacity-100',
-      ].join(' ')}>
+      <div
+        className={[
+          'absolute right-3 top-1/2 -translate-y-1/2',
+          'opacity-0 transition-opacity duration-100',
+          'group-data-[selected=true]:opacity-100',
+        ].join(' ')}
+      >
         <CornerDownLeft className="h-4 w-4 text-fg-muted" />
       </div>
     </Command.Item>
@@ -377,23 +402,27 @@ function QuickLinkItem({
         'data-[selected=true]:bg-bg-tertiary',
       ].join(' ')}
     >
-      <div className={[
-        'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
-        'bg-accent-primary/10 text-accent-primary',
-        'transition-all duration-150',
-        'group-data-[selected=true]:bg-accent-primary/20 group-data-[selected=true]:shadow-[0_0_12px_rgba(122,162,247,0.3)]',
-      ].join(' ')}>
+      <div
+        className={[
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+          'bg-accent-primary/10 text-accent-primary',
+          'transition-all duration-150',
+          'group-data-[selected=true]:bg-accent-primary/20 group-data-[selected=true]:shadow-[0_0_12px_rgba(122,162,247,0.3)]',
+        ].join(' ')}
+      >
         <FileText className="h-4 w-4" />
       </div>
       <div className="flex-1">
         <span className="font-medium text-fg-primary">{title}</span>
         <p className="text-sm text-fg-muted">{description}</p>
       </div>
-      <ArrowRight className={[
-        'h-4 w-4 text-fg-dim',
-        'transition-all duration-150',
-        'group-data-[selected=true]:translate-x-1 group-data-[selected=true]:text-accent-primary',
-      ].join(' ')} />
+      <ArrowRight
+        className={[
+          'h-4 w-4 text-fg-dim',
+          'transition-all duration-150',
+          'group-data-[selected=true]:translate-x-1 group-data-[selected=true]:text-accent-primary',
+        ].join(' ')}
+      />
     </Command.Item>
   );
 }
@@ -429,12 +458,14 @@ export function SearchButton({ onClick }: { onClick: () => void }) {
     >
       <Search className="h-4 w-4 text-fg-muted transition-colors group-hover:text-accent-primary" />
       <span className="hidden sm:inline">Search</span>
-      <kbd className={[
-        'hidden sm:flex items-center gap-0.5',
-        'rounded border border-border/60 bg-bg-tertiary px-1.5 py-0.5',
-        'text-xs text-fg-dim',
-        'transition-colors group-hover:border-accent-primary/30 group-hover:text-fg-muted',
-      ].join(' ')}>
+      <kbd
+        className={[
+          'hidden sm:flex items-center gap-0.5',
+          'rounded border border-border/60 bg-bg-tertiary px-1.5 py-0.5',
+          'text-xs text-fg-dim',
+          'transition-colors group-hover:border-accent-primary/30 group-hover:text-fg-muted',
+        ].join(' ')}
+      >
         {isMac ? (
           <>
             <CommandIcon className="h-3 w-3" />

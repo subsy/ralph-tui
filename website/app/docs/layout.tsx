@@ -76,11 +76,7 @@ export default function DocsLayout({ children }: DocsLayoutProps) {
         aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
         aria-expanded={sidebarOpen}
       >
-        {sidebarOpen ? (
-          <X className="h-6 w-6" />
-        ) : (
-          <Menu className="h-6 w-6" />
-        )}
+        {sidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
       </button>
 
       {/* Mobile sidebar backdrop */}

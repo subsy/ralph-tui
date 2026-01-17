@@ -13,7 +13,7 @@ import type { PathLike } from 'node:fs';
 
 // Helper to create minimal requirements
 function createRequirements(
-  overrides: Partial<AgentSandboxRequirements> = {}
+  overrides: Partial<AgentSandboxRequirements> = {},
 ): AgentSandboxRequirements {
   return {
     binaryPaths: [],
@@ -88,19 +88,21 @@ describe('SandboxWrapper', () => {
 
     beforeEach(() => {
       // Mock existsSync to return true for common paths
-      existsSyncSpy = spyOn(fs, 'existsSync').mockImplementation((p: PathLike) => {
-        const pathStr = String(p);
-        // Return true for system dirs and working directory
-        return (
-          pathStr.startsWith('/usr') ||
-          pathStr.startsWith('/bin') ||
-          pathStr.startsWith('/lib') ||
-          pathStr.startsWith('/etc') ||
-          pathStr.startsWith('/sbin') ||
-          pathStr === process.cwd() ||
-          pathStr.includes('/home')
-        );
-      });
+      existsSyncSpy = spyOn(fs, 'existsSync').mockImplementation(
+        (p: PathLike) => {
+          const pathStr = String(p);
+          // Return true for system dirs and working directory
+          return (
+            pathStr.startsWith('/usr') ||
+            pathStr.startsWith('/bin') ||
+            pathStr.startsWith('/lib') ||
+            pathStr.startsWith('/etc') ||
+            pathStr.startsWith('/sbin') ||
+            pathStr === process.cwd() ||
+            pathStr.includes('/home')
+          );
+        },
+      );
     });
 
     test('includes die-with-parent flag', () => {
@@ -125,7 +127,11 @@ describe('SandboxWrapper', () => {
     });
 
     test('adds --unshare-net when network is false', () => {
-      const config: SandboxConfig = { enabled: true, mode: 'bwrap', network: false };
+      const config: SandboxConfig = {
+        enabled: true,
+        mode: 'bwrap',
+        network: false,
+      };
       const wrapper = new SandboxWrapper(config, createRequirements());
 
       const result = wrapper.wrapWithBwrap('test', []);
@@ -134,7 +140,11 @@ describe('SandboxWrapper', () => {
     });
 
     test('does not add --unshare-net when network is true', () => {
-      const config: SandboxConfig = { enabled: true, mode: 'bwrap', network: true };
+      const config: SandboxConfig = {
+        enabled: true,
+        mode: 'bwrap',
+        network: true,
+      };
       const wrapper = new SandboxWrapper(config, createRequirements());
 
       const result = wrapper.wrapWithBwrap('test', []);
@@ -191,7 +201,10 @@ describe('SandboxWrapper', () => {
     });
 
     test('mounts allowPaths as read-write', () => {
-      existsSyncSpy.mockImplementation((p: PathLike) => String(p) === '/custom/path' || String(p) === process.cwd());
+      existsSyncSpy.mockImplementation(
+        (p: PathLike) =>
+          String(p) === '/custom/path' || String(p) === process.cwd(),
+      );
 
       const config: SandboxConfig = {
         enabled: true,
@@ -208,7 +221,10 @@ describe('SandboxWrapper', () => {
     });
 
     test('mounts authPaths as read-write for OAuth token refresh', () => {
-      existsSyncSpy.mockImplementation((p: PathLike) => String(p) === '/home/user/.claude' || String(p) === process.cwd());
+      existsSyncSpy.mockImplementation(
+        (p: PathLike) =>
+          String(p) === '/home/user/.claude' || String(p) === process.cwd(),
+      );
 
       const config: SandboxConfig = { enabled: true, mode: 'bwrap' };
       const requirements = createRequirements({
@@ -223,7 +239,10 @@ describe('SandboxWrapper', () => {
     });
 
     test('mounts binaryPaths as read-only', () => {
-      existsSyncSpy.mockImplementation((p: PathLike) => String(p) === '/opt/bin' || String(p) === process.cwd());
+      existsSyncSpy.mockImplementation(
+        (p: PathLike) =>
+          String(p) === '/opt/bin' || String(p) === process.cwd(),
+      );
 
       const config: SandboxConfig = { enabled: true, mode: 'bwrap' };
       const requirements = createRequirements({
@@ -240,7 +259,10 @@ describe('SandboxWrapper', () => {
     test('removes path from readOnlyPaths if it is in readWritePaths', () => {
       // If a path is in both allowPaths (read-write) and readOnlyPaths,
       // it should only be mounted once as read-write
-      existsSyncSpy.mockImplementation((p: PathLike) => String(p) === '/shared/path' || String(p) === process.cwd());
+      existsSyncSpy.mockImplementation(
+        (p: PathLike) =>
+          String(p) === '/shared/path' || String(p) === process.cwd(),
+      );
 
       const config: SandboxConfig = {
         enabled: true,
@@ -265,7 +287,10 @@ describe('SandboxWrapper', () => {
       // Verify it's NOT also mounted with --ro-bind
       let roBindCount = 0;
       for (let i = 0; i < result.args.length; i++) {
-        if (result.args[i] === '--ro-bind' && result.args[i + 1] === '/shared/path') {
+        if (
+          result.args[i] === '--ro-bind' &&
+          result.args[i + 1] === '/shared/path'
+        ) {
           roBindCount++;
         }
       }
@@ -322,7 +347,11 @@ describe('SandboxWrapper', () => {
     });
 
     test('includes network access when network is not false', () => {
-      const config: SandboxConfig = { enabled: true, mode: 'sandbox-exec', network: true };
+      const config: SandboxConfig = {
+        enabled: true,
+        mode: 'sandbox-exec',
+        network: true,
+      };
       const wrapper = new SandboxWrapper(config, createRequirements());
 
       const result = wrapper.wrapWithSandboxExec('test', []);
@@ -332,7 +361,11 @@ describe('SandboxWrapper', () => {
     });
 
     test('excludes network access when network is false', () => {
-      const config: SandboxConfig = { enabled: true, mode: 'sandbox-exec', network: false };
+      const config: SandboxConfig = {
+        enabled: true,
+        mode: 'sandbox-exec',
+        network: false,
+      };
       const wrapper = new SandboxWrapper(config, createRequirements());
 
       const result = wrapper.wrapWithSandboxExec('test', []);
@@ -354,7 +387,10 @@ describe('SandboxWrapper', () => {
     });
 
     test('includes auth paths as read-write', () => {
-      spyOn(fs, 'existsSync').mockImplementation((p: PathLike) => String(p) === '/Users/test/.claude' || String(p) === process.cwd());
+      spyOn(fs, 'existsSync').mockImplementation(
+        (p: PathLike) =>
+          String(p) === '/Users/test/.claude' || String(p) === process.cwd(),
+      );
 
       const config: SandboxConfig = { enabled: true, mode: 'sandbox-exec' };
       const requirements = createRequirements({
@@ -425,7 +461,9 @@ describe('SandboxWrapper', () => {
       };
       const wrapper = new SandboxWrapper(config, createRequirements());
 
-      const result = wrapper.wrapWithSandboxExec('test', [], { cwd: '/project' });
+      const result = wrapper.wrapWithSandboxExec('test', [], {
+        cwd: '/project',
+      });
       const profile = result.args[1];
 
       expect(profile).toContain('/project/relative/path');
@@ -544,7 +582,8 @@ describe('SandboxWrapper', () => {
     test('prevents injection attack with malicious path', () => {
       // This malicious path tries to break out of the subpath string
       // and add new allow rules
-      const maliciousPath = '/tmp/foo"))(allow file-read* file-write* (subpath "/etc';
+      const maliciousPath =
+        '/tmp/foo"))(allow file-read* file-write* (subpath "/etc';
       const config: SandboxConfig = {
         enabled: true,
         mode: 'sandbox-exec',

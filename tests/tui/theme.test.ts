@@ -129,7 +129,9 @@ describe('theme', () => {
 
   describe('fullKeyboardShortcuts', () => {
     test('should have more shortcuts than condensed version', () => {
-      expect(fullKeyboardShortcuts.length).toBeGreaterThan(keyboardShortcuts.length);
+      expect(fullKeyboardShortcuts.length).toBeGreaterThan(
+        keyboardShortcuts.length,
+      );
     });
 
     test('should have category for each shortcut', () => {
@@ -182,7 +184,15 @@ describe('theme', () => {
   });
 
   describe('getTaskStatusColor', () => {
-    const taskStatuses: TaskStatus[] = ['done', 'active', 'actionable', 'pending', 'blocked', 'error', 'closed'];
+    const taskStatuses: TaskStatus[] = [
+      'done',
+      'active',
+      'actionable',
+      'pending',
+      'blocked',
+      'error',
+      'closed',
+    ];
 
     test('should return valid color for all task statuses', () => {
       taskStatuses.forEach((status) => {
@@ -210,7 +220,15 @@ describe('theme', () => {
   });
 
   describe('getTaskStatusIndicator', () => {
-    const taskStatuses: TaskStatus[] = ['done', 'active', 'actionable', 'pending', 'blocked', 'error', 'closed'];
+    const taskStatuses: TaskStatus[] = [
+      'done',
+      'active',
+      'actionable',
+      'pending',
+      'blocked',
+      'error',
+      'closed',
+    ];
 
     test('should return indicator for all task statuses', () => {
       taskStatuses.forEach((status) => {

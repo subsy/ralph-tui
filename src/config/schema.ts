@@ -8,14 +8,24 @@ import { z } from 'zod';
 /**
  * Subagent tracing detail level schema
  */
-export const SubagentDetailLevelSchema = z.enum(['off', 'minimal', 'moderate', 'full']);
+export const SubagentDetailLevelSchema = z.enum([
+  'off',
+  'minimal',
+  'moderate',
+  'full',
+]);
 
 /**
  * Error handling strategy schema
  */
 export const ErrorHandlingStrategySchema = z.enum(['retry', 'skip', 'abort']);
 
-export const SandboxModeSchema = z.enum(['auto', 'bwrap', 'sandbox-exec', 'off']);
+export const SandboxModeSchema = z.enum([
+  'auto',
+  'bwrap',
+  'sandbox-exec',
+  'off',
+]);
 
 /**
  * Error handling configuration schema
@@ -211,7 +221,7 @@ export function validateStoredConfig(config: unknown): ConfigParseResult {
  */
 export function formatConfigErrors(
   errors: ConfigValidationError[],
-  configPath: string
+  configPath: string,
 ): string {
   const lines = [`Configuration error in ${configPath}:`];
 

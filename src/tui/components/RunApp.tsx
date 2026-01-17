@@ -4,13 +4,23 @@
  * Handles graceful interruption with confirmation dialog.
  */
 
-import { useKeyboard, useTerminalDimensions, useRenderer } from '@opentui/react';
+import {
+  useKeyboard,
+  useTerminalDimensions,
+  useRenderer,
+} from '@opentui/react';
 import type { KeyEvent } from '@opentui/core';
 import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { colors, layout } from '../theme.js';
 import type { RalphStatus, TaskStatus } from '../theme.js';
-import type { TaskItem, BlockerInfo, DetailsViewMode, IterationTimingInfo, SubagentTreeNode } from '../types.js';
+import type {
+  TaskItem,
+  BlockerInfo,
+  DetailsViewMode,
+  IterationTimingInfo,
+  SubagentTreeNode,
+} from '../types.js';
 import { Header } from './Header.js';
 import { Footer } from './Footer.js';
 import { LeftPanel } from './LeftPanel.js';
@@ -33,11 +43,19 @@ import type {
   RateLimitState,
 } from '../../engine/index.js';
 import type { TrackerTask } from '../../plugins/trackers/types.js';
-import type { StoredConfig, SubagentDetailLevel, SandboxConfig, SandboxMode } from '../../config/types.js';
+import type {
+  StoredConfig,
+  SubagentDetailLevel,
+  SandboxConfig,
+  SandboxMode,
+} from '../../config/types.js';
 import type { AgentPluginMeta } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
-import type { SubagentTraceStats, SubagentHierarchyNode } from '../../logs/types.js';
+import type {
+  SubagentTraceStats,
+  SubagentHierarchyNode,
+} from '../../logs/types.js';
 import { platform } from 'node:os';
 import { writeToClipboard } from '../../utils/index.js';
 import { StreamingOutputParser } from '../output-parser.js';
@@ -168,13 +186,19 @@ function recalculateDependencyStatus(tasks: TaskItem[]): TaskItem[] {
 
   return tasks.map((task) => {
     // Only recalculate for pending/blocked/actionable tasks (not active, done, error, or closed)
-    if (task.status !== 'pending' && task.status !== 'blocked' && task.status !== 'actionable') {
+    if (
+      task.status !== 'pending' &&
+      task.status !== 'blocked' &&
+      task.status !== 'actionable'
+    ) {
       return task;
     }
 
     // If no dependencies, it's actionable
     if (!task.dependsOn || task.dependsOn.length === 0) {
-      return task.status === 'pending' ? { ...task, status: 'actionable' as TaskStatus } : task;
+      return task.status === 'pending'
+        ? { ...task, status: 'actionable' as TaskStatus }
+        : task;
     }
 
     // Check if all dependencies are resolved (done/closed status in our TaskItem world)
@@ -223,7 +247,9 @@ function recalculateDependencyStatus(tasks: TaskItem[]): TaskItem[] {
  * A task is 'actionable' if it has no dependencies OR all its dependencies are completed/closed.
  * A task is 'blocked' if it has any dependency that is NOT completed/closed.
  */
-function convertTasksWithDependencyStatus(trackerTasks: TrackerTask[]): TaskItem[] {
+function convertTasksWithDependencyStatus(
+  trackerTasks: TrackerTask[],
+): TaskItem[] {
   // First, create a map of task IDs to their status and title for quick lookup
   const taskMap = new Map<string, { status: string; title: string }>();
   for (const task of trackerTasks) {
@@ -250,7 +276,11 @@ function convertTasksWithDependencyStatus(trackerTasks: TrackerTask[]): TaskItem
       const dep = taskMap.get(depId);
       if (dep) {
         // Dependency exists in our task list
-        if (dep.status !== 'completed' && dep.status !== 'cancelled' && dep.status !== 'closed') {
+        if (
+          dep.status !== 'completed' &&
+          dep.status !== 'cancelled' &&
+          dep.status !== 'closed'
+        ) {
           blockers.push({
             id: depId,
             title: dep.title,
@@ -324,7 +354,9 @@ export function RunApp({
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
   // Start in 'ready' state if we have onStart callback (waiting for user to start)
-  const [status, setStatus] = useState<RalphStatus>(onStart ? 'ready' : 'running');
+  const [status, setStatus] = useState<RalphStatus>(
+    onStart ? 'ready' : 'running',
+  );
   const [currentIteration, setCurrentIteration] = useState(0);
   const [maxIterations, setMaxIterations] = useState(() => {
     // Initialize from engine if available
@@ -332,21 +364,31 @@ export function RunApp({
     return info.maxIterations;
   });
   const [currentOutput, setCurrentOutput] = useState('');
-  const [currentSegments, setCurrentSegments] = useState<FormattedSegment[]>([]);
+  const [currentSegments, setCurrentSegments] = useState<FormattedSegment[]>(
+    [],
+  );
   // Streaming parser for live output - extracts readable content and prevents memory bloat
   // Use agentPlugin prop (from resolved config with CLI override) with fallback to storedConfig
-  const resolvedAgentName = agentPlugin || storedConfig?.defaultAgent || storedConfig?.agent || 'claude';
+  const resolvedAgentName =
+    agentPlugin ||
+    storedConfig?.defaultAgent ||
+    storedConfig?.agent ||
+    'claude';
   const outputParserRef = useRef(
     new StreamingOutputParser({
       agentPlugin: resolvedAgentName,
-    })
+    }),
   );
   const [elapsedTime, setElapsedTime] = useState(0);
   const [epicName] = useState('Ralph');
   // Derive agent/tracker names from config - these are displayed in the header
   const agentName = resolvedAgentName;
   // Use trackerType (from resolved config.tracker.plugin) as priority since it's the actual plugin in use
-  const trackerName = trackerType || storedConfig?.defaultTracker || storedConfig?.tracker || 'beads';
+  const trackerName =
+    trackerType ||
+    storedConfig?.defaultTracker ||
+    storedConfig?.tracker ||
+    'beads';
   // Dashboard visibility state (off by default for compact header design)
   const [showDashboard, setShowDashboard] = useState(false);
   // Iteration history state
@@ -355,7 +397,8 @@ export function RunApp({
   const [viewMode, setViewMode] = useState<ViewMode>('tasks');
   const [iterationSelectedIndex, setIterationSelectedIndex] = useState(0);
   // Iteration detail view state
-  const [detailIteration, setDetailIteration] = useState<IterationResult | null>(null);
+  const [detailIteration, setDetailIteration] =
+    useState<IterationResult | null>(null);
   // Help overlay state
   const [showHelp, setShowHelp] = useState(false);
   // Settings view state
@@ -366,56 +409,82 @@ export function RunApp({
   const [showClosedTasks, setShowClosedTasks] = useState(true);
   // Cache for historical iteration output loaded from disk (taskId -> { output, timing, agent, model })
   const [historicalOutputCache, setHistoricalOutputCache] = useState<
-    Map<string, { output: string; timing: IterationTimingInfo; agentPlugin?: string; model?: string }>
+    Map<
+      string,
+      {
+        output: string;
+        timing: IterationTimingInfo;
+        agentPlugin?: string;
+        model?: string;
+      }
+    >
   >(() => new Map());
   // Current task info for status display
-  const [currentTaskId, setCurrentTaskId] = useState<string | undefined>(undefined);
-  const [currentTaskTitle, setCurrentTaskTitle] = useState<string | undefined>(undefined);
+  const [currentTaskId, setCurrentTaskId] = useState<string | undefined>(
+    undefined,
+  );
+  const [currentTaskTitle, setCurrentTaskTitle] = useState<string | undefined>(
+    undefined,
+  );
   // Current iteration start time (ISO timestamp)
-  const [currentIterationStartedAt, setCurrentIterationStartedAt] = useState<string | undefined>(undefined);
+  const [currentIterationStartedAt, setCurrentIterationStartedAt] = useState<
+    string | undefined
+  >(undefined);
   // Epic loader overlay state
   const [showEpicLoader, setShowEpicLoader] = useState(false);
   const [epicLoaderEpics, setEpicLoaderEpics] = useState<TrackerTask[]>([]);
   const [epicLoaderLoading, setEpicLoaderLoading] = useState(false);
-  const [epicLoaderError, setEpicLoaderError] = useState<string | undefined>(undefined);
-  // Determine epic loader mode based on tracker type
-  const epicLoaderMode: EpicLoaderMode = trackerType === 'json' ? 'file-prompt' : 'list';
-  // Details panel view mode (details or output) - default to details
-  const [detailsViewMode, setDetailsViewMode] = useState<DetailsViewMode>('details');
-  // Subagent tracing detail level - initialized from config, can be cycled with 't' key
-  const [subagentDetailLevel, setSubagentDetailLevel] = useState<SubagentDetailLevel>(
-    () => storedConfig?.subagentTracingDetail ?? 'off'
+  const [epicLoaderError, setEpicLoaderError] = useState<string | undefined>(
+    undefined,
   );
+  // Determine epic loader mode based on tracker type
+  const epicLoaderMode: EpicLoaderMode =
+    trackerType === 'json' ? 'file-prompt' : 'list';
+  // Details panel view mode (details or output) - default to details
+  const [detailsViewMode, setDetailsViewMode] =
+    useState<DetailsViewMode>('details');
+  // Subagent tracing detail level - initialized from config, can be cycled with 't' key
+  const [subagentDetailLevel, setSubagentDetailLevel] =
+    useState<SubagentDetailLevel>(
+      () => storedConfig?.subagentTracingDetail ?? 'off',
+    );
   // Subagent tree for the current iteration (from engine.getSubagentTree())
   const [subagentTree, setSubagentTree] = useState<SubagentTreeNode[]>([]);
   // Set of collapsed subagent IDs (for collapsible sections in output view)
-  const [collapsedSubagents, setCollapsedSubagents] = useState<Set<string>>(() => new Set());
-  // Currently focused subagent ID for keyboard navigation (future enhancement)
-  const [focusedSubagentId, setFocusedSubagentId] = useState<string | undefined>(undefined);
-  // Subagent stats cache for iteration history view (keyed by iteration number)
-  const [subagentStatsCache, setSubagentStatsCache] = useState<Map<number, SubagentTraceStats>>(
-    () => new Map()
+  const [collapsedSubagents, setCollapsedSubagents] = useState<Set<string>>(
+    () => new Set(),
   );
+  // Currently focused subagent ID for keyboard navigation (future enhancement)
+  const [focusedSubagentId, setFocusedSubagentId] = useState<
+    string | undefined
+  >(undefined);
+  // Subagent stats cache for iteration history view (keyed by iteration number)
+  const [subagentStatsCache, setSubagentStatsCache] = useState<
+    Map<number, SubagentTraceStats>
+  >(() => new Map());
   // Subagent trace data for iteration detail view (lazily loaded)
-  const [iterationDetailSubagentTree, setIterationDetailSubagentTree] = useState<
-    SubagentHierarchyNode[] | undefined
-  >(undefined);
-  const [iterationDetailSubagentStats, setIterationDetailSubagentStats] = useState<
-    SubagentTraceStats | undefined
-  >(undefined);
-  const [iterationDetailSubagentLoading, setIterationDetailSubagentLoading] = useState(false);
+  const [iterationDetailSubagentTree, setIterationDetailSubagentTree] =
+    useState<SubagentHierarchyNode[] | undefined>(undefined);
+  const [iterationDetailSubagentStats, setIterationDetailSubagentStats] =
+    useState<SubagentTraceStats | undefined>(undefined);
+  const [iterationDetailSubagentLoading, setIterationDetailSubagentLoading] =
+    useState(false);
   // Historic execution context for iteration detail view (loaded from persisted logs)
-  const [iterationDetailHistoricContext, setIterationDetailHistoricContext] = useState<
-    HistoricExecutionContext | undefined
-  >(undefined);
+  const [iterationDetailHistoricContext, setIterationDetailHistoricContext] =
+    useState<HistoricExecutionContext | undefined>(undefined);
   // Subagent tree panel visibility state (toggled with 'T' key)
   // Tracks subagents even when panel is hidden (subagentTree state continues updating)
-  const [subagentPanelVisible, setSubagentPanelVisible] = useState(initialSubagentPanelVisible);
+  const [subagentPanelVisible, setSubagentPanelVisible] = useState(
+    initialSubagentPanelVisible,
+  );
 
   // Active agent state from engine - tracks which agent is running and why (primary/fallback)
-  const [activeAgentState, setActiveAgentState] = useState<ActiveAgentState | null>(null);
+  const [activeAgentState, setActiveAgentState] =
+    useState<ActiveAgentState | null>(null);
   // Rate limit state from engine - tracks primary agent rate limiting
-  const [rateLimitState, setRateLimitState] = useState<RateLimitState | null>(null);
+  const [rateLimitState, setRateLimitState] = useState<RateLimitState | null>(
+    null,
+  );
 
   // Compute display agent name - prefer active agent from engine state, fallback to config
   const displayAgentName = activeAgentState?.plugin ?? agentName;
@@ -435,7 +504,9 @@ export function RunApp({
       closed: 6,
     };
 
-    const filtered = showClosedTasks ? tasks : tasks.filter((t) => t.status !== 'closed');
+    const filtered = showClosedTasks
+      ? tasks
+      : tasks.filter((t) => t.status !== 'closed');
     return [...filtered].sort((a, b) => {
       const priorityA = statusPriority[a.status] ?? 10;
       const priorityB = statusPriority[b.status] ?? 10;
@@ -524,8 +595,10 @@ export function RunApp({
           // Update task list to show current task as active
           setTasks((prev) =>
             prev.map((t) =>
-              t.id === event.task.id ? { ...t, status: 'active' as TaskStatus } : t
-            )
+              t.id === event.task.id
+                ? { ...t, status: 'active' as TaskStatus }
+                : t,
+            ),
           );
           // Select the active task (index 0 after sorting, since active tasks have highest priority)
           // This is called separately to ensure proper state batching
@@ -545,7 +618,7 @@ export function RunApp({
               const updated = prev.map((t) =>
                 t.id === event.result.task.id
                   ? { ...t, status: 'done' as TaskStatus }
-                  : t
+                  : t,
               );
               // Recalculate blocked/actionable status now that dependencies may have changed
               return recalculateDependencyStatus(updated);
@@ -554,7 +627,9 @@ export function RunApp({
           // Add iteration result to history
           setIterations((prev) => {
             // Replace existing iteration or add new
-            const existing = prev.findIndex((i) => i.iteration === event.result.iteration);
+            const existing = prev.findIndex(
+              (i) => i.iteration === event.result.iteration,
+            );
             if (existing !== -1) {
               const updated = [...prev];
               updated[existing] = event.result;
@@ -568,8 +643,10 @@ export function RunApp({
           // Mark task as having an error (not 'blocked' - that's for dependency issues)
           setTasks((prev) =>
             prev.map((t) =>
-              t.id === event.task.id ? { ...t, status: 'error' as TaskStatus } : t
-            )
+              t.id === event.task.id
+                ? { ...t, status: 'error' as TaskStatus }
+                : t,
+            ),
           );
           break;
 
@@ -594,8 +671,10 @@ export function RunApp({
         case 'task:completed':
           setTasks((prev) =>
             prev.map((t) =>
-              t.id === event.task.id ? { ...t, status: 'done' as TaskStatus } : t
-            )
+              t.id === event.task.id
+                ? { ...t, status: 'done' as TaskStatus }
+                : t,
+            ),
           );
           break;
 
@@ -734,7 +813,8 @@ export function RunApp({
         ? key.meta && key.name === 'c'
         : isWindows
           ? key.ctrl && key.name === 'c'
-          : (key.ctrl && key.shift && key.name === 'c') || (key.option && key.name === 'c');
+          : (key.ctrl && key.shift && key.name === 'c') ||
+            (key.option && key.name === 'c');
 
       if (isCopyShortcut && selection) {
         const selectedText = selection.getSelectedText();
@@ -826,9 +906,13 @@ export function RunApp({
         case 'down':
         case 'j':
           if (viewMode === 'tasks') {
-            setSelectedIndex((prev) => Math.min(displayedTasks.length - 1, prev + 1));
+            setSelectedIndex((prev) =>
+              Math.min(displayedTasks.length - 1, prev + 1),
+            );
           } else if (viewMode === 'iterations') {
-            setIterationSelectedIndex((prev) => Math.min(iterationHistoryLength - 1, prev + 1));
+            setIterationSelectedIndex((prev) =>
+              Math.min(iterationHistoryLength - 1, prev + 1),
+            );
           }
           break;
 
@@ -837,7 +921,11 @@ export function RunApp({
           // When running/executing/selecting, pause will transition to pausing, then to paused
           // When pausing, pressing p again will cancel the pause request
           // When paused, resume will transition back to selecting
-          if (status === 'running' || status === 'executing' || status === 'selecting') {
+          if (
+            status === 'running' ||
+            status === 'executing' ||
+            status === 'selecting'
+          ) {
             engine.pause();
             setStatus('pausing');
           } else if (status === 'pausing') {
@@ -886,14 +974,17 @@ export function RunApp({
             // Continue after stop - use engine.continueExecution()
             if (currentIteration >= maxIterations) {
               // At max iterations, add one more then continue
-              engine.addIterations(1).then((shouldContinue) => {
-                if (shouldContinue) {
-                  setStatus('running');
-                  engine.continueExecution();
-                }
-              }).catch((err) => {
-                console.error('Failed to add iteration:', err);
-              });
+              engine
+                .addIterations(1)
+                .then((shouldContinue) => {
+                  if (shouldContinue) {
+                    setStatus('running');
+                    engine.continueExecution();
+                  }
+                })
+                .catch((err) => {
+                  console.error('Failed to add iteration:', err);
+                });
             } else {
               // Have iterations remaining, just continue
               setStatus('running');
@@ -914,22 +1005,36 @@ export function RunApp({
           // Add/remove 10 iterations: +/= add, -/_ remove
           const isPlus = key.name === '+' || key.name === '=';
           const isMinus = key.name === '-' || key.name === '_';
-          if ((isPlus || isMinus) &&
-              (status === 'ready' || status === 'running' || status === 'executing' || status === 'paused' || status === 'stopped' || status === 'idle' || status === 'complete')) {
+          if (
+            (isPlus || isMinus) &&
+            (status === 'ready' ||
+              status === 'running' ||
+              status === 'executing' ||
+              status === 'paused' ||
+              status === 'stopped' ||
+              status === 'idle' ||
+              status === 'complete')
+          ) {
             if (isPlus) {
-              engine.addIterations(10).then((shouldContinue) => {
-                if (shouldContinue || status === 'complete') {
-                  setStatus('running');
-                  engine.continueExecution();
-                }
-              }).catch((err) => {
-                console.error('Failed to add iterations:', err);
-              });
+              engine
+                .addIterations(10)
+                .then((shouldContinue) => {
+                  if (shouldContinue || status === 'complete') {
+                    setStatus('running');
+                    engine.continueExecution();
+                  }
+                })
+                .catch((err) => {
+                  console.error('Failed to add iterations:', err);
+                });
             } else {
-              engine.removeIterations(10)
+              engine
+                .removeIterations(10)
                 .then((success) => {
                   if (!success) {
-                    console.log('Cannot reduce below current iteration or minimum of 1');
+                    console.log(
+                      'Cannot reduce below current iteration or minimum of 1',
+                    );
                   }
                 })
                 .catch((err) => {
@@ -948,7 +1053,15 @@ export function RunApp({
 
         case 'l':
           // Open epic loader to switch epics (only when not executing)
-          if (onLoadEpics && (status === 'ready' || status === 'paused' || status === 'stopped' || status === 'idle' || status === 'complete' || status === 'error')) {
+          if (
+            onLoadEpics &&
+            (status === 'ready' ||
+              status === 'paused' ||
+              status === 'stopped' ||
+              status === 'idle' ||
+              status === 'complete' ||
+              status === 'error')
+          ) {
             setShowEpicLoader(true);
             setEpicLoaderLoading(true);
             setEpicLoaderError(undefined);
@@ -959,7 +1072,9 @@ export function RunApp({
                 setEpicLoaderLoading(false);
               })
               .catch((err) => {
-                setEpicLoaderError(err instanceof Error ? err.message : 'Failed to load epics');
+                setEpicLoaderError(
+                  err instanceof Error ? err.message : 'Failed to load epics',
+                );
                 setEpicLoaderLoading(false);
               });
           }
@@ -967,7 +1082,9 @@ export function RunApp({
 
         case 'o':
           // Toggle between details and output view in the right panel
-          setDetailsViewMode((prev) => (prev === 'details' ? 'output' : 'details'));
+          setDetailsViewMode((prev) =>
+            prev === 'details' ? 'output' : 'details',
+          );
           break;
 
         case 't':
@@ -985,13 +1102,21 @@ export function RunApp({
           } else {
             // Cycle through subagent detail levels: off → minimal → moderate → full → off
             setSubagentDetailLevel((prev) => {
-              const levels: SubagentDetailLevel[] = ['off', 'minimal', 'moderate', 'full'];
+              const levels: SubagentDetailLevel[] = [
+                'off',
+                'minimal',
+                'moderate',
+                'full',
+              ];
               const currentIdx = levels.indexOf(prev);
               const nextIdx = (currentIdx + 1) % levels.length;
               const nextLevel = levels[nextIdx]!;
               // Persist the change if onSaveSettings is available
               if (storedConfig && onSaveSettings) {
-                const newConfig = { ...storedConfig, subagentTracingDetail: nextLevel };
+                const newConfig = {
+                  ...storedConfig,
+                  subagentTracingDetail: nextLevel,
+                };
                 onSaveSettings(newConfig).catch(() => {
                   // Ignore save errors for quick toggle - setting is still in-memory
                 });
@@ -1016,7 +1141,34 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showEpicLoader, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer]
+    [
+      displayedTasks,
+      selectedIndex,
+      status,
+      engine,
+      onQuit,
+      viewMode,
+      iterations,
+      iterationSelectedIndex,
+      iterationHistoryLength,
+      onIterationDrillDown,
+      showInterruptDialog,
+      onInterruptConfirm,
+      onInterruptCancel,
+      showHelp,
+      showSettings,
+      showQuitDialog,
+      showEpicLoader,
+      onStart,
+      storedConfig,
+      onSaveSettings,
+      onLoadEpics,
+      subagentDetailLevel,
+      onSubagentPanelVisibilityChange,
+      currentIteration,
+      maxIterations,
+      renderer,
+    ],
   );
 
   useKeyboard(handleKeyboard);
@@ -1025,14 +1177,14 @@ export function RunApp({
   const dashboardHeight = showDashboard ? layout.progressDashboard.height : 0;
   const contentHeight = Math.max(
     1,
-    height - layout.header.height - layout.footer.height - dashboardHeight
+    height - layout.header.height - layout.footer.height - dashboardHeight,
   );
   const isCompact = width < 80;
 
   // Calculate completed tasks (counting both 'done' and 'closed' as completed)
   // 'done' = completed in current session, 'closed' = historically completed
   const completedTasks = tasks.filter(
-    (t) => t.status === 'done' || t.status === 'closed'
+    (t) => t.status === 'done' || t.status === 'closed',
   ).length;
   const totalTasks = tasks.length;
 
@@ -1040,16 +1192,16 @@ export function RunApp({
   const selectedTask = displayedTasks[selectedIndex] ?? null;
 
   // Get selected iteration when in iterations view
-  const selectedIteration = viewMode === 'iterations' && iterations.length > 0
-    ? iterations[iterationSelectedIndex]
-    : undefined;
+  const selectedIteration =
+    viewMode === 'iterations' && iterations.length > 0
+      ? iterations[iterationSelectedIndex]
+      : undefined;
 
   // Unified task ID for data loading - works across both views
   // In iterations view, use the task ID from the selected iteration
   // In tasks view, use the task ID from the task list
-  const effectiveTaskId = viewMode === 'iterations'
-    ? selectedIteration?.task?.id
-    : selectedTask?.id;
+  const effectiveTaskId =
+    viewMode === 'iterations' ? selectedIteration?.task?.id : selectedTask?.id;
 
   // Compute the iteration output and timing to show
   // Uses effectiveTaskId to ensure correct data is shown in both tasks and iterations views
@@ -1065,18 +1217,30 @@ export function RunApp({
           startedAt: currentIterationStartedAt,
           isRunning: true,
         };
-        return { iteration: currentIteration, output: currentOutput, segments: currentSegments, timing };
+        return {
+          iteration: currentIteration,
+          output: currentOutput,
+          segments: currentSegments,
+          timing,
+        };
       }
-      return { iteration: currentIteration, output: undefined, segments: undefined, timing: undefined };
+      return {
+        iteration: currentIteration,
+        output: undefined,
+        segments: undefined,
+        timing: undefined,
+      };
     }
 
     // Check if this task is currently being executed
     // Derive active status from the effective task (iterations view uses selectedIteration.task,
     // tasks view uses selectedTask) to avoid showing wrong output
-    const effectiveTaskStatus = viewMode === 'iterations'
-      ? selectedIteration?.task?.status
-      : selectedTask?.status;
-    const isActiveTask = effectiveTaskStatus === 'active' || effectiveTaskStatus === 'in_progress';
+    const effectiveTaskStatus =
+      viewMode === 'iterations'
+        ? selectedIteration?.task?.status
+        : selectedTask?.status;
+    const isActiveTask =
+      effectiveTaskStatus === 'active' || effectiveTaskStatus === 'in_progress';
     const isExecuting = currentTaskId === effectiveTaskId || isActiveTask;
     if (isExecuting && currentTaskId) {
       // Use the captured start time from the iteration:started event
@@ -1084,11 +1248,18 @@ export function RunApp({
         startedAt: currentIterationStartedAt,
         isRunning: true,
       };
-      return { iteration: currentIteration, output: currentOutput, segments: currentSegments, timing };
+      return {
+        iteration: currentIteration,
+        output: currentOutput,
+        segments: currentSegments,
+        timing,
+      };
     }
 
     // Look for a completed iteration for this task (in-memory from current session)
-    const taskIteration = iterations.find((iter) => iter.task.id === effectiveTaskId);
+    const taskIteration = iterations.find(
+      (iter) => iter.task.id === effectiveTaskId,
+    );
     if (taskIteration) {
       const timing: IterationTimingInfo = {
         startedAt: taskIteration.startedAt,
@@ -1116,8 +1287,25 @@ export function RunApp({
     }
 
     // Task hasn't been run yet (or historical log not yet loaded)
-    return { iteration: 0, output: undefined, segments: undefined, timing: undefined };
-  }, [effectiveTaskId, selectedTask, selectedIteration, viewMode, currentTaskId, currentIteration, currentOutput, currentSegments, iterations, historicalOutputCache, currentIterationStartedAt]);
+    return {
+      iteration: 0,
+      output: undefined,
+      segments: undefined,
+      timing: undefined,
+    };
+  }, [
+    effectiveTaskId,
+    selectedTask,
+    selectedIteration,
+    viewMode,
+    currentTaskId,
+    currentIteration,
+    currentOutput,
+    currentSegments,
+    iterations,
+    historicalOutputCache,
+    currentIterationStartedAt,
+  ]);
 
   // Compute historic agent/model for display when viewing completed iterations
   // Falls back to current values if viewing a live iteration or no historic data available
@@ -1143,7 +1331,14 @@ export function RunApp({
 
     // Fall back to current values
     return { agent: displayAgentName, model: currentModel };
-  }, [effectiveTaskId, selectedIteration, currentTaskId, displayAgentName, currentModel, historicalOutputCache]);
+  }, [
+    effectiveTaskId,
+    selectedIteration,
+    currentTaskId,
+    displayAgentName,
+    currentModel,
+    historicalOutputCache,
+  ]);
 
   // Load historical iteration logs from disk when a completed task is selected
   // or when viewing iterations history
@@ -1192,7 +1387,13 @@ export function RunApp({
         }
       });
     }
-  }, [effectiveTaskId, selectedTask, selectedIteration, cwd, historicalOutputCache]);
+  }, [
+    effectiveTaskId,
+    selectedTask,
+    selectedIteration,
+    cwd,
+    historicalOutputCache,
+  ]);
 
   // Lazy load subagent trace data and historic context when viewing iteration details
   useEffect(() => {
@@ -1215,46 +1416,50 @@ export function RunApp({
     setIterationDetailSubagentLoading(true);
 
     // Find the log file for this iteration
-    getIterationLogsByTask(cwd, detailIteration.task.id).then(async (logs) => {
-      // Find the log matching this iteration number
-      const log = logs.find((l) => l.metadata.iteration === detailIteration.iteration);
-      if (log) {
-        // Extract historic execution context from metadata
-        const historicContext: HistoricExecutionContext = {
-          agentPlugin: log.metadata.agentPlugin,
-          model: log.metadata.model,
-          sandboxMode: log.metadata.sandboxMode,
-          resolvedSandboxMode: log.metadata.resolvedSandboxMode,
-          sandboxNetwork: log.metadata.sandboxNetwork,
-        };
-        setIterationDetailHistoricContext(historicContext);
+    getIterationLogsByTask(cwd, detailIteration.task.id)
+      .then(async (logs) => {
+        // Find the log matching this iteration number
+        const log = logs.find(
+          (l) => l.metadata.iteration === detailIteration.iteration,
+        );
+        if (log) {
+          // Extract historic execution context from metadata
+          const historicContext: HistoricExecutionContext = {
+            agentPlugin: log.metadata.agentPlugin,
+            model: log.metadata.model,
+            sandboxMode: log.metadata.sandboxMode,
+            resolvedSandboxMode: log.metadata.resolvedSandboxMode,
+            sandboxNetwork: log.metadata.sandboxNetwork,
+          };
+          setIterationDetailHistoricContext(historicContext);
 
-        // Extract subagent trace data if available
-        if (log.subagentTrace) {
-          setIterationDetailSubagentTree(log.subagentTrace.hierarchy);
-          setIterationDetailSubagentStats(log.subagentTrace.stats);
-          // Cache the stats for the history view
-          setSubagentStatsCache((prev) => {
-            const next = new Map(prev);
-            next.set(detailIteration.iteration, log.subagentTrace!.stats);
-            return next;
-          });
+          // Extract subagent trace data if available
+          if (log.subagentTrace) {
+            setIterationDetailSubagentTree(log.subagentTrace.hierarchy);
+            setIterationDetailSubagentStats(log.subagentTrace.stats);
+            // Cache the stats for the history view
+            setSubagentStatsCache((prev) => {
+              const next = new Map(prev);
+              next.set(detailIteration.iteration, log.subagentTrace!.stats);
+              return next;
+            });
+          } else {
+            setIterationDetailSubagentTree(undefined);
+            setIterationDetailSubagentStats(undefined);
+          }
         } else {
           setIterationDetailSubagentTree(undefined);
           setIterationDetailSubagentStats(undefined);
+          setIterationDetailHistoricContext(undefined);
         }
-      } else {
+        setIterationDetailSubagentLoading(false);
+      })
+      .catch(() => {
+        setIterationDetailSubagentLoading(false);
         setIterationDetailSubagentTree(undefined);
         setIterationDetailSubagentStats(undefined);
         setIterationDetailHistoricContext(undefined);
-      }
-      setIterationDetailSubagentLoading(false);
-    }).catch(() => {
-      setIterationDetailSubagentLoading(false);
-      setIterationDetailSubagentTree(undefined);
-      setIterationDetailSubagentStats(undefined);
-      setIterationDetailHistoricContext(undefined);
-    });
+      });
   }, [viewMode, detailIteration, cwd, subagentStatsCache]);
 
   // Also load subagent stats for all iterations when viewing history (lazy background loading)
@@ -1269,7 +1474,9 @@ export function RunApp({
         if (!subagentStatsCache.has(iter.iteration)) {
           try {
             const logs = await getIterationLogsByTask(cwd, iter.task.id);
-            const log = logs.find((l) => l.metadata.iteration === iter.iteration);
+            const log = logs.find(
+              (l) => l.metadata.iteration === iter.iteration,
+            );
             if (log?.subagentTrace?.stats) {
               setSubagentStatsCache((prev) => {
                 const next = new Map(prev);

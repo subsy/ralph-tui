@@ -25,7 +25,9 @@ describe('parseDroidJsonlLine', () => {
       expect(result.message.toolCalls).toHaveLength(1);
       expect(result.message.toolCalls![0].name).toBe('Bash');
       expect(result.message.toolCalls![0].id).toBe('call_123');
-      expect(result.message.toolCalls![0].arguments).toEqual({ command: 'ls -la' });
+      expect(result.message.toolCalls![0].arguments).toEqual({
+        command: 'ls -la',
+      });
     }
   });
 
@@ -94,7 +96,10 @@ describe('parseDroidJsonlLine', () => {
   });
 
   test('strips ANSI escape codes', () => {
-    const line = '\x1b[94m' + JSON.stringify({ type: 'message', text: 'test' }) + '\x1b[0m';
+    const line =
+      '\x1b[94m' +
+      JSON.stringify({ type: 'message', text: 'test' }) +
+      '\x1b[0m';
     const result = parseDroidJsonlLine(line);
     expect(result.success).toBe(true);
     if (result.success) {
@@ -105,11 +110,13 @@ describe('parseDroidJsonlLine', () => {
 
 describe('formatDroidEventForDisplay', () => {
   test('formats tool_call as bracketed tool name', () => {
-    const result = parseDroidJsonlLine(JSON.stringify({
-      type: 'tool_call',
-      toolName: 'Glob',
-      parameters: { pattern: '*.ts' },
-    }));
+    const result = parseDroidJsonlLine(
+      JSON.stringify({
+        type: 'tool_call',
+        toolName: 'Glob',
+        parameters: { pattern: '*.ts' },
+      }),
+    );
     expect(result.success).toBe(true);
     if (result.success) {
       const display = formatDroidEventForDisplay(result.message);
@@ -120,11 +127,13 @@ describe('formatDroidEventForDisplay', () => {
   });
 
   test('formats bash command with $ prefix', () => {
-    const result = parseDroidJsonlLine(JSON.stringify({
-      type: 'tool_call',
-      toolName: 'Bash',
-      parameters: { command: 'npm test' },
-    }));
+    const result = parseDroidJsonlLine(
+      JSON.stringify({
+        type: 'tool_call',
+        toolName: 'Bash',
+        parameters: { command: 'npm test' },
+      }),
+    );
     expect(result.success).toBe(true);
     if (result.success) {
       const display = formatDroidEventForDisplay(result.message);
@@ -134,11 +143,13 @@ describe('formatDroidEventForDisplay', () => {
   });
 
   test('formats read with file path', () => {
-    const result = parseDroidJsonlLine(JSON.stringify({
-      type: 'tool_call',
-      toolName: 'Read',
-      parameters: { file_path: '/home/user/test.ts' },
-    }));
+    const result = parseDroidJsonlLine(
+      JSON.stringify({
+        type: 'tool_call',
+        toolName: 'Read',
+        parameters: { file_path: '/home/user/test.ts' },
+      }),
+    );
     expect(result.success).toBe(true);
     if (result.success) {
       const display = formatDroidEventForDisplay(result.message);
@@ -148,11 +159,13 @@ describe('formatDroidEventForDisplay', () => {
   });
 
   test('returns undefined for tool_result (intentionally skipped)', () => {
-    const result = parseDroidJsonlLine(JSON.stringify({
-      type: 'tool_result',
-      id: 'call_123',
-      value: 'some output',
-    }));
+    const result = parseDroidJsonlLine(
+      JSON.stringify({
+        type: 'tool_result',
+        id: 'call_123',
+        value: 'some output',
+      }),
+    );
     expect(result.success).toBe(true);
     if (result.success) {
       const display = formatDroidEventForDisplay(result.message);
@@ -162,11 +175,13 @@ describe('formatDroidEventForDisplay', () => {
   });
 
   test('returns undefined for user message (input echo)', () => {
-    const result = parseDroidJsonlLine(JSON.stringify({
-      type: 'message',
-      role: 'user',
-      text: 'user input',
-    }));
+    const result = parseDroidJsonlLine(
+      JSON.stringify({
+        type: 'message',
+        role: 'user',
+        text: 'user input',
+      }),
+    );
     expect(result.success).toBe(true);
     if (result.success) {
       const display = formatDroidEventForDisplay(result.message);

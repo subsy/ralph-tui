@@ -25,7 +25,7 @@ const DEFAULT_DOUBLE_PRESS_WINDOW_MS = 1000;
  * 4. Double Ctrl+C (within window): Force quit immediately
  */
 export function createInterruptHandler(
-  options: InterruptHandlerOptions
+  options: InterruptHandlerOptions,
 ): InterruptHandler {
   const doublePressWindowMs =
     options.doublePressWindowMs ?? DEFAULT_DOUBLE_PRESS_WINDOW_MS;

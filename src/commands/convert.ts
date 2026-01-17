@@ -3,7 +3,13 @@
  * Converts PRD markdown files to prd.json or Beads format.
  */
 
-import { readFile, writeFile, access, constants, mkdir } from 'node:fs/promises';
+import {
+  readFile,
+  writeFile,
+  access,
+  constants,
+  mkdir,
+} from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import {
@@ -85,7 +91,12 @@ export function parseConvertArgs(args: string[]): ConvertArgs | null {
       branch = args[++i];
     } else if (arg === '--labels' || arg === '-l') {
       const labelsStr = args[++i];
-      labels = labelsStr ? labelsStr.split(',').map((l) => l.trim()).filter((l) => l.length > 0) : [];
+      labels = labelsStr
+        ? labelsStr
+            .split(',')
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0)
+        : [];
     } else if (arg === '--force' || arg === '-f') {
       force = true;
     } else if (arg === '--verbose' || arg === '-v') {
@@ -184,7 +195,7 @@ async function fileExists(path: string): Promise<boolean> {
  */
 async function execBd(
   args: string[],
-  cwd?: string
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     const proc = spawn('bd', args, {
@@ -232,7 +243,7 @@ interface BeadsConversionResult {
 async function convertToBeads(
   parsed: import('../prd/parser.js').ParsedPrd,
   labels: string[],
-  verbose: boolean
+  verbose: boolean,
 ): Promise<BeadsConversionResult> {
   const storyIds: string[] = [];
 
@@ -244,11 +255,16 @@ async function convertToBeads(
   printInfo('Creating epic bead...');
   const epicArgs = [
     'create',
-    '--type', 'epic',
-    '--title', parsed.name,
-    '--description', parsed.description,
-    '--labels', labelsStr,
-    '--priority', '1',
+    '--type',
+    'epic',
+    '--title',
+    parsed.name,
+    '--description',
+    parsed.description,
+    '--labels',
+    labelsStr,
+    '--priority',
+    '1',
     '--silent',
   ];
 
@@ -287,12 +303,18 @@ async function convertToBeads(
 
     const storyArgs = [
       'create',
-      '--type', 'task',
-      '--title', `${story.id}: ${story.title}`,
-      '--description', description,
-      '--labels', labelsStr,
-      '--priority', String(story.priority),
-      '--parent', epicId,
+      '--type',
+      'task',
+      '--title',
+      `${story.id}: ${story.title}`,
+      '--description',
+      description,
+      '--labels',
+      labelsStr,
+      '--priority',
+      String(story.priority),
+      '--parent',
+      epicId,
       '--silent',
     ];
 
@@ -303,7 +325,9 @@ async function convertToBeads(
     const storyResult = await execBd(storyArgs);
 
     if (storyResult.exitCode !== 0) {
-      printError(`Failed to create story ${story.id}: ${storyResult.stderr || storyResult.stdout}`);
+      printError(
+        `Failed to create story ${story.id}: ${storyResult.stderr || storyResult.stdout}`,
+      );
       continue;
     }
 
@@ -341,7 +365,9 @@ async function convertToBeads(
 
           if (depResult.exitCode !== 0) {
             if (verbose) {
-              printError(`  Failed to create dependency: ${depResult.stderr || depResult.stdout}`);
+              printError(
+                `  Failed to create dependency: ${depResult.stderr || depResult.stdout}`,
+              );
             }
           } else {
             depsCreated++;
@@ -353,8 +379,12 @@ async function convertToBeads(
 
   if (depsCreated > 0) {
     printSuccess(`Created ${depsCreated} dependencies`);
-  } else if (parsed.userStories.some((s) => s.dependsOn && s.dependsOn.length > 0)) {
-    printInfo('No dependencies created (may have been specified but not found)');
+  } else if (
+    parsed.userStories.some((s) => s.dependsOn && s.dependsOn.length > 0)
+  ) {
+    printInfo(
+      'No dependencies created (may have been specified but not found)',
+    );
   }
 
   // Step 4: Run bd sync
@@ -405,7 +435,9 @@ export async function executeConvertCommand(args: string[]): Promise<void> {
   try {
     markdown = await readFile(inputPath, 'utf-8');
   } catch (err) {
-    printError(`Failed to read input file: ${err instanceof Error ? err.message : String(err)}`);
+    printError(
+      `Failed to read input file: ${err instanceof Error ? err.message : String(err)}`,
+    );
     process.exit(1);
   }
 
@@ -432,7 +464,9 @@ export async function executeConvertCommand(args: string[]): Promise<void> {
     for (const story of parsed.userStories) {
       console.log(`  ${story.id}: ${story.title} (P${story.priority})`);
       if (story.acceptanceCriteria.length > 0) {
-        console.log(`    - ${story.acceptanceCriteria.length} acceptance criteria`);
+        console.log(
+          `    - ${story.acceptanceCriteria.length} acceptance criteria`,
+        );
       }
       if (story.dependsOn && story.dependsOn.length > 0) {
         console.log(`    - Depends on: ${story.dependsOn.join(', ')}`);
@@ -461,7 +495,7 @@ async function executeJsonConversion(
   parsed: import('../prd/parser.js').ParsedPrd,
   output: string | undefined,
   branch: string | undefined,
-  force: boolean
+  force: boolean,
 ): Promise<void> {
   // Prompt for branch name if not provided
   let branchName = branch || parsed.branchName;
@@ -491,9 +525,12 @@ async function executeJsonConversion(
   if (await fileExists(outputPath)) {
     if (!force) {
       console.log();
-      const overwrite = await promptBoolean(`Output file exists: ${outputPath}. Overwrite?`, {
-        default: false,
-      });
+      const overwrite = await promptBoolean(
+        `Output file exists: ${outputPath}. Overwrite?`,
+        {
+          default: false,
+        },
+      );
 
       if (!overwrite) {
         printInfo('Conversion cancelled');
@@ -509,8 +546,12 @@ async function executeJsonConversion(
     validatePrdJsonSchema(prdJson, outputPath);
   } catch (err) {
     if (err instanceof PrdJsonSchemaError) {
-      printError('Internal error: Generated prd.json failed schema validation.');
-      printError('This indicates a bug in the PRD parser. Please report this issue.');
+      printError(
+        'Internal error: Generated prd.json failed schema validation.',
+      );
+      printError(
+        'This indicates a bug in the PRD parser. Please report this issue.',
+      );
       for (const detail of err.details) {
         console.error(`  - ${detail}`);
       }
@@ -532,7 +573,9 @@ async function executeJsonConversion(
   try {
     await writeFile(outputPath, JSON.stringify(prdJson, null, 2), 'utf-8');
   } catch (err) {
-    printError(`Failed to write output file: ${err instanceof Error ? err.message : String(err)}`);
+    printError(
+      `Failed to write output file: ${err instanceof Error ? err.message : String(err)}`,
+    );
     process.exit(1);
   }
 
@@ -555,13 +598,15 @@ async function executeJsonConversion(
 async function executeBeadsConversion(
   parsed: import('../prd/parser.js').ParsedPrd,
   labels: string[],
-  verbose: boolean
+  verbose: boolean,
 ): Promise<void> {
   // Check that beads is available
   const { exitCode, stderr } = await execBd(['--version']);
   if (exitCode !== 0) {
     printError(`bd command not available: ${stderr}`);
-    printInfo('Make sure beads is installed and the bd command is in your PATH');
+    printInfo(
+      'Make sure beads is installed and the bd command is in your PATH',
+    );
     process.exit(1);
   }
 

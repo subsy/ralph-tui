@@ -7,7 +7,11 @@ import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { printStatusHelp } from '../../src/commands/status.js';
 
 // Import types for testing
-import type { RalphStatus, StatusExitCode, StatusJsonOutput } from '../../src/commands/status.js';
+import type {
+  RalphStatus,
+  StatusExitCode,
+  StatusJsonOutput,
+} from '../../src/commands/status.js';
 
 // Mock the session module
 const mockHasPersistedSession = mock(() => Promise.resolve(false));
@@ -26,11 +30,13 @@ const mockGetSessionSummary = mock(() => ({
   isResumable: true,
 }));
 const mockIsSessionResumable = mock(() => true);
-const mockCheckLock = mock(() => Promise.resolve({
-  isLocked: false,
-  isStale: false,
-  lock: null,
-}));
+const mockCheckLock = mock(() =>
+  Promise.resolve({
+    isLocked: false,
+    isStale: false,
+    lock: null,
+  }),
+);
 
 mock.module('../../src/session/index.js', () => ({
   hasPersistedSession: mockHasPersistedSession,
@@ -240,7 +246,7 @@ describe('status command', () => {
 
       const determineStatus = (
         session: PersistedSessionState | null,
-        lockCheck: LockCheckResult
+        lockCheck: LockCheckResult,
       ): RalphStatus => {
         if (lockCheck.isLocked) {
           return 'running';
@@ -266,7 +272,7 @@ describe('status command', () => {
 
       const result = determineStatus(
         { status: 'running' },
-        { isLocked: true, isStale: false, lock: { pid: 12345 } }
+        { isLocked: true, isStale: false, lock: { pid: 12345 } },
       );
       expect(result).toBe('running');
     });
@@ -280,7 +286,7 @@ describe('status command', () => {
 
       const determineStatus = (
         session: null,
-        lockCheck: LockCheckResult
+        lockCheck: LockCheckResult,
       ): RalphStatus => {
         if (lockCheck.isLocked) {
           return 'running';
@@ -291,10 +297,11 @@ describe('status command', () => {
         return 'no-session';
       };
 
-      const result = determineStatus(
-        null,
-        { isLocked: false, isStale: false, lock: null }
-      );
+      const result = determineStatus(null, {
+        isLocked: false,
+        isStale: false,
+        lock: null,
+      });
       expect(result).toBe('no-session');
     });
 
@@ -311,7 +318,7 @@ describe('status command', () => {
 
       const determineStatus = (
         session: PersistedSessionState | null,
-        lockCheck: LockCheckResult
+        lockCheck: LockCheckResult,
       ): RalphStatus => {
         if (lockCheck.isLocked) {
           return 'running';
@@ -337,7 +344,7 @@ describe('status command', () => {
 
       const result = determineStatus(
         { status: 'interrupted' },
-        { isLocked: false, isStale: false, lock: null }
+        { isLocked: false, isStale: false, lock: null },
       );
       expect(result).toBe('paused');
     });
@@ -355,7 +362,7 @@ describe('status command', () => {
 
       const determineStatus = (
         session: PersistedSessionState | null,
-        lockCheck: LockCheckResult
+        lockCheck: LockCheckResult,
       ): RalphStatus => {
         if (lockCheck.isLocked) {
           return 'running';
@@ -375,7 +382,7 @@ describe('status command', () => {
 
       const result = determineStatus(
         { status: 'completed' },
-        { isLocked: false, isStale: false, lock: null }
+        { isLocked: false, isStale: false, lock: null },
       );
       expect(result).toBe('completed');
     });
@@ -393,7 +400,7 @@ describe('status command', () => {
 
       const determineStatus = (
         session: PersistedSessionState | null,
-        lockCheck: LockCheckResult
+        lockCheck: LockCheckResult,
       ): RalphStatus => {
         if (lockCheck.isLocked) {
           return 'running';
@@ -413,7 +420,7 @@ describe('status command', () => {
 
       const result = determineStatus(
         { status: 'failed' },
-        { isLocked: false, isStale: false, lock: null }
+        { isLocked: false, isStale: false, lock: null },
       );
       expect(result).toBe('failed');
     });
@@ -493,29 +500,29 @@ describe('status command', () => {
 
   describe('elapsed time calculation', () => {
     test('calculates elapsed seconds correctly', () => {
-      const getElapsedSeconds = (startedAt: string, updatedAt: string): number => {
+      const getElapsedSeconds = (
+        startedAt: string,
+        updatedAt: string,
+      ): number => {
         const start = new Date(startedAt).getTime();
         const end = new Date(updatedAt).getTime();
         return Math.floor((end - start) / 1000);
       };
 
       // 2 minutes = 120 seconds
-      expect(getElapsedSeconds(
-        '2026-01-15T10:00:00Z',
-        '2026-01-15T10:02:00Z'
-      )).toBe(120);
+      expect(
+        getElapsedSeconds('2026-01-15T10:00:00Z', '2026-01-15T10:02:00Z'),
+      ).toBe(120);
 
       // 1 hour = 3600 seconds
-      expect(getElapsedSeconds(
-        '2026-01-15T10:00:00Z',
-        '2026-01-15T11:00:00Z'
-      )).toBe(3600);
+      expect(
+        getElapsedSeconds('2026-01-15T10:00:00Z', '2026-01-15T11:00:00Z'),
+      ).toBe(3600);
 
       // 0 seconds
-      expect(getElapsedSeconds(
-        '2026-01-15T10:00:00Z',
-        '2026-01-15T10:00:00Z'
-      )).toBe(0);
+      expect(
+        getElapsedSeconds('2026-01-15T10:00:00Z', '2026-01-15T10:00:00Z'),
+      ).toBe(0);
     });
   });
 
@@ -540,22 +547,19 @@ describe('status command', () => {
       };
 
       // Seconds only
-      expect(formatDuration(
-        '2026-01-15T10:00:00Z',
-        '2026-01-15T10:00:30Z'
-      )).toBe('30s');
+      expect(
+        formatDuration('2026-01-15T10:00:00Z', '2026-01-15T10:00:30Z'),
+      ).toBe('30s');
 
       // Minutes and seconds
-      expect(formatDuration(
-        '2026-01-15T10:00:00Z',
-        '2026-01-15T10:05:30Z'
-      )).toBe('5m 30s');
+      expect(
+        formatDuration('2026-01-15T10:00:00Z', '2026-01-15T10:05:30Z'),
+      ).toBe('5m 30s');
 
       // Hours and minutes
-      expect(formatDuration(
-        '2026-01-15T10:00:00Z',
-        '2026-01-15T12:30:00Z'
-      )).toBe('2h 30m');
+      expect(
+        formatDuration('2026-01-15T10:00:00Z', '2026-01-15T12:30:00Z'),
+      ).toBe('2h 30m');
     });
   });
 });

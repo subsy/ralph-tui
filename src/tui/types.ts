@@ -4,9 +4,18 @@
  */
 
 import type { TaskStatus, RalphStatus } from './theme.js';
-import type { IterationResult, SubagentTreeNode, ActiveAgentState, RateLimitState } from '../engine/types.js';
+import type {
+  IterationResult,
+  SubagentTreeNode,
+  ActiveAgentState,
+  RateLimitState,
+} from '../engine/types.js';
 import type { TaskPriority } from '../plugins/trackers/types.js';
-import type { SubagentDetailLevel, SandboxConfig, SandboxMode } from '../config/types.js';
+import type {
+  SubagentDetailLevel,
+  SandboxConfig,
+  SandboxMode,
+} from '../config/types.js';
 import type { FormattedSegment } from '../plugins/agents/output-formatting.js';
 
 // Re-export types for convenience

@@ -97,7 +97,7 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
    */
   abstract completeTask(
     id: string,
-    reason?: string
+    reason?: string,
   ): Promise<TaskCompletionResult>;
 
   /**
@@ -106,7 +106,7 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
    */
   abstract updateTaskStatus(
     id: string,
-    status: TrackerTaskStatus
+    status: TrackerTaskStatus,
   ): Promise<TrackerTask | undefined>;
 
   /**
@@ -115,7 +115,7 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
   async isComplete(filter?: TaskFilter): Promise<boolean> {
     const tasks = await this.getTasks(filter);
     return tasks.every(
-      (t) => t.status === 'completed' || t.status === 'cancelled'
+      (t) => t.status === 'completed' || t.status === 'cancelled',
     );
   }
 
@@ -172,7 +172,7 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
    * Subclasses should override for validation.
    */
   async validateSetup(
-    _answers: Record<string, unknown>
+    _answers: Record<string, unknown>,
   ): Promise<string | null> {
     return null;
   }
@@ -191,7 +191,7 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
    */
   protected filterTasks(
     tasks: TrackerTask[],
-    filter?: TaskFilter
+    filter?: TaskFilter,
   ): TrackerTask[] {
     if (!filter) {
       return tasks;
@@ -210,7 +210,7 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
     // Filter by labels (AND logic - must have all labels)
     if (filter.labels && filter.labels.length > 0) {
       result = result.filter((t) =>
-        filter.labels!.every((label) => t.labels?.includes(label))
+        filter.labels!.every((label) => t.labels?.includes(label)),
       );
     }
 
@@ -266,7 +266,10 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
    * Helper: Check if a task is ready (all dependencies resolved).
    * Used internally for filtering and readiness checks.
    */
-  protected checkTaskReady(task: TrackerTask, allTasks: TrackerTask[]): boolean {
+  protected checkTaskReady(
+    task: TrackerTask,
+    allTasks: TrackerTask[],
+  ): boolean {
     if (!task.dependsOn || task.dependsOn.length === 0) {
       return true;
     }

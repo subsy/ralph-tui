@@ -3,8 +3,19 @@
  * Tests plugin registration, discovery, instance management, and lifecycle.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { TrackerRegistry, getTrackerRegistry } from '../../src/plugins/trackers/registry.js';
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from 'bun:test';
+import {
+  TrackerRegistry,
+  getTrackerRegistry,
+} from '../../src/plugins/trackers/registry.js';
 import type {
   TrackerPlugin,
   TrackerPluginFactory,
@@ -17,7 +28,7 @@ import { createTrackerTask } from '../factories/tracker-task.js';
  * Create a mock TrackerPlugin for testing
  */
 function createMockTrackerPlugin(
-  overrides: { meta?: Partial<TrackerPluginMeta>; isReady?: boolean } = {}
+  overrides: { meta?: Partial<TrackerPluginMeta>; isReady?: boolean } = {},
 ): TrackerPlugin {
   const meta: TrackerPluginMeta = {
     id: 'mock-tracker',
@@ -37,7 +48,9 @@ function createMockTrackerPlugin(
     getTasks: mock(() => Promise.resolve([createTrackerTask()])),
     getTask: mock(() => Promise.resolve(createTrackerTask())),
     getNextTask: mock(() => Promise.resolve(createTrackerTask())),
-    completeTask: mock(() => Promise.resolve({ success: true, message: 'Completed' })),
+    completeTask: mock(() =>
+      Promise.resolve({ success: true, message: 'Completed' }),
+    ),
     updateTaskStatus: mock(() => Promise.resolve(createTrackerTask())),
     isComplete: mock(() => Promise.resolve(false)),
     sync: mock(() =>
@@ -45,7 +58,7 @@ function createMockTrackerPlugin(
         success: true,
         message: 'Synced',
         syncedAt: new Date().toISOString(),
-      })
+      }),
     ),
     isTaskReady: mock(() => Promise.resolve(true)),
     getEpics: mock(() => Promise.resolve([])),
@@ -139,14 +152,19 @@ describe('TrackerRegistry', () => {
 
       const plugins = registry.getRegisteredPlugins();
       expect(plugins.length).toBe(2);
-      expect(plugins.map((p) => p.id).sort()).toEqual(['tracker-1', 'tracker-2']);
+      expect(plugins.map((p) => p.id).sort()).toEqual([
+        'tracker-1',
+        'tracker-2',
+      ]);
     });
   });
 
   describe('createInstance', () => {
     test('creates a new instance from registered factory', () => {
       const registry = TrackerRegistry.getInstance();
-      const mockPlugin = createMockTrackerPlugin({ meta: { id: 'factory-test' } });
+      const mockPlugin = createMockTrackerPlugin({
+        meta: { id: 'factory-test' },
+      });
       const factory: TrackerPluginFactory = () => mockPlugin;
 
       registry.registerBuiltin(factory);
@@ -187,7 +205,9 @@ describe('TrackerRegistry', () => {
   describe('getInstance (cached)', () => {
     test('returns cached instance for same config name', async () => {
       const registry = TrackerRegistry.getInstance();
-      const mockPlugin = createMockTrackerPlugin({ meta: { id: 'cached-test' } });
+      const mockPlugin = createMockTrackerPlugin({
+        meta: { id: 'cached-test' },
+      });
       const initializeMock = mockPlugin.initialize as ReturnType<typeof mock>;
       const factory: TrackerPluginFactory = () => mockPlugin;
 
@@ -217,7 +237,7 @@ describe('TrackerRegistry', () => {
       };
 
       await expect(registry.getInstance(config)).rejects.toThrow(
-        'Unknown tracker plugin: unknown-plugin'
+        'Unknown tracker plugin: unknown-plugin',
       );
     });
 
@@ -251,7 +271,9 @@ describe('TrackerRegistry', () => {
   describe('disposeInstance', () => {
     test('disposes and removes cached instance', async () => {
       const registry = TrackerRegistry.getInstance();
-      const mockPlugin = createMockTrackerPlugin({ meta: { id: 'dispose-test' } });
+      const mockPlugin = createMockTrackerPlugin({
+        meta: { id: 'dispose-test' },
+      });
       const disposeMock = mockPlugin.dispose as ReturnType<typeof mock>;
       const factory: TrackerPluginFactory = () => mockPlugin;
 
@@ -288,8 +310,16 @@ describe('TrackerRegistry', () => {
       registry.registerBuiltin(() => plugin1);
       registry.registerBuiltin(() => plugin2);
 
-      await registry.getInstance({ name: 'tracker-1', plugin: 'multi-1', options: {} });
-      await registry.getInstance({ name: 'tracker-2', plugin: 'multi-2', options: {} });
+      await registry.getInstance({
+        name: 'tracker-1',
+        plugin: 'multi-1',
+        options: {},
+      });
+      await registry.getInstance({
+        name: 'tracker-2',
+        plugin: 'multi-2',
+        options: {},
+      });
 
       await registry.disposeAll();
 

@@ -53,7 +53,8 @@ const sizeStyles: Record<BadgeSize, string> = {
  */
 const variantStyles: Record<BadgeVariant, string> = {
   // Default: Primary accent
-  default: 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30',
+  default:
+    'bg-accent-primary/20 text-accent-primary border border-accent-primary/30',
 
   // Secondary: Muted appearance
   secondary: 'bg-bg-tertiary text-fg-secondary border border-border',
@@ -70,7 +71,8 @@ const variantStyles: Record<BadgeVariant, string> = {
   info: 'bg-status-info/15 text-status-info border border-status-info/30',
 
   // Outline: Minimal border-only style
-  outline: 'bg-transparent text-fg-secondary border border-border hover:border-fg-muted',
+  outline:
+    'bg-transparent text-fg-secondary border border-border hover:border-fg-muted',
 };
 
 /**
@@ -116,7 +118,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       children,
       ...props
     },
-    ref
+    ref,
   ) => {
     const classes = [
       baseStyles,
@@ -143,7 +145,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
         {children}
       </span>
     );
-  }
+  },
 );
 
 Badge.displayName = 'Badge';

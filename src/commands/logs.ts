@@ -161,16 +161,22 @@ function displayIterationLog(log: IterationLog, verbose: boolean): void {
   const { metadata, stdout, stderr } = log;
 
   console.log('');
-  console.log('═══════════════════════════════════════════════════════════════');
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
   console.log(`  Iteration ${metadata.iteration}: ${metadata.taskTitle}`);
-  console.log('═══════════════════════════════════════════════════════════════');
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
   console.log('');
 
   // Metadata section
   console.log('  Metadata');
   console.log('  ────────');
   console.log(`  Task ID:        ${metadata.taskId}`);
-  console.log(`  Status:         ${getStatusIcon(metadata.status)} ${metadata.status}`);
+  console.log(
+    `  Status:         ${getStatusIcon(metadata.status)} ${metadata.status}`,
+  );
   console.log(`  Task Completed: ${metadata.taskCompleted ? 'Yes' : 'No'}`);
   console.log(`  Promise Found:  ${metadata.promiseComplete ? 'Yes' : 'No'}`);
   console.log(`  Started:        ${formatDate(metadata.startedAt)}`);
@@ -210,7 +216,9 @@ function displayIterationLog(log: IterationLog, verbose: boolean): void {
       console.log(preview);
       if (lines.length > 50) {
         console.log('');
-        console.log(`  ... (${lines.length - 50} more lines, use --verbose to see all)`);
+        console.log(
+          `  ... (${lines.length - 50} more lines, use --verbose to see all)`,
+        );
       }
     }
   } else {
@@ -236,7 +244,9 @@ function displayIterationLog(log: IterationLog, verbose: boolean): void {
   }
 
   console.log('');
-  console.log('───────────────────────────────────────────────────────────────');
+  console.log(
+    '───────────────────────────────────────────────────────────────',
+  );
   console.log('');
 }
 
@@ -250,14 +260,24 @@ function displayLogList(summaries: IterationLogSummary[]): void {
   }
 
   console.log('');
-  console.log('═══════════════════════════════════════════════════════════════');
-  console.log('                     Iteration Logs                            ');
-  console.log('═══════════════════════════════════════════════════════════════');
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
+  console.log(
+    '                     Iteration Logs                            ',
+  );
+  console.log(
+    '═══════════════════════════════════════════════════════════════',
+  );
   console.log('');
 
   // Table header
-  console.log('  #    Status  Task ID              Title                        Duration');
-  console.log('  ─────────────────────────────────────────────────────────────────────────');
+  console.log(
+    '  #    Status  Task ID              Title                        Duration',
+  );
+  console.log(
+    '  ─────────────────────────────────────────────────────────────────────────',
+  );
 
   for (const summary of summaries) {
     const icon = getStatusIcon(summary.status);
@@ -348,7 +368,11 @@ export async function executeLogsCommand(args: string[]): Promise<void> {
 /**
  * Execute the logs clean operation.
  */
-async function executeCleanLogs(cwd: string, keep: number, dryRun: boolean): Promise<void> {
+async function executeCleanLogs(
+  cwd: string,
+  keep: number,
+  dryRun: boolean,
+): Promise<void> {
   const count = await getIterationLogCount(cwd);
 
   if (count === 0) {
@@ -357,7 +381,9 @@ async function executeCleanLogs(cwd: string, keep: number, dryRun: boolean): Pro
   }
 
   if (count <= keep) {
-    console.log(`Only ${count} log(s) found, keeping all (threshold: ${keep}).`);
+    console.log(
+      `Only ${count} log(s) found, keeping all (threshold: ${keep}).`,
+    );
     return;
   }
 

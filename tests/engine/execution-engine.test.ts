@@ -4,7 +4,15 @@
  * SELECT → BUILD → EXECUTE → DETECT cycle.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from 'bun:test';
 import { ExecutionEngine } from '../../src/engine/index.js';
 import type {
   EngineEvent,
@@ -13,9 +21,19 @@ import type {
   IterationResult,
 } from '../../src/engine/types.js';
 import type { RalphConfig } from '../../src/config/types.js';
-import type { TrackerTask, TrackerPlugin } from '../../src/plugins/trackers/types.js';
-import type { AgentPlugin, AgentExecutionHandle, AgentExecutionResult } from '../../src/plugins/agents/types.js';
-import { createTrackerTask, createTrackerTasks } from '../factories/tracker-task.js';
+import type {
+  TrackerTask,
+  TrackerPlugin,
+} from '../../src/plugins/trackers/types.js';
+import type {
+  AgentPlugin,
+  AgentExecutionHandle,
+  AgentExecutionResult,
+} from '../../src/plugins/agents/types.js';
+import {
+  createTrackerTask,
+  createTrackerTasks,
+} from '../factories/tracker-task.js';
 import {
   createMockAgentPlugin,
   createSuccessfulExecution,
@@ -27,13 +45,26 @@ import {
 // Mock the registry modules
 const mockAgentInstance = createMockAgentPlugin();
 const mockTrackerInstance: Partial<TrackerPlugin> = {
-  sync: mock(() => Promise.resolve({ success: true, message: 'Synced', added: 0, updated: 0, removed: 0, syncedAt: new Date().toISOString() })),
+  sync: mock(() =>
+    Promise.resolve({
+      success: true,
+      message: 'Synced',
+      added: 0,
+      updated: 0,
+      removed: 0,
+      syncedAt: new Date().toISOString(),
+    }),
+  ),
   getTasks: mock(() => Promise.resolve([] as TrackerTask[])),
-  getNextTask: mock(() => Promise.resolve(undefined as TrackerTask | undefined)),
+  getNextTask: mock(() =>
+    Promise.resolve(undefined as TrackerTask | undefined),
+  ),
   isComplete: mock(() => Promise.resolve(false)),
   isTaskReady: mock(() => Promise.resolve(true)),
   updateTaskStatus: mock(() => Promise.resolve()),
-  completeTask: mock(() => Promise.resolve({ success: true, message: 'Completed' })),
+  completeTask: mock(() =>
+    Promise.resolve({ success: true, message: 'Completed' }),
+  ),
 };
 
 // Mock session functions
@@ -163,18 +194,18 @@ describe('ExecutionEngine', () => {
         engine = new ExecutionEngine(config);
 
         // Mock initialization
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(true)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(true));
 
         await engine.initialize();
-        
+
         const startPromise = engine.start();
         expect(engine.getStatus()).toBe('running');
-        
+
         await startPromise;
       });
 
@@ -182,12 +213,12 @@ describe('ExecutionEngine', () => {
         engine = new ExecutionEngine(config);
         engine.on((event) => events.push(event));
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(true)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(true));
 
         await engine.initialize();
         await engine.start();
@@ -200,18 +231,20 @@ describe('ExecutionEngine', () => {
       test('cannot start twice', async () => {
         engine = new ExecutionEngine(config);
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([createTrackerTask()])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(false)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([createTrackerTask()]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(false));
 
         await engine.initialize();
         const startPromise = engine.start();
 
-        await expect(engine.start()).rejects.toThrow('Cannot start engine in running state');
-        
+        await expect(engine.start()).rejects.toThrow(
+          'Cannot start engine in running state',
+        );
+
         // Clean up
         await engine.stop();
         await startPromise;
@@ -222,12 +255,12 @@ describe('ExecutionEngine', () => {
       test('pause sets status to pausing', async () => {
         engine = new ExecutionEngine(config);
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([createTrackerTask()])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(false)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([createTrackerTask()]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(false));
 
         await engine.initialize();
         const startPromise = engine.start();
@@ -242,12 +275,12 @@ describe('ExecutionEngine', () => {
       test('isPaused returns false while pausing', async () => {
         engine = new ExecutionEngine(config);
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([createTrackerTask()])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(false)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([createTrackerTask()]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(false));
 
         await engine.initialize();
         const startPromise = engine.start();
@@ -265,12 +298,12 @@ describe('ExecutionEngine', () => {
       test('resume cancels pending pause', async () => {
         engine = new ExecutionEngine(config);
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([createTrackerTask()])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(false)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([createTrackerTask()]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(false));
 
         await engine.initialize();
         const startPromise = engine.start();
@@ -289,12 +322,12 @@ describe('ExecutionEngine', () => {
       test('resume does nothing when not paused', async () => {
         engine = new ExecutionEngine(config);
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(true)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(true));
 
         await engine.initialize();
         engine.resume(); // Should not throw
@@ -306,12 +339,12 @@ describe('ExecutionEngine', () => {
       test('stop transitions through stopping to idle', async () => {
         engine = new ExecutionEngine(config);
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([createTrackerTask()])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(false)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([createTrackerTask()]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(false));
 
         await engine.initialize();
         const startPromise = engine.start();
@@ -326,12 +359,12 @@ describe('ExecutionEngine', () => {
         engine = new ExecutionEngine(config);
         engine.on((event) => events.push(event));
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([createTrackerTask()])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(false)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([createTrackerTask()]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(false));
 
         await engine.initialize();
         const startPromise = engine.start();
@@ -339,7 +372,10 @@ describe('ExecutionEngine', () => {
         await startPromise;
 
         const stopEvent = events.find(
-          (e) => e.type === 'engine:stopped' && 'reason' in e && e.reason === 'interrupted'
+          (e) =>
+            e.type === 'engine:stopped' &&
+            'reason' in e &&
+            e.reason === 'interrupted',
         );
         expect(stopEvent).toBeDefined();
       });
@@ -350,12 +386,12 @@ describe('ExecutionEngine', () => {
         engine = new ExecutionEngine(config);
         engine.on((event) => events.push(event));
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(true)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(true));
 
         await engine.initialize();
         await engine.start();
@@ -373,12 +409,12 @@ describe('ExecutionEngine', () => {
         // Simulate hitting max iterations by setting config to 1
         config.maxIterations = 1;
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(true)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(true));
 
         await engine.initialize();
         await engine.start();
@@ -390,18 +426,21 @@ describe('ExecutionEngine', () => {
         engine = new ExecutionEngine(config);
         engine.on((event) => events.push(event));
 
-        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve([])
-        );
-        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-          Promise.resolve(false)
-        );
+        (
+          mockTrackerInstance.getTasks as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve([]));
+        (
+          mockTrackerInstance.isComplete as ReturnType<typeof mock>
+        ).mockImplementation(() => Promise.resolve(false));
 
         await engine.initialize();
         await engine.start();
 
         const stopEvent = events.find(
-          (e) => e.type === 'engine:stopped' && 'reason' in e && e.reason === 'no_tasks'
+          (e) =>
+            e.type === 'engine:stopped' &&
+            'reason' in e &&
+            e.reason === 'no_tasks',
         );
         expect(stopEvent).toBeDefined();
       });
@@ -414,7 +453,8 @@ describe('ExecutionEngine', () => {
         config = createTestConfig({ maxIterations: 5 });
         engine = new ExecutionEngine(config);
 
-        const { currentIteration, maxIterations: initial } = engine.getIterationInfo();
+        const { currentIteration, maxIterations: initial } =
+          engine.getIterationInfo();
         expect(initial).toBe(5);
 
         const shouldRestart = await engine.addIterations(3);
@@ -455,7 +495,9 @@ describe('ExecutionEngine', () => {
 
         await engine.addIterations(3);
 
-        const addEvent = events.find((e) => e.type === 'engine:iterations-added');
+        const addEvent = events.find(
+          (e) => e.type === 'engine:iterations-added',
+        );
         expect(addEvent).toBeDefined();
         if (addEvent && 'added' in addEvent) {
           expect(addEvent.added).toBe(3);
@@ -512,7 +554,9 @@ describe('ExecutionEngine', () => {
 
         await engine.removeIterations(3);
 
-        const removeEvent = events.find((e) => e.type === 'engine:iterations-removed');
+        const removeEvent = events.find(
+          (e) => e.type === 'engine:iterations-removed',
+        );
         expect(removeEvent).toBeDefined();
         if (removeEvent && 'removed' in removeEvent) {
           expect(removeEvent.removed).toBe(3);
@@ -538,7 +582,9 @@ describe('ExecutionEngine', () => {
   describe('error classification', () => {
     test('classifies rate limit errors', async () => {
       engine = new ExecutionEngine(config);
-      const detector = new (await import('../../src/engine/rate-limit-detector.js')).RateLimitDetector();
+      const detector = new (
+        await import('../../src/engine/rate-limit-detector.js')
+      ).RateLimitDetector();
 
       const result = detector.detect({
         stderr: 'Error: 429 Too Many Requests',
@@ -550,7 +596,9 @@ describe('ExecutionEngine', () => {
 
     test('classifies crash errors (non-rate-limit failures)', async () => {
       engine = new ExecutionEngine(config);
-      const detector = new (await import('../../src/engine/rate-limit-detector.js')).RateLimitDetector();
+      const detector = new (
+        await import('../../src/engine/rate-limit-detector.js')
+      ).RateLimitDetector();
 
       const result = detector.detect({
         stderr: 'Segmentation fault',
@@ -562,7 +610,9 @@ describe('ExecutionEngine', () => {
 
     test('classifies completion (success)', async () => {
       engine = new ExecutionEngine(config);
-      const detector = new (await import('../../src/engine/rate-limit-detector.js')).RateLimitDetector();
+      const detector = new (
+        await import('../../src/engine/rate-limit-detector.js')
+      ).RateLimitDetector();
 
       const result = detector.detect({
         stderr: '',
@@ -581,7 +631,7 @@ describe('ExecutionEngine', () => {
       engine.on(listener);
       // Manually trigger an event by changing state
       // (In production, events are emitted during lifecycle)
-      
+
       expect(listener).not.toHaveBeenCalled(); // No events emitted yet
     });
 
@@ -602,15 +652,15 @@ describe('ExecutionEngine', () => {
         throw new Error('Listener error');
       });
 
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([])
-      );
-      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve(true)
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([]));
+      (
+        mockTrackerInstance.isComplete as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve(true));
 
       await engine.initialize();
-      
+
       // Should not throw despite listener error
       await expect(engine.start()).resolves.toBeUndefined();
     });
@@ -625,9 +675,9 @@ describe('ExecutionEngine', () => {
     test('getActiveAgentInfo returns active agent after initialization', async () => {
       engine = new ExecutionEngine(config);
 
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([])
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([]));
 
       await engine.initialize();
 
@@ -645,9 +695,9 @@ describe('ExecutionEngine', () => {
     test('getRateLimitState returns state after initialization', async () => {
       engine = new ExecutionEngine(config);
 
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([])
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([]));
 
       await engine.initialize();
 
@@ -673,9 +723,9 @@ describe('ExecutionEngine', () => {
     test('getTracker returns tracker after initialization', async () => {
       engine = new ExecutionEngine(config);
 
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([])
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([]));
 
       await engine.initialize();
 
@@ -687,9 +737,9 @@ describe('ExecutionEngine', () => {
       engine.on((event) => events.push(event));
 
       const tasks = createTrackerTasks(3);
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve(tasks)
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve(tasks));
 
       await engine.initialize();
       events.length = 0; // Clear init events
@@ -715,17 +765,26 @@ describe('ExecutionEngine', () => {
     test('resetTasksToOpen resets tasks back to open status', async () => {
       engine = new ExecutionEngine(config);
 
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([])
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([]));
 
       await engine.initialize();
 
-      const resetCount = await engine.resetTasksToOpen(['task-001', 'task-002']);
+      const resetCount = await engine.resetTasksToOpen([
+        'task-001',
+        'task-002',
+      ]);
 
       expect(resetCount).toBe(2);
-      expect(mockTrackerInstance.updateTaskStatus).toHaveBeenCalledWith('task-001', 'open');
-      expect(mockTrackerInstance.updateTaskStatus).toHaveBeenCalledWith('task-002', 'open');
+      expect(mockTrackerInstance.updateTaskStatus).toHaveBeenCalledWith(
+        'task-001',
+        'open',
+      );
+      expect(mockTrackerInstance.updateTaskStatus).toHaveBeenCalledWith(
+        'task-002',
+        'open',
+      );
     });
 
     test('resetTasksToOpen returns 0 before initialization', async () => {
@@ -739,9 +798,9 @@ describe('ExecutionEngine', () => {
     test('resetTasksToOpen returns 0 for empty array', async () => {
       engine = new ExecutionEngine(config);
 
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([])
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([]));
 
       await engine.initialize();
 
@@ -757,12 +816,12 @@ describe('ExecutionEngine', () => {
       const listener = mock(() => {});
       engine.on(listener);
 
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([])
-      );
-      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve(true)
-      );
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([]));
+      (
+        mockTrackerInstance.isComplete as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve(true));
 
       await engine.initialize();
       await engine.dispose();
@@ -785,15 +844,19 @@ describe('ExecutionEngine', () => {
 
       // Setup: getNextTask returns no task (so engine stops with no_tasks)
       // This ensures we test the delegation without having to run a full iteration
-      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>).mockImplementation(() => {
+      (
+        mockTrackerInstance.getNextTask as ReturnType<typeof mock>
+      ).mockImplementation(() => {
         getNextTaskCalled = true;
         return Promise.resolve(undefined); // No task available
       });
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([task])
-      );
-      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve(false) // Not complete, so engine tries to get next task
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([task]));
+      (
+        mockTrackerInstance.isComplete as ReturnType<typeof mock>
+      ).mockImplementation(
+        () => Promise.resolve(false), // Not complete, so engine tries to get next task
       );
 
       await engine.initialize();
@@ -810,22 +873,25 @@ describe('ExecutionEngine', () => {
       engine.on((event) => events.push(event));
 
       // Setup: getNextTask returns undefined (no ready tasks)
-      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve(undefined)
-      );
-      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve([createTrackerTask()])
-      );
-      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
-        Promise.resolve(false)
-      );
+      (
+        mockTrackerInstance.getNextTask as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve(undefined));
+      (
+        mockTrackerInstance.getTasks as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve([createTrackerTask()]));
+      (
+        mockTrackerInstance.isComplete as ReturnType<typeof mock>
+      ).mockImplementation(() => Promise.resolve(false));
 
       await engine.initialize();
       await engine.start();
 
       // Should emit engine:stopped with reason no_tasks
       const stopEvent = events.find(
-        (e) => e.type === 'engine:stopped' && 'reason' in e && e.reason === 'no_tasks'
+        (e) =>
+          e.type === 'engine:stopped' &&
+          'reason' in e &&
+          e.reason === 'no_tasks',
       );
       expect(stopEvent).toBeDefined();
     });

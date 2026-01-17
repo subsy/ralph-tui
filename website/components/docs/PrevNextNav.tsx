@@ -22,7 +22,10 @@ interface NavLink {
 /**
  * Finds the previous and next pages relative to the current path.
  */
-function findPrevNext(currentPath: string): { prev: NavLink | null; next: NavLink | null } {
+function findPrevNext(currentPath: string): {
+  prev: NavLink | null;
+  next: NavLink | null;
+} {
   // Flatten the navigation tree
   const flatNav = flattenNavigation(docsNavigation);
 
@@ -34,7 +37,8 @@ function findPrevNext(currentPath: string): { prev: NavLink | null; next: NavLin
   }
 
   const prev = currentIndex > 0 ? flatNav[currentIndex - 1] : null;
-  const next = currentIndex < flatNav.length - 1 ? flatNav[currentIndex + 1] : null;
+  const next =
+    currentIndex < flatNav.length - 1 ? flatNav[currentIndex + 1] : null;
 
   return {
     prev: prev ? { title: prev.title, href: prev.href! } : null,
@@ -56,11 +60,7 @@ export function PrevNextNav({ currentPath, className = '' }: PrevNextNavProps) {
 
   return (
     <nav
-      className={[
-        'mt-16 pt-8',
-        'border-t border-border',
-        className,
-      ].join(' ')}
+      className={['mt-16 pt-8', 'border-t border-border', className].join(' ')}
       aria-label="Page navigation"
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

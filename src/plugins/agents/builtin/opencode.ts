@@ -7,7 +7,11 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -56,9 +60,13 @@ function parseOpenCodeJsonLine(jsonLine: string): AgentDisplayEvent[] {
       case 'tool_result': {
         // Tool completed - check for errors in the result
         const resultState = event.part?.state;
-        const isError = resultState?.isError === true || resultState?.is_error === true;
+        const isError =
+          resultState?.isError === true || resultState?.is_error === true;
         if (isError) {
-          const errorMsg = resultState?.error || resultState?.content || 'tool execution failed';
+          const errorMsg =
+            resultState?.error ||
+            resultState?.content ||
+            'tool execution failed';
           events.push({ type: 'error', message: errorMsg });
         }
         // Always include tool_result marker (shared logic will skip for display)
@@ -74,7 +82,10 @@ function parseOpenCodeJsonLine(jsonLine: string): AgentDisplayEvent[] {
 
       case 'error':
         // Error from opencode
-        events.push({ type: 'error', message: event.error?.message || 'Unknown error' });
+        events.push({
+          type: 'error',
+          message: event.error?.message || 'Unknown error',
+        });
         break;
     }
 
@@ -203,7 +214,11 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   override getSandboxRequirements() {
     return {
       // ~/.local/share/opencode contains auth.json with OAuth tokens
-      authPaths: ['~/.opencode', '~/.config/opencode', '~/.local/share/opencode'],
+      authPaths: [
+        '~/.opencode',
+        '~/.config/opencode',
+        '~/.local/share/opencode',
+      ],
       binaryPaths: ['/usr/local/bin', '~/.local/bin', '~/go/bin'],
       runtimePaths: [],
       requiresNetwork: true,
@@ -214,7 +229,7 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
    * Run --version to verify binary and extract version number
    */
   private runVersion(
-    command: string
+    command: string,
   ): Promise<{ success: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
       const proc = spawn(command, ['--version'], {
@@ -273,12 +288,24 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
         prompt: 'AI provider:',
         type: 'select',
         choices: [
-          { value: '', label: 'Default', description: 'Use configured default provider' },
-          { value: 'anthropic', label: 'Anthropic', description: 'Claude models' },
+          {
+            value: '',
+            label: 'Default',
+            description: 'Use configured default provider',
+          },
+          {
+            value: 'anthropic',
+            label: 'Anthropic',
+            description: 'Claude models',
+          },
           { value: 'openai', label: 'OpenAI', description: 'GPT models' },
           { value: 'google', label: 'Google', description: 'Gemini models' },
           { value: 'xai', label: 'xAI', description: 'Grok models' },
-          { value: 'ollama', label: 'Ollama', description: 'Local models via Ollama' },
+          {
+            value: 'ollama',
+            label: 'Ollama',
+            description: 'Local models via Ollama',
+          },
         ],
         default: '',
         required: false,
@@ -297,9 +324,21 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
         prompt: 'Agent type:',
         type: 'select',
         choices: [
-          { value: 'general', label: 'General', description: 'General-purpose agent (default)' },
-          { value: 'build', label: 'Build', description: 'Focused on building code' },
-          { value: 'plan', label: 'Plan', description: 'Planning and architecture' },
+          {
+            value: 'general',
+            label: 'General',
+            description: 'General-purpose agent (default)',
+          },
+          {
+            value: 'build',
+            label: 'Build',
+            description: 'Focused on building code',
+          },
+          {
+            value: 'plan',
+            label: 'Plan',
+            description: 'Planning and architecture',
+          },
         ],
         default: 'general',
         required: false,
@@ -311,7 +350,7 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   protected buildArgs(
     prompt: string,
     files?: AgentFileContext[],
-    _options?: AgentExecuteOptions
+    _options?: AgentExecuteOptions,
   ): string[] {
     // OpenCode uses: opencode run [flags] [message..]
     const args: string[] = ['run'];
@@ -353,32 +392,33 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   override execute(
     prompt: string,
     files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): AgentExecutionHandle {
     // Wrap callbacks to parse JSON events
     const parsedOptions: AgentExecuteOptions = {
       ...options,
-      onStdout: (options?.onStdout || options?.onStdoutSegments)
-        ? (data: string) => {
-            const events = parseOpenCodeOutputToEvents(data);
-            if (events.length > 0) {
-              // Call TUI-native segments callback if provided
-              if (options?.onStdoutSegments) {
-                const segments = processAgentEventsToSegments(events);
-                if (segments.length > 0) {
-                  options.onStdoutSegments(segments);
+      onStdout:
+        options?.onStdout || options?.onStdoutSegments
+          ? (data: string) => {
+              const events = parseOpenCodeOutputToEvents(data);
+              if (events.length > 0) {
+                // Call TUI-native segments callback if provided
+                if (options?.onStdoutSegments) {
+                  const segments = processAgentEventsToSegments(events);
+                  if (segments.length > 0) {
+                    options.onStdoutSegments(segments);
+                  }
                 }
-              }
-              // Also call legacy string callback if provided
-              if (options?.onStdout) {
-                const parsed = processAgentEvents(events);
-                if (parsed.length > 0) {
-                  options.onStdout(parsed);
+                // Also call legacy string callback if provided
+                if (options?.onStdout) {
+                  const parsed = processAgentEvents(events);
+                  if (parsed.length > 0) {
+                    options.onStdout(parsed);
+                  }
                 }
               }
             }
-          }
-        : undefined,
+          : undefined,
     };
 
     return super.execute(prompt, files, parsedOptions);
@@ -400,7 +440,7 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   }
 
   override async validateSetup(
-    answers: Record<string, unknown>
+    answers: Record<string, unknown>,
   ): Promise<string | null> {
     // Validate provider - accept any non-empty string since OpenCode supports 75+ providers
     const provider = answers.provider;
@@ -427,12 +467,12 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
-    * Validate a model name for the OpenCode agent.
-    * Accepts either "provider/model" format or just "model" name.
-    * Provider validation is delegated to the OpenCode CLI which supports 75+ providers.
-    * @param model The model name to validate
-    * @returns null if valid, error message if invalid
-    */
+   * Validate a model name for the OpenCode agent.
+   * Accepts either "provider/model" format or just "model" name.
+   * Provider validation is delegated to the OpenCode CLI which supports 75+ providers.
+   * @param model The model name to validate
+   * @returns null if valid, error message if invalid
+   */
   override validateModel(model: string): string | null {
     if (model === '' || model === undefined) {
       return null; // Empty is valid (uses default)

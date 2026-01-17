@@ -64,12 +64,12 @@ const searchIndex: SearchItem[] = (searchIndexData as SearchIndexItem[]).map(
     href: item.href,
     anchor: item.anchor,
     category: item.category,
-  })
+  }),
 );
 
 // Store searchable content separately for searching
 const searchableContents: string[] = (searchIndexData as SearchIndexItem[]).map(
-  (item) => item.searchableContent
+  (item) => item.searchableContent,
 );
 
 /**
@@ -144,7 +144,7 @@ export function searchDocs(query: string, limit = 10): SearchItem[] {
  */
 export function getSearchItemsByCategory(category: string): SearchItem[] {
   return searchIndex.filter(
-    (item) => item.category.toLowerCase() === category.toLowerCase()
+    (item) => item.category.toLowerCase() === category.toLowerCase(),
   );
 }
 

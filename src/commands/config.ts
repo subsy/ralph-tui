@@ -88,7 +88,8 @@ export async function executeConfigShowCommand(args: string[]): Promise<void> {
   const showSources = args.includes('--sources') || args.includes('-s');
   const showToml = args.includes('--toml') || args.includes('-t');
   const cwdIndex = args.indexOf('--cwd');
-  const cwd = cwdIndex !== -1 && args[cwdIndex + 1] ? args[cwdIndex + 1] : process.cwd();
+  const cwd =
+    cwdIndex !== -1 && args[cwdIndex + 1] ? args[cwdIndex + 1] : process.cwd();
 
   // Load config with source info
   const { config, source } = await loadStoredConfigWithSource(cwd);

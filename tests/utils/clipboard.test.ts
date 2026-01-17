@@ -9,8 +9,15 @@ import { EventEmitter } from 'node:events';
 // Track what spawn was called with
 let spawnCalls: Array<{ command: string; args: string[] }> = [];
 let mockPlatform = 'darwin';
-let mockSpawnBehavior: 'success' | 'enoent' | 'error' | 'stderr' | 'other-error' = 'success';
-let mockSpawnSequence: Array<'success' | 'enoent' | 'error' | 'stderr' | 'other-error'> = [];
+let mockSpawnBehavior:
+  | 'success'
+  | 'enoent'
+  | 'error'
+  | 'stderr'
+  | 'other-error' = 'success';
+let mockSpawnSequence: Array<
+  'success' | 'enoent' | 'error' | 'stderr' | 'other-error'
+> = [];
 let spawnCallIndex = 0;
 
 // Create mock stdin
@@ -22,7 +29,9 @@ function createMockStdin() {
 }
 
 // Create mock process
-function createMockProcess(behavior: 'success' | 'enoent' | 'error' | 'stderr' | 'other-error') {
+function createMockProcess(
+  behavior: 'success' | 'enoent' | 'error' | 'stderr' | 'other-error',
+) {
   const proc = new EventEmitter() as EventEmitter & {
     stdin: ReturnType<typeof createMockStdin>;
     stdout: EventEmitter;

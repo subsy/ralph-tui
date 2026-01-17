@@ -12,9 +12,10 @@ import { docsNavigation } from '@/lib/navigation';
 import { SidebarNavItem } from './SidebarNav';
 
 // Version exposed via next.config.mjs env
-const version = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_VERSION
-  ? process.env.NEXT_PUBLIC_VERSION
-  : '0.0.0';
+const version =
+  typeof process !== 'undefined' && process.env.NEXT_PUBLIC_VERSION
+    ? process.env.NEXT_PUBLIC_VERSION
+    : '0.0.0';
 
 interface SidebarProps {
   /** Additional CSS classes */
@@ -28,11 +29,7 @@ interface SidebarProps {
 export function Sidebar({ className = '' }: SidebarProps) {
   return (
     <aside
-      className={[
-        'flex h-full flex-col',
-        'bg-bg-primary',
-        className,
-      ].join(' ')}
+      className={['flex h-full flex-col', 'bg-bg-primary', className].join(' ')}
     >
       {/* Logo header for mobile sidebar */}
       <div className="flex items-center gap-2.5 border-b border-border px-4 py-4 md:hidden">

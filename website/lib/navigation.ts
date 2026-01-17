@@ -115,7 +115,7 @@ export function flattenNavigation(items: NavItem[]): NavItem[] {
  */
 export function findNavItem(
   items: NavItem[],
-  href: string
+  href: string,
 ): NavItem | undefined {
   for (const item of items) {
     if (item.href === href) {

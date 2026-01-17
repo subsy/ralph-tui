@@ -3,7 +3,11 @@
  * Provides helpers for spawning and managing child processes.
  */
 
-import { spawn, type SpawnOptions, type ChildProcess } from 'node:child_process';
+import {
+  spawn,
+  type SpawnOptions,
+  type ChildProcess,
+} from 'node:child_process';
 
 /**
  * Result of running a process
@@ -41,7 +45,7 @@ export interface RunProcessOptions {
 export async function runProcess(
   command: string,
   args: string[] = [],
-  options: RunProcessOptions = {}
+  options: RunProcessOptions = {},
 ): Promise<ProcessResult> {
   const { cwd, env, timeout = 0, spawnOptions = {} } = options;
 
@@ -104,13 +108,18 @@ export async function runProcess(
 /**
  * Parse a command string into command and arguments
  */
-export function parseCommand(commandStr: string): { command: string; args: string[] } {
+export function parseCommand(commandStr: string): {
+  command: string;
+  args: string[];
+} {
   const parts = commandStr.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
 
   // Remove quotes from parts
   const cleanParts = parts.map((part) => {
-    if ((part.startsWith('"') && part.endsWith('"')) ||
-        (part.startsWith("'") && part.endsWith("'"))) {
+    if (
+      (part.startsWith('"') && part.endsWith('"')) ||
+      (part.startsWith("'") && part.endsWith("'"))
+    ) {
       return part.slice(1, -1);
     }
     return part;
@@ -140,7 +149,7 @@ export function buildCommand(command: string, args: string[]): string {
  */
 export async function killProcessTree(
   pid: number,
-  signal: NodeJS.Signals = 'SIGTERM'
+  signal: NodeJS.Signals = 'SIGTERM',
 ): Promise<void> {
   // On Unix, we can use process groups
   // This is a simplified version - full implementation would use ps to find children
@@ -171,7 +180,9 @@ export function isProcessRunning(pid: number): boolean {
 /**
  * Wait for a process to exit
  */
-export function waitForProcess(child: ChildProcess): Promise<{ exitCode: number | null; signal: string | null }> {
+export function waitForProcess(
+  child: ChildProcess,
+): Promise<{ exitCode: number | null; signal: string | null }> {
   return new Promise((resolve) => {
     if (child.exitCode !== null) {
       resolve({ exitCode: child.exitCode, signal: null });
@@ -187,7 +198,10 @@ export function waitForProcess(child: ChildProcess): Promise<{ exitCode: number 
 /**
  * Get environment variable with fallback
  */
-export function getEnv(name: string, defaultValue?: string): string | undefined {
+export function getEnv(
+  name: string,
+  defaultValue?: string,
+): string | undefined {
   return process.env[name] ?? defaultValue;
 }
 

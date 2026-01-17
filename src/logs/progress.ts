@@ -74,7 +74,7 @@ function extractCompletionNotes(output: string): string | undefined {
   const lastSection = beforeComplete.slice(-500).trim();
 
   // Look for a summary-like section (bullet points, "completed", etc.)
-  const lines = lastSection.split('\n').filter(l => l.trim());
+  const lines = lastSection.split('\n').filter((l) => l.trim());
   const relevantLines = lines.slice(-5); // Last 5 lines before completion
 
   if (relevantLines.length > 0) {
@@ -92,7 +92,9 @@ function formatProgressEntry(entry: ProgressEntry): string {
   const status = entry.completed ? '✓' : '✗';
   const duration = Math.round(entry.durationMs / 1000);
 
-  lines.push(`## ${status} Iteration ${entry.iteration} - ${entry.taskId}: ${entry.taskTitle}`);
+  lines.push(
+    `## ${status} Iteration ${entry.iteration} - ${entry.taskId}: ${entry.taskTitle}`,
+  );
   lines.push(`*${entry.timestamp} (${duration}s)*`);
   lines.push('');
 
@@ -155,7 +157,7 @@ export function createProgressEntry(result: IterationResult): ProgressEntry {
  */
 export async function appendProgress(
   cwd: string,
-  entry: ProgressEntry
+  entry: ProgressEntry,
 ): Promise<void> {
   const filePath = join(cwd, PROGRESS_FILE);
   const dirPath = dirname(filePath);
@@ -196,7 +198,10 @@ after each iteration and included in agent prompts for context.
     // Find a clean break point (start of an entry)
     const cleanBreak = trimmedEntries.indexOf('\n## ');
     if (cleanBreak > 0) {
-      content = header + '\n[...older entries truncated...]\n\n' + trimmedEntries.slice(cleanBreak + 1);
+      content =
+        header +
+        '\n[...older entries truncated...]\n\n' +
+        trimmedEntries.slice(cleanBreak + 1);
     } else {
       content = header + trimmedEntries;
     }
@@ -225,7 +230,7 @@ export async function readProgress(cwd: string): Promise<string> {
  */
 export async function getRecentProgressSummary(
   cwd: string,
-  maxEntries = 5
+  maxEntries = 5,
 ): Promise<string> {
   const content = await readProgress(cwd);
   if (!content) return '';
@@ -254,14 +259,18 @@ export async function clearProgress(cwd: string): Promise<void> {
   const filePath = join(cwd, PROGRESS_FILE);
 
   try {
-    await writeFile(filePath, `# Ralph Progress Log
+    await writeFile(
+      filePath,
+      `# Ralph Progress Log
 
 This file tracks progress across iterations. It's automatically updated
 after each iteration and included in agent prompts for context.
 
 ---
 
-`, 'utf-8');
+`,
+      'utf-8',
+    );
   } catch {
     // Ignore errors
   }

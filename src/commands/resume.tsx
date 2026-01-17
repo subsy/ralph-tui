@@ -91,7 +91,7 @@ async function runWithTui(
   cwd: string,
   initialState: PersistedSessionState,
   trackerType?: string,
-  currentModel?: string
+  currentModel?: string,
 ): Promise<PersistedSessionState> {
   let currentState = initialState;
 
@@ -116,7 +116,12 @@ async function runWithTui(
       });
     } else if (event.type === 'engine:resumed') {
       // Clear paused state when resuming
-      currentState = { ...currentState, status: 'running', isPaused: false, pausedAt: undefined };
+      currentState = {
+        ...currentState,
+        status: 'running',
+        isPaused: false,
+        pausedAt: undefined,
+      };
       savePersistedSession(currentState).catch(() => {
         // Log but don't fail on save errors
       });
@@ -163,7 +168,7 @@ async function runWithTui(
       initialSubagentPanelVisible={initialState.subagentPanelVisible ?? false}
       onSubagentPanelVisibilityChange={handleSubagentPanelVisibilityChange}
       currentModel={currentModel}
-    />
+    />,
   );
 
   await engine.start();
@@ -177,7 +182,7 @@ async function runWithTui(
 async function runHeadless(
   engine: ExecutionEngine,
   cwd: string,
-  initialState: PersistedSessionState
+  initialState: PersistedSessionState,
 ): Promise<PersistedSessionState> {
   let currentState = initialState;
 
@@ -188,14 +193,16 @@ async function runHeadless(
         break;
 
       case 'iteration:started':
-        console.log(`\n--- Iteration ${event.iteration}: ${event.task.title} ---`);
+        console.log(
+          `\n--- Iteration ${event.iteration}: ${event.task.title} ---`,
+        );
         break;
 
       case 'iteration:completed':
         console.log(
           `Iteration ${event.result.iteration} completed. ` +
             `Task ${event.result.taskCompleted ? 'DONE' : 'in progress'}. ` +
-            `Duration: ${Math.round(event.result.durationMs / 1000)}s`
+            `Duration: ${Math.round(event.result.durationMs / 1000)}s`,
         );
         // Save state after each iteration
         currentState = updateSessionAfterIteration(currentState, event.result);
@@ -218,7 +225,12 @@ async function runHeadless(
 
       case 'engine:resumed':
         console.log('\nResumed...');
-        currentState = { ...currentState, status: 'running', isPaused: false, pausedAt: undefined };
+        currentState = {
+          ...currentState,
+          status: 'running',
+          isPaused: false,
+          pausedAt: undefined,
+        };
         savePersistedSession(currentState).catch(() => {
           // Log but don't fail on save errors
         });
@@ -283,7 +295,9 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
     console.log('');
     console.log('⚠️  Recovered stale session');
     if (staleRecovery.clearedTaskCount > 0) {
-      console.log(`   Cleared ${staleRecovery.clearedTaskCount} stuck in-progress task(s)`);
+      console.log(
+        `   Cleared ${staleRecovery.clearedTaskCount} stuck in-progress task(s)`,
+      );
     }
     console.log('   Session status set to "interrupted" (resumable)');
     console.log('');
@@ -302,9 +316,13 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
     console.error(`Cannot resume session in '${summary.status}' state.`);
     console.error('');
     if (summary.status === 'completed') {
-      console.error('Session has already completed. Start a new session with: ralph-tui run');
+      console.error(
+        'Session has already completed. Start a new session with: ralph-tui run',
+      );
     } else {
-      console.error('Session cannot be resumed. Start a new session with: ralph-tui run --force');
+      console.error(
+        'Session cannot be resumed. Start a new session with: ralph-tui run --force',
+      );
     }
     process.exit(1);
   }
@@ -372,8 +390,12 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
   console.log(`Session:    ${summary.sessionId.slice(0, 8)}...`);
   console.log(`Agent:      ${summary.agentPlugin}`);
   console.log(`Tracker:    ${summary.trackerPlugin}`);
-  console.log(`Progress:   ${summary.tasksCompleted}/${summary.totalTasks} tasks complete`);
-  console.log(`Iteration:  ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`);
+  console.log(
+    `Progress:   ${summary.tasksCompleted}/${summary.totalTasks} tasks complete`,
+  );
+  console.log(
+    `Iteration:  ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`,
+  );
   console.log('');
 
   // Create and initialize engine
@@ -384,7 +406,7 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
   } catch (error) {
     console.error(
       'Failed to initialize engine:',
-      error instanceof Error ? error.message : error
+      error instanceof Error ? error.message : error,
     );
     await releaseLock(cwd);
     process.exit(1);
@@ -398,14 +420,20 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
   let finalState: PersistedSessionState;
   try {
     if (!headless && config.showTui) {
-      finalState = await runWithTui(engine, cwd, resumedState, config.tracker.plugin, config.model);
+      finalState = await runWithTui(
+        engine,
+        cwd,
+        resumedState,
+        config.tracker.plugin,
+        config.model,
+      );
     } else {
       finalState = await runHeadless(engine, cwd, resumedState);
     }
   } catch (error) {
     console.error(
       'Execution error:',
-      error instanceof Error ? error.message : error
+      error instanceof Error ? error.message : error,
     );
     await releaseLock(cwd);
     process.exit(1);

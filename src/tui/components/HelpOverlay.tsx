@@ -17,7 +17,10 @@ export interface HelpOverlayProps {
 /**
  * Group shortcuts by category for display
  */
-function groupShortcutsByCategory(): Map<string, Array<{ key: string; description: string }>> {
+function groupShortcutsByCategory(): Map<
+  string,
+  Array<{ key: string; description: string }>
+> {
   const groups = new Map<string, Array<{ key: string; description: string }>>();
 
   for (const shortcut of fullKeyboardShortcuts) {
@@ -78,7 +81,10 @@ export function HelpOverlay({ visible }: HelpOverlayProps): ReactNode {
 
         {/* Shortcut groups */}
         {Array.from(groups.entries()).map(([category, shortcuts]) => (
-          <box key={category} style={{ flexDirection: 'column', marginBottom: 1 }}>
+          <box
+            key={category}
+            style={{ flexDirection: 'column', marginBottom: 1 }}
+          >
             {/* Category header */}
             <text fg={colors.fg.muted}>{category}</text>
 

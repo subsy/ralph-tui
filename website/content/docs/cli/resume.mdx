@@ -12,16 +12,17 @@ ralph-tui resume [options]
 The `resume` command continues execution from a previously interrupted session. Ralph loads the saved session state and picks up where it left off, automatically resetting any stale "in_progress" tasks.
 
 <Callout type="tip">
-Session state is automatically saved to `.ralph-tui/session.json`. You can resume even after crashes or forced exits.
+  Session state is automatically saved to `.ralph-tui/session.json`. You can
+  resume even after crashes or forced exits.
 </Callout>
 
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `--cwd <path>` | Working directory (where to find the session file) |
-| `--headless` | Run without TUI |
-| `--force` | Override stale lock (use if another instance crashed) |
+| Option         | Description                                           |
+| -------------- | ----------------------------------------------------- |
+| `--cwd <path>` | Working directory (where to find the session file)    |
+| `--headless`   | Run without TUI                                       |
+| `--force`      | Override stale lock (use if another instance crashed) |
 
 ## Examples
 
@@ -50,7 +51,8 @@ ralph-tui resume --force
 ```
 
 <Callout type="warning">
-Only use `--force` when you're certain no other Ralph instance is running. Using it while another instance is active can cause conflicts.
+  Only use `--force` when you're certain no other Ralph instance is running.
+  Using it while another instance is active can cause conflicts.
 </Callout>
 
 ## What Gets Restored
@@ -90,10 +92,10 @@ Ralph uses a lock mechanism to prevent multiple instances:
     Ralph begins processing tasks.
   </Step>
 
-  <Step title="Interrupt">
-    Press `q` to quit, or the process gets interrupted.
-    Session state is saved automatically.
-  </Step>
+<Step title="Interrupt">
+  Press `q` to quit, or the process gets interrupted. Session state is saved
+  automatically.
+</Step>
 
   <Step title="Resume Later">
     ```bash

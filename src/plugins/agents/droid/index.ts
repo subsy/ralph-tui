@@ -88,7 +88,9 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
     // skipPermissions can be explicitly set to false via config to disable
     if (parsed.data.skipPermissions === false) {
       this.skipPermissions = false;
-      console.warn('[droid] Skip permissions disabled - droid may fail if permission prompts are triggered');
+      console.warn(
+        '[droid] Skip permissions disabled - droid may fail if permission prompts are triggered',
+      );
     }
 
     this.enableTracing = parsed.data.enableTracing;
@@ -100,7 +102,7 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
   protected buildArgs(
     prompt: string,
     _files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): string[] {
     const cwd = options?.cwd ?? process.cwd();
     return buildDroidCommandArgs({
@@ -121,7 +123,7 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
   override execute(
     prompt: string,
     files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ) {
     const executionId = randomUUID();
     const command = this.commandPath ?? this.meta.defaultCommand;
@@ -144,7 +146,12 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
     // IMPORTANT: args[0] is 'exec' subcommand which MUST come first after 'droid'.
     // options.flags (like --model) must come AFTER the subcommand.
     const [subcommand, ...restArgs] = args;
-    const allArgs = [subcommand, ...this.defaultFlags, ...(options?.flags ?? []), ...restArgs];
+    const allArgs = [
+      subcommand,
+      ...this.defaultFlags,
+      ...(options?.flags ?? []),
+      ...restArgs,
+    ];
 
     let resolvePromise: (result: AgentExecutionResult) => void;
     const promise = new Promise<AgentExecutionResult>((resolve) => {
@@ -162,13 +169,16 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
 
     // Full escape using $'...' syntax for strings with newlines/special chars
     const fullEscape = (s: string): string => {
-      return "$'" + s
-        .replace(/\\/g, '\\\\')     // Backslash first
-        .replace(/'/g, "\\'")       // Single quotes
-        .replace(/\n/g, '\\n')      // Newlines
-        .replace(/\r/g, '\\r')      // Carriage returns
-        .replace(/\t/g, '\\t')      // Tabs
-        + "'";
+      return (
+        "$'" +
+        s
+          .replace(/\\/g, '\\\\') // Backslash first
+          .replace(/'/g, "\\'") // Single quotes
+          .replace(/\n/g, '\\n') // Newlines
+          .replace(/\r/g, '\\r') // Carriage returns
+          .replace(/\t/g, '\\t') + // Tabs
+        "'"
+      );
     };
 
     let proc;
@@ -186,8 +196,11 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
       // The prompt (last arg) may contain newlines, so use fullEscape for it.
       // Other args are simple strings, so use simpleEscape.
       const cmdParts = [command, ...allArgs.slice(0, -1)].map(simpleEscape);
-      const promptArg = allArgs.length > 0 ? fullEscape(allArgs[allArgs.length - 1]) : '';
-      const droidCmd = promptArg ? [...cmdParts, promptArg].join(' ') : cmdParts.join(' ');
+      const promptArg =
+        allArgs.length > 0 ? fullEscape(allArgs[allArgs.length - 1]) : '';
+      const droidCmd = promptArg
+        ? [...cmdParts, promptArg].join(' ')
+        : cmdParts.join(' ');
       // Prefix with cd to ensure correct working directory (script's subshell may not respect cwd)
       // Use stty -echo to prevent the pseudo-TTY from echoing input back as output
       const targetCwd = options?.cwd ?? process.cwd();
@@ -228,7 +241,11 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
       options?.onStderr?.(text);
     });
 
-    const complete = (status: AgentExecutionStatus, exitCode?: number, error?: string) => {
+    const complete = (
+      status: AgentExecutionStatus,
+      exitCode?: number,
+      error?: string,
+    ) => {
       if (timeoutId) clearTimeout(timeoutId);
       const endedAt = new Date();
       resolvePromise!({

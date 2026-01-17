@@ -68,7 +68,7 @@ interface DetectResult {
  */
 async function execBd(
   args: string[],
-  cwd?: string
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     const proc = spawn('bd', args, {
@@ -234,10 +234,13 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Handle labels as either string or array
     if (typeof config.labels === 'string') {
       // Single string or comma-separated string
-      this.labels = config.labels.split(',').map((l) => l.trim()).filter(Boolean);
+      this.labels = config.labels
+        .split(',')
+        .map((l) => l.trim())
+        .filter(Boolean);
     } else if (Array.isArray(config.labels)) {
       this.labels = config.labels.filter(
-        (l): l is string => typeof l === 'string'
+        (l): l is string => typeof l === 'string',
       );
     }
 
@@ -269,7 +272,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Check for bd binary
     const { stdout, stderr, exitCode } = await execBd(
       ['--version'],
-      this.workingDir
+      this.workingDir,
     );
 
     if (exitCode !== 0) {
@@ -323,7 +326,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
   }
 
   override async validateSetup(
-    _answers: Record<string, unknown>
+    _answers: Record<string, unknown>,
   ): Promise<string | null> {
     // Note: epicId is validated at runtime when specified via CLI, not during setup
 
@@ -391,7 +394,9 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Apply additional filtering that bd doesn't support directly
     // Note: Remove parentId from filter since bd already handled it via --parent flag
     // (bd list --json doesn't include parent field in output, so filterTasks would incorrectly remove tasks)
-    const filterWithoutParent = filter ? { ...filter, parentId: undefined } : undefined;
+    const filterWithoutParent = filter
+      ? { ...filter, parentId: undefined }
+      : undefined;
     tasks = this.filterTasks(tasks, filterWithoutParent);
 
     return tasks;
@@ -400,7 +405,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
   override async getTask(id: string): Promise<TrackerTask | undefined> {
     const { stdout, exitCode, stderr } = await execBd(
       ['show', id, '--json'],
-      this.workingDir
+      this.workingDir,
     );
 
     if (exitCode !== 0) {
@@ -426,7 +431,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
 
   async completeTask(
     id: string,
-    reason?: string
+    reason?: string,
   ): Promise<TaskCompletionResult> {
     // Use --force to ensure close succeeds even if issue is pinned
     const args = ['close', id, '--force'];
@@ -457,7 +462,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
 
   async updateTaskStatus(
     id: string,
-    status: TrackerTaskStatus
+    status: TrackerTaskStatus,
   ): Promise<TrackerTask | undefined> {
     const bdStatus = mapStatusToBd(status);
     const args = ['update', id, '--status', bdStatus];
@@ -477,7 +482,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Run bd sync to synchronize with git
     const { exitCode, stderr, stdout } = await execBd(
       ['sync'],
-      this.workingDir
+      this.workingDir,
     );
 
     if (exitCode !== 0) {
@@ -505,7 +510,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
 
     // Check if all tasks are completed or cancelled
     return tasks.every(
-      (t) => t.status === 'completed' || t.status === 'cancelled'
+      (t) => t.status === 'completed' || t.status === 'cancelled',
     );
   }
 
@@ -542,9 +547,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Also include open/in_progress epics only (not closed)
     const tasks = beads.map(beadToTask);
     return tasks.filter(
-      (t) =>
-        !t.parentId &&
-        (t.status === 'open' || t.status === 'in_progress')
+      (t) => !t.parentId && (t.status === 'open' || t.status === 'in_progress'),
     );
   }
 
@@ -554,7 +557,9 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
    * since bd list --json doesn't include dependency data needed for client-side filtering.
    * See: https://github.com/subsy/ralph-tui/issues/97
    */
-  override async getNextTask(filter?: TaskFilter): Promise<TrackerTask | undefined> {
+  override async getNextTask(
+    filter?: TaskFilter,
+  ): Promise<TrackerTask | undefined> {
     // Build bd ready command args
     const args = ['ready', '--json'];
 

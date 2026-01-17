@@ -35,14 +35,14 @@ function getSoundsDir(): string {
  * These are iconic quotes that play randomly on notifications.
  */
 const RALPH_SOUNDS = [
-  'iwon.wav',           // "I won! I won!"
-  'idunno.wav',         // "I dunno"
-  'choc.wav',           // "Chocolate"
-  'funny.wav',          // "That's funny"
-  'feel.wav',           // "I feel..."
-  'icecream.wav',       // "Ice cream"
-  'specialr.wav',       // "I'm special"
-  'daddy.wav',          // "Daddy"
+  'iwon.wav', // "I won! I won!"
+  'idunno.wav', // "I dunno"
+  'choc.wav', // "Chocolate"
+  'funny.wav', // "That's funny"
+  'feel.wav', // "I feel..."
+  'icecream.wav', // "Ice cream"
+  'specialr.wav', // "I'm special"
+  'daddy.wav', // "Daddy"
 ];
 
 /**
@@ -106,7 +106,7 @@ async function playFile(filePath: string): Promise<void> {
             stdio: 'ignore',
             detached: true,
             windowsHide: true,
-          }
+          },
         );
         break;
 
@@ -156,7 +156,7 @@ async function playSystemSound(): Promise<void> {
           {
             stdio: 'ignore',
             detached: true,
-          }
+          },
         );
         proc.on('error', () => {
           // Try alternative path
@@ -166,7 +166,7 @@ async function playSystemSound(): Promise<void> {
             {
               stdio: 'ignore',
               detached: true,
-            }
+            },
           );
           altProc.unref();
         });
@@ -185,7 +185,7 @@ async function playSystemSound(): Promise<void> {
             stdio: 'ignore',
             detached: true,
             windowsHide: true,
-          }
+          },
         );
         break;
 
@@ -210,7 +210,8 @@ async function playSystemSound(): Promise<void> {
  */
 async function playRalphSound(): Promise<void> {
   const soundsDir = getSoundsDir();
-  const randomSound = RALPH_SOUNDS[Math.floor(Math.random() * RALPH_SOUNDS.length)];
+  const randomSound =
+    RALPH_SOUNDS[Math.floor(Math.random() * RALPH_SOUNDS.length)];
 
   if (!randomSound) {
     console.warn('[sound] No Ralph sounds available');
@@ -226,7 +227,9 @@ async function playRalphSound(): Promise<void> {
  *
  * @param mode - The sound mode ('off', 'system', or 'ralph')
  */
-export async function playNotificationSound(mode: NotificationSoundMode): Promise<void> {
+export async function playNotificationSound(
+  mode: NotificationSoundMode,
+): Promise<void> {
   switch (mode) {
     case 'off':
       // No sound

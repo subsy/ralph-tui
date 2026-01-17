@@ -29,7 +29,7 @@ export const DEFAULT_TRACKER_TASK: TrackerTask = {
  * Create a TrackerTask with optional overrides
  */
 export function createTrackerTask(
-  overrides: Partial<TrackerTask> = {}
+  overrides: Partial<TrackerTask> = {},
 ): TrackerTask {
   return {
     ...DEFAULT_TRACKER_TASK,
@@ -42,7 +42,7 @@ export function createTrackerTask(
  */
 export function createTrackerTasks(
   count: number,
-  baseOverrides: Partial<TrackerTask> = {}
+  baseOverrides: Partial<TrackerTask> = {},
 ): TrackerTask[] {
   return Array.from({ length: count }, (_, i) =>
     createTrackerTask({
@@ -50,7 +50,7 @@ export function createTrackerTasks(
       title: `Task ${i + 1}`,
       priority: Math.min(i + 1, 4) as TaskPriority,
       ...baseOverrides,
-    })
+    }),
   );
 }
 
@@ -58,7 +58,7 @@ export function createTrackerTasks(
  * Create an open task
  */
 export function createOpenTask(
-  overrides: Partial<TrackerTask> = {}
+  overrides: Partial<TrackerTask> = {},
 ): TrackerTask {
   return createTrackerTask({
     status: 'open',
@@ -70,7 +70,7 @@ export function createOpenTask(
  * Create an in-progress task
  */
 export function createInProgressTask(
-  overrides: Partial<TrackerTask> = {}
+  overrides: Partial<TrackerTask> = {},
 ): TrackerTask {
   return createTrackerTask({
     status: 'in_progress',
@@ -83,7 +83,7 @@ export function createInProgressTask(
  */
 export function createBlockedTask(
   blockedBy: string[] = ['task-000'],
-  overrides: Partial<TrackerTask> = {}
+  overrides: Partial<TrackerTask> = {},
 ): TrackerTask {
   return createTrackerTask({
     status: 'blocked',
@@ -96,7 +96,7 @@ export function createBlockedTask(
  * Create a completed task
  */
 export function createCompletedTask(
-  overrides: Partial<TrackerTask> = {}
+  overrides: Partial<TrackerTask> = {},
 ): TrackerTask {
   return createTrackerTask({
     status: 'completed',
@@ -109,7 +109,7 @@ export function createCompletedTask(
  * Create an epic task
  */
 export function createEpicTask(
-  overrides: Partial<TrackerTask> = {}
+  overrides: Partial<TrackerTask> = {},
 ): TrackerTask {
   return createTrackerTask({
     type: 'epic',
@@ -123,7 +123,7 @@ export function createEpicTask(
  */
 export function createChildTask(
   parentId: string,
-  overrides: Partial<TrackerTask> = {}
+  overrides: Partial<TrackerTask> = {},
 ): TrackerTask {
   return createTrackerTask({
     parentId,
@@ -136,7 +136,7 @@ export function createChildTask(
  */
 export function createSuccessfulCompletion(
   task: Partial<TrackerTask> = {},
-  message = 'Task completed successfully'
+  message = 'Task completed successfully',
 ): TaskCompletionResult {
   return {
     success: true,
@@ -150,7 +150,7 @@ export function createSuccessfulCompletion(
  */
 export function createFailedCompletion(
   error = 'Task completion failed',
-  message = 'Failed to complete task'
+  message = 'Failed to complete task',
 ): TaskCompletionResult {
   return {
     success: false,
@@ -163,7 +163,7 @@ export function createFailedCompletion(
  * Create a successful SyncResult
  */
 export function createSuccessfulSync(
-  counts: { added?: number; updated?: number; removed?: number } = {}
+  counts: { added?: number; updated?: number; removed?: number } = {},
 ): SyncResult {
   return {
     success: true,
@@ -178,9 +178,7 @@ export function createSuccessfulSync(
 /**
  * Create a failed SyncResult
  */
-export function createFailedSync(
-  error = 'Sync failed'
-): SyncResult {
+export function createFailedSync(error = 'Sync failed'): SyncResult {
   return {
     success: false,
     message: 'Failed to sync with tracker',
@@ -193,7 +191,7 @@ export function createFailedSync(
  * Create a TaskFilter with optional overrides
  */
 export function createTaskFilter(
-  overrides: Partial<TaskFilter> = {}
+  overrides: Partial<TaskFilter> = {},
 ): TaskFilter {
   return {
     ...overrides,
@@ -204,7 +202,7 @@ export function createTaskFilter(
  * Create a filter for open tasks
  */
 export function createOpenTaskFilter(
-  overrides: Partial<TaskFilter> = {}
+  overrides: Partial<TaskFilter> = {},
 ): TaskFilter {
   return createTaskFilter({
     status: 'open',

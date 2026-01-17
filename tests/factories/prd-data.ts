@@ -29,7 +29,7 @@ export const DEFAULT_USER_STORY: PrdUserStory = {
  * Create a PrdUserStory with optional overrides
  */
 export function createUserStory(
-  overrides: Partial<PrdUserStory> = {}
+  overrides: Partial<PrdUserStory> = {},
 ): PrdUserStory {
   return {
     ...DEFAULT_USER_STORY,
@@ -42,7 +42,7 @@ export function createUserStory(
  */
 export function createUserStories(
   count: number,
-  baseOverrides: Partial<PrdUserStory> = {}
+  baseOverrides: Partial<PrdUserStory> = {},
 ): PrdUserStory[] {
   return Array.from({ length: count }, (_, i) =>
     createUserStory({
@@ -51,7 +51,7 @@ export function createUserStories(
       priority: Math.min(i + 1, 4) as 1 | 2 | 3 | 4,
       dependsOn: i > 0 ? [`US-${String(i).padStart(3, '0')}`] : [],
       ...baseOverrides,
-    })
+    }),
   );
 }
 
@@ -76,12 +76,14 @@ export const DEFAULT_GENERATED_PRD: GeneratedPrd = {
  * Create a GeneratedPrd with optional overrides
  */
 export function createGeneratedPrd(
-  overrides: Partial<GeneratedPrd> = {}
+  overrides: Partial<GeneratedPrd> = {},
 ): GeneratedPrd {
   return {
     ...DEFAULT_GENERATED_PRD,
     ...overrides,
-    userStories: overrides.userStories ?? [...DEFAULT_GENERATED_PRD.userStories],
+    userStories: overrides.userStories ?? [
+      ...DEFAULT_GENERATED_PRD.userStories,
+    ],
   };
 }
 
@@ -90,7 +92,7 @@ export function createGeneratedPrd(
  */
 export function createGeneratedPrdWithStories(
   storyCount: number,
-  overrides: Partial<GeneratedPrd> = {}
+  overrides: Partial<GeneratedPrd> = {},
 ): GeneratedPrd {
   return createGeneratedPrd({
     ...overrides,
@@ -102,7 +104,7 @@ export function createGeneratedPrdWithStories(
  * Create a ClarifyingQuestion with optional overrides
  */
 export function createClarifyingQuestion(
-  overrides: Partial<ClarifyingQuestion> = {}
+  overrides: Partial<ClarifyingQuestion> = {},
 ): ClarifyingQuestion {
   return {
     id: 'q1',
@@ -116,7 +118,7 @@ export function createClarifyingQuestion(
  * Create ClarifyingAnswers with optional overrides
  */
 export function createClarifyingAnswers(
-  overrides: Partial<ClarifyingAnswers> = {}
+  overrides: Partial<ClarifyingAnswers> = {},
 ): ClarifyingAnswers {
   return {
     featureDescription: 'Test feature description',
@@ -132,7 +134,7 @@ export function createClarifyingAnswers(
  * Create PrdGenerationOptions with optional overrides
  */
 export function createPrdGenerationOptions(
-  overrides: Partial<PrdGenerationOptions> = {}
+  overrides: Partial<PrdGenerationOptions> = {},
 ): PrdGenerationOptions {
   return {
     cwd: process.cwd(),
@@ -150,7 +152,7 @@ export function createPrdGenerationOptions(
  */
 export function createSuccessfulPrdResult(
   prd: Partial<GeneratedPrd> = {},
-  overrides: Partial<PrdGenerationResult> = {}
+  overrides: Partial<PrdGenerationResult> = {},
 ): PrdGenerationResult {
   const generatedPrd = createGeneratedPrd(prd);
   return {
@@ -167,7 +169,7 @@ export function createSuccessfulPrdResult(
  */
 export function createFailedPrdResult(
   error = 'PRD generation failed',
-  overrides: Partial<PrdGenerationResult> = {}
+  overrides: Partial<PrdGenerationResult> = {},
 ): PrdGenerationResult {
   return {
     success: false,

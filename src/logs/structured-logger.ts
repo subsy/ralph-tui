@@ -13,12 +13,12 @@ export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
  * Log components that categorize log messages.
  */
 export type LogComponent =
-  | 'progress'   // Iteration progress updates
-  | 'agent'      // Agent output (stdout/stderr)
-  | 'engine'     // Engine lifecycle events
-  | 'tracker'    // Tracker operations
-  | 'session'    // Session management
-  | 'system';    // System-level messages
+  | 'progress' // Iteration progress updates
+  | 'agent' // Agent output (stdout/stderr)
+  | 'engine' // Engine lifecycle events
+  | 'tracker' // Tracker operations
+  | 'session' // Session management
+  | 'system'; // System-level messages
 
 /**
  * Configuration for the structured logger.
@@ -184,9 +184,17 @@ export class StructuredLogger {
    * Log progress update in the specified format.
    * Format: [INFO] [progress] Iteration X/Y: Working on task-id
    */
-  progress(iteration: number, maxIterations: number, taskId: string, taskTitle: string): void {
+  progress(
+    iteration: number,
+    maxIterations: number,
+    taskId: string,
+    taskTitle: string,
+  ): void {
     const iterMax = maxIterations > 0 ? maxIterations.toString() : '∞';
-    this.info('progress', `Iteration ${iteration}/${iterMax}: Working on ${taskId} - ${taskTitle}`);
+    this.info(
+      'progress',
+      `Iteration ${iteration}/${iterMax}: Working on ${taskId} - ${taskTitle}`,
+    );
   }
 
   /**
@@ -196,23 +204,28 @@ export class StructuredLogger {
     iteration: number,
     taskId: string,
     taskCompleted: boolean,
-    durationMs: number
+    durationMs: number,
   ): void {
     const durationSec = Math.round(durationMs / 1000);
     const status = taskCompleted ? 'COMPLETED' : 'in progress';
     this.info(
       'progress',
-      `Iteration ${iteration} finished. Task ${taskId}: ${status}. Duration: ${durationSec}s`
+      `Iteration ${iteration} finished. Task ${taskId}: ${status}. Duration: ${durationSec}s`,
     );
   }
 
   /**
    * Log iteration failure.
    */
-  iterationFailed(iteration: number, taskId: string, error: string, action: string): void {
+  iterationFailed(
+    iteration: number,
+    taskId: string,
+    error: string,
+    action: string,
+  ): void {
     this.error(
       'progress',
-      `Iteration ${iteration} FAILED on ${taskId}: ${error} (action: ${action})`
+      `Iteration ${iteration} FAILED on ${taskId}: ${error} (action: ${action})`,
     );
   }
 
@@ -224,12 +237,12 @@ export class StructuredLogger {
     taskId: string,
     attempt: number,
     maxRetries: number,
-    delayMs: number
+    delayMs: number,
   ): void {
     const delaySec = Math.round(delayMs / 1000);
     this.warn(
       'progress',
-      `Retrying iteration ${iteration} on ${taskId}: attempt ${attempt}/${maxRetries}, waiting ${delaySec}s`
+      `Retrying iteration ${iteration} on ${taskId}: attempt ${attempt}/${maxRetries}, waiting ${delaySec}s`,
     );
   }
 
@@ -237,7 +250,10 @@ export class StructuredLogger {
    * Log iteration skip.
    */
   iterationSkipped(iteration: number, taskId: string, reason: string): void {
-    this.warn('progress', `Skipping ${taskId} in iteration ${iteration}: ${reason}`);
+    this.warn(
+      'progress',
+      `Skipping ${taskId} in iteration ${iteration}: ${reason}`,
+    );
   }
 
   /**
@@ -247,15 +263,22 @@ export class StructuredLogger {
     this.info('engine', `Ralph started. Total tasks: ${totalTasks}`);
   }
 
-  engineStopped(reason: string, totalIterations: number, tasksCompleted: number): void {
+  engineStopped(
+    reason: string,
+    totalIterations: number,
+    tasksCompleted: number,
+  ): void {
     this.info(
       'engine',
-      `Ralph stopped. Reason: ${reason}. Iterations: ${totalIterations}, Tasks completed: ${tasksCompleted}`
+      `Ralph stopped. Reason: ${reason}. Iterations: ${totalIterations}, Tasks completed: ${tasksCompleted}`,
     );
   }
 
   enginePaused(currentIteration: number): void {
-    this.info('engine', `Paused at iteration ${currentIteration}. Use "ralph-tui resume" to continue.`);
+    this.info(
+      'engine',
+      `Paused at iteration ${currentIteration}. Use "ralph-tui resume" to continue.`,
+    );
   }
 
   engineResumed(fromIteration: number): void {
@@ -265,7 +288,7 @@ export class StructuredLogger {
   allComplete(totalCompleted: number, totalIterations: number): void {
     this.info(
       'engine',
-      `All tasks complete! Total: ${totalCompleted} tasks in ${totalIterations} iterations.`
+      `All tasks complete! Total: ${totalCompleted} tasks in ${totalIterations} iterations.`,
     );
   }
 
@@ -273,7 +296,10 @@ export class StructuredLogger {
    * Log session events.
    */
   sessionCreated(sessionId: string, agent: string, tracker: string): void {
-    this.info('session', `Session ${sessionId} created. Agent: ${agent}, Tracker: ${tracker}`);
+    this.info(
+      'session',
+      `Session ${sessionId} created. Agent: ${agent}, Tracker: ${tracker}`,
+    );
   }
 
   sessionResumed(sessionId: string): void {
@@ -284,7 +310,10 @@ export class StructuredLogger {
    * Log task selection.
    */
   taskSelected(taskId: string, taskTitle: string, iteration: number): void {
-    this.debug('tracker', `Selected task ${taskId} for iteration ${iteration}: ${taskTitle}`);
+    this.debug(
+      'tracker',
+      `Selected task ${taskId} for iteration ${iteration}: ${taskTitle}`,
+    );
   }
 
   /**
@@ -298,6 +327,8 @@ export class StructuredLogger {
 /**
  * Create a structured logger with default config.
  */
-export function createStructuredLogger(config?: StructuredLoggerConfig): StructuredLogger {
+export function createStructuredLogger(
+  config?: StructuredLoggerConfig,
+): StructuredLogger {
   return new StructuredLogger(config);
 }

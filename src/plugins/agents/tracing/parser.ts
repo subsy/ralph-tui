@@ -168,7 +168,9 @@ export class SubagentTraceParser {
   /**
    * Handle a Task tool invocation and create a spawn event.
    */
-  private handleTaskToolSpawn(message: ClaudeJsonlMessage): SubagentSpawnEvent | null {
+  private handleTaskToolSpawn(
+    message: ClaudeJsonlMessage,
+  ): SubagentSpawnEvent | null {
     const raw = message.raw;
     let toolInput: Record<string, unknown> | undefined;
     let toolUseId: string | undefined;
@@ -208,9 +210,10 @@ export class SubagentTraceParser {
     const id = generateSubagentId();
 
     // Determine parent ID from active stack
-    const parentId = this.trackHierarchy && this.activeStack.length > 0
-      ? this.activeStack[this.activeStack.length - 1]
-      : undefined;
+    const parentId =
+      this.trackHierarchy && this.activeStack.length > 0
+        ? this.activeStack[this.activeStack.length - 1]
+        : undefined;
 
     // Create subagent state
     const state: SubagentState = {
@@ -261,7 +264,7 @@ export class SubagentTraceParser {
    * Handle a tool result and create a completion or error event.
    */
   private handleToolResult(
-    message: ClaudeJsonlMessage
+    message: ClaudeJsonlMessage,
   ): SubagentCompleteEvent | SubagentErrorEvent | null {
     const raw = message.raw;
 
@@ -290,10 +293,12 @@ export class SubagentTraceParser {
     // Check if this is an error result
     const isError =
       raw.is_error === true ||
-      (typeof raw.content === 'string' && raw.content.toLowerCase().includes('error'));
+      (typeof raw.content === 'string' &&
+        raw.content.toLowerCase().includes('error'));
 
     const now = new Date().toISOString();
-    const durationMs = new Date(now).getTime() - new Date(state.spawnedAt).getTime();
+    const durationMs =
+      new Date(now).getTime() - new Date(state.spawnedAt).getTime();
 
     // Update state
     state.status = isError ? 'error' : 'completed';
@@ -363,7 +368,9 @@ export class SubagentTraceParser {
   /**
    * Handle an error message and create an error event if applicable.
    */
-  private handleErrorMessage(message: ClaudeJsonlMessage): SubagentErrorEvent | null {
+  private handleErrorMessage(
+    message: ClaudeJsonlMessage,
+  ): SubagentErrorEvent | null {
     // If there's no active subagent, ignore
     if (this.activeStack.length === 0) {
       return null;
@@ -389,7 +396,8 @@ export class SubagentTraceParser {
     }
 
     const now = new Date().toISOString();
-    const durationMs = new Date(now).getTime() - new Date(state.spawnedAt).getTime();
+    const durationMs =
+      new Date(now).getTime() - new Date(state.spawnedAt).getTime();
 
     // Update state
     state.status = 'error';
@@ -430,7 +438,9 @@ export class SubagentTraceParser {
    * Get all currently active (running) subagents.
    */
   getActiveSubagents(): SubagentState[] {
-    return Array.from(this.subagents.values()).filter((s) => s.status === 'running');
+    return Array.from(this.subagents.values()).filter(
+      (s) => s.status === 'running',
+    );
   }
 
   /**

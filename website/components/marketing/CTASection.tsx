@@ -72,8 +72,6 @@ const orbVariants: Variants = {
   },
 };
 
-
-
 /**
  * Animated terminal prompt cursor that blinks.
  */
@@ -314,7 +312,9 @@ export function CTASection() {
             variants={itemVariants}
             className="mt-10 flex items-center justify-center"
           >
-            <CopyableCommand>bun install -g ralph-tui && ralph-tui init</CopyableCommand>
+            <CopyableCommand>
+              bun install -g ralph-tui && ralph-tui init
+            </CopyableCommand>
           </motion.div>
         </motion.div>
 

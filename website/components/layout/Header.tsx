@@ -8,7 +8,15 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useTheme } from 'next-themes';
-import { Terminal, Sun, Moon, Menu, Github, FileText, Home } from 'lucide-react';
+import {
+  Terminal,
+  Sun,
+  Moon,
+  Menu,
+  Github,
+  FileText,
+  Home,
+} from 'lucide-react';
 import { MobileNav } from './MobileNav';
 import { DocSearch, SearchButton } from '../docs/DocSearch';
 
@@ -153,7 +161,11 @@ export function Header() {
                   'hover:bg-bg-tertiary hover:text-fg-primary',
                   'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
                 ].join(' ')}
-                aria-label={mounted ? `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode` : 'Toggle theme'}
+                aria-label={
+                  mounted
+                    ? `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`
+                    : 'Toggle theme'
+                }
               >
                 {mounted ? (
                   theme === 'dark' ? (

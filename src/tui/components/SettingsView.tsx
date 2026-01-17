@@ -8,7 +8,11 @@ import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
-import type { StoredConfig, SubagentDetailLevel, NotificationSoundMode } from '../../config/types.js';
+import type {
+  StoredConfig,
+  SubagentDetailLevel,
+  NotificationSoundMode,
+} from '../../config/types.js';
 import type { AgentPluginMeta } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 
@@ -29,7 +33,10 @@ interface SettingDefinition {
   min?: number; // For number type
   max?: number; // For number type
   getValue: (config: StoredConfig) => string | number | boolean | undefined;
-  setValue: (config: StoredConfig, value: string | number | boolean) => StoredConfig;
+  setValue: (
+    config: StoredConfig,
+    value: string | number | boolean,
+  ) => StoredConfig;
   requiresRestart?: boolean;
 }
 
@@ -56,7 +63,7 @@ export interface SettingsViewProps {
  */
 function buildSettingDefinitions(
   agents: AgentPluginMeta[],
-  trackers: TrackerPluginMeta[]
+  trackers: TrackerPluginMeta[],
 ): SettingDefinition[] {
   return [
     {
@@ -159,7 +166,8 @@ function buildSettingDefinitions(
       key: 'notificationSound',
       label: 'Notif Sound',
       type: 'select',
-      description: 'Sound mode: off, system (OS default), or ralph (Wiggum quotes)',
+      description:
+        'Sound mode: off, system (OS default), or ralph (Wiggum quotes)',
       options: ['off', 'system', 'ralph'],
       getValue: (config) => config.notifications?.sound ?? 'off',
       setValue: (config, value) => ({
@@ -253,7 +261,10 @@ export function SettingsView({
               }
               newValue = num;
             } else if (setting.type === 'boolean') {
-              newValue = editValue.toLowerCase() === 'yes' || editValue.toLowerCase() === 'true' || editValue === '1';
+              newValue =
+                editValue.toLowerCase() === 'yes' ||
+                editValue.toLowerCase() === 'true' ||
+                editValue === '1';
             } else {
               newValue = editValue;
             }
@@ -311,7 +322,9 @@ export function SettingsView({
           if (setting.type === 'select' && setting.options) {
             // Cycle through select options
             const currentValue = setting.getValue(editingConfig);
-            const currentIdx = setting.options.indexOf(String(currentValue ?? ''));
+            const currentIdx = setting.options.indexOf(
+              String(currentValue ?? ''),
+            );
             const nextIdx = (currentIdx + 1) % setting.options.length;
             const nextValue = setting.options[nextIdx];
             if (nextValue !== undefined) {
@@ -326,7 +339,9 @@ export function SettingsView({
           } else {
             // Enter text edit mode
             const currentValue = setting.getValue(editingConfig);
-            setEditValue(currentValue !== undefined ? String(currentValue) : '');
+            setEditValue(
+              currentValue !== undefined ? String(currentValue) : '',
+            );
             setEditMode(true);
           }
           break;
@@ -339,8 +354,11 @@ export function SettingsView({
           if (!setting || setting.type !== 'select' || !setting.options) break;
 
           const currentValue = setting.getValue(editingConfig);
-          const currentIdx = setting.options.indexOf(String(currentValue ?? ''));
-          const prevIdx = currentIdx <= 0 ? setting.options.length - 1 : currentIdx - 1;
+          const currentIdx = setting.options.indexOf(
+            String(currentValue ?? ''),
+          );
+          const prevIdx =
+            currentIdx <= 0 ? setting.options.length - 1 : currentIdx - 1;
           const prevValue = setting.options[prevIdx];
           if (prevValue !== undefined) {
             setEditingConfig(setting.setValue(editingConfig, prevValue));
@@ -356,7 +374,9 @@ export function SettingsView({
           if (!setting || setting.type !== 'select' || !setting.options) break;
 
           const currentValue = setting.getValue(editingConfig);
-          const currentIdx = setting.options.indexOf(String(currentValue ?? ''));
+          const currentIdx = setting.options.indexOf(
+            String(currentValue ?? ''),
+          );
           const nextIdx = (currentIdx + 1) % setting.options.length;
           const nextValue = setting.options[nextIdx];
           if (nextValue !== undefined) {
@@ -394,7 +414,9 @@ export function SettingsView({
             setHasChanges(true);
           } else if (setting.type === 'select' && setting.options) {
             const currentValue = setting.getValue(editingConfig);
-            const currentIdx = setting.options.indexOf(String(currentValue ?? ''));
+            const currentIdx = setting.options.indexOf(
+              String(currentValue ?? ''),
+            );
             const nextIdx = (currentIdx + 1) % setting.options.length;
             const nextValue = setting.options[nextIdx];
             if (nextValue !== undefined) {
@@ -418,7 +440,7 @@ export function SettingsView({
       hasChanges,
       onClose,
       onSave,
-    ]
+    ],
   );
 
   useKeyboard(handleKeyboard);
@@ -460,7 +482,8 @@ export function SettingsView({
         {settings.map((setting, index) => {
           const isSelected = index === selectedIndex;
           const value = setting.getValue(editingConfig);
-          const displayValue = editMode && isSelected ? editValue : formatValue(value);
+          const displayValue =
+            editMode && isSelected ? editValue : formatValue(value);
 
           return (
             <box
@@ -489,7 +512,11 @@ export function SettingsView({
                 {setting.type === 'select' && setting.options ? (
                   <box style={{ flexDirection: 'row' }}>
                     <text fg={colors.fg.muted}>{isSelected ? '‹ ' : '  '}</text>
-                    <text fg={isSelected ? colors.accent.tertiary : colors.fg.primary}>
+                    <text
+                      fg={
+                        isSelected ? colors.accent.tertiary : colors.fg.primary
+                      }
+                    >
                       {displayValue}
                     </text>
                     <text fg={colors.fg.muted}>{isSelected ? ' ›' : ''}</text>
@@ -533,7 +560,13 @@ export function SettingsView({
         )}
 
         {/* Status line */}
-        <box style={{ marginTop: 1, flexDirection: 'row', justifyContent: 'space-between' }}>
+        <box
+          style={{
+            marginTop: 1,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+          }}
+        >
           <text fg={colors.fg.muted}>
             {hasChanges ? '● Modified' : ''}
             {saving ? ' Saving...' : ''}

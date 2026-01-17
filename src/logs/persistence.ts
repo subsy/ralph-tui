@@ -25,9 +25,16 @@ import type {
   SubagentTraceStats,
 } from './types.js';
 import { ITERATIONS_DIR } from './types.js';
-import type { SubagentEvent, SubagentState } from '../plugins/agents/tracing/types.js';
+import type {
+  SubagentEvent,
+  SubagentState,
+} from '../plugins/agents/tracing/types.js';
 import type { IterationResult } from '../engine/types.js';
-import type { RalphConfig, SandboxConfig, SandboxMode } from '../config/types.js';
+import type {
+  RalphConfig,
+  SandboxConfig,
+  SandboxMode,
+} from '../config/types.js';
 
 /**
  * Divider between metadata header and raw output in log files.
@@ -63,7 +70,10 @@ export function generateLogFilename(iteration: number, taskId: string): string {
 export function getIterationsDir(cwd: string, customDir?: string): string {
   const dir = customDir ?? ITERATIONS_DIR;
   // If customDir is absolute, use it directly; otherwise join with cwd
-  if (customDir && (customDir.startsWith('/') || customDir.match(/^[A-Za-z]:/))) {
+  if (
+    customDir &&
+    (customDir.startsWith('/') || customDir.match(/^[A-Za-z]:/))
+  ) {
     return customDir;
   }
   return join(cwd, dir);
@@ -74,7 +84,10 @@ export function getIterationsDir(cwd: string, customDir?: string): string {
  * @param cwd Working directory
  * @param customDir Optional custom directory
  */
-export async function ensureIterationsDir(cwd: string, customDir?: string): Promise<void> {
+export async function ensureIterationsDir(
+  cwd: string,
+  customDir?: string,
+): Promise<void> {
   const dir = getIterationsDir(cwd, customDir);
   await mkdir(dir, { recursive: true });
 }
@@ -104,7 +117,7 @@ export interface BuildMetadataOptions {
  */
 export function buildMetadata(
   result: IterationResult,
-  configOrOptions?: Partial<RalphConfig> | BuildMetadataOptions
+  configOrOptions?: Partial<RalphConfig> | BuildMetadataOptions,
 ): IterationLogMetadata {
   // Handle both old signature (config only) and new signature (options object)
   let config: Partial<RalphConfig> | undefined;
@@ -115,13 +128,13 @@ export function buildMetadata(
 
   // Detect new options object format by checking for any of its unique keys
   // (config, agentSwitches, completionSummary, sandboxConfig, resolvedSandboxMode)
-  const isOptionsObject = configOrOptions && (
-    'config' in configOrOptions ||
-    'agentSwitches' in configOrOptions ||
-    'completionSummary' in configOrOptions ||
-    'sandboxConfig' in configOrOptions ||
-    'resolvedSandboxMode' in configOrOptions
-  );
+  const isOptionsObject =
+    configOrOptions &&
+    ('config' in configOrOptions ||
+      'agentSwitches' in configOrOptions ||
+      'completionSummary' in configOrOptions ||
+      'sandboxConfig' in configOrOptions ||
+      'resolvedSandboxMode' in configOrOptions);
 
   if (isOptionsObject) {
     // New options object
@@ -151,7 +164,8 @@ export function buildMetadata(
     agentPlugin: config?.agent?.plugin,
     model: config?.model,
     epicId: config?.epicId,
-    agentSwitches: agentSwitches && agentSwitches.length > 0 ? agentSwitches : undefined,
+    agentSwitches:
+      agentSwitches && agentSwitches.length > 0 ? agentSwitches : undefined,
     completionSummary,
     sandboxMode: sandboxConfig?.mode,
     resolvedSandboxMode,
@@ -172,11 +186,15 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
   lines.push(`- **Task ID**: ${metadata.taskId}`);
   lines.push(`- **Task Title**: ${metadata.taskTitle}`);
   if (metadata.taskDescription) {
-    lines.push(`- **Description**: ${metadata.taskDescription.slice(0, 200)}${metadata.taskDescription.length > 200 ? '...' : ''}`);
+    lines.push(
+      `- **Description**: ${metadata.taskDescription.slice(0, 200)}${metadata.taskDescription.length > 200 ? '...' : ''}`,
+    );
   }
   lines.push(`- **Status**: ${metadata.status}`);
   lines.push(`- **Task Completed**: ${metadata.taskCompleted ? 'Yes' : 'No'}`);
-  lines.push(`- **Promise Detected**: ${metadata.promiseComplete ? 'Yes' : 'No'}`);
+  lines.push(
+    `- **Promise Detected**: ${metadata.promiseComplete ? 'Yes' : 'No'}`,
+  );
   lines.push(`- **Started At**: ${metadata.startedAt}`);
   lines.push(`- **Ended At**: ${metadata.endedAt}`);
   lines.push(`- **Duration**: ${formatDuration(metadata.durationMs)}`);
@@ -197,12 +215,15 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
 
   // Add sandbox configuration if present
   if (metadata.sandboxMode) {
-    const modeDisplay = metadata.sandboxMode === 'auto' && metadata.resolvedSandboxMode
-      ? `auto (${metadata.resolvedSandboxMode})`
-      : metadata.sandboxMode;
+    const modeDisplay =
+      metadata.sandboxMode === 'auto' && metadata.resolvedSandboxMode
+        ? `auto (${metadata.resolvedSandboxMode})`
+        : metadata.sandboxMode;
     lines.push(`- **Sandbox Mode**: ${modeDisplay}`);
     if (metadata.sandboxNetwork !== undefined) {
-      lines.push(`- **Sandbox Network**: ${metadata.sandboxNetwork ? 'Enabled' : 'Disabled'}`);
+      lines.push(
+        `- **Sandbox Network**: ${metadata.sandboxNetwork ? 'Enabled' : 'Disabled'}`,
+      );
     }
   }
 
@@ -217,7 +238,10 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
     lines.push('## Agent Switches');
     lines.push('');
     for (const sw of metadata.agentSwitches) {
-      const switchType = sw.reason === 'fallback' ? 'Switched to fallback' : 'Recovered to primary';
+      const switchType =
+        sw.reason === 'fallback'
+          ? 'Switched to fallback'
+          : 'Recovered to primary';
       lines.push(`- **${switchType}**: ${sw.from} → ${sw.to} at ${sw.at}`);
     }
   }
@@ -264,7 +288,8 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
     const taskId = extractValue('Task ID') ?? '';
     const taskTitle = extractValue('Task Title') ?? '';
     const taskDescription = extractValue('Description');
-    const status = (extractValue('Status') ?? 'completed') as IterationLogMetadata['status'];
+    const status = (extractValue('Status') ??
+      'completed') as IterationLogMetadata['status'];
     const taskCompleted = extractValue('Task Completed') === 'Yes';
     const promiseComplete = extractValue('Promise Detected') === 'Yes';
     const startedAt = extractValue('Started At') ?? new Date().toISOString();
@@ -302,7 +327,9 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
       }
     }
     const sandboxNetworkRaw = extractValue('Sandbox Network');
-    const sandboxNetwork = sandboxNetworkRaw ? sandboxNetworkRaw === 'Enabled' : undefined;
+    const sandboxNetwork = sandboxNetworkRaw
+      ? sandboxNetworkRaw === 'Enabled'
+      : undefined;
 
     return {
       iteration,
@@ -364,7 +391,7 @@ export async function saveIterationLog(
   result: IterationResult,
   stdout: string,
   stderr: string,
-  options?: SaveIterationLogOptions | Partial<RalphConfig>
+  options?: SaveIterationLogOptions | Partial<RalphConfig>,
 ): Promise<string> {
   // Handle both old signature (config only) and new signature (options object)
   // Old signature: saveIterationLog(cwd, result, stdout, stderr, config)
@@ -377,14 +404,14 @@ export async function saveIterationLog(
   let resolvedSandboxMode: Exclude<SandboxMode, 'auto'> | undefined;
 
   // Detect new options object format by checking for any of its unique keys
-  const isOptionsObject = options && (
-    'config' in options ||
-    'subagentTrace' in options ||
-    'agentSwitches' in options ||
-    'completionSummary' in options ||
-    'sandboxConfig' in options ||
-    'resolvedSandboxMode' in options
-  );
+  const isOptionsObject =
+    options &&
+    ('config' in options ||
+      'subagentTrace' in options ||
+      'agentSwitches' in options ||
+      'completionSummary' in options ||
+      'sandboxConfig' in options ||
+      'resolvedSandboxMode' in options);
 
   if (isOptionsObject) {
     // New options object
@@ -437,7 +464,9 @@ export async function saveIterationLog(
  * Load an iteration log from disk.
  * Handles logs with and without subagent trace data for backward compatibility.
  */
-export async function loadIterationLog(filePath: string): Promise<IterationLog | null> {
+export async function loadIterationLog(
+  filePath: string,
+): Promise<IterationLog | null> {
   try {
     const content = await readFile(filePath, 'utf-8');
 
@@ -456,7 +485,9 @@ export async function loadIterationLog(filePath: string): Promise<IterationLog |
     let subagentTrace: SubagentTrace | undefined;
     const traceIndex = output.indexOf(SUBAGENT_TRACE_DIVIDER);
     if (traceIndex !== -1) {
-      const traceJson = output.slice(traceIndex + SUBAGENT_TRACE_DIVIDER.length);
+      const traceJson = output.slice(
+        traceIndex + SUBAGENT_TRACE_DIVIDER.length,
+      );
       output = output.slice(0, traceIndex);
 
       try {
@@ -493,7 +524,7 @@ export async function loadIterationLog(filePath: string): Promise<IterationLog |
 export async function listIterationLogs(
   cwd: string,
   options: LogFilterOptions = {},
-  customDir?: string
+  customDir?: string,
 ): Promise<IterationLogSummary[]> {
   const dir = getIterationsDir(cwd, customDir);
 
@@ -519,7 +550,10 @@ export async function listIterationLogs(
     if (!log) continue;
 
     // Apply filters
-    if (options.iteration !== undefined && log.metadata.iteration !== options.iteration) {
+    if (
+      options.iteration !== undefined &&
+      log.metadata.iteration !== options.iteration
+    ) {
       continue;
     }
 
@@ -566,7 +600,7 @@ export async function listIterationLogs(
  */
 export async function getIterationLogByNumber(
   cwd: string,
-  iteration: number
+  iteration: number,
 ): Promise<IterationLog | null> {
   const summaries = await listIterationLogs(cwd, { iteration });
 
@@ -586,7 +620,7 @@ export async function getIterationLogByNumber(
 export async function getIterationLogsByTask(
   cwd: string,
   taskId: string,
-  customDir?: string
+  customDir?: string,
 ): Promise<IterationLog[]> {
   const summaries = await listIterationLogs(cwd, { taskId }, customDir);
   const logs: IterationLog[] = [];
@@ -606,7 +640,7 @@ export async function getIterationLogsByTask(
  */
 export async function cleanupIterationLogs(
   cwd: string,
-  options: LogCleanupOptions
+  options: LogCleanupOptions,
 ): Promise<LogCleanupResult> {
   const allSummaries = await listIterationLogs(cwd);
 
@@ -686,7 +720,7 @@ export async function getIterationLogsDiskUsage(cwd: string): Promise<number> {
  */
 export function buildSubagentTrace(
   events: SubagentEvent[],
-  states: SubagentState[]
+  states: SubagentState[],
 ): SubagentTrace {
   // Build hierarchy tree from states
   const hierarchy = buildHierarchyTree(states);

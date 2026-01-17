@@ -12,7 +12,9 @@ ralph-tui create-prd [options]
 The `create-prd` command generates a structured PRD through an interactive conversation with an AI agent. It asks about your feature goals, requirements, and quality gates, then produces a PRD Markdown file.
 
 <Callout type="tip">
-Use `--chat` mode (recommended) for AI-powered PRD creation. The AI asks contextual questions and generates higher-quality PRDs than the template wizard.
+  Use `--chat` mode (recommended) for AI-powered PRD creation. The AI asks
+  contextual questions and generates higher-quality PRDs than the template
+  wizard.
 </Callout>
 
 ## Aliases
@@ -23,15 +25,15 @@ ralph-tui prime    # Same as create-prd
 
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `--chat`, `--ai` | Use AI-powered chat mode (recommended) |
-| `--agent <name>` | Override agent for chat mode |
-| `--prd-skill <name>` | Use custom PRD skill from `skills_dir` |
-| `--output, -o <dir>` | Output directory for PRD files (default: `./tasks`) |
-| `--stories, -n <count>` | Number of user stories (template mode only) |
-| `--timeout, -t <ms>` | Timeout for AI agent calls in milliseconds (0 = no timeout, default: 180000) |
-| `--force, -f` | Overwrite existing files |
+| Option                  | Description                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `--chat`, `--ai`        | Use AI-powered chat mode (recommended)                                       |
+| `--agent <name>`        | Override agent for chat mode                                                 |
+| `--prd-skill <name>`    | Use custom PRD skill from `skills_dir`                                       |
+| `--output, -o <dir>`    | Output directory for PRD files (default: `./tasks`)                          |
+| `--stories, -n <count>` | Number of user stories (template mode only)                                  |
+| `--timeout, -t <ms>`    | Timeout for AI agent calls in milliseconds (0 = no timeout, default: 180000) |
+| `--force, -f`           | Overwrite existing files                                                     |
 
 ## Examples
 
@@ -91,6 +93,7 @@ See [Configuration](/docs/configuration/options) for how to set `skills_dir`.
 Custom skills must produce PRDs that are compatible with downstream task creation. The generated PRD must include:
 
 1. **User Stories** with IDs matching pattern `### US-XXX: Title`:
+
    ```markdown
    ### US-001: Add user authentication
 
@@ -99,22 +102,26 @@ Custom skills must produce PRDs that are compatible with downstream task creatio
    **So that** I can access my account
 
    #### Acceptance Criteria
+
    - [ ] Login form displays on /login route
    - [ ] Invalid credentials show error message
    - [ ] Successful login redirects to dashboard
    ```
 
 2. **Quality Gates section** (optional but recommended):
+
    ```markdown
    ## Quality Gates
 
    These commands must pass for every user story:
+
    - `bun run typecheck` - Type checking
    - `bun run lint` - Linting
    ```
 
 <Callout type="warning">
-If a custom skill generates a PRD without user stories (matching `### US-XXX:` pattern), task creation will fail with an error message.
+  If a custom skill generates a PRD without user stories (matching `### US-XXX:`
+  pattern), task creation will fail with an error message.
 </Callout>
 
 ## Chat Mode Workflow
@@ -126,21 +133,21 @@ When you run `create-prd --chat`, the AI guides you through:
     What problem does this feature solve? What's the high-level objective?
   </Step>
 
-  <Step title="Target Users">
-    Who will use this feature? What are their needs?
-  </Step>
+<Step title="Target Users">
+  Who will use this feature? What are their needs?
+</Step>
 
-  <Step title="Scope Definition">
-    What should be included? What's explicitly out of scope?
-  </Step>
+<Step title="Scope Definition">
+  What should be included? What's explicitly out of scope?
+</Step>
 
-  <Step title="User Stories">
-    The AI helps break down the feature into discrete, implementable stories.
-  </Step>
+<Step title="User Stories">
+  The AI helps break down the feature into discrete, implementable stories.
+</Step>
 
-  <Step title="Quality Gates">
-    What commands must pass? (e.g., `bun run typecheck`, `bun run lint`)
-  </Step>
+<Step title="Quality Gates">
+  What commands must pass? (e.g., `bun run typecheck`, `bun run lint`)
+</Step>
 
   <Step title="Task Creation">
     After generating the PRD, you're asked whether to create tasks:
@@ -154,10 +161,10 @@ When you run `create-prd --chat`, the AI guides you through:
 
 The command creates:
 
-| File | Description |
-|------|-------------|
-| `./tasks/prd-<feature-name>.md` | The PRD Markdown document |
-| `./prd.json` | Task file (if JSON selected) |
+| File                            | Description                  |
+| ------------------------------- | ---------------------------- |
+| `./tasks/prd-<feature-name>.md` | The PRD Markdown document    |
+| `./prd.json`                    | Task file (if JSON selected) |
 
 ### PRD Structure
 
@@ -167,16 +174,19 @@ Generated PRDs follow this structure:
 # Feature Name
 
 ## Overview
+
 Brief description of the feature and its goals.
 
 ## User Stories
 
 ### US-001: Story Title
+
 **As a** [user type]
 **I want** [capability]
 **So that** [benefit]
 
 #### Acceptance Criteria
+
 - [ ] Criterion 1
 - [ ] Criterion 2
 - [ ] Criterion 3
@@ -184,6 +194,7 @@ Brief description of the feature and its goals.
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `bun run typecheck` - Type checking
 - `bun run lint` - Linting
 - `bun run build` - Build verification
@@ -194,7 +205,8 @@ These commands must pass for every user story:
 Quality gates are critical for successful automation. They tell Ralph what commands must pass after each task.
 
 <Callout type="info">
-Quality gates are extracted from the PRD and automatically appended to each user story's acceptance criteria during conversion.
+  Quality gates are extracted from the PRD and automatically appended to each
+  user story's acceptance criteria during conversion.
 </Callout>
 
 Common quality gates:
@@ -203,6 +215,7 @@ Common quality gates:
 ## Quality Gates
 
 These commands must pass for every user story:
+
 - `bun run typecheck` - Type checking
 - `bun run lint` - Linting
 - `bun run build` - Build verification
@@ -217,12 +230,17 @@ Each user story should be completable in one agent session (roughly one context 
 
 ```markdown
 # Too big - split this
+
 ### US-001: Implement user authentication system
 
 # Better - separate concerns
+
 ### US-001: Add login form component
+
 ### US-002: Create authentication API endpoints
+
 ### US-003: Implement session management
+
 ### US-004: Add logout functionality
 ```
 
@@ -232,10 +250,12 @@ Acceptance criteria should be testable, not vague:
 
 ```markdown
 # Bad - too vague
+
 - [ ] The form looks good
 - [ ] Error handling works
 
 # Good - specific and testable
+
 - [ ] Form displays validation errors below each invalid field
 - [ ] Invalid submission shows error toast with message
 - [ ] Network errors display retry button
@@ -247,7 +267,9 @@ Put foundational stories first:
 
 ```markdown
 ### US-001: Create database schema (no dependencies)
+
 ### US-002: Implement backend API (depends on US-001)
+
 ### US-003: Build frontend components (depends on US-002)
 ```
 

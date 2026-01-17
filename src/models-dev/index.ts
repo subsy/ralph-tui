@@ -117,10 +117,12 @@ function saveCache(cache: CacheData): void {
 async function fetchAndCache(): Promise<CacheData> {
   const response = await fetch(MODELS_DEV_API_URL);
   if (!response.ok) {
-    throw new Error(`Failed to fetch models.dev API: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to fetch models.dev API: ${response.status} ${response.statusText}`,
+    );
   }
 
-  const data = await response.json() as {
+  const data = (await response.json()) as {
     providers?: Array<{ id: string; name: string }>;
     models?: Array<{
       'Provider ID': string;
@@ -221,17 +223,19 @@ export async function getProviders(): Promise<ProviderInfo[]> {
 /**
  * Get provider info by ID
  */
-export async function getProvider(providerId: string): Promise<ProviderInfo | null> {
+export async function getProvider(
+  providerId: string,
+): Promise<ProviderInfo | null> {
   const data = await getModelsDevData();
-  return (
-    data.providers.find((p) => p.id === providerId) || null
-  );
+  return data.providers.find((p) => p.id === providerId) || null;
 }
 
 /**
  * Get models for a provider
  */
-export async function getModelsForProvider(providerId: string): Promise<ModelInfo[]> {
+export async function getModelsForProvider(
+  providerId: string,
+): Promise<ModelInfo[]> {
   const data = await getModelsDevData();
   return data.modelsByProvider[providerId] || [];
 }
@@ -256,7 +260,9 @@ export async function isValidModelId(modelId: string): Promise<boolean> {
  * Validate a model string in provider/model format
  * Returns null if valid, or an error message if invalid
  */
-export async function validateModelString(modelString: string): Promise<string | null> {
+export async function validateModelString(
+  modelString: string,
+): Promise<string | null> {
   if (!modelString || modelString.trim() === '') {
     return null; // Empty is valid (uses default)
   }
@@ -296,9 +302,11 @@ export async function validateModelString(modelString: string): Promise<string |
 /**
  * Get model info for display
  */
-export async function getModelDisplayInfo(
-  modelString: string
-): Promise<{ providerId: string; modelId: string; providerLogoUrl: string } | null> {
+export async function getModelDisplayInfo(modelString: string): Promise<{
+  providerId: string;
+  modelId: string;
+  providerLogoUrl: string;
+} | null> {
   if (!modelString || modelString.trim() === '') {
     return null;
   }

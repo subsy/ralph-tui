@@ -6,7 +6,13 @@
  */
 
 import type { ReactNode } from 'react';
-import { colors, statusIndicators, formatElapsedTime, layout, type RalphStatus } from '../theme.js';
+import {
+  colors,
+  statusIndicators,
+  formatElapsedTime,
+  layout,
+  type RalphStatus,
+} from '../theme.js';
 import type { HeaderProps } from '../types.js';
 
 /** Rate limit indicator icon */
@@ -28,28 +34,72 @@ function truncateText(text: string, maxWidth: number): string {
  * Get compact status display for the current Ralph status.
  * Returns a short, scannable label optimized for the compact header.
  */
-function getStatusDisplay(status: RalphStatus): { indicator: string; color: string; label: string } {
+function getStatusDisplay(status: RalphStatus): {
+  indicator: string;
+  color: string;
+  label: string;
+} {
   switch (status) {
     case 'ready':
-      return { indicator: statusIndicators.ready, color: colors.status.info, label: 'Ready' };
+      return {
+        indicator: statusIndicators.ready,
+        color: colors.status.info,
+        label: 'Ready',
+      };
     case 'running':
-      return { indicator: statusIndicators.running, color: colors.status.success, label: 'Running' };
+      return {
+        indicator: statusIndicators.running,
+        color: colors.status.success,
+        label: 'Running',
+      };
     case 'selecting':
-      return { indicator: statusIndicators.selecting, color: colors.status.info, label: 'Selecting' };
+      return {
+        indicator: statusIndicators.selecting,
+        color: colors.status.info,
+        label: 'Selecting',
+      };
     case 'executing':
-      return { indicator: statusIndicators.executing, color: colors.status.success, label: 'Executing' };
+      return {
+        indicator: statusIndicators.executing,
+        color: colors.status.success,
+        label: 'Executing',
+      };
     case 'pausing':
-      return { indicator: statusIndicators.pausing, color: colors.status.warning, label: 'Pausing' };
+      return {
+        indicator: statusIndicators.pausing,
+        color: colors.status.warning,
+        label: 'Pausing',
+      };
     case 'paused':
-      return { indicator: statusIndicators.paused, color: colors.status.warning, label: 'Paused' };
+      return {
+        indicator: statusIndicators.paused,
+        color: colors.status.warning,
+        label: 'Paused',
+      };
     case 'stopped':
-      return { indicator: statusIndicators.stopped, color: colors.fg.muted, label: 'Stopped' };
+      return {
+        indicator: statusIndicators.stopped,
+        color: colors.fg.muted,
+        label: 'Stopped',
+      };
     case 'complete':
-      return { indicator: statusIndicators.complete, color: colors.status.success, label: 'Complete' };
+      return {
+        indicator: statusIndicators.complete,
+        color: colors.status.success,
+        label: 'Complete',
+      };
     case 'idle':
-      return { indicator: statusIndicators.idle, color: colors.fg.muted, label: 'Idle' };
+      return {
+        indicator: statusIndicators.idle,
+        color: colors.fg.muted,
+        label: 'Idle',
+      };
     case 'error':
-      return { indicator: statusIndicators.blocked, color: colors.status.error, label: 'Error' };
+      return {
+        indicator: statusIndicators.blocked,
+        color: colors.status.error,
+        label: 'Error',
+      };
   }
 }
 
@@ -87,8 +137,13 @@ function MiniProgressBar({
 function getAgentDisplay(
   agentName: string | undefined,
   activeAgentState: HeaderProps['activeAgentState'],
-  rateLimitState: HeaderProps['rateLimitState']
-): { displayName: string; color: string; showRateLimitIcon: boolean; statusLine: string | null } {
+  rateLimitState: HeaderProps['rateLimitState'],
+): {
+  displayName: string;
+  color: string;
+  showRateLimitIcon: boolean;
+  statusLine: string | null;
+} {
   // Use active agent from engine state if available, otherwise fall back to config
   const activeAgent = activeAgentState?.plugin ?? agentName;
   const isOnFallback = activeAgentState?.reason === 'fallback';
@@ -96,7 +151,12 @@ function getAgentDisplay(
   const primaryAgent = rateLimitState?.primaryAgent;
 
   if (!activeAgent) {
-    return { displayName: '', color: colors.accent.secondary, showRateLimitIcon: false, statusLine: null };
+    return {
+      displayName: '',
+      color: colors.accent.secondary,
+      showRateLimitIcon: false,
+      statusLine: null,
+    };
   }
 
   if (isOnFallback && isPrimaryRateLimited && primaryAgent) {
@@ -132,7 +192,7 @@ function getAgentDisplay(
  * Returns null if sandbox is disabled, otherwise returns mode with optional (no-net) suffix.
  */
 function getSandboxDisplay(
-  sandboxConfig: HeaderProps['sandboxConfig']
+  sandboxConfig: HeaderProps['sandboxConfig'],
 ): string | null {
   if (!sandboxConfig?.enabled) {
     return null;
@@ -180,13 +240,24 @@ export function Header({
   const formattedTime = formatElapsedTime(elapsedTime);
 
   // Get agent display info including fallback status and status line message
-  const agentDisplay = getAgentDisplay(agentName, activeAgentState, rateLimitState);
+  const agentDisplay = getAgentDisplay(
+    agentName,
+    activeAgentState,
+    rateLimitState,
+  );
 
   // Parse model info for display
   const modelDisplay = currentModel
     ? (() => {
-        const [provider, model] = currentModel.includes('/') ? currentModel.split('/') : ['', currentModel];
-        return { provider, model, full: currentModel, display: provider ? `${provider}/${model}` : model };
+        const [provider, model] = currentModel.includes('/')
+          ? currentModel.split('/')
+          : ['', currentModel];
+        return {
+          provider,
+          model,
+          full: currentModel,
+          display: provider ? `${provider}/${model}` : model,
+        };
       })()
     : null;
 
@@ -244,7 +315,10 @@ export function Header({
         {/* Right section: Agent/Tracker + Model + Sandbox + Progress (X/Y) with mini bar + elapsed time */}
         <box style={{ flexDirection: 'row', gap: 2, alignItems: 'center' }}>
           {/* Agent, model, tracker, and sandbox indicators */}
-          {(agentDisplay.displayName || trackerName || modelDisplay || sandboxDisplay) && (
+          {(agentDisplay.displayName ||
+            trackerName ||
+            modelDisplay ||
+            sandboxDisplay) && (
             <text fg={colors.fg.muted}>
               {agentDisplay.showRateLimitIcon && (
                 <span fg={colors.status.warning}>{RATE_LIMIT_ICON} </span>
@@ -252,20 +326,36 @@ export function Header({
               {agentDisplay.displayName && (
                 <span fg={agentDisplay.color}>{agentDisplay.displayName}</span>
               )}
-              {agentDisplay.displayName && (trackerName || modelDisplay || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
+              {agentDisplay.displayName &&
+                (trackerName || modelDisplay || sandboxDisplay) && (
+                  <span fg={colors.fg.dim}> | </span>
+                )}
               {modelDisplay && (
                 <span fg={colors.accent.primary}>{modelDisplay.display}</span>
               )}
-              {(agentDisplay.displayName || modelDisplay) && (trackerName || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
-              {trackerName && <span fg={colors.accent.tertiary}>{trackerName}</span>}
-              {trackerName && sandboxDisplay && <span fg={colors.fg.dim}> | </span>}
+              {(agentDisplay.displayName || modelDisplay) &&
+                (trackerName || sandboxDisplay) && (
+                  <span fg={colors.fg.dim}> | </span>
+                )}
+              {trackerName && (
+                <span fg={colors.accent.tertiary}>{trackerName}</span>
+              )}
+              {trackerName && sandboxDisplay && (
+                <span fg={colors.fg.dim}> | </span>
+              )}
               {sandboxDisplay && (
-                <span fg={colors.status.info}>{SANDBOX_ICON} {sandboxDisplay}</span>
+                <span fg={colors.status.info}>
+                  {SANDBOX_ICON} {sandboxDisplay}
+                </span>
               )}
             </text>
           )}
           <box style={{ flexDirection: 'row', gap: 1, alignItems: 'center' }}>
-            <MiniProgressBar completed={completedTasks} total={totalTasks} width={8} />
+            <MiniProgressBar
+              completed={completedTasks}
+              total={totalTasks}
+              width={8}
+            />
             <text fg={colors.fg.secondary}>
               {completedTasks}/{totalTasks}
             </text>

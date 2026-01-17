@@ -122,7 +122,7 @@ export interface TaskReasoning {
  */
 async function execBv(
   args: string[],
-  cwd?: string
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     const proc = spawn('bv', args, {
@@ -158,7 +158,7 @@ async function execBv(
  */
 async function execBd(
   args: string[],
-  cwd?: string
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     const proc = spawn('bd', args, {
@@ -337,7 +337,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
   }
 
   override async validateSetup(
-    answers: Record<string, unknown>
+    answers: Record<string, unknown>,
   ): Promise<string | null> {
     // First validate beads setup
     const beadsValidation = await super.validateSetup(answers);
@@ -350,7 +350,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     if (!detection.bvAvailable) {
       // Not an error - just a warning that will use fallback
       console.warn(
-        'Warning: bv binary not found. Smart task selection will fall back to basic beads behavior.'
+        'Warning: bv binary not found. Smart task selection will fall back to basic beads behavior.',
       );
     }
 
@@ -363,7 +363,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
    * Falls back to base beads behavior if bv is unavailable.
    */
   override async getNextTask(
-    filter?: TaskFilter
+    filter?: TaskFilter,
   ): Promise<TrackerTask | undefined> {
     // If bv is not available, fall back to base beads behavior
     if (!this.bvAvailable) {
@@ -382,7 +382,10 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
         args.push('--label', labels[0]!);
       }
 
-      const { stdout, exitCode, stderr } = await execBv(args, this.getWorkingDir());
+      const { stdout, exitCode, stderr } = await execBv(
+        args,
+        this.getWorkingDir(),
+      );
 
       if (exitCode !== 0) {
         console.error('bv --robot-triage failed:', stderr);
@@ -412,7 +415,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
         // Get all epic children to filter recommendations
         const epicChildren = await this.getEpicChildrenIds(parentId);
         recommendations = recommendations.filter((rec) =>
-          epicChildren.includes(rec.id)
+          epicChildren.includes(rec.id),
         );
       }
 
@@ -423,7 +426,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
           : [filter.status];
         const bdStatuses = statuses.map(mapStatusToBd);
         recommendations = recommendations.filter((rec) =>
-          bdStatuses.includes(rec.status)
+          bdStatuses.includes(rec.status),
         );
       }
 
@@ -565,7 +568,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
    */
   override async completeTask(
     id: string,
-    reason?: string
+    reason?: string,
   ): Promise<TaskCompletionResult> {
     const result = await super.completeTask(id, reason);
 
@@ -586,7 +589,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
    */
   override async updateTaskStatus(
     id: string,
-    status: TrackerTaskStatus
+    status: TrackerTaskStatus,
   ): Promise<TrackerTask | undefined> {
     const result = await super.updateTaskStatus(id, status);
 
@@ -662,7 +665,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
   private async getEpicChildrenIds(epicId: string): Promise<string[]> {
     const { stdout, exitCode } = await execBd(
       ['list', '--json', '--parent', epicId],
-      this.getWorkingDir()
+      this.getWorkingDir(),
     );
 
     if (exitCode !== 0) {

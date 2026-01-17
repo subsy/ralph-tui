@@ -8,7 +8,9 @@ description: Complete guide to Ralph TUI configuration file structure with annot
 Ralph TUI uses TOML files for configuration. TOML is a minimal, human-readable format that's easy to edit and version control.
 
 <Callout type="info">
-Configuration is validated using Zod schemas at runtime. Invalid configurations will show helpful error messages pointing to the specific problem.
+  Configuration is validated using Zod schemas at runtime. Invalid
+  configurations will show helpful error messages pointing to the specific
+  problem.
 </Callout>
 
 ## Minimal Configuration
@@ -236,7 +238,8 @@ defaultAgent = "claude-fast"
 ```
 
 <Callout type="tip">
-For most users, the shorthand `agent` and `tracker` fields are sufficient. The array syntax is only needed for advanced multi-agent setups.
+  For most users, the shorthand `agent` and `tracker` fields are sufficient. The
+  array syntax is only needed for advanced multi-agent setups.
 </Callout>
 
 ## Merging Behavior

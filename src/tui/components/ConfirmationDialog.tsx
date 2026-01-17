@@ -63,26 +63,20 @@ export function ConfirmationDialog({
           justifyContent: 'center',
         }}
       >
-      {/* Title */}
-      <text fg={colors.status.warning}>
-        {title}
-      </text>
+        {/* Title */}
+        <text fg={colors.status.warning}>{title}</text>
 
-      {/* Spacer */}
-      <box style={{ height: 1 }} />
+        {/* Spacer */}
+        <box style={{ height: 1 }} />
 
-      {/* Message */}
-      <text fg={colors.fg.primary}>
-        {message}
-      </text>
+        {/* Message */}
+        <text fg={colors.fg.primary}>{message}</text>
 
-      {/* Spacer */}
-      <box style={{ height: 1 }} />
+        {/* Spacer */}
+        <box style={{ height: 1 }} />
 
-      {/* Hint */}
-      <text fg={colors.fg.muted}>
-        {hint}
-      </text>
+        {/* Hint */}
+        <text fg={colors.fg.muted}>{hint}</text>
       </box>
     </box>
   );

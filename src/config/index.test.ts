@@ -3,7 +3,14 @@
  * Covers file discovery, config merging, and runtime config building.
  */
 
-import { describe, expect, test, beforeEach, afterEach, beforeAll } from 'bun:test';
+import {
+  describe,
+  expect,
+  test,
+  beforeEach,
+  afterEach,
+  beforeAll,
+} from 'bun:test';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,7 +41,10 @@ async function createTempDir(): Promise<string> {
 }
 
 // Helper to write TOML config file
-async function writeTomlConfig(path: string, config: StoredConfig): Promise<void> {
+async function writeTomlConfig(
+  path: string,
+  config: StoredConfig,
+): Promise<void> {
   const { stringify } = await import('smol-toml');
   const content = stringify(config);
   await writeFile(path, content, 'utf-8');
@@ -94,20 +104,20 @@ describe('loadStoredConfig', () => {
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
     await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
-      maxIterations: 30,  // Override
-      tracker: 'json',    // New field
+      maxIterations: 30, // Override
+      tracker: 'json', // New field
     });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
-    expect(config.maxIterations).toBe(30);        // Project override
-    expect(config.agent).toBe('claude');          // From global
-    expect(config.tracker).toBe('json');          // From project
-    expect(config.iterationDelay).toBe(1000);     // From global
+    expect(config.maxIterations).toBe(30); // Project override
+    expect(config.agent).toBe('claude'); // From global
+    expect(config.tracker).toBe('json'); // From project
+    expect(config.iterationDelay).toBe(1000); // From global
   });
 
   test('handles empty config files', async () => {
     await writeFile(globalConfigPath, '', 'utf-8');
-    
+
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config).toEqual({});
   });
@@ -116,7 +126,7 @@ describe('loadStoredConfig', () => {
     // Create a project structure with config at project root
     const projectRoot = join(tempDir, 'my-project');
     await mkdir(projectRoot, { recursive: true });
-    
+
     const projectConfigDir = join(projectRoot, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
     await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
@@ -152,17 +162,13 @@ describe('loadStoredConfig', () => {
 
   test('replaces arrays entirely from project config', async () => {
     await writeTomlConfig(globalConfigPath, {
-      agents: [
-        { name: 'global-agent', plugin: 'claude', options: {} },
-      ],
+      agents: [{ name: 'global-agent', plugin: 'claude', options: {} }],
     });
 
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
     await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
-      agents: [
-        { name: 'project-agent', plugin: 'droid', options: {} },
-      ],
+      agents: [{ name: 'project-agent', plugin: 'droid', options: {} }],
     });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
@@ -234,7 +240,10 @@ describe('loadStoredConfigWithSource', () => {
   });
 
   test('returns source info when no configs exist', async () => {
-    const { config, source } = await loadStoredConfigWithSource(tempDir, globalConfigPath);
+    const { config, source } = await loadStoredConfigWithSource(
+      tempDir,
+      globalConfigPath,
+    );
     expect(config).toEqual({});
     expect(source.globalLoaded).toBe(false);
     expect(source.projectLoaded).toBe(false);
@@ -245,7 +254,10 @@ describe('loadStoredConfigWithSource', () => {
   test('returns source info for global config only', async () => {
     await writeTomlConfig(globalConfigPath, { agent: 'claude' });
 
-    const { config, source } = await loadStoredConfigWithSource(tempDir, globalConfigPath);
+    const { config, source } = await loadStoredConfigWithSource(
+      tempDir,
+      globalConfigPath,
+    );
     expect(config.agent).toBe('claude');
     expect(source.globalLoaded).toBe(true);
     expect(source.projectLoaded).toBe(false);
@@ -259,7 +271,10 @@ describe('loadStoredConfigWithSource', () => {
     const projectConfigPath = join(projectConfigDir, 'config.toml');
     await writeTomlConfig(projectConfigPath, { tracker: 'json' });
 
-    const { config, source } = await loadStoredConfigWithSource(tempDir, globalConfigPath);
+    const { config, source } = await loadStoredConfigWithSource(
+      tempDir,
+      globalConfigPath,
+    );
     expect(config.tracker).toBe('json');
     expect(source.globalLoaded).toBe(false);
     expect(source.projectLoaded).toBe(true);
@@ -275,7 +290,10 @@ describe('loadStoredConfigWithSource', () => {
     const projectConfigPath = join(projectConfigDir, 'config.toml');
     await writeTomlConfig(projectConfigPath, { tracker: 'json' });
 
-    const { config, source } = await loadStoredConfigWithSource(tempDir, globalConfigPath);
+    const { config, source } = await loadStoredConfigWithSource(
+      tempDir,
+      globalConfigPath,
+    );
     expect(config.agent).toBe('claude');
     expect(config.tracker).toBe('json');
     expect(source.globalLoaded).toBe(true);
@@ -305,9 +323,7 @@ describe('serializeConfig', () => {
 
   test('serializes nested config', () => {
     const toml = serializeConfig({
-      agents: [
-        { name: 'test', plugin: 'claude', options: {} },
-      ],
+      agents: [{ name: 'test', plugin: 'claude', options: {} }],
     });
     expect(toml).toContain('[[agents]]');
     expect(toml).toContain('name');
@@ -329,7 +345,10 @@ describe('saveProjectConfig', () => {
   test('creates config directory and file', async () => {
     await saveProjectConfig({ agent: 'claude' }, tempDir);
 
-    const config = await loadStoredConfig(tempDir, join(tempDir, 'nonexistent.toml'));
+    const config = await loadStoredConfig(
+      tempDir,
+      join(tempDir, 'nonexistent.toml'),
+    );
     expect(config.agent).toBe('claude');
   });
 
@@ -337,7 +356,10 @@ describe('saveProjectConfig', () => {
     await saveProjectConfig({ agent: 'claude' }, tempDir);
     await saveProjectConfig({ agent: 'droid' }, tempDir);
 
-    const config = await loadStoredConfig(tempDir, join(tempDir, 'nonexistent.toml'));
+    const config = await loadStoredConfig(
+      tempDir,
+      join(tempDir, 'nonexistent.toml'),
+    );
     expect(config.agent).toBe('droid');
   });
 });
@@ -400,7 +422,7 @@ describe('Edge cases: Invalid config files', () => {
 
   test('handles invalid TOML syntax gracefully', async () => {
     await writeFile(globalConfigPath, 'invalid toml { content', 'utf-8');
-    
+
     // Should not throw, returns empty config
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config).toEqual({});
@@ -409,7 +431,7 @@ describe('Edge cases: Invalid config files', () => {
   test('handles schema validation errors gracefully', async () => {
     // Write valid TOML but invalid schema
     await writeFile(globalConfigPath, 'unknownField = "value"', 'utf-8');
-    
+
     // Should not throw, returns empty config (validation fails)
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config).toEqual({});
@@ -417,25 +439,32 @@ describe('Edge cases: Invalid config files', () => {
 
   test('handles unreadable files gracefully', async () => {
     // Non-existent path should be handled
-    const config = await loadStoredConfig(tempDir, '/nonexistent/path/config.toml');
+    const config = await loadStoredConfig(
+      tempDir,
+      '/nonexistent/path/config.toml',
+    );
     expect(config).toEqual({});
   });
 
   test('handles config with invalid maxIterations', async () => {
     await writeFile(globalConfigPath, 'maxIterations = -1', 'utf-8');
-    
+
     // Should return empty config due to validation failure
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config).toEqual({});
   });
 
   test('handles config with invalid agent array', async () => {
-    await writeFile(globalConfigPath, `
+    await writeFile(
+      globalConfigPath,
+      `
 [[agents]]
 name = ""
 plugin = "claude"
-`, 'utf-8');
-    
+`,
+      'utf-8',
+    );
+
     // Should return empty config due to validation failure
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config).toEqual({});
@@ -457,10 +486,12 @@ describe('Config merging - scalar overrides', () => {
 
   test('project overrides defaultAgent', async () => {
     await writeTomlConfig(globalConfigPath, { defaultAgent: 'global-default' });
-    
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { defaultAgent: 'project-default' });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      defaultAgent: 'project-default',
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.defaultAgent).toBe('project-default');
@@ -468,10 +499,12 @@ describe('Config merging - scalar overrides', () => {
 
   test('project overrides defaultTracker', async () => {
     await writeTomlConfig(globalConfigPath, { defaultTracker: 'beads-bv' });
-    
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { defaultTracker: 'json' });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      defaultTracker: 'json',
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.defaultTracker).toBe('json');
@@ -479,10 +512,12 @@ describe('Config merging - scalar overrides', () => {
 
   test('project overrides outputDir', async () => {
     await writeTomlConfig(globalConfigPath, { outputDir: '/global/output' });
-    
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { outputDir: '/project/output' });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      outputDir: '/project/output',
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.outputDir).toBe('/project/output');
@@ -490,21 +525,27 @@ describe('Config merging - scalar overrides', () => {
 
   test('project overrides autoCommit', async () => {
     await writeTomlConfig(globalConfigPath, { autoCommit: false });
-    
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { autoCommit: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      autoCommit: true,
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.autoCommit).toBe(true);
   });
 
   test('project overrides prompt_template', async () => {
-    await writeTomlConfig(globalConfigPath, { prompt_template: '/global/prompt.md' });
-    
+    await writeTomlConfig(globalConfigPath, {
+      prompt_template: '/global/prompt.md',
+    });
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { prompt_template: '/project/prompt.md' });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      prompt_template: '/project/prompt.md',
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.prompt_template).toBe('/project/prompt.md');
@@ -512,10 +553,12 @@ describe('Config merging - scalar overrides', () => {
 
   test('project overrides skills_dir', async () => {
     await writeTomlConfig(globalConfigPath, { skills_dir: '/global/skills' });
-    
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { skills_dir: '/project/skills' });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      skills_dir: '/project/skills',
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.skills_dir).toBe('/project/skills');
@@ -523,21 +566,27 @@ describe('Config merging - scalar overrides', () => {
 
   test('project overrides subagentTracingDetail', async () => {
     await writeTomlConfig(globalConfigPath, { subagentTracingDetail: 'off' });
-    
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { subagentTracingDetail: 'full' });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      subagentTracingDetail: 'full',
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.subagentTracingDetail).toBe('full');
   });
 
   test('project replaces fallbackAgents array', async () => {
-    await writeTomlConfig(globalConfigPath, { fallbackAgents: ['claude', 'codex'] });
-    
+    await writeTomlConfig(globalConfigPath, {
+      fallbackAgents: ['claude', 'codex'],
+    });
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { fallbackAgents: ['droid'] });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      fallbackAgents: ['droid'],
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.fallbackAgents).toEqual(['droid']);
@@ -588,7 +637,9 @@ describe('validateConfig', () => {
 
     const result = await validateConfig(config);
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes('nonexistent-plugin'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('nonexistent-plugin'))).toBe(
+      true,
+    );
   });
 
   test('reports error for unknown tracker plugin', async () => {
@@ -611,7 +662,9 @@ describe('validateConfig', () => {
 
     const result = await validateConfig(config);
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes('nonexistent-tracker'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('nonexistent-tracker'))).toBe(
+      true,
+    );
   });
 
   test('reports error for negative iterations', async () => {

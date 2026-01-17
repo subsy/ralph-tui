@@ -24,15 +24,22 @@ import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 
 // Store mock implementations that can be changed per test
-let mockPromptSelect: (prompt: string, choices: unknown[], options?: unknown) => Promise<string>;
+let mockPromptSelect: (
+  prompt: string,
+  choices: unknown[],
+  options?: unknown,
+) => Promise<string>;
 let mockPromptNumber: (prompt: string, options?: unknown) => Promise<number>;
 let mockPromptBoolean: (prompt: string, options?: unknown) => Promise<boolean>;
 
 // Mock the prompts module before importing wizard
 mock.module('./prompts.js', () => ({
-  promptSelect: (...args: Parameters<typeof mockPromptSelect>) => mockPromptSelect(...args),
-  promptNumber: (...args: Parameters<typeof mockPromptNumber>) => mockPromptNumber(...args),
-  promptBoolean: (...args: Parameters<typeof mockPromptBoolean>) => mockPromptBoolean(...args),
+  promptSelect: (...args: Parameters<typeof mockPromptSelect>) =>
+    mockPromptSelect(...args),
+  promptNumber: (...args: Parameters<typeof mockPromptNumber>) =>
+    mockPromptNumber(...args),
+  promptBoolean: (...args: Parameters<typeof mockPromptBoolean>) =>
+    mockPromptBoolean(...args),
   promptText: () => Promise.resolve(''),
   promptPath: () => Promise.resolve(''),
   promptQuestion: () => Promise.resolve(''),
@@ -91,7 +98,11 @@ describe('projectConfigExists', () => {
   test('returns true when config file exists', async () => {
     const configDir = join(tempDir, '.ralph-tui');
     await mkdir(configDir, { recursive: true });
-    await writeFile(join(configDir, 'config.toml'), 'agent = "claude"', 'utf-8');
+    await writeFile(
+      join(configDir, 'config.toml'),
+      'agent = "claude"',
+      'utf-8',
+    );
 
     const exists = await projectConfigExists(tempDir);
     expect(exists).toBe(true);
@@ -223,7 +234,11 @@ describe('runSetupWizard', () => {
     // Create existing config
     const configDir = join(tempDir, '.ralph-tui');
     await mkdir(configDir, { recursive: true });
-    await writeFile(join(configDir, 'config.toml'), 'agent = "claude"', 'utf-8');
+    await writeFile(
+      join(configDir, 'config.toml'),
+      'agent = "claude"',
+      'utf-8',
+    );
 
     const result = await runSetupWizard({ cwd: tempDir });
 
@@ -236,7 +251,11 @@ describe('runSetupWizard', () => {
     // Create existing config
     const configDir = join(tempDir, '.ralph-tui');
     await mkdir(configDir, { recursive: true });
-    await writeFile(join(configDir, 'config.toml'), 'agent = "old-agent"', 'utf-8');
+    await writeFile(
+      join(configDir, 'config.toml'),
+      'agent = "old-agent"',
+      'utf-8',
+    );
 
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
@@ -294,7 +313,11 @@ describe('checkAndRunSetup', () => {
     // Create existing config
     const configDir = join(tempDir, '.ralph-tui');
     await mkdir(configDir, { recursive: true });
-    await writeFile(join(configDir, 'config.toml'), 'agent = "claude"', 'utf-8');
+    await writeFile(
+      join(configDir, 'config.toml'),
+      'agent = "claude"',
+      'utf-8',
+    );
 
     const result = await checkAndRunSetup({ cwd: tempDir });
 

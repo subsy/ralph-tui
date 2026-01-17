@@ -5,7 +5,10 @@
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { ClaudeAgentPlugin } from '../../src/plugins/agents/builtin/claude.js';
-import type { ClaudeJsonlMessage, JsonlParseResult } from '../../src/plugins/agents/builtin/claude.js';
+import type {
+  ClaudeJsonlMessage,
+  JsonlParseResult,
+} from '../../src/plugins/agents/builtin/claude.js';
 
 describe('ClaudeAgentPlugin', () => {
   let plugin: ClaudeAgentPlugin;
@@ -164,7 +167,9 @@ describe('ClaudeAgentPlugin', () => {
       const modelQuestion = questions.find((q) => q.id === 'model');
       expect(modelQuestion).toBeDefined();
       expect(modelQuestion?.type).toBe('select');
-      expect(modelQuestion?.choices?.some((c) => c.value === 'sonnet')).toBe(true);
+      expect(modelQuestion?.choices?.some((c) => c.value === 'sonnet')).toBe(
+        true,
+      );
     });
 
     test('includes skipPermissions question', () => {
@@ -270,7 +275,10 @@ describe('ClaudeAgentPlugin', () => {
 
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.message.result).toEqual({ success: true, data: 'completed' });
+        expect(result.message.result).toEqual({
+          success: true,
+          data: 'completed',
+        });
       }
     });
 
@@ -387,7 +395,9 @@ describe('ClaudeAgentPlugin', () => {
     test('handles multiple lines in single chunk', () => {
       const parser = ClaudeAgentPlugin.createStreamingJsonlParser();
 
-      const results = parser.push('{"type": "a"}\n{"type": "b"}\n{"type": "c"}\n');
+      const results = parser.push(
+        '{"type": "a"}\n{"type": "b"}\n{"type": "c"}\n',
+      );
       expect(results.length).toBe(3);
     });
 

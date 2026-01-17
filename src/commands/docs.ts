@@ -51,7 +51,9 @@ async function getRepoUrl(): Promise<string> {
 
     // Handle HTTPS URL
     // https://github.com/user/repo.git -> https://github.com/user/repo
-    const httpsMatch = remoteUrl.match(/^https:\/\/github\.com\/(.+?)(?:\.git)?$/);
+    const httpsMatch = remoteUrl.match(
+      /^https:\/\/github\.com\/(.+?)(?:\.git)?$/,
+    );
     if (httpsMatch) {
       cachedRepoUrl = `https://github.com/${httpsMatch[1]}`;
       return cachedRepoUrl;
@@ -111,7 +113,10 @@ Examples:
 /**
  * Parse docs command arguments.
  */
-export function parseDocsArgs(args: string[]): { section: DocSection; urlOnly: boolean } {
+export function parseDocsArgs(args: string[]): {
+  section: DocSection;
+  urlOnly: boolean;
+} {
   let section: DocSection = 'main';
   let urlOnly = false;
 
@@ -127,7 +132,9 @@ export function parseDocsArgs(args: string[]): { section: DocSection; urlOnly: b
         section = arg as DocSection;
       } else {
         console.error(`Unknown section: ${arg}`);
-        console.log('Available sections: quickstart, cli, plugins, templates, contributing');
+        console.log(
+          'Available sections: quickstart, cli, plugins, templates, contributing',
+        );
         process.exit(1);
       }
     }
@@ -189,7 +196,9 @@ export async function executeDocsCommand(args: string[]): Promise<void> {
     return;
   }
 
-  console.log(`Opening ${section === 'main' ? 'documentation' : section + ' documentation'}...`);
+  console.log(
+    `Opening ${section === 'main' ? 'documentation' : section + ' documentation'}...`,
+  );
   console.log(`URL: ${url}`);
   console.log('');
 

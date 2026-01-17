@@ -3,7 +3,10 @@
  * Provides type-safe builders with sensible defaults.
  */
 
-import type { AgentPluginConfig, RateLimitHandlingConfig } from '../../src/plugins/agents/types.js';
+import type {
+  AgentPluginConfig,
+  RateLimitHandlingConfig,
+} from '../../src/plugins/agents/types.js';
 
 /**
  * Default values for AgentPluginConfig
@@ -20,7 +23,7 @@ export const DEFAULT_AGENT_CONFIG: AgentPluginConfig = {
  * Create an AgentPluginConfig with optional overrides
  */
 export function createAgentConfig(
-  overrides: Partial<AgentPluginConfig> = {}
+  overrides: Partial<AgentPluginConfig> = {},
 ): AgentPluginConfig {
   return {
     ...DEFAULT_AGENT_CONFIG,
@@ -36,7 +39,7 @@ export function createAgentConfig(
  * Create a Claude agent config
  */
 export function createClaudeAgentConfig(
-  overrides: Partial<Omit<AgentPluginConfig, 'plugin'>> = {}
+  overrides: Partial<Omit<AgentPluginConfig, 'plugin'>> = {},
 ): AgentPluginConfig {
   const { options: overrideOptions, ...rest } = overrides;
   return createAgentConfig({
@@ -55,7 +58,7 @@ export function createClaudeAgentConfig(
  */
 export function createAgentConfigWithRateLimiting(
   rateLimitHandling: Partial<RateLimitHandlingConfig> = {},
-  overrides: Partial<AgentPluginConfig> = {}
+  overrides: Partial<AgentPluginConfig> = {},
 ): AgentPluginConfig {
   return createAgentConfig({
     ...overrides,
@@ -74,7 +77,7 @@ export function createAgentConfigWithRateLimiting(
  */
 export function createAgentConfigWithFallbacks(
   fallbackAgents: string[],
-  overrides: Partial<AgentPluginConfig> = {}
+  overrides: Partial<AgentPluginConfig> = {},
 ): AgentPluginConfig {
   return createAgentConfig({
     ...overrides,

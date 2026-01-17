@@ -287,7 +287,7 @@ export interface TrackerPlugin {
    */
   updateTaskStatus(
     id: string,
-    status: TrackerTaskStatus
+    status: TrackerTaskStatus,
   ): Promise<TrackerTask | undefined>;
 
   /**

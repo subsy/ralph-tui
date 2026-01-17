@@ -127,7 +127,9 @@ function IterationRow({
   subagentStats?: SubagentTraceStats;
 }): ReactNode {
   // Determine effective display status (override to 'running' if this is the current iteration)
-  const effectiveStatus: DisplayIterationStatus = isRunning ? 'running' : result.status;
+  const effectiveStatus: DisplayIterationStatus = isRunning
+    ? 'running'
+    : result.status;
   const statusIndicator = iterationStatusIndicators[effectiveStatus];
   const statusColor = iterationStatusColors[effectiveStatus];
 
@@ -144,9 +146,19 @@ function IterationRow({
   // We'll use fixed widths for some columns and let task-id be flexible
   const durationWidth = 8;
   const outcomeWidth = 14;
-  const subagentWidth = subagentSummary ? Math.max(12, subagentSummary.length + 2) : 0;
+  const subagentWidth = subagentSummary
+    ? Math.max(12, subagentSummary.length + 2)
+    : 0;
   const iterationLabelWidth = iterationLabel.length;
-  const fixedWidth = 1 + 1 + iterationLabelWidth + 2 + subagentWidth + durationWidth + 2 + outcomeWidth;
+  const fixedWidth =
+    1 +
+    1 +
+    iterationLabelWidth +
+    2 +
+    subagentWidth +
+    durationWidth +
+    2 +
+    outcomeWidth;
   const taskIdWidth = Math.max(8, maxWidth - fixedWidth);
   const truncatedTaskId = truncateText(taskId, taskIdWidth);
 
@@ -162,15 +174,19 @@ function IterationRow({
     >
       <text>
         <span fg={statusColor}>{statusIndicator}</span>
-        <span fg={isSelected ? colors.fg.primary : colors.fg.secondary}> {iterationLabel}</span>
-        <span fg={colors.fg.muted}>  {truncatedTaskId.padEnd(taskIdWidth)}</span>
+        <span fg={isSelected ? colors.fg.primary : colors.fg.secondary}>
+          {' '}
+          {iterationLabel}
+        </span>
+        <span fg={colors.fg.muted}> {truncatedTaskId.padEnd(taskIdWidth)}</span>
         {subagentSummary && (
           <span fg={hasSubagentFailure ? colors.status.error : colors.fg.dim}>
-            {'  '}{subagentSummary}
+            {'  '}
+            {subagentSummary}
           </span>
         )}
-        <span fg={colors.fg.dim}>  {duration.padStart(durationWidth)}</span>
-        <span fg={statusColor}>  {truncateText(outcome, outcomeWidth)}</span>
+        <span fg={colors.fg.dim}> {duration.padStart(durationWidth)}</span>
+        <span fg={statusColor}> {truncateText(outcome, outcomeWidth)}</span>
       </text>
     </box>
   );
@@ -191,7 +207,10 @@ export function IterationHistoryView({
   const maxRowWidth = Math.max(40, width - 4);
 
   // Build display list: completed iterations + pending placeholders
-  const displayItems: Array<{ type: 'result'; result: IterationResult } | { type: 'pending'; iteration: number }> = [];
+  const displayItems: Array<
+    | { type: 'result'; result: IterationResult }
+    | { type: 'pending'; iteration: number }
+  > = [];
 
   // Add completed/running iterations
   for (const result of iterations) {
@@ -255,13 +274,16 @@ export function IterationHistoryView({
                     flexDirection: 'row',
                     paddingLeft: 1,
                     paddingRight: 1,
-                    backgroundColor: index === selectedIndex ? colors.bg.highlight : 'transparent',
+                    backgroundColor:
+                      index === selectedIndex
+                        ? colors.bg.highlight
+                        : 'transparent',
                   }}
                 >
                   <text>
                     <span fg={colors.fg.muted}>{statusIndicator}</span>
                     <span fg={colors.fg.dim}> {iterationLabel}</span>
-                    <span fg={colors.fg.dim}>  (pending)</span>
+                    <span fg={colors.fg.dim}> (pending)</span>
                   </text>
                 </box>
               );

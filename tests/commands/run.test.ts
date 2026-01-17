@@ -3,7 +3,15 @@
  * Tests CLI argument parsing, configuration validation, and command flow.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from 'bun:test';
 import { parseRunArgs, printRunHelp } from '../../src/commands/run.jsx';
 
 describe('run command', () => {
@@ -259,12 +267,18 @@ describe('run command', () => {
     describe('combined options', () => {
       test('parses multiple options', () => {
         const result = parseRunArgs([
-          '--epic', 'my-epic',
-          '--agent', 'claude',
-          '--model', 'opus',
-          '--tracker', 'beads-bv',
-          '--iterations', '15',
-          '--delay', '1000',
+          '--epic',
+          'my-epic',
+          '--agent',
+          'claude',
+          '--model',
+          'opus',
+          '--tracker',
+          'beads-bv',
+          '--iterations',
+          '15',
+          '--delay',
+          '1000',
           '--headless',
           '--notify',
         ]);
@@ -285,7 +299,12 @@ describe('run command', () => {
       });
 
       test('ignores unknown arguments', () => {
-        const result = parseRunArgs(['--unknown', 'value', '--epic', 'my-epic']);
+        const result = parseRunArgs([
+          '--unknown',
+          'value',
+          '--epic',
+          'my-epic',
+        ]);
         expect(result.epicId).toBe('my-epic');
         expect((result as Record<string, unknown>).unknown).toBeUndefined();
       });

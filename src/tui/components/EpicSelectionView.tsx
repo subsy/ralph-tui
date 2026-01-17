@@ -180,8 +180,10 @@ export function EpicSelectionView({
             const statusColor = getEpicStatusColor(epic);
             const meta = epic.metadata as Record<string, unknown> | undefined;
             const storyCount = (meta?.storyCount as number | undefined) ?? 0;
-            const completedCount = (meta?.completedCount as number | undefined) ?? 0;
-            const childCount = (meta?.childCount as number | undefined) ?? storyCount;
+            const completedCount =
+              (meta?.completedCount as number | undefined) ?? 0;
+            const childCount =
+              (meta?.childCount as number | undefined) ?? storyCount;
 
             // Build progress text
             let progressText = '';
@@ -196,7 +198,9 @@ export function EpicSelectionView({
                   width: '100%',
                   height: 1,
                   flexDirection: 'row',
-                  backgroundColor: isSelected ? colors.bg.highlight : 'transparent',
+                  backgroundColor: isSelected
+                    ? colors.bg.highlight
+                    : 'transparent',
                 }}
               >
                 {/* Selection indicator */}
@@ -206,7 +210,9 @@ export function EpicSelectionView({
 
                 {/* Status indicator */}
                 <text fg={statusColor}>
-                  {epic.status === 'in_progress' ? statusIndicators.active : statusIndicators.pending}{' '}
+                  {epic.status === 'in_progress'
+                    ? statusIndicators.active
+                    : statusIndicators.pending}{' '}
                 </text>
 
                 {/* Epic ID */}

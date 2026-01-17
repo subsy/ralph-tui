@@ -85,7 +85,7 @@ export class PrdJsonSchemaError extends Error {
   constructor(
     message: string,
     public readonly details: string[],
-    public readonly suggestion: string
+    public readonly suggestion: string,
   ) {
     super(message);
     this.name = 'PrdJsonSchemaError';
@@ -116,7 +116,7 @@ function validatePrdJsonSchema(data: unknown, filePath: string): PrdJson {
     throw new PrdJsonSchemaError(
       `Invalid prd.json: expected an object, got ${typeof data}`,
       ['File content is not a valid JSON object'],
-      'Ensure the file contains a valid JSON object with "name" and "userStories" fields.'
+      'Ensure the file contains a valid JSON object with "name" and "userStories" fields.',
     );
   }
 
@@ -153,19 +153,23 @@ function validatePrdJsonSchema(data: unknown, filePath: string): PrdJson {
 }
 
 To fix: Regenerate the tasks using "ralph-tui convert --to json <prd-file.md>"
-or manually restructure the file to match the schema above.`
+or manually restructure the file to match the schema above.`,
     );
   }
 
   // Check for name field (accept 'project' as alias)
   const name = 'name' in obj ? obj.name : obj.project;
   if (!name || typeof name !== 'string') {
-    errors.push('Missing required field: "name" (string) - the project/feature name');
+    errors.push(
+      'Missing required field: "name" (string) - the project/feature name',
+    );
   }
 
   // Check for userStories array
   if (!('userStories' in obj)) {
-    errors.push('Missing required field: "userStories" (array) - the list of tasks');
+    errors.push(
+      'Missing required field: "userStories" (array) - the list of tasks',
+    );
   } else if (!Array.isArray(obj.userStories)) {
     errors.push('"userStories" must be an array');
   } else {
@@ -185,7 +189,9 @@ or manually restructure the file to match the schema above.`
       }
 
       if (!s.title || typeof s.title !== 'string') {
-        errors.push(`userStories[${i}]: missing required "title" field (string)`);
+        errors.push(
+          `userStories[${i}]: missing required "title" field (string)`,
+        );
       }
 
       if (typeof s.passes !== 'boolean') {
@@ -193,20 +199,27 @@ or manually restructure the file to match the schema above.`
         if ('status' in s) {
           errors.push(
             `userStories[${i}]: found "status" field but expected "passes" (boolean). ` +
-              'Use "passes": false for incomplete, "passes": true for complete.'
+              'Use "passes": false for incomplete, "passes": true for complete.',
           );
         } else {
-          errors.push(`userStories[${i}]: missing required "passes" field (boolean)`);
+          errors.push(
+            `userStories[${i}]: missing required "passes" field (boolean)`,
+          );
         }
       }
 
       // Warn about unsupported fields that indicate hallucinated schema
-      const unsupportedFields = ['subtasks', 'estimated_hours', 'files', 'status'];
+      const unsupportedFields = [
+        'subtasks',
+        'estimated_hours',
+        'files',
+        'status',
+      ];
       const foundUnsupported = unsupportedFields.filter((f) => f in s);
       if (foundUnsupported.length > 0) {
         errors.push(
           `userStories[${i}]: contains unsupported fields: ${foundUnsupported.join(', ')}. ` +
-            'Remove these fields. The prd.json schema does not support subtasks or time estimates.'
+            'Remove these fields. The prd.json schema does not support subtasks or time estimates.',
         );
       }
     }
@@ -217,14 +230,15 @@ or manually restructure the file to match the schema above.`
       `Invalid prd.json schema in ${filePath}`,
       errors,
       'Run "ralph-tui convert --to json <prd-file.md>" to regenerate with correct schema, ' +
-        'or manually fix the issues listed above.'
+        'or manually fix the issues listed above.',
     );
   }
 
   // Normalize: accept 'project' as alias for 'name'
   return {
     name: name as string,
-    description: typeof obj.description === 'string' ? obj.description : undefined,
+    description:
+      typeof obj.description === 'string' ? obj.description : undefined,
     branchName: typeof obj.branchName === 'string' ? obj.branchName : undefined,
     userStories: (obj.userStories as PrdUserStory[]).map((s) => ({
       ...s,
@@ -355,7 +369,7 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
   }
 
   override async validateSetup(
-    _answers: Record<string, unknown>
+    _answers: Record<string, unknown>,
   ): Promise<string | null> {
     // Note: path is validated at runtime when specified via CLI (--prd), not during setup
     // The JSON tracker just needs to exist; actual file validation happens when starting a run
@@ -408,7 +422,7 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
     try {
       const prd = await this.readPrd();
       const tasks = prd.userStories.map((story) =>
-        storyToTask(story, prd.name)
+        storyToTask(story, prd.name),
       );
 
       return this.filterTasks(tasks, filter);
@@ -432,7 +446,7 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
    * Selects the highest priority task where passes: false.
    */
   override async getNextTask(
-    filter?: TaskFilter
+    filter?: TaskFilter,
   ): Promise<TrackerTask | undefined> {
     // Get open tasks that are ready (no unresolved dependencies)
     const tasks = await this.getTasks({
@@ -453,7 +467,7 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
 
   async completeTask(
     id: string,
-    reason?: string
+    reason?: string,
   ): Promise<TaskCompletionResult> {
     try {
       const prd = await this.readPrd();
@@ -502,7 +516,7 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
 
   async updateTaskStatus(
     id: string,
-    status: TrackerTaskStatus
+    status: TrackerTaskStatus,
   ): Promise<TrackerTask | undefined> {
     try {
       const prd = await this.readPrd();
@@ -536,7 +550,7 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
   override async isComplete(filter?: TaskFilter): Promise<boolean> {
     const tasks = await this.getTasks(filter);
     return tasks.every(
-      (t) => t.status === 'completed' || t.status === 'cancelled'
+      (t) => t.status === 'completed' || t.status === 'cancelled',
     );
   }
 
