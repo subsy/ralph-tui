@@ -10,7 +10,7 @@ import { useKeyboard } from '@opentui/react';
 import type { TextareaRenderable, KeyEvent, PasteEvent } from '@opentui/core';
 import { colors } from '../theme.js';
 import type { ChatMessage } from '../../chat/types.js';
-import { ImageAttachmentCount } from './ImageAttachmentCount.js';
+
 import { ToastContainer } from './Toast.js';
 import { usePaste } from '../hooks/usePaste.js';
 import type { Toast as ToastData } from '../hooks/useToast.js';
@@ -88,15 +88,12 @@ export interface ChatViewProps {
   /** Callback when user submits (presses Ctrl+Enter) with the current input value */
   onSubmit?: (value: string) => void;
 
-  /** Number of attached images (for display above input) */
-  attachedImageCount?: number;
-
   /**
-   * Callback when an image indicator is removed via backspace/delete.
-   * Parent component should use this to remove the corresponding image attachment.
-   * @param imageId - ID of the image whose indicator was deleted
+   * Callback when an image marker (e.g., [Image 1]) is deleted from the input.
+   * Parent component should use this to detach the corresponding image.
+   * @param imageNumber - The number of the image whose marker was deleted (1-indexed)
    */
-  onImageIndicatorRemoved?: (imageId: string) => void;
+  onImageMarkerDeleted?: (imageNumber: number) => void;
 
   /**
    * Callback when text is pasted into the input.
@@ -120,6 +117,29 @@ export interface ChatViewProps {
    * Provide this from the useToast hook to show transient feedback messages.
    */
   toasts?: ToastData[];
+
+  /**
+   * Ref to receive a text insertion function.
+   * When set, the ChatView will populate ref.current with a function that
+   * inserts text at the current cursor position in the input.
+   *
+   * This is useful for inserting image markers when an image is attached.
+   *
+   * @example
+   * ```tsx
+   * const insertTextRef = useRef<((text: string) => void) | null>(null);
+   *
+   * const handlePaste = async () => {
+   *   const result = await attachFromClipboard();
+   *   if (result.success && insertTextRef.current) {
+   *     insertTextRef.current(result.inlineMarker);
+   *   }
+   * };
+   *
+   * return <ChatView insertTextRef={insertTextRef} onPaste={handlePaste} />;
+   * ```
+   */
+  insertTextRef?: React.MutableRefObject<((text: string) => void) | null>;
 }
 
 /**
@@ -185,10 +205,10 @@ export function ChatView({
   hint = '[Ctrl+Enter] Send  [Esc] Cancel',
   agentName,
   onSubmit,
-  attachedImageCount = 0,
-  onImageIndicatorRemoved: _onImageIndicatorRemoved, // Reserved for future indicator backspace handling
+  onImageMarkerDeleted,
   onPaste,
   toasts = [],
+  insertTextRef,
 }: ChatViewProps): ReactNode {
   // Generate dynamic loading text
   const loadingText = agentName
@@ -197,6 +217,24 @@ export function ChatView({
 
   // Textarea ref for submit handling and value access
   const textareaRef = useRef<TextareaRenderable>(null);
+
+  // Provide insert text function to parent via ref
+  // This allows the parent to insert text (like image markers) at cursor position
+  useEffect(() => {
+    if (insertTextRef) {
+      insertTextRef.current = (text: string) => {
+        if (textareaRef.current) {
+          // Insert text at current cursor position
+          textareaRef.current.editBuffer.insertText(text);
+        }
+      };
+    }
+    return () => {
+      if (insertTextRef) {
+        insertTextRef.current = null;
+      }
+    };
+  }, [insertTextRef]);
 
   // Sync textarea content when inputValue changes from outside (e.g., after clearing)
   useEffect(() => {
@@ -215,6 +253,63 @@ export function ChatView({
     }
     onSubmit?.(currentValue);
   }, [onSubmit]);
+
+  // Track valid markers to detect partial deletions
+  // If ANY character of a marker is deleted, we clean up the whole marker and detach the image
+  const previousMarkersRef = useRef<Set<string>>(new Set());
+  
+  // Check for deleted/corrupted markers whenever text changes
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    
+    const text = textareaRef.current.plainText;
+    const currentMarkers = new Set(text.match(/\[Image \d+\]/g) || []);
+    const previousMarkers = previousMarkersRef.current;
+    
+    // Find markers that were removed or corrupted
+    for (const marker of previousMarkers) {
+      if (!currentMarkers.has(marker)) {
+        const match = marker.match(/\[Image (\d+)\]/);
+        if (match) {
+          onImageMarkerDeleted?.(parseInt(match[1], 10));
+        }
+      }
+    }
+    
+    // Check for partial/corrupted markers and clean them up
+    // Patterns like "[Image", "Image 1]", "[Image 1", etc. should be removed
+    const partialMarkerPattern = /\[Image(?:\s\d*)?(?:\])?|\bImage\s*\d+\]?/g;
+    const validMarkerPattern = /\[Image \d+\]/g;
+    
+    // Find all partial markers that aren't valid complete markers
+    let hasCorruptedMarkers = false;
+    const validMatches: string[] = text.match(validMarkerPattern) || [];
+    const allMatches: string[] = text.match(partialMarkerPattern) || [];
+    
+    for (const match of allMatches) {
+      if (!validMatches.includes(match)) {
+        hasCorruptedMarkers = true;
+        break;
+      }
+    }
+    
+    // If we found corrupted markers, clean them up
+    if (hasCorruptedMarkers && textareaRef.current) {
+      const cleanedText = text.replace(partialMarkerPattern, (match) => {
+        // Keep valid markers, remove partial ones
+        if (/^\[Image \d+\]$/.test(match)) {
+          return match;
+        }
+        return '';
+      });
+      
+      if (cleanedText !== text) {
+        textareaRef.current.editBuffer.setText(cleanedText);
+      }
+    }
+    
+    previousMarkersRef.current = currentMarkers;
+  });
 
   // Handle keyboard for text editing shortcuts (macOS-style)
   const handleKeyboard = useCallback(
@@ -264,13 +359,8 @@ export function ChatView({
         }
       }
 
-      // === Option + Delete (delete word) ===
-      if (key.option && key.name === 'backspace') {
-        key.preventDefault?.();
-        textarea.deleteWordBackward();
-        return;
-      }
       // Option + Fn + Delete (Forward Delete on some keyboards)
+      // Note: Option + Backspace is handled above with marker detection
       if (key.option && key.name === 'delete') {
         key.preventDefault?.();
         textarea.deleteWordForward();
@@ -486,11 +576,6 @@ export function ChatView({
           )}
         </scrollbox>
       </box>
-
-      {/* Image attachment count (shown above input when images are attached) */}
-      {attachedImageCount > 0 && (
-        <ImageAttachmentCount count={attachedImageCount} />
-      )}
 
       {/* Input area */}
       <box

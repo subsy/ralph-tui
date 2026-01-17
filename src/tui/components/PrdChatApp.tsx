@@ -236,6 +236,8 @@ export function PrdChatApp({
   const engineRef = useRef<ChatEngine | null>(null);
   const taskEngineRef = useRef<ChatEngine | null>(null);
   const isMountedRef = useRef(true);
+  // Ref for inserting text into the chat input (used for image markers)
+  const insertTextRef = useRef<((text: string) => void) | null>(null);
 
   // Get tracker options
   const trackerOptions = getTrackerOptions(cwd);
@@ -248,6 +250,8 @@ export function PrdChatApp({
   const {
     attachedImages,
     attachImage,
+    attachFromClipboard,
+    removeImageByNumber,
     clearImages,
     getPromptSuffix,
   } = useImageAttachmentWithFeedback(toast, {
@@ -454,7 +458,8 @@ Read the PRD and create the appropriate tasks.`;
       if (isSlashCommand(userMessage)) {
         setInputValue('');
         const result = await executeSlashCommand(userMessage, {
-          clearPendingImages: clearImages,
+          // Pass true to delete files - slash commands are user-initiated cancellations
+          clearPendingImages: () => clearImages(true),
           pendingImageCount: attachedImages.length,
         });
 
@@ -488,16 +493,16 @@ Read the PRD and create the appropriate tasks.`;
       const imageSuffix = getPromptSuffix();
 
       // Clear attached images after capturing suffix
+      // Pass false (default) to keep files - the agent needs to read them
       if (attachedImages.length > 0) {
-        clearImages();
+        clearImages(false);
       }
 
-      // The user message shown in the chat (without image paths for cleaner display)
+      // The user message shown in the chat
+      // The [Image N] markers in the message provide visual indication of attachments
       const userMsg: ChatMessage = {
         role: 'user',
-        content: attachedImages.length > 0
-          ? `${userMessage}\n\n📎 ${attachedImages.length} image(s) attached`
-          : userMessage,
+        content: userMessage,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, userMsg]);
@@ -628,24 +633,62 @@ Read the PRD and create the appropriate tasks.`;
 
   /**
    * Handle paste events - try to detect and attach images
+   *
+   * The paste handler uses a two-phase approach:
+   * 1. First, try to read actual image data from the system clipboard (via pngpaste)
+   *    This handles screenshot tools like Shottr that put images in the clipboard
+   * 2. If no clipboard image, try to parse the pasted text as an image path
+   *    This handles pasting file paths to images
+   *
+   * IMPORTANT: We must call preventDefault() SYNCHRONOUSLY before any async work
+   * to prevent the default paste behavior. Then we decide what to insert.
    */
   const handlePaste = useCallback(
     async (text: string, event: PasteEvent) => {
-      // Don't process paste if images are disabled
+      // Don't process paste if images are disabled - let default paste happen
       if (!imagesEnabled) {
         return;
       }
 
-      // Try to attach as image - if it succeeds, prevent the default paste
-      const result = await attachImage(text);
-      if (result.success) {
-        event.preventDefault();
-      } else {
-        // Not an image - show first-time paste hint if enabled
+      // ALWAYS prevent default first - we'll manually insert text if needed
+      // This prevents the race condition where paste completes before our async check
+      event.preventDefault();
+
+      // Phase 1: Try to read actual image data from clipboard
+      // This is the primary path for screenshot tools (Shottr, etc.)
+      const clipboardResult = await attachFromClipboard();
+      if (clipboardResult.success) {
+        // Insert inline marker at cursor position
+        if (clipboardResult.inlineMarker && insertTextRef.current) {
+          insertTextRef.current(clipboardResult.inlineMarker + ' ');
+        }
+        return;
+      }
+
+      // Phase 2: If no clipboard image, try to parse pasted text as image path
+      // This handles cases where user pastes a file path to an image
+      if (text.trim()) {
+        const textResult = await attachImage(text);
+        if (textResult.success) {
+          // Insert inline marker at cursor position (NOT the file path)
+          if (textResult.inlineMarker && insertTextRef.current) {
+            insertTextRef.current(textResult.inlineMarker + ' ');
+          }
+          return;
+        }
+      }
+
+      // Not an image - manually insert the pasted text
+      if (text && insertTextRef.current) {
+        insertTextRef.current(text);
+      }
+
+      // Show first-time paste hint if enabled
+      if (!clipboardResult.feedbackShown) {
         onTextPaste();
       }
     },
-    [imagesEnabled, attachImage, onTextPaste]
+    [imagesEnabled, attachFromClipboard, attachImage, onTextPaste]
   );
 
   // Auto-dismiss copy feedback after 2 seconds
@@ -690,9 +733,10 @@ Read the PRD and create the appropriate tasks.`;
             hint={hint}
             agentName={agent.meta.name}
             onSubmit={sendMessage}
-            attachedImageCount={attachedImages.length}
             onPaste={handlePaste}
+            onImageMarkerDeleted={removeImageByNumber}
             toasts={toast.toasts}
+            insertTextRef={insertTextRef}
           />
         </box>
 
@@ -740,9 +784,10 @@ Read the PRD and create the appropriate tasks.`;
         hint={hint}
         agentName={agent.meta.name}
         onSubmit={sendMessage}
-        attachedImageCount={attachedImages.length}
         onPaste={handlePaste}
+        onImageMarkerDeleted={removeImageByNumber}
         toasts={toast.toasts}
+        insertTextRef={insertTextRef}
       />
       <ConfirmationDialog
         visible={showQuitConfirm}

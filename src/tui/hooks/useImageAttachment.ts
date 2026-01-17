@@ -42,6 +42,16 @@ export interface AttachResult {
   image?: AttachedImage;
   /** Error message (if failed) */
   error?: string;
+  /**
+   * The image number (1-indexed) for use in inline markers like [Image 1].
+   * Only present when success is true.
+   */
+  imageNumber?: number;
+  /**
+   * The inline marker text to insert at cursor position (e.g., "[Image 1]").
+   * Only present when success is true.
+   */
+  inlineMarker?: string;
 }
 
 /**
@@ -79,9 +89,16 @@ export interface UseImageAttachmentReturn {
    */
   removeImage: (index: number) => void;
   /**
-   * Remove all attached images.
+   * Remove an attached image by its image number (1-indexed).
+   * Used when user deletes an [Image N] marker from the text.
+   * @param imageNumber - The 1-indexed image number to remove
    */
-  clearImages: () => void;
+  removeImageByNumber: (imageNumber: number) => void;
+  /**
+   * Remove all attached images.
+   * @param deleteFiles - Whether to delete the stored image files (default: false)
+   */
+  clearImages: (deleteFiles?: boolean) => void;
   /**
    * Get formatted string for appending to prompt.
    * @returns Formatted string listing all attached images, or empty string if none
@@ -269,21 +286,22 @@ export function useImageAttachment(options: UseImageAttachmentOptions = {}): Use
       };
     }
 
+    // Calculate the image number (1-indexed) before updating state
+    // This ensures consistency between the returned number and the actual position
+    const imageNumber = attachedImages.length + 1;
+    const inlineMarker = `[Image ${imageNumber}]`;
+
     // Create the attachment
     const image: AttachedImage = {
       id: randomUUID(),
       originalSource: 'clipboard',
       storedPath: storageResult.path,
-      displayName: '', // Will be set after we know the index
+      displayName: generateDisplayName('clipboard', storageResult.path!, imageNumber - 1),
     };
 
-    setAttachedImages((prev) => {
-      const newIndex = prev.length;
-      image.displayName = generateDisplayName('clipboard', storageResult.path!, newIndex);
-      return [...prev, image];
-    });
+    setAttachedImages((prev) => [...prev, image]);
 
-    return { success: true, image };
+    return { success: true, image, imageNumber, inlineMarker };
   }, [maxImages, attachedImages.length]);
 
   /**
@@ -317,20 +335,20 @@ export function useImageAttachment(options: UseImageAttachmentOptions = {}): Use
           };
         }
 
+        // Calculate image number before state update
+        const imageNumber = attachedImages.length + 1;
+        const inlineMarker = `[Image ${imageNumber}]`;
+
         const image: AttachedImage = {
           id: randomUUID(),
           originalSource: 'base64',
           storedPath: storageResult.path,
-          displayName: '', // Will be set after we know the index
+          displayName: generateDisplayName('base64', storageResult.path!, imageNumber - 1),
         };
 
-        setAttachedImages((prev) => {
-          const newIndex = prev.length;
-          image.displayName = generateDisplayName('base64', storageResult.path!, newIndex);
-          return [...prev, image];
-        });
+        setAttachedImages((prev) => [...prev, image]);
 
-        return { success: true, image };
+        return { success: true, image, imageNumber, inlineMarker };
       }
 
       // Check if input is a file path
@@ -344,20 +362,20 @@ export function useImageAttachment(options: UseImageAttachmentOptions = {}): Use
           };
         }
 
+        // Calculate image number before state update
+        const imageNumber = attachedImages.length + 1;
+        const inlineMarker = `[Image ${imageNumber}]`;
+
         const image: AttachedImage = {
           id: randomUUID(),
           originalSource: pathResult.filePath,
           storedPath: storageResult.path,
-          displayName: '', // Will be set after we know the index
+          displayName: generateDisplayName(pathResult.filePath!, storageResult.path!, imageNumber - 1),
         };
 
-        setAttachedImages((prev) => {
-          const newIndex = prev.length;
-          image.displayName = generateDisplayName(pathResult.filePath!, storageResult.path!, newIndex);
-          return [...prev, image];
-        });
+        setAttachedImages((prev) => [...prev, image]);
 
-        return { success: true, image };
+        return { success: true, image, imageNumber, inlineMarker };
       }
 
       // Input didn't match any known image format
@@ -392,15 +410,46 @@ export function useImageAttachment(options: UseImageAttachmentOptions = {}): Use
   }, []);
 
   /**
-   * Remove all attached images.
+   * Remove an attached image by its image number (1-indexed).
+   * Used when user deletes an [Image N] marker from the text.
    */
-  const clearImages = useCallback(() => {
+  const removeImageByNumber = useCallback((imageNumber: number) => {
+    // Convert 1-indexed image number to 0-indexed array index
+    const index = imageNumber - 1;
     setAttachedImages((prev) => {
-      // Delete all stored files (fire and forget)
-      for (const image of prev) {
-        deleteStoredImage(image.storedPath).catch(() => {
-          // Ignore deletion errors
-        });
+      if (index < 0 || index >= prev.length) {
+        return prev;
+      }
+
+      const imageToRemove = prev[index];
+
+      // Delete the stored file since the user explicitly removed the marker
+      deleteStoredImage(imageToRemove.storedPath).catch(() => {
+        // Ignore deletion errors
+      });
+
+      // Remove from array
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  /**
+   * Remove all attached images.
+   *
+   * @param deleteFiles - Whether to delete the stored image files (default: false).
+   *                      Set to true only for explicit user cancellation.
+   *                      When sending a message, files should be kept so agents can read them.
+   */
+  const clearImages = useCallback((deleteFiles: boolean = false) => {
+    setAttachedImages((prev) => {
+      // Only delete files if explicitly requested (e.g., user cancelled)
+      // When sending a message, we keep the files so the agent can access them
+      if (deleteFiles) {
+        for (const image of prev) {
+          deleteStoredImage(image.storedPath).catch(() => {
+            // Ignore deletion errors
+          });
+        }
       }
       return [];
     });
@@ -408,15 +457,26 @@ export function useImageAttachment(options: UseImageAttachmentOptions = {}): Use
 
   /**
    * Generate the formatted prompt suffix for attached images.
+   *
+   * This creates a mapping section that matches inline markers like [Image 1]
+   * to their actual file paths. The format is designed to be easily parsed
+   * by agents and provides clear context for image references.
+   *
+   * Example output:
+   * ```
+   * [Image References]
+   * [Image 1]: /path/to/.ralph-tui/images/img-abc123.png
+   * [Image 2]: /path/to/.ralph-tui/images/img-def456.png
+   * ```
    */
   const getPromptSuffix = useCallback((): string => {
     if (attachedImages.length === 0) {
       return '';
     }
 
-    const lines = ['', '[Attached Images]'];
+    const lines = ['', '[Image References]'];
     attachedImages.forEach((image, index) => {
-      lines.push(`- Image ${index + 1}: ${image.storedPath}`);
+      lines.push(`[Image ${index + 1}]: ${image.storedPath}`);
     });
 
     return lines.join('\n');
@@ -440,6 +500,7 @@ export function useImageAttachment(options: UseImageAttachmentOptions = {}): Use
     attachImage,
     attachFromClipboard,
     removeImage,
+    removeImageByNumber,
     clearImages,
     getPromptSuffix,
     hasImages,
