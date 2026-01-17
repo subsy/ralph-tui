@@ -8,6 +8,7 @@ import {
   DEFAULT_CONFIG,
   DEFAULT_ERROR_HANDLING,
   DEFAULT_RATE_LIMIT_HANDLING,
+  DEFAULT_SANDBOX_CONFIG,
 } from './types.js';
 
 describe('DEFAULT_ERROR_HANDLING', () => {
@@ -28,6 +29,14 @@ describe('DEFAULT_RATE_LIMIT_HANDLING', () => {
   });
 });
 
+describe('DEFAULT_SANDBOX_CONFIG', () => {
+  test('has expected default values', () => {
+    expect(DEFAULT_SANDBOX_CONFIG.enabled).toBe(false);
+    expect(DEFAULT_SANDBOX_CONFIG.mode).toBe('auto');
+    expect(DEFAULT_SANDBOX_CONFIG.network).toBe(true);
+  });
+});
+
 describe('DEFAULT_CONFIG', () => {
   test('has expected iteration defaults', () => {
     expect(DEFAULT_CONFIG.maxIterations).toBe(10);
@@ -45,5 +54,9 @@ describe('DEFAULT_CONFIG', () => {
 
   test('includes error handling defaults', () => {
     expect(DEFAULT_CONFIG.errorHandling).toEqual(DEFAULT_ERROR_HANDLING);
+  });
+
+  test('includes sandbox defaults', () => {
+    expect(DEFAULT_CONFIG.sandbox).toEqual(DEFAULT_SANDBOX_CONFIG);
   });
 });

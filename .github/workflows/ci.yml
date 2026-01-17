@@ -51,7 +51,9 @@ jobs:
         run: bun install
 
       - name: Run tests with coverage
-        run: bun test --coverage --coverage-reporter=lcov --coverage-reporter=text 2>&1 | tee coverage-output.txt
+        run: |
+          set -o pipefail
+          bun test --coverage --coverage-reporter=lcov --coverage-reporter=text 2>&1 | tee coverage-output.txt
 
       - name: Check coverage threshold
         run: |

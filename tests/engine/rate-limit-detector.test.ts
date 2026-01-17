@@ -237,6 +237,34 @@ describe('RateLimitDetector', () => {
         });
         expect(result.isRateLimit).toBe(false);
       });
+
+      test('does not trigger for package names like @upstash/ratelimit (issue #100)', () => {
+        // Regression test: Agent output mentioning package names should not trigger false positives
+        // The pattern /rate[- ]?limit/ was too permissive and matched "ratelimit" without separator
+        const result = detector.detect({
+          stderr: 'ESLint type-safety issues with external libraries (better-auth, stripe, @upstash/redis, @upstash/ratelimit)',
+          exitCode: 0,
+        });
+        expect(result.isRateLimit).toBe(false);
+      });
+
+      test('does not trigger for concatenated ratelimit word', () => {
+        // Should not match "ratelimit" without space or hyphen separator
+        const result = detector.detect({
+          stderr: 'import { Ratelimit } from "@upstash/ratelimit"',
+          exitCode: 0,
+        });
+        expect(result.isRateLimit).toBe(false);
+      });
+
+      test('does not trigger for ratelimit function names', () => {
+        // Code containing "ratelimit" as a function/variable name should not trigger
+        const result = detector.detect({
+          stderr: 'TypeError: ratelimit.check is not a function',
+          exitCode: 1,
+        });
+        expect(result.isRateLimit).toBe(false);
+      });
     });
 
     describe('loose rate limit check with exit codes', () => {

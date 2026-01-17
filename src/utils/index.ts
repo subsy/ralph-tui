@@ -3,6 +3,7 @@
  * Re-exports all utility functions for easy imports.
  */
 
+export * from './clipboard.js';
 export * from './files.js';
 export * from './logger.js';
 export * from './process.js';

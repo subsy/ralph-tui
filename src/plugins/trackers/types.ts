@@ -176,6 +176,9 @@ export interface TaskFilter {
 
   /** Offset for pagination */
   offset?: number;
+
+  /** Exclude tasks with these IDs (used by engine to skip failed tasks) */
+  excludeIds?: string[];
 }
 
 /**

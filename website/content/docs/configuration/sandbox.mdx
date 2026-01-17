@@ -1,0 +1,208 @@
+---
+title: Sandbox
+description: Configure sandboxed agent execution with Bubblewrap (Linux) or sandbox-exec (macOS).
+---
+
+## Sandbox Overview
+
+Ralph TUI can run agent commands inside a sandbox to reduce access to your machine. When enabled, the sandbox limits filesystem access to your project directory and any explicit allowlists, and can disable network access.
+
+Sandboxing is opt-in and controlled through configuration or CLI flags. Auto mode will select the most secure sandbox available for your platform.
+
+## What Sandboxing Protects
+
+- Limits write access to your project directory and any `allowPaths` you list.
+- Mounts system directories as read-only to reduce accidental changes.
+- Can disable network access to block outbound calls.
+
+## What It Does Not Protect
+
+- It is not a VM-level security boundary; treat it as defense in depth.
+- Any paths you add to `allowPaths` remain writable by the agent.
+- Any paths you add to `readOnlyPaths` remain readable by the agent.
+- It does not enforce CPU, memory, or process limits.
+
+## Platform Requirements
+
+Sandbox mode uses different backends depending on platform:
+
+| Platform | Backend | Availability |
+|----------|---------|--------------|
+| **Linux** | Bubblewrap (`bwrap`) | Install via package manager |
+| **macOS** | `sandbox-exec` | Built-in (no installation needed) |
+| **Windows** | Not supported natively | Use WSL2 with Bubblewrap |
+
+If the required backend is missing or unavailable, auto mode falls back to `off`.
+
+## Install Bubblewrap (Linux)
+
+Install Bubblewrap with your package manager. On Debian/Ubuntu:
+
+```bash
+sudo apt install bubblewrap
+```
+
+On Fedora:
+
+```bash
+sudo dnf install bubblewrap
+```
+
+On Arch Linux:
+
+```bash
+sudo pacman -S bubblewrap
+```
+
+## macOS sandbox-exec
+
+On macOS, Ralph TUI uses the native `sandbox-exec` command with dynamically generated Seatbelt profiles. This provides similar isolation to Bubblewrap on Linux.
+
+### How It Works
+
+- Ralph generates a Seatbelt profile based on your configuration
+- The profile denies access by default, then allowlists specific paths
+- System directories (`/usr`, `/bin`, `/Applications`, etc.) are read-only
+- Your project directory is read-write
+- Agent auth paths (e.g., `~/.claude`) are mounted read-write to allow OAuth token refresh
+
+### Deprecation Notice
+
+Apple has deprecated `sandbox-exec`, but it continues to work and is still used by many tools including Homebrew. You may see a deprecation warning in stderr - this is expected and does not affect functionality.
+
+## Sandboxing on Windows
+
+Native Windows sandboxing is not currently supported. Windows users who want sandboxing should use WSL2 (Windows Subsystem for Linux).
+
+### WSL2 Setup for Sandboxing
+
+1. **Install WSL2** (if not already installed):
+   ```powershell
+   wsl --install
+   ```
+
+2. **Install ralph-tui inside WSL**:
+   ```bash
+   # Inside your WSL distribution
+   curl -fsSL https://get.ralph-tui.dev | bash
+   ```
+
+3. **Install Bubblewrap**:
+   ```bash
+   sudo apt install bubblewrap
+   ```
+
+4. **Run with sandbox enabled**:
+   ```bash
+   ralph-tui run --sandbox
+   ```
+
+WSL2 provides a full Linux environment where Bubblewrap works natively.
+
+## Sandbox Modes
+
+Sandbox mode is selected by the `sandbox.mode` setting or the CLI flag:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Use Bubblewrap on Linux, sandbox-exec on macOS, otherwise `off` |
+| `bwrap` | Force Bubblewrap (Linux only) |
+| `sandbox-exec` | Force sandbox-exec (macOS only) |
+| `off` | Disable sandboxing |
+
+## Configuration Options
+
+Configure sandboxing in your config file:
+
+```toml
+[sandbox]
+enabled = true
+mode = "auto"
+network = true
+allowPaths = ["/path/to/allow"]
+readOnlyPaths = ["/path/to/read-only"]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sandbox.enabled` | boolean | `false` | Enable sandboxing for agent execution |
+| `sandbox.mode` | string | `"auto"` | Sandbox backend (`auto`, `bwrap`, `sandbox-exec`, `off`) |
+| `sandbox.network` | boolean | `true` | Allow network access inside sandbox |
+| `sandbox.allowPaths` | string[] | `[]` | Additional writable paths (absolute or relative to project root) |
+| `sandbox.readOnlyPaths` | string[] | `[]` | Additional read-only paths (absolute or relative to project root) |
+
+## CLI Flags
+
+CLI flags override config file settings:
+
+| Flag | Description |
+|------|-------------|
+| `--sandbox` | Enable sandboxing in auto mode |
+| `--sandbox=bwrap` | Force Bubblewrap sandboxing (Linux) |
+| `--sandbox=sandbox-exec` | Force sandbox-exec (macOS) |
+| `--no-sandbox` | Disable sandboxing |
+| `--no-network` | Disable network access in the sandbox |
+
+## Network Access Warning
+
+The `--no-network` flag disables **all** network access inside the sandbox, including LLM API calls. This means:
+
+- **Cloud-based agents will fail**: All current built-in agents (e.g. `claude`, `opencode`, `droid`) require network access to communicate with their respective LLM APIs. Using `--no-network` with these agents will cause API calls to fail.
+
+- **Ralph TUI will warn you**: When you use `--no-network` with an agent that declares `requiresNetwork: true`, Ralph TUI emits a warning at startup:
+
+  ```
+  ⚠️  Warning: Agent 'claude' requires network access but --no-network is enabled. LLM API calls will fail.
+  ```
+
+### When `--no-network` Makes Sense
+
+The `--no-network` flag is designed for future agent plugins that don't need network access:
+
+| Use Case | Example Agents |
+|----------|----------------|
+| **Local LLMs** | Agents using Ollama, llama.cpp, LM Studio, or LocalAI |
+| **Offline tools** | Static analysis tools, code formatters, linters |
+| **Security auditing** | Testing what network calls an agent attempts |
+| **Air-gapped environments** | Enterprise setups with strict network isolation |
+
+If you're using the built-in cloud-based agents (for example `claude`, `opencode`, `droid` etc.), leave `network = true` (the default) or omit `--no-network`.
+
+## Examples
+
+### Enable sandboxing (auto mode)
+
+```bash
+ralph-tui run --sandbox
+```
+
+### Enable sandboxing without network access
+
+```bash
+ralph-tui run --sandbox --no-network
+```
+
+### Force Bubblewrap on Linux
+
+```toml
+[sandbox]
+enabled = true
+mode = "bwrap"
+```
+
+### Force sandbox-exec on macOS
+
+```toml
+[sandbox]
+enabled = true
+mode = "sandbox-exec"
+```
+
+### Add custom paths
+
+```toml
+[sandbox]
+enabled = true
+allowPaths = ["~/shared-workspace"]
+readOnlyPaths = ["~/.config/my-tool"]
+```

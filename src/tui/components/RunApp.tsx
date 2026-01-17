@@ -4,7 +4,8 @@
  * Handles graceful interruption with confirmation dialog.
  */
 
-import { useKeyboard, useTerminalDimensions } from '@opentui/react';
+import { useKeyboard, useTerminalDimensions, useRenderer } from '@opentui/react';
+import type { KeyEvent } from '@opentui/core';
 import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { colors, layout } from '../theme.js';
@@ -31,12 +32,15 @@ import type {
   RateLimitState,
 } from '../../engine/index.js';
 import type { TrackerTask } from '../../plugins/trackers/types.js';
-import type { StoredConfig, SubagentDetailLevel } from '../../config/types.js';
+import type { StoredConfig, SubagentDetailLevel, SandboxConfig, SandboxMode } from '../../config/types.js';
 import type { AgentPluginMeta } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
 import type { SubagentTraceStats, SubagentHierarchyNode } from '../../logs/types.js';
+import { platform } from 'node:os';
+import { writeToClipboard } from '../../utils/index.js';
 import { StreamingOutputParser } from '../output-parser.js';
+import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
 
 /**
  * View modes for the RunApp component
@@ -95,6 +99,10 @@ export interface RunAppProps {
   onSubagentPanelVisibilityChange?: (visible: boolean) => void;
   /** Current model being used (provider/model format, e.g., "anthropic/claude-3-5-sonnet") */
   currentModel?: string;
+  /** Sandbox configuration for display in header */
+  sandboxConfig?: SandboxConfig;
+  /** Resolved sandbox mode (when mode is 'auto', this shows what it resolved to) */
+  resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>;
 }
 
 /**
@@ -299,8 +307,13 @@ export function RunApp({
   initialSubagentPanelVisible = false,
   onSubagentPanelVisibilityChange,
   currentModel,
+  sandboxConfig,
+  resolvedSandboxMode,
 }: RunAppProps): ReactNode {
   const { width, height } = useTerminalDimensions();
+  const renderer = useRenderer();
+  // Copy feedback message state (auto-dismissed after 2s)
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>(() => {
     // Initialize with initial tasks if provided (for ready state)
     if (initialTasks && initialTasks.length > 0) {
@@ -318,6 +331,7 @@ export function RunApp({
     return info.maxIterations;
   });
   const [currentOutput, setCurrentOutput] = useState('');
+  const [currentSegments, setCurrentSegments] = useState<FormattedSegment[]>([]);
   // Streaming parser for live output - extracts readable content and prevents memory bloat
   // Use agentPlugin prop (from resolved config with CLI override) with fallback to storedConfig
   const resolvedAgentName = agentPlugin || storedConfig?.defaultAgent || storedConfig?.agent || 'claude';
@@ -487,6 +501,7 @@ export function RunApp({
         case 'iteration:started':
           setCurrentIteration(event.iteration);
           setCurrentOutput('');
+          setCurrentSegments([]);
           // Reset the streaming parser for the new iteration
           outputParserRef.current.reset();
           // Clear subagent state for new iteration
@@ -584,6 +599,8 @@ export function RunApp({
             // Use streaming parser to extract readable content (filters out verbose JSONL)
             outputParserRef.current.push(event.data);
             setCurrentOutput(outputParserRef.current.getOutput());
+            // Also update segments for TUI-native color rendering
+            setCurrentSegments(outputParserRef.current.getSegments());
           }
           // Refresh subagent tree from engine (subagent events are processed in engine)
           // Only refresh if subagent tracing is enabled to avoid unnecessary work
@@ -699,7 +716,33 @@ export function RunApp({
 
   // Handle keyboard navigation
   const handleKeyboard = useCallback(
-    (key: { name: string; sequence?: string }) => {
+    (key: KeyEvent) => {
+      // Handle clipboard copy:
+      // - macOS: Cmd+C (meta key)
+      // - Linux: Ctrl+Shift+C or Alt+C
+      // - Windows: Ctrl+C
+      // Note: We check this early so copy works even when dialogs are open
+      const isMac = platform() === 'darwin';
+      const isWindows = platform() === 'win32';
+      const selection = renderer.getSelection();
+      const isCopyShortcut = isMac
+        ? key.meta && key.name === 'c'
+        : isWindows
+          ? key.ctrl && key.name === 'c'
+          : (key.ctrl && key.shift && key.name === 'c') || (key.option && key.name === 'c');
+
+      if (isCopyShortcut && selection) {
+        const selectedText = selection.getSelectedText();
+        if (selectedText && selectedText.length > 0) {
+          writeToClipboard(selectedText).then((result) => {
+            if (result.success) {
+              setCopyFeedback(`Copied ${result.charCount} chars`);
+            }
+          });
+        }
+        return;
+      }
+
       // When interrupt dialog is showing, only handle y/n/Esc
       if (showInterruptDialog) {
         switch (key.name) {
@@ -802,12 +845,9 @@ export function RunApp({
           }
           break;
 
-        case 'c':
-          // Ctrl+C to stop
-          if (key.name === 'c') {
-            engine.stop();
-          }
-          break;
+        // Note: 'c' / Ctrl+C is intentionally NOT handled here.
+        // Ctrl+C and Ctrl+Shift+C send the same sequence (\x03) in most terminals,
+        // so we can't distinguish between "stop" and "copy". Users should use 'q' to quit.
 
         case 'v':
           // Toggle between tasks and iterations view (only if not in detail view)
@@ -832,10 +872,28 @@ export function RunApp({
           break;
 
         case 's':
-          // Start execution when in ready state
+          // Start/continue execution - 's' always means "keep going"
           if (status === 'ready' && onStart) {
+            // First start - use onStart callback
             setStatus('running');
             onStart();
+          } else if (status === 'stopped' || status === 'idle') {
+            // Continue after stop - use engine.continueExecution()
+            if (currentIteration >= maxIterations) {
+              // At max iterations, add one more then continue
+              engine.addIterations(1).then((shouldContinue) => {
+                if (shouldContinue) {
+                  setStatus('running');
+                  engine.continueExecution();
+                }
+              }).catch((err) => {
+                console.error('Failed to add iteration:', err);
+              });
+            } else {
+              // Have iterations remaining, just continue
+              setStatus('running');
+              engine.continueExecution();
+            }
           }
           break;
 
@@ -953,7 +1011,7 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showEpicLoader, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showEpicLoader, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer]
   );
 
   useKeyboard(handleKeyboard);
@@ -977,7 +1035,7 @@ export function RunApp({
   const selectedTask = displayedTasks[selectedIndex] ?? null;
 
   // Compute the iteration output and timing to show for the selected task
-  // - If selected task is currently executing: show live currentOutput with isRunning
+  // - If selected task is currently executing: show live currentOutput with isRunning + segments
   // - If selected task has a completed iteration: show that iteration's output with timing
   // - Otherwise: undefined (will show "waiting" or appropriate message)
   const selectedTaskIteration = useMemo(() => {
@@ -989,9 +1047,9 @@ export function RunApp({
           startedAt: currentIterationStartedAt,
           isRunning: true,
         };
-        return { iteration: currentIteration, output: currentOutput, timing };
+        return { iteration: currentIteration, output: currentOutput, segments: currentSegments, timing };
       }
-      return { iteration: currentIteration, output: undefined, timing: undefined };
+      return { iteration: currentIteration, output: undefined, segments: undefined, timing: undefined };
     }
 
     // Check if this task is currently being executed
@@ -1003,7 +1061,7 @@ export function RunApp({
         startedAt: currentIterationStartedAt,
         isRunning: true,
       };
-      return { iteration: currentIteration, output: currentOutput, timing };
+      return { iteration: currentIteration, output: currentOutput, segments: currentSegments, timing };
     }
 
     // Look for a completed iteration for this task (in-memory from current session)
@@ -1018,6 +1076,7 @@ export function RunApp({
       return {
         iteration: taskIteration.iteration,
         output: taskIteration.agentResult?.stdout ?? '',
+        segments: undefined, // Completed iterations don't have live segments
         timing,
       };
     }
@@ -1028,13 +1087,14 @@ export function RunApp({
       return {
         iteration: -1, // Historical iteration number unknown, use -1 to indicate "past"
         output: historicalData.output,
+        segments: undefined, // Historical data doesn't have segments
         timing: historicalData.timing,
       };
     }
 
     // Task hasn't been run yet (or historical log not yet loaded)
-    return { iteration: 0, output: undefined, timing: undefined };
-  }, [selectedTask, currentTaskId, currentIteration, currentOutput, iterations, historicalOutputCache]);
+    return { iteration: 0, output: undefined, segments: undefined, timing: undefined };
+  }, [selectedTask, currentTaskId, currentIteration, currentOutput, currentSegments, iterations, historicalOutputCache]);
 
   // Load historical iteration logs from disk when a completed task is selected
   useEffect(() => {
@@ -1149,6 +1209,15 @@ export function RunApp({
     loadMissingStats();
   }, [viewMode, iterations, cwd, subagentStatsCache]);
 
+  // Auto-dismiss copy feedback after 2 seconds
+  useEffect(() => {
+    if (!copyFeedback) return;
+    const timer = setTimeout(() => {
+      setCopyFeedback(null);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [copyFeedback]);
+
   return (
     <box
       style={{
@@ -1173,6 +1242,8 @@ export function RunApp({
         currentIteration={currentIteration}
         maxIterations={maxIterations}
         currentModel={currentModel}
+        sandboxConfig={sandboxConfig}
+        resolvedSandboxMode={resolvedSandboxMode}
       />
 
       {/* Progress Dashboard - toggleable with 'd' key */}
@@ -1185,6 +1256,8 @@ export function RunApp({
           epicName={epicName}
           currentTaskId={currentTaskId}
           currentTaskTitle={currentTaskTitle}
+          sandboxConfig={sandboxConfig}
+          resolvedSandboxMode={resolvedSandboxMode}
         />
       )}
 
@@ -1208,6 +1281,8 @@ export function RunApp({
             subagentTree={iterationDetailSubagentTree}
             subagentStats={iterationDetailSubagentStats}
             subagentTraceLoading={iterationDetailSubagentLoading}
+            sandboxConfig={sandboxConfig}
+            resolvedSandboxMode={resolvedSandboxMode}
           />
         ) : viewMode === 'tasks' ? (
           <>
@@ -1216,6 +1291,7 @@ export function RunApp({
               selectedTask={selectedTask}
               currentIteration={selectedTaskIteration.iteration}
               iterationOutput={selectedTaskIteration.output}
+              iterationSegments={selectedTaskIteration.segments}
               viewMode={detailsViewMode}
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentName}
@@ -1249,6 +1325,7 @@ export function RunApp({
               selectedTask={selectedTask}
               currentIteration={selectedTaskIteration.iteration}
               iterationOutput={selectedTaskIteration.output}
+              iterationSegments={selectedTaskIteration.segments}
               viewMode={detailsViewMode}
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentName}
@@ -1273,6 +1350,24 @@ export function RunApp({
 
       {/* Footer */}
       <Footer />
+
+      {/* Copy feedback toast - positioned at bottom right */}
+      {copyFeedback && (
+        <box
+          style={{
+            position: 'absolute',
+            bottom: 2,
+            right: 2,
+            paddingLeft: 1,
+            paddingRight: 1,
+            backgroundColor: colors.bg.tertiary,
+            border: true,
+            borderColor: colors.status.success,
+          }}
+        >
+          <text fg={colors.status.success}>✓ {copyFeedback}</text>
+        </box>
+      )}
 
       {/* Interrupt Confirmation Dialog */}
       <ConfirmationDialog

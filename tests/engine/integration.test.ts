@@ -140,6 +140,34 @@ function createControllableTracker(options: {
         return dep?.status === 'completed';
       });
     },
+    async getNextTask(filter) {
+      // Filter to open/in_progress tasks
+      const activeTasks = tasks.filter(t =>
+        t.status === 'open' || t.status === 'in_progress'
+      );
+
+      // Filter out excluded IDs
+      const excludeSet = new Set(filter?.excludeIds ?? []);
+      const candidates = activeTasks.filter(t => !excludeSet.has(t.id));
+
+      // Find ready tasks (no unresolved dependencies)
+      for (const task of candidates) {
+        if (!task.dependsOn || task.dependsOn.length === 0) {
+          return task;
+        }
+        const allDepsComplete = task.dependsOn.every(depId => {
+          const dep = tasks.find(t => t.id === depId);
+          return dep?.status === 'completed';
+        });
+        if (allDepsComplete) {
+          return task;
+        }
+      }
+      return undefined;
+    },
+    async getEpics() {
+      return [];
+    },
     async updateTaskStatus(taskId, status) {
       const task = tasks.find(t => t.id === taskId);
       if (task) {

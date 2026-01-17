@@ -309,6 +309,20 @@ export class ExecutionEngine {
       tasks: initialTasks,
     });
 
+    // Warn if sandbox network is disabled but agent requires network
+    if (
+      this.config.sandbox?.enabled &&
+      this.config.sandbox?.network === false &&
+      this.agent!.getSandboxRequirements().requiresNetwork
+    ) {
+      this.emit({
+        type: 'engine:warning',
+        timestamp: new Date().toISOString(),
+        code: 'sandbox-network-conflict',
+        message: `Warning: Agent '${this.config.agent.plugin}' requires network access but --no-network is enabled. LLM API calls will fail.`,
+      });
+    }
+
     try {
       await this.runLoop();
     } finally {
@@ -431,25 +445,22 @@ export class ExecutionEngine {
   }
 
   /**
-   * Get the next available task, excluding skipped ones
+   * Get the next available task, excluding skipped ones.
+   * Delegates to the tracker's getNextTask() for proper dependency-aware ordering.
+   * See: https://github.com/subsy/ralph-tui/issues/97
    */
   private async getNextAvailableTask(): Promise<TrackerTask | null> {
-    const tasks = await this.tracker!.getTasks({ status: ['open', 'in_progress'] });
+    // Convert skipped tasks Set to array for the filter
+    const excludeIds = Array.from(this.skippedTasks);
 
-    for (const task of tasks) {
-      // Skip tasks that have been marked as skipped
-      if (this.skippedTasks.has(task.id)) {
-        continue;
-      }
+    // Delegate to tracker's getNextTask for dependency-aware ordering
+    // The tracker (e.g., beads) uses bd ready which properly handles dependencies
+    const task = await this.tracker!.getNextTask({
+      status: ['open', 'in_progress'],
+      excludeIds: excludeIds.length > 0 ? excludeIds : undefined,
+    });
 
-      // Check if task is ready (no unresolved dependencies)
-      const isReady = await this.tracker!.isTaskReady(task.id);
-      if (isReady) {
-        return task;
-      }
-    }
-
-    return null;
+    return task ?? null;
   }
 
   /**
@@ -734,6 +745,7 @@ export class ExecutionEngine {
       const handle = this.agent!.execute(prompt, [], {
         cwd: this.config.cwd,
         flags,
+        sandbox: this.config.sandbox,
         subagentTracing: supportsTracing,
         onStdout: (data) => {
           this.state.currentOutput += data;

@@ -215,6 +215,7 @@ export class ChatEngine {
           fullOutput += data;
           options.onChunk?.(data);
         },
+        onStdoutSegments: options.onSegments,
         onStderr: (data: string) => {
           // Include stderr in output (some agents use it for status)
           options.onChunk?.(data);

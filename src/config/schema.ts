@@ -15,6 +15,8 @@ export const SubagentDetailLevelSchema = z.enum(['off', 'minimal', 'moderate', '
  */
 export const ErrorHandlingStrategySchema = z.enum(['retry', 'skip', 'abort']);
 
+export const SandboxModeSchema = z.enum(['auto', 'bwrap', 'sandbox-exec', 'off']);
+
 /**
  * Error handling configuration schema
  */
@@ -38,6 +40,14 @@ export const RateLimitHandlingConfigSchema = z.object({
   maxRetries: z.number().int().min(0).max(10).optional(),
   baseBackoffMs: z.number().int().min(0).max(300000).optional(),
   recoverPrimaryBetweenIterations: z.boolean().optional(),
+});
+
+export const SandboxConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  mode: SandboxModeSchema.optional(),
+  network: z.boolean().optional(),
+  allowPaths: z.array(z.string()).optional(),
+  readOnlyPaths: z.array(z.string()).optional(),
 });
 
 /**
@@ -138,6 +148,8 @@ export const StoredConfigSchema = z
 
     // Error handling
     errorHandling: ErrorHandlingConfigSchema.optional(),
+
+    sandbox: SandboxConfigSchema.optional(),
 
     // Fallback agents (shorthand for default agent)
     fallbackAgents: z.array(z.string().min(1)).optional(),

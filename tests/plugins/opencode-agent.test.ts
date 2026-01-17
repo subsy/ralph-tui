@@ -133,20 +133,6 @@ describe('OpenCodeAgentPlugin', () => {
       expect(result).toContain('Invalid agent type');
     });
 
-    test('accepts valid format: default', async () => {
-      expect(await plugin.validateSetup({ format: 'default' })).toBeNull();
-    });
-
-    test('accepts valid format: json', async () => {
-      expect(await plugin.validateSetup({ format: 'json' })).toBeNull();
-    });
-
-    test('rejects invalid format', async () => {
-      const result = await plugin.validateSetup({ format: 'xml' });
-      expect(result).not.toBeNull();
-      expect(result).toContain('Invalid format');
-    });
-
     test('accepts any provider string', async () => {
       // OpenCode supports 75+ providers - validation is delegated to CLI
       expect(await plugin.validateSetup({ provider: 'anthropic' })).toBeNull();
@@ -188,14 +174,8 @@ describe('OpenCodeAgentPlugin', () => {
       expect(agentQuestion?.choices?.length).toBe(3);
     });
 
-    test('includes format question', () => {
-      const questions = plugin.getSetupQuestions();
-      const formatQuestion = questions.find((q) => q.id === 'format');
-      expect(formatQuestion).toBeDefined();
-      expect(formatQuestion?.type).toBe('select');
-      expect(formatQuestion?.choices?.some((c) => c.value === 'default')).toBe(true);
-      expect(formatQuestion?.choices?.some((c) => c.value === 'json')).toBe(true);
-    });
+    // Note: format is not a setup question - it's hardcoded to 'json'
+    // because the streaming output parser requires JSON format to work
   });
 
   describe('dispose', () => {

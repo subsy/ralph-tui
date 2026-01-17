@@ -4,6 +4,9 @@
  * (Claude Code, OpenCode, Cursor, etc.)
  */
 
+import type { SandboxConfig } from '../../sandbox/types.js';
+import type { FormattedSegment } from './output-formatting.js';
+
 /**
  * Result of detecting whether an agent CLI is available.
  */
@@ -99,8 +102,13 @@ export interface AgentExecuteOptions {
   /** Additional CLI flags to pass to the agent */
   flags?: string[];
 
-  /** Callback for streaming stdout */
+  sandbox?: SandboxConfig;
+
+  /** Callback for streaming stdout (legacy string format) */
   onStdout?: (data: string) => void;
+
+  /** Callback for streaming stdout as TUI-native segments */
+  onStdoutSegments?: (segments: FormattedSegment[]) => void;
 
   /** Callback for streaming stderr */
   onStderr?: (data: string) => void;
@@ -203,6 +211,13 @@ export interface AgentPluginConfig {
   rateLimitHandling?: RateLimitHandlingConfig;
 }
 
+export interface AgentSandboxRequirements {
+  authPaths: string[];
+  binaryPaths: string[];
+  runtimePaths: string[];
+  requiresNetwork: boolean;
+}
+
 /**
  * Metadata about an agent plugin.
  */
@@ -285,6 +300,8 @@ export interface AgentPlugin {
    * @returns Detection result with availability and version info
    */
   detect(): Promise<AgentDetectResult>;
+
+  getSandboxRequirements(): AgentSandboxRequirements;
 
   /**
    * Execute the agent with a prompt and optional file context.

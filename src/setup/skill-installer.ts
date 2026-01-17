@@ -48,15 +48,40 @@ export function getClaudeSkillsDir(): string {
 }
 
 /**
+ * Compute the skills path based on the current directory.
+ * This is extracted as a pure function to enable testing.
+ *
+ * @param currentDir - The directory where the code is running from
+ * @returns The computed path to the skills directory
+ */
+export function computeSkillsPath(currentDir: string): string {
+  // When bundled by bun, all code is in dist/cli.js (single file bundle).
+  // In that case, skills/ is a sibling directory at dist/skills/.
+  // In development, this file is at src/setup/skill-installer.ts,
+  // and skills/ is at the project root (up 2 levels).
+
+  const bundledPath = join(currentDir, 'skills');
+  const devPath = join(currentDir, '..', '..', 'skills');
+
+  // Return the bundled path if we're in dist/
+  // Use endsWith('dist') for exact match at end, or includes('/dist/') for dist as path segment
+  // This avoids false matches like '/distribution/' or '/my-dist/'
+  if (currentDir.endsWith('dist') || currentDir.includes('/dist/')) {
+    return bundledPath;
+  }
+
+  return devPath;
+}
+
+/**
  * Get the path to the bundled skills in the ralph-tui package.
+ * This function handles both development (running from src/) and production
+ * (running from bundled dist/) environments.
  */
 export function getBundledSkillsDir(): string {
   // In ESM, we need to derive the path from import.meta.url
-  // This file is at src/setup/skill-installer.ts
-  // Skills are at skills/
   const currentDir = dirname(fileURLToPath(import.meta.url));
-  // Go up from src/setup to root, then into skills
-  return join(currentDir, '..', '..', 'skills');
+  return computeSkillsPath(currentDir);
 }
 
 /**

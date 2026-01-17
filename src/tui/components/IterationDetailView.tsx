@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { colors, formatElapsedTime } from '../theme.js';
 import type { IterationResult, IterationStatus, EngineSubagentStatus } from '../../engine/types.js';
 import type { SubagentHierarchyNode, SubagentTraceStats } from '../../logs/types.js';
+import type { SandboxConfig, SandboxMode } from '../../config/types.js';
 
 /**
  * Event in the iteration timeline
@@ -42,6 +43,10 @@ export interface IterationDetailViewProps {
   subagentStats?: SubagentTraceStats;
   /** Loading state for subagent trace data */
   subagentTraceLoading?: boolean;
+  /** Sandbox configuration (if sandboxing is enabled) */
+  sandboxConfig?: SandboxConfig;
+  /** Resolved sandbox mode (when mode is 'auto', this shows what it resolved to) */
+  resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>;
 }
 
 /**
@@ -578,6 +583,8 @@ export function IterationDetailView({
   subagentTree,
   subagentStats,
   subagentTraceLoading,
+  sandboxConfig,
+  resolvedSandboxMode,
 }: IterationDetailViewProps): ReactNode {
   const statusColor = statusColors[iteration.status];
   const statusIndicator = statusIndicators[iteration.status];
@@ -678,6 +685,50 @@ export function IterationDetailView({
             )}
           </box>
         </box>
+
+        {/* Sandbox configuration section - shows if sandboxing is enabled */}
+        {sandboxConfig?.enabled && sandboxConfig.mode !== 'off' && (
+          <box style={{ marginBottom: 2 }}>
+            <SectionHeader title="Sandbox Configuration" />
+            <box
+              style={{
+                padding: 1,
+                backgroundColor: colors.bg.secondary,
+                border: true,
+                borderColor: colors.status.info,
+              }}
+            >
+              <MetadataRow
+                label="Mode"
+                value={
+                  (sandboxConfig.mode ?? 'auto') === 'auto' && resolvedSandboxMode
+                    ? `auto (${resolvedSandboxMode})`
+                    : sandboxConfig.mode ?? 'auto'
+                }
+                valueColor={colors.status.info}
+              />
+              <MetadataRow
+                label="Network Access"
+                value={sandboxConfig.network === false ? 'Disabled' : 'Enabled'}
+                valueColor={sandboxConfig.network === false ? colors.status.warning : colors.status.success}
+              />
+              {sandboxConfig.allowPaths && sandboxConfig.allowPaths.length > 0 && (
+                <MetadataRow
+                  label="Writable Paths"
+                  value={sandboxConfig.allowPaths.join(', ')}
+                  valueColor={colors.fg.secondary}
+                />
+              )}
+              {sandboxConfig.readOnlyPaths && sandboxConfig.readOnlyPaths.length > 0 && (
+                <MetadataRow
+                  label="Read-Only Paths"
+                  value={sandboxConfig.readOnlyPaths.join(', ')}
+                  valueColor={colors.fg.secondary}
+                />
+              )}
+            </box>
+          </box>
+        )}
 
         {/* Timeline section */}
         <box style={{ marginBottom: 2 }}>

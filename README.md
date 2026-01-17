@@ -109,6 +109,10 @@ ralph-tui run --iterations 5
 
 # Run headless (no TUI)
 ralph-tui run --headless
+
+# Run agent in isolated sandbox (bwrap on Linux, sandbox-exec on macOS)
+# Requires bwrap to be installed and on PATH (Linux) or uses built-in sandbox-exec (macOS)
+ralph-tui run --sandbox
 ```
 
 ### Create PRD Options

@@ -10,6 +10,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
 import type { RightPanelProps, DetailsViewMode, IterationTimingInfo, SubagentTreeNode, TaskPriority } from '../types.js';
 import type { SubagentDetailLevel } from '../../config/types.js';
+import { stripAnsiCodes, type FormattedSegment } from '../../plugins/agents/output-formatting.js';
 import { formatElapsedTime } from '../theme.js';
 import { SubagentSections } from './SubagentSection.js';
 import { parseAgentOutput } from '../output-parser.js';
@@ -528,6 +529,7 @@ function TaskOutputView({
   task,
   currentIteration,
   iterationOutput,
+  iterationSegments,
   iterationTiming,
   agentName,
   currentModel,
@@ -540,6 +542,7 @@ function TaskOutputView({
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
   iterationOutput?: string;
+  iterationSegments?: FormattedSegment[];
   iterationTiming?: IterationTimingInfo;
   agentName?: string;
   currentModel?: string;
@@ -553,20 +556,27 @@ function TaskOutputView({
   const statusIndicator = getTaskStatusIndicator(task.status);
   const hasSubagents = subagentTree.length > 0 && subagentDetailLevel !== 'off';
 
-  // Parse the output to extract readable content from JSONL
-  // - Historical output (currentIteration === -1): always parse
-  // - Live output during execution (isRunning): show raw for streaming updates
-  // - Completed iterations in current session: parse to clean up final output
+  // Check if we're live streaming
+  const isLiveStreaming = iterationTiming?.isRunning === true;
+
+  // For live streaming, prefer segments for TUI-native colors
+  // For historical/completed output, parse the string to extract readable content
+  // ALWAYS strip ANSI codes - they cause black background artifacts in OpenTUI
   const displayOutput = useMemo(() => {
     if (!iterationOutput) return undefined;
-    // For live output during execution, show raw for streaming updates
-    const isLiveStreaming = iterationTiming?.isRunning === true;
+    // For live output during execution, strip ANSI but keep raw content
     if (isLiveStreaming) {
-      return iterationOutput;
+      return stripAnsiCodes(iterationOutput);
     }
     // For completed output (historical or from current session), parse to extract readable content
+    // parseAgentOutput already strips ANSI codes
     return parseAgentOutput(iterationOutput, agentName);
-  }, [iterationOutput, iterationTiming?.isRunning, agentName]);
+  }, [iterationOutput, isLiveStreaming, agentName]);
+
+  // Note: Full segment-based coloring (FormattedText) disabled due to OpenTUI
+  // span rendering issues causing black backgrounds and character loss.
+  // Using simple line-based coloring for tool calls instead.
+  void iterationSegments;
 
   // Parse model info for display
   const modelDisplay = currentModel
@@ -641,8 +651,28 @@ function TaskOutputView({
         }}
       >
         <scrollbox style={{ flexGrow: 1, padding: 1 }}>
+          {/* Line-based coloring with tool names in green */}
           {displayOutput !== undefined && displayOutput.length > 0 ? (
-            <text fg={colors.fg.secondary}>{displayOutput}</text>
+            <box style={{ flexDirection: 'column' }}>
+              {displayOutput.split('\n').map((line, i) => {
+                // Check if line starts with [toolname] pattern
+                const toolMatch = line.match(/^(\[[\w-]+\])(.*)/);
+                if (toolMatch) {
+                  const [, toolName, rest] = toolMatch;
+                  return (
+                    <box key={i} style={{ flexDirection: 'row' }}>
+                      <text fg={colors.status.success}>{toolName}</text>
+                      <text fg={colors.fg.secondary}>{rest}</text>
+                    </box>
+                  );
+                }
+                return (
+                  <text key={i} fg={colors.fg.secondary}>
+                    {line}
+                  </text>
+                );
+              })}
+            </box>
           ) : displayOutput === '' ? (
             <text fg={colors.fg.muted}>No output captured</text>
           ) : currentIteration === 0 ? (
@@ -663,6 +693,7 @@ function TaskDetails({
   task,
   currentIteration,
   iterationOutput,
+  iterationSegments,
   viewMode = 'details',
   iterationTiming,
   agentName,
@@ -676,6 +707,7 @@ function TaskDetails({
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
   iterationOutput?: string;
+  iterationSegments?: FormattedSegment[];
   viewMode?: DetailsViewMode;
   iterationTiming?: IterationTimingInfo;
   agentName?: string;
@@ -692,6 +724,7 @@ function TaskDetails({
         task={task}
         currentIteration={currentIteration}
         iterationOutput={iterationOutput}
+        iterationSegments={iterationSegments}
         iterationTiming={iterationTiming}
         agentName={agentName}
         currentModel={currentModel}
@@ -714,6 +747,7 @@ export function RightPanel({
   selectedTask,
   currentIteration,
   iterationOutput,
+  iterationSegments,
   viewMode = 'details',
   iterationTiming,
   agentName,
@@ -747,6 +781,7 @@ export function RightPanel({
           task={selectedTask}
           currentIteration={currentIteration}
           iterationOutput={iterationOutput}
+          iterationSegments={iterationSegments}
           viewMode={viewMode}
           iterationTiming={iterationTiming}
           agentName={agentName}

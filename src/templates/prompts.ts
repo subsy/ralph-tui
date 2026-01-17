@@ -132,9 +132,9 @@ You are an autonomous coding agent implementing tasks from Beads.
 3. Implement the bead's requirements
 4. Run your project's quality checks (typecheck, lint, etc.)
 5. If checks pass, commit with message: \`feat: [bead-id] - [bead-title]\`
-6. **IMPORTANT**: Close the bead using \`bd update\`:
+6. **IMPORTANT**: Close the bead using \`bd close\`:
    \`\`\`bash
-   bd update [bead-id] --status=closed --close_reason="Brief description of what was done"
+   bd close [bead-id] --reason "Brief description of what was done"
    \`\`\`
 
 ## Bead Details (INJECTED BY SCRIPT)
@@ -145,14 +145,17 @@ You are an autonomous coding agent implementing tasks from Beads.
 
 ## Closing a Bead
 
-When the bead is complete, close it using the \`bd\` command:
+When the bead is complete, close it using the \`bd close\` command:
 
 \`\`\`bash
 # Close the bead with a descriptive reason
-bd update [bead-id] --status=closed --close_reason="What was implemented"
+bd close [bead-id] --reason "What was implemented"
+
+# If running from a different directory, specify the database path:
+bd close [bead-id] --db /path/to/.beads/beads.db --reason "What was implemented"
 
 # Example
-bd update devtuneai-001 --status=closed --close_reason="Added search index table with name and category fields"
+bd close devtuneai-001 --reason "Added search index table with name and category fields"
 \`\`\`
 
 ## Quality Requirements
@@ -163,15 +166,15 @@ bd update devtuneai-001 --status=closed --close_reason="Added search index table
 
 ## Browser Testing (UI Stories)
 
-For UI stories, verify in browser and include "Verified in browser" in close_reason:
+For UI stories, verify in browser and include "Verified in browser" in the reason:
 
 \`\`\`bash
-bd update devtuneai-003 --status=closed --close_reason="Added search input component - Verified in browser"
+bd close devtuneai-003 --reason "Added search input component - Verified in browser"
 \`\`\`
 
 ## Stop Condition
 
-If the bead is complete and closed using \`bd update\`, reply with:
+If the bead is complete and closed using \`bd close\`, reply with:
 <promise>COMPLETE</promise>
 
 If the bead is still open, end your response normally.
@@ -181,7 +184,7 @@ If the bead is still open, end your response normally.
 - Work on ONE bead per iteration
 - Commit frequently
 - Keep CI green
-- Close the bead with \`bd update\` when done!
+- Close the bead with \`bd close\` when done!
 
 ## Bead Commands Reference
 
@@ -190,7 +193,8 @@ If the bead is still open, end your response normally.
 bd show [bead-id]
 
 # Close a bead
-bd update [bead-id] --status=closed --close_reason="..."
+bd close [bead-id] --reason "..."
+bd close [bead-id] --db <path> --reason "..."  # When in different directory
 
 # List beads
 bd list --labels="ralph"           # All ralph beads

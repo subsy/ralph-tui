@@ -11,6 +11,7 @@ import {
   beforeEach,
   afterEach,
   beforeAll,
+  afterAll,
   mock,
   spyOn,
 } from 'bun:test';
@@ -64,6 +65,11 @@ async function createTempDir(): Promise<string> {
 beforeAll(() => {
   registerBuiltinAgents();
   registerBuiltinTrackers();
+});
+
+// Restore mocks after all tests to prevent leakage to other test files
+afterAll(() => {
+  mock.restore();
 });
 
 describe('projectConfigExists', () => {

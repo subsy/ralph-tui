@@ -70,6 +70,9 @@ export interface TemplateVariables {
 
   /** Recent progress summary from previous iterations (optional) */
   recentProgress: string;
+
+  /** Full path to beads database file (for bd --db flag) */
+  beadsDbPath: string;
 }
 
 /**

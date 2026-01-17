@@ -60,6 +60,11 @@ Run Options:
   --no-setup          Skip interactive setup even if no config exists
   --notify            Force enable desktop notifications
   --no-notify         Force disable desktop notifications
+  --sandbox           Enable sandboxing (auto mode)
+  --sandbox=bwrap     Force Bubblewrap sandboxing (Linux)
+  --sandbox=sandbox-exec  Force sandbox-exec (macOS)
+  --no-sandbox        Disable sandboxing
+  --no-network        Disable network access in sandbox
 
 Resume Options:
   --cwd <path>        Working directory

@@ -58,8 +58,9 @@ const COMMON_PATTERNS: RateLimitPattern[] = [
     retryAfterPattern: /retry[- ]?after[:\s]+(\d+)\s*s/i,
   },
   // Generic rate limit phrases
+  // NOTE: Requires space or hyphen separator to avoid matching package names like @upstash/ratelimit
   {
-    pattern: /rate[- ]?limit/i,
+    pattern: /rate[- ]limit/i,
     retryAfterPattern: /retry[- ]?after[:\s]+(\d+)\s*s/i,
   },
   // Too many requests

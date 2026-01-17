@@ -80,7 +80,10 @@ import type {
   AgentExecutionHandle,
   AgentSetupQuestion,
   AgentExecutionStatus,
+  AgentSandboxRequirements,
 } from './types.js';
+import { SandboxWrapper, detectSandboxMode } from '../../sandbox/index.js';
+import type { SandboxConfig } from '../../sandbox/types.js';
 
 /**
  * Internal representation of a running execution.
@@ -209,6 +212,15 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     });
   }
 
+  getSandboxRequirements(): AgentSandboxRequirements {
+    return {
+      authPaths: [],
+      binaryPaths: [],
+      runtimePaths: [],
+      requiresNetwork: false,
+    };
+  }
+
   /**
    * Build the command arguments for execution.
    * Subclasses should override to construct their specific CLI arguments.
@@ -272,116 +284,179 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       rejectPromise = reject;
     });
 
-    // Spawn the process
-    // Note: On Windows, we need shell: true to execute wrapper scripts (.cmd, .bat, .ps1)
-    // On Unix, shell: false avoids shell interpretation of special characters in args
-    // The prompt will be passed via stdin if getStdinInput returns content
-    const isWindows = platform() === 'win32';
-    const proc = spawn(command, allArgs, {
-      cwd: options?.cwd ?? process.cwd(),
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: isWindows,
-    });
+    let pendingInterrupt = false;
 
-    // Write to stdin if subclass provides input (e.g., prompt content)
-    const stdinInput = this.getStdinInput(prompt, files, options);
-    if (stdinInput !== undefined && proc.stdin) {
-      proc.stdin.write(stdinInput);
-      proc.stdin.end();
-    } else if (proc.stdin) {
-      // Close stdin if no input to prevent hanging
-      proc.stdin.end();
-    }
+    const startProcess = (spawnCommand: string, spawnArgs: string[]): void => {
+      // Spawn the process
+      // Note: On Windows, we need shell: true to execute wrapper scripts (.cmd, .bat, .ps1)
+      // On Unix, shell: false avoids shell interpretation of special characters in args
+      // The prompt will be passed via stdin if getStdinInput returns content
+      const isWindows = platform() === 'win32';
+      const proc = spawn(spawnCommand, spawnArgs, {
+        cwd: options?.cwd ?? process.cwd(),
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWindows,
+      });
 
-    // Create running execution entry
-    const execution: RunningExecution = {
-      executionId,
-      process: proc,
-      startedAt,
-      stdout: '',
-      stderr: '',
-      interrupted: false,
-      resolve: resolvePromise!,
-      reject: rejectPromise!,
+      // Write to stdin if subclass provides input (e.g., prompt content)
+      const stdinInput = this.getStdinInput(prompt, files, options);
+      if (stdinInput !== undefined && proc.stdin) {
+        proc.stdin.write(stdinInput);
+        proc.stdin.end();
+      } else if (proc.stdin) {
+        // Close stdin if no input to prevent hanging
+        proc.stdin.end();
+      }
+
+      // Create running execution entry
+      const execution: RunningExecution = {
+        executionId,
+        process: proc,
+        startedAt,
+        stdout: '',
+        stderr: '',
+        interrupted: false,
+        resolve: resolvePromise!,
+        reject: rejectPromise!,
+      };
+
+      this.executions.set(executionId, execution);
+      this.currentExecutionId = executionId;
+
+      // Notify start callback
+      options?.onStart?.(executionId);
+
+      // Handle stdout
+      proc.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        execution.stdout += text;
+        options?.onStdout?.(text);
+      });
+
+      // Handle stderr
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        execution.stderr += text;
+        options?.onStderr?.(text);
+      });
+
+      // Handle process error
+      proc.on('error', (error) => {
+        this.completeExecution(executionId, 'failed', undefined, error.message);
+      });
+
+      // Handle process exit
+      proc.on('close', (code, signal) => {
+        // Debug: log close event
+        if (process.env.RALPH_DEBUG) {
+          debugLog(`[DEBUG] Process close: code=${code}, signal=${signal}, execId=${executionId}`);
+        }
+
+        // Determine status
+        let status: AgentExecutionStatus;
+        if (execution.interrupted) {
+          status = 'interrupted';
+        } else if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+          status = execution.timeoutId ? 'timeout' : 'interrupted';
+        } else if (code === 0) {
+          status = 'completed';
+        } else {
+          status = 'failed';
+        }
+
+        this.completeExecution(executionId, status, code ?? undefined);
+      });
+
+      // Backup: also listen for 'exit' event in case 'close' doesn't fire
+      proc.on('exit', (code, signal) => {
+        if (process.env.RALPH_DEBUG) {
+          debugLog(`[DEBUG] Process exit: code=${code}, signal=${signal}, execId=${executionId}`);
+        }
+        // Note: We don't call completeExecution here to avoid double-completion
+        // 'close' should fire after 'exit' once stdio streams are closed
+      });
+
+      // Set up timeout if specified
+      if (timeout > 0) {
+        execution.timeoutId = setTimeout(() => {
+          if (this.executions.has(executionId)) {
+            proc.kill('SIGTERM');
+            // Give it 5 seconds to terminate gracefully
+            setTimeout(() => {
+              if (this.executions.has(executionId)) {
+                proc.kill('SIGKILL');
+              }
+            }, 5000);
+          }
+        }, timeout);
+      }
+
+      if (pendingInterrupt) {
+        this.interrupt(executionId);
+      }
     };
 
-    this.executions.set(executionId, execution);
-    this.currentExecutionId = executionId;
-
-    // Notify start callback
-    options?.onStart?.(executionId);
-
-    // Handle stdout
-    proc.stdout?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      execution.stdout += text;
-      options?.onStdout?.(text);
-    });
-
-    // Handle stderr
-    proc.stderr?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      execution.stderr += text;
-      options?.onStderr?.(text);
-    });
-
-    // Handle process error
-    proc.on('error', (error) => {
-      this.completeExecution(executionId, 'failed', undefined, error.message);
-    });
-
-    // Handle process exit
-    proc.on('close', (code, signal) => {
-      // Debug: log close event
-      if (process.env.RALPH_DEBUG) {
-        debugLog(`[DEBUG] Process close: code=${code}, signal=${signal}, execId=${executionId}`);
+    const resolveSandboxConfig = async (): Promise<SandboxConfig | undefined> => {
+      const sandboxConfig = options?.sandbox;
+      if (!sandboxConfig?.enabled) {
+        return undefined;
       }
 
-      // Determine status
-      let status: AgentExecutionStatus;
-      if (execution.interrupted) {
-        status = 'interrupted';
-      } else if (signal === 'SIGTERM' || signal === 'SIGKILL') {
-        status = execution.timeoutId ? 'timeout' : 'interrupted';
-      } else if (code === 0) {
-        status = 'completed';
-      } else {
-        status = 'failed';
-      }
+      const mode = sandboxConfig.mode ?? 'auto';
+      const resolvedMode = mode === 'auto' ? await detectSandboxMode() : mode;
+      return {
+        ...sandboxConfig,
+        mode: resolvedMode,
+      };
+    };
 
-      this.completeExecution(executionId, status, code ?? undefined);
-    });
+    void resolveSandboxConfig()
+      .then((sandboxConfig) => {
+        let spawnCommand = command;
+        let spawnArgs = allArgs;
 
-    // Backup: also listen for 'exit' event in case 'close' doesn't fire
-    proc.on('exit', (code, signal) => {
-      if (process.env.RALPH_DEBUG) {
-        debugLog(`[DEBUG] Process exit: code=${code}, signal=${signal}, execId=${executionId}`);
-      }
-      // Note: We don't call completeExecution here to avoid double-completion
-      // 'close' should fire after 'exit' once stdio streams are closed
-    });
-
-    // Set up timeout if specified
-    if (timeout > 0) {
-      execution.timeoutId = setTimeout(() => {
-        if (this.executions.has(executionId)) {
-          proc.kill('SIGTERM');
-          // Give it 5 seconds to terminate gracefully
-          setTimeout(() => {
-            if (this.executions.has(executionId)) {
-              proc.kill('SIGKILL');
-            }
-          }, 5000);
+        if (sandboxConfig) {
+          const wrapper = new SandboxWrapper(
+            sandboxConfig,
+            this.getSandboxRequirements()
+          );
+          const wrapped = wrapper.wrapCommand(command, allArgs, {
+            cwd: options?.cwd,
+          });
+          spawnCommand = wrapped.command;
+          spawnArgs = wrapped.args;
         }
-      }, timeout);
-    }
+
+        startProcess(spawnCommand, spawnArgs);
+      })
+      .catch((error: Error) => {
+        const endedAt = new Date();
+        resolvePromise!({
+          executionId,
+          status: 'failed',
+          exitCode: undefined,
+          stdout: '',
+          stderr: error.message,
+          durationMs: endedAt.getTime() - startedAt.getTime(),
+          error: error.message,
+          interrupted: false,
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+        });
+      });
 
     // Return the handle
     return {
       executionId,
       promise,
-      interrupt: () => this.interrupt(executionId),
+      interrupt: () => {
+        if (this.executions.has(executionId)) {
+          return this.interrupt(executionId);
+        }
+        pendingInterrupt = true;
+        return true;
+      },
       isRunning: () => this.executions.has(executionId),
     };
   }

@@ -6,6 +6,7 @@
 
 import type { ReactNode } from 'react';
 import { colors, statusIndicators, layout, type RalphStatus } from '../theme.js';
+import type { SandboxConfig, SandboxMode } from '../../config/types.js';
 
 /**
  * Props for the ProgressDashboard component
@@ -25,6 +26,10 @@ export interface ProgressDashboardProps {
   currentTaskId?: string;
   /** Current task title being worked on (if any) */
   currentTaskTitle?: string;
+  /** Sandbox configuration (if sandboxing is enabled) */
+  sandboxConfig?: SandboxConfig;
+  /** Resolved sandbox mode (when mode is 'auto', this shows what it resolved to) */
+  resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>;
 }
 
 /**
@@ -34,6 +39,31 @@ function truncateText(text: string, maxWidth: number): string {
   if (text.length <= maxWidth) return text;
   if (maxWidth <= 3) return text.slice(0, maxWidth);
   return text.slice(0, maxWidth - 1) + '…';
+}
+
+/**
+ * Get sandbox display string from config
+ * Shows resolved mode when mode is 'auto' (e.g., "auto (bwrap)")
+ */
+function getSandboxDisplay(
+  sandboxConfig?: SandboxConfig,
+  resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>
+): string | null {
+  if (!sandboxConfig?.enabled) {
+    return null;
+  }
+
+  const mode = sandboxConfig.mode ?? 'auto';
+  if (mode === 'off') {
+    return null;
+  }
+
+  // Show resolved mode when mode is 'auto' (e.g., "auto (bwrap)")
+  const modeDisplay = mode === 'auto' && resolvedSandboxMode
+    ? `auto (${resolvedSandboxMode})`
+    : mode;
+  const networkSuffix = sandboxConfig.network === false ? ' (no-net)' : '';
+  return `${modeDisplay}${networkSuffix}`;
 }
 
 /**
@@ -81,8 +111,11 @@ export function ProgressDashboard({
   epicName,
   currentTaskId,
   currentTaskTitle,
+  sandboxConfig,
+  resolvedSandboxMode,
 }: ProgressDashboardProps): ReactNode {
   const statusDisplay = getStatusDisplay(status, currentTaskId);
+  const sandboxDisplay = getSandboxDisplay(sandboxConfig, resolvedSandboxMode);
 
   // Show current task title when executing
   const taskDisplay = currentTaskTitle && (status === 'executing' || status === 'running')
@@ -133,6 +166,13 @@ export function ProgressDashboard({
           <text fg={colors.fg.muted}> | </text>
           <text fg={colors.fg.secondary}>Tracker: </text>
           <text fg={colors.accent.tertiary}>{trackerName}</text>
+          {sandboxDisplay && (
+            <>
+              <text fg={colors.fg.muted}> | </text>
+              <text fg={colors.fg.secondary}>Sandbox: </text>
+              <text fg={colors.status.info}>{sandboxDisplay}</text>
+            </>
+          )}
         </box>
       </box>
 

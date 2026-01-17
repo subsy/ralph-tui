@@ -238,6 +238,12 @@ export abstract class BaseTrackerPlugin implements TrackerPlugin {
       result = result.filter((t) => t.type && types.includes(t.type));
     }
 
+    // Exclude specific task IDs (used for skipped/failed tasks)
+    if (filter.excludeIds && filter.excludeIds.length > 0) {
+      const excludeSet = new Set(filter.excludeIds);
+      result = result.filter((t) => !excludeSet.has(t.id));
+    }
+
     // Filter to ready tasks (no unresolved dependencies)
     if (filter.ready) {
       result = result.filter((t) => this.checkTaskReady(t, tasks));

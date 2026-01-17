@@ -69,7 +69,7 @@ export const BEADS_TEMPLATE = `## Bead Details
 1. Implement the requirements (stay on current branch)
 2. Run your project's quality checks (typecheck, lint, etc.)
 3. Commit: feat: {{taskId}} - {{taskTitle}}
-4. Close the bead when done (bd update {{taskId}} --status=closed --close_reason="...")
+4. Close the bead when done: bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"
 
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it works correctly and signal completion immediately.
 
@@ -114,7 +114,7 @@ Completing this task will unblock: {{blocks}}
 1. Implement the requirements (stay on current branch)
 2. Run your project's quality checks (typecheck, lint, etc.)
 3. Commit: feat: {{taskId}} - {{taskTitle}}
-4. Close the bead when done (bd update {{taskId}} --status=closed --close_reason="...")
+4. Close the bead when done: bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"
 
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it works correctly and signal completion immediately.
 

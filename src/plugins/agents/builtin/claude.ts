@@ -7,6 +7,7 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath } from '../base.js';
+import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -14,6 +15,7 @@ import type {
   AgentExecuteOptions,
   AgentSetupQuestion,
   AgentDetectResult,
+  AgentExecutionHandle,
 } from '../types.js';
 
 /**
@@ -146,6 +148,17 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       available: true,
       version: versionResult.version,
       executablePath: findResult.path,
+    };
+  }
+
+  override getSandboxRequirements() {
+    return {
+      authPaths: ['~/.claude', '~/.anthropic'],
+      // Include both symlink location and actual binary location
+      // Claude CLI installs as: ~/.local/bin/claude -> ~/.local/share/claude/versions/X.Y.Z
+      binaryPaths: ['/usr/local/bin', '~/.local/bin', '~/.local/share/claude'],
+      runtimePaths: ['~/.bun', '~/.nvm'],
+      requiresNetwork: true,
     };
   }
 
@@ -319,6 +332,139 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     _options?: AgentExecuteOptions
   ): string {
     return prompt;
+  }
+
+  /**
+   * Parse a Claude JSONL line into standardized display events.
+   * Returns AgentDisplayEvent[] - the shared processAgentEvents decides what to show.
+   *
+   * Claude CLI stream-json format:
+   * - "assistant": AI responses with content[] containing text and tool_use blocks
+   * - "user": Tool results (contains file contents, command output)
+   * - "system": Hooks, init data
+   * - "result": Final result summary
+   * - "error": Error messages
+   */
+  private parseClaudeJsonLine(jsonLine: string): AgentDisplayEvent[] {
+    if (!jsonLine || jsonLine.length === 0) return [];
+
+    try {
+      const event = JSON.parse(jsonLine) as Record<string, unknown>;
+      const events: AgentDisplayEvent[] = [];
+
+      // Parse assistant messages (text and tool use)
+      if (event.type === 'assistant' && event.message) {
+        const message = event.message as { content?: Array<Record<string, unknown>> };
+        if (message.content && Array.isArray(message.content)) {
+          for (const block of message.content) {
+            if (block.type === 'text' && typeof block.text === 'string') {
+              events.push({ type: 'text', content: block.text });
+            } else if (block.type === 'tool_use' && typeof block.name === 'string') {
+              events.push({
+                type: 'tool_use',
+                name: block.name,
+                input: block.input as Record<string, unknown>,
+              });
+            }
+          }
+        }
+      }
+
+      // Parse user/tool_result events - check for errors in tool results
+      if (event.type === 'user') {
+        const message = event.message as { content?: Array<Record<string, unknown>> } | undefined;
+        if (message?.content && Array.isArray(message.content)) {
+          for (const block of message.content) {
+            // Surface tool result errors
+            if (block.type === 'tool_result' && block.is_error === true) {
+              const errorContent = typeof block.content === 'string'
+                ? block.content
+                : 'tool execution failed';
+              events.push({ type: 'error', message: errorContent });
+            }
+          }
+        }
+        // Always include tool_result marker (shared logic will skip for display)
+        events.push({ type: 'tool_result' });
+      }
+
+      // Parse system events
+      if (event.type === 'system') {
+        events.push({ type: 'system', subtype: event.subtype as string });
+      }
+
+      // Parse error events
+      if (event.type === 'error' || event.error) {
+        const errorMsg = typeof event.error === 'string'
+          ? event.error
+          : (event.error as { message?: string })?.message ?? 'Unknown error';
+        events.push({ type: 'error', message: errorMsg });
+      }
+
+      return events;
+    } catch {
+      // Not valid JSON - skip
+      return [];
+    }
+  }
+
+  /**
+   * Parse Claude stream output into display events.
+   */
+  private parseClaudeOutputToEvents(data: string): AgentDisplayEvent[] {
+    const allEvents: AgentDisplayEvent[] = [];
+    for (const line of data.split('\n')) {
+      const events = this.parseClaudeJsonLine(line.trim());
+      allEvents.push(...events);
+    }
+    return allEvents;
+  }
+
+  /**
+   * Override execute to parse Claude JSONL output for display.
+   * Wraps the onStdout/onStdoutSegments callbacks to format tool calls and messages.
+   */
+  override execute(
+    prompt: string,
+    files?: AgentFileContext[],
+    options?: AgentExecuteOptions
+  ): AgentExecutionHandle {
+    // Wrap callbacks to parse JSONL events when using stream-json output
+    const isStreamingJson = options?.subagentTracing || this.printMode === 'json' || this.printMode === 'stream';
+
+    const parsedOptions: AgentExecuteOptions = {
+      ...options,
+      // TUI-native segments callback (preferred)
+      onStdoutSegments: options?.onStdoutSegments && isStreamingJson
+        ? (/* original segments ignored - we parse from raw */) => {
+            // This callback is set up but actual segments come from wrapping onStdout below
+          }
+        : options?.onStdoutSegments,
+      // Legacy string callback or wrapper that calls both callbacks
+      onStdout: isStreamingJson && (options?.onStdout || options?.onStdoutSegments)
+        ? (data: string) => {
+            const events = this.parseClaudeOutputToEvents(data);
+            if (events.length > 0) {
+              // Call TUI-native segments callback if provided
+              if (options?.onStdoutSegments) {
+                const segments = processAgentEventsToSegments(events);
+                if (segments.length > 0) {
+                  options.onStdoutSegments(segments);
+                }
+              }
+              // Also call legacy string callback if provided
+              if (options?.onStdout) {
+                const parsed = processAgentEvents(events);
+                if (parsed.length > 0) {
+                  options.onStdout(parsed);
+                }
+              }
+            }
+          }
+        : options?.onStdout,
+    };
+
+    return super.execute(prompt, files, parsedOptions);
   }
 
   override async validateSetup(

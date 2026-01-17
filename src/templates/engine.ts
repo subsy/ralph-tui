@@ -253,7 +253,19 @@ export function buildTemplateVariables(
     currentTimestamp: new Date().toISOString(),
     notes: (task.metadata?.notes as string) ?? '',
     recentProgress: recentProgress ?? '',
+    beadsDbPath: computeBeadsDbPath(config),
   };
+}
+
+/**
+ * Compute the full path to the beads database file.
+ * Used for the --db flag when running bd commands from external directories.
+ */
+function computeBeadsDbPath(config: Partial<RalphConfig>): string {
+  const trackerOptions = config.tracker?.options as Record<string, unknown> | undefined;
+  const workingDir = (trackerOptions?.workingDir as string) ?? config.cwd ?? process.cwd();
+  const beadsDir = (trackerOptions?.beadsDir as string) ?? '.beads';
+  return path.join(workingDir, beadsDir, 'beads.db');
 }
 
 /**

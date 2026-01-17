@@ -4,6 +4,12 @@
  */
 
 import type { ClaudeJsonlMessage } from '../builtin/claude.js';
+import {
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+  type FormattedSegment,
+} from '../output-formatting.js';
 
 export interface DroidToolCall {
   id?: string;
@@ -205,6 +211,33 @@ function extractToolCalls(payload: Record<string, unknown>): DroidToolCall[] {
     calls.push(parsedSingle);
   }
 
+  // Handle droid's top-level tool_call format where the entire payload IS the tool call
+  // e.g., {"type":"tool_call","toolName":"LS","parameters":{...}}
+  const payloadType = readString(payload.type);
+  if (payloadType === 'tool_call' && calls.length === 0) {
+    const parsed = parseToolCall(payload);
+    if (parsed) {
+      calls.push(parsed);
+    }
+  }
+
+  // Also check for Anthropic/Claude format: content[] with tool_use blocks
+  // This handles agents that output in the standard Anthropic message format
+  const content = payload.content ?? (payload.message as Record<string, unknown>)?.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      const blockRecord = asRecord(block);
+      if (blockRecord?.type === 'tool_use' && typeof blockRecord.name === 'string') {
+        const input = asRecord(blockRecord.input);
+        calls.push({
+          id: readString(blockRecord.id),
+          name: blockRecord.name,
+          arguments: input ?? undefined,
+        });
+      }
+    }
+  }
+
   return calls;
 }
 
@@ -263,6 +296,16 @@ function extractToolResults(payload: Record<string, unknown>): DroidToolResult[]
   const parsedSingle = parseToolResult(singleResult);
   if (parsedSingle) {
     results.push(parsedSingle);
+  }
+
+  // Handle droid's top-level tool_result format where the entire payload IS the tool result
+  // e.g., {"type":"tool_result","id":"call_xxx","toolId":"LS","value":"..."}
+  const payloadType = readString(payload.type);
+  if (payloadType === 'tool_result' && results.length === 0) {
+    const parsed = parseToolResult(payload);
+    if (parsed) {
+      results.push(parsed);
+    }
   }
 
   return results;
@@ -387,22 +430,6 @@ function normalizeToolInput(
   return argumentsValue;
 }
 
-function formatToolArguments(argumentsValue?: Record<string, unknown> | string): string {
-  if (!argumentsValue) {
-    return '';
-  }
-
-  if (typeof argumentsValue === 'string') {
-    return argumentsValue.trim();
-  }
-
-  try {
-    return JSON.stringify(argumentsValue);
-  } catch {
-    return '[unserializable arguments]';
-  }
-}
-
 export class DroidCostAccumulator {
   private summary: DroidCostSummary = {
     inputTokens: 0,
@@ -498,53 +525,89 @@ export function formatDroidCostSummary(summary: DroidCostSummary): string {
   return `Cost: ${costLine}${usdSuffix}`;
 }
 
-export function formatDroidEventForDisplay(message: DroidJsonlMessage): string | undefined {
+/**
+ * Parse a DroidJsonlMessage into standardized display events.
+ * Returns AgentDisplayEvent[] - the shared processAgentEvents decides what to show.
+ */
+export function parseDroidMessageToEvents(message: DroidJsonlMessage): AgentDisplayEvent[] {
+  const events: AgentDisplayEvent[] = [];
+
   // Skip user/input message events - these are just echoes of the prompt
   const eventType = message.type?.toLowerCase();
   const rawRole = typeof message.raw.role === 'string' ? message.raw.role.toLowerCase() : undefined;
   if (eventType === 'user' || eventType === 'input' || rawRole === 'user') {
-    return undefined;
+    return events;
   }
 
+  // Parse errors
   if (message.error) {
     const statusSuffix = message.error.status ? ` (status ${message.error.status})` : '';
-    return `Error${statusSuffix}: ${message.error.message}`;
+    events.push({ type: 'error', message: `${message.error.message}${statusSuffix}` });
   }
 
+  // Parse tool calls
   if (message.toolCalls && message.toolCalls.length > 0) {
-    return message.toolCalls
-      .map((call) => {
-        const args = formatToolArguments(call.arguments);
-        return args ? `Tool call: ${call.name} ${args}` : `Tool call: ${call.name}`;
-      })
-      .join('\n');
+    for (const call of message.toolCalls) {
+      const input = normalizeToolInput(call.arguments);
+      events.push({ type: 'tool_use', name: call.name, input });
+    }
   }
 
+  // Parse tool results - surface errors but skip successful results
   if (message.toolResults && message.toolResults.length > 0) {
-    return message.toolResults
-      .map((result) => {
-        const status = result.status ? ` (${result.status})` : '';
-        const content = result.content ? `: ${result.content}` : '';
-        return `Tool result${status}${content}`;
-      })
-      .join('\n');
+    for (const result of message.toolResults) {
+      if (result.isError) {
+        // Surface tool errors as error events so they're visible
+        const errorMsg = result.content || 'tool execution failed';
+        const statusSuffix = result.status ? ` (${result.status})` : '';
+        events.push({ type: 'error', message: `${errorMsg}${statusSuffix}` });
+      }
+      // Successful tool results are intentionally skipped - they contain
+      // raw output (file contents, command output) that clutters the display
+    }
   }
 
+  // Parse text content
   if (message.message) {
-    return message.message;
+    events.push({ type: 'text', content: message.message });
   }
 
   if (message.result) {
-    return message.result;
+    events.push({ type: 'text', content: message.result });
   }
 
-  return undefined;
+  return events;
+}
+
+/**
+ * Format a DroidJsonlMessage for display using shared logic.
+ * @deprecated Use parseDroidMessageToEvents + processAgentEvents instead
+ */
+export function formatDroidEventForDisplay(message: DroidJsonlMessage): string | undefined {
+  const events = parseDroidMessageToEvents(message);
+  if (events.length === 0) {
+    return undefined;
+  }
+  const result = processAgentEvents(events);
+  return result.length > 0 ? result : undefined;
+}
+
+/**
+ * Format a DroidJsonlMessage to TUI-native segments for color rendering.
+ * Returns FormattedSegment[] for use with FormattedText component.
+ */
+export function formatDroidEventToSegments(message: DroidJsonlMessage): FormattedSegment[] {
+  const events = parseDroidMessageToEvents(message);
+  if (events.length === 0) {
+    return [];
+  }
+  return processAgentEventsToSegments(events);
 }
 
 // Strip ANSI escape sequences from a string
 // These can appear when using pseudo-TTY wrappers like `script`
-// Matches: ESC[...letter, ESC]...BEL, and bare [...letter (without ESC)
-const ANSI_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]|\[\?[0-9;]*[a-zA-Z]/g;
+// Only matches sequences that start with ESC (\x1b) to avoid stripping regular text
+const ANSI_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]/g;
 
 function stripAnsi(str: string): string {
   return str.replace(ANSI_REGEX, '');

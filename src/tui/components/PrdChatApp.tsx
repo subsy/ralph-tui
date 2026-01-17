@@ -7,8 +7,10 @@
 
 import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useKeyboard } from '@opentui/react';
+import { useKeyboard, useRenderer } from '@opentui/react';
 import type { KeyEvent, PasteEvent } from '@opentui/core';
+import { platform } from 'node:os';
+import { writeToClipboard } from '../../utils/index.js';
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +19,7 @@ import { ConfirmationDialog } from './ConfirmationDialog.js';
 import { ChatEngine, createPrdChatEngine, createTaskChatEngine, slugify } from '../../chat/engine.js';
 import type { ChatMessage, ChatEvent } from '../../chat/types.js';
 import type { AgentPlugin } from '../../plugins/agents/types.js';
+import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
 import { parsePrdMarkdown } from '../../prd/index.js';
 import { colors } from '../theme.js';
 import { useImageAttachmentWithFeedback, useToast, usePasteHint } from '../hooks/index.js';
@@ -202,6 +205,10 @@ export function PrdChatApp({
   onError,
   imageConfig,
 }: PrdChatAppProps): ReactNode {
+  const renderer = useRenderer();
+  // Copy feedback message state (auto-dismissed after 2s)
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
   // Phase: 'chat' for PRD generation, 'review' for tracker selection
   const [phase, setPhase] = useState<'chat' | 'review'>('chat');
 
@@ -216,6 +223,7 @@ export function PrdChatApp({
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
   const [streamingChunk, setStreamingChunk] = useState('');
+  const [streamingSegments, setStreamingSegments] = useState<FormattedSegment[]>([]);
   const [error, setError] = useState<string | undefined>();
 
   // Quit confirmation dialog state
@@ -369,6 +377,7 @@ Press a number key to select, or continue chatting.`,
 
       setIsLoading(true);
       setStreamingChunk('');
+      setStreamingSegments([]);
       setLoadingStatus(`Creating ${option.name} tasks...`);
 
       // Add user selection message
@@ -387,9 +396,9 @@ Read the PRD and create the appropriate tasks.`;
 
       try {
         const result = await taskEngineRef.current.sendMessage(prompt, {
-          onChunk: (chunk) => {
+          onSegments: (segments) => {
             if (isMountedRef.current) {
-              setStreamingChunk((prev) => prev + chunk);
+              setStreamingSegments((prev) => [...prev, ...segments]);
             }
           },
           onStatus: (status) => {
@@ -403,6 +412,7 @@ Read the PRD and create the appropriate tasks.`;
           if (result.success && result.response) {
             setMessages((prev) => [...prev, result.response!]);
             setStreamingChunk('');
+            setStreamingSegments([]);
 
             // Add completion message and finish
             const doneMsg: ChatMessage = {
@@ -470,6 +480,7 @@ Read the PRD and create the appropriate tasks.`;
       setInputValue('');
       setIsLoading(true);
       setStreamingChunk('');
+      setStreamingSegments([]);
       setLoadingStatus('Sending to agent...');
       setError(undefined);
 
@@ -496,9 +507,9 @@ Read the PRD and create the appropriate tasks.`;
 
       try {
         const result = await engineRef.current.sendMessage(promptToSend, {
-          onChunk: (chunk) => {
+          onSegments: (segments) => {
             if (isMountedRef.current) {
-              setStreamingChunk((prev) => prev + chunk);
+              setStreamingSegments((prev) => [...prev, ...segments]);
             }
           },
           onStatus: (status) => {
@@ -512,6 +523,7 @@ Read the PRD and create the appropriate tasks.`;
           if (result.success && result.response) {
             setMessages((prev) => [...prev, result.response!]);
             setStreamingChunk('');
+            setStreamingSegments([]);
           } else if (!result.success) {
             setError(result.error || 'Failed to get response');
           }
@@ -537,6 +549,32 @@ Read the PRD and create the appropriate tasks.`;
    */
   const handleKeyboard = useCallback(
     (key: KeyEvent) => {
+      // Handle clipboard copy:
+      // - macOS: Cmd+C (meta key)
+      // - Linux: Ctrl+Shift+C or Alt+C
+      // - Windows: Ctrl+C
+      // Note: We check this early so copy works even when dialogs are open
+      const isMac = platform() === 'darwin';
+      const isWindows = platform() === 'win32';
+      const selection = renderer.getSelection();
+      const isCopyShortcut = isMac
+        ? key.meta && key.name === 'c'
+        : isWindows
+          ? key.ctrl && key.name === 'c'
+          : (key.ctrl && key.shift && key.name === 'c') || (key.option && key.name === 'c');
+
+      if (isCopyShortcut && selection) {
+        const selectedText = selection.getSelectedText();
+        if (selectedText && selectedText.length > 0) {
+          writeToClipboard(selectedText).then((result) => {
+            if (result.success) {
+              setCopyFeedback(`Copied ${result.charCount} chars`);
+            }
+          });
+        }
+        return;
+      }
+
       // Handle quit confirmation dialog
       if (showQuitConfirm) {
         if (key.name === 'y' || key.sequence === 'y' || key.sequence === 'Y') {
@@ -583,7 +621,7 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
     },
-    [showQuitConfirm, isLoading, phase, trackerOptions, handleTrackerSelect, prdPath, featureName, selectedTrackerFormat, onComplete, onCancel]
+    [showQuitConfirm, isLoading, phase, trackerOptions, handleTrackerSelect, prdPath, featureName, selectedTrackerFormat, onComplete, onCancel, renderer]
   );
 
   useKeyboard(handleKeyboard);
@@ -609,6 +647,15 @@ Read the PRD and create the appropriate tasks.`;
     },
     [imagesEnabled, attachImage, onTextPaste]
   );
+
+  // Auto-dismiss copy feedback after 2 seconds
+  useEffect(() => {
+    if (!copyFeedback) return;
+    const timer = setTimeout(() => {
+      setCopyFeedback(null);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [copyFeedback]);
 
   // Determine hint text based on phase
   const hint =
@@ -636,6 +683,7 @@ Read the PRD and create the appropriate tasks.`;
             isLoading={isLoading}
             loadingStatus={loadingStatus}
             streamingChunk={streamingChunk}
+            streamingSegments={streamingSegments}
             inputPlaceholder="Ask questions or select a format..."
             error={error}
             inputEnabled={!isLoading}
@@ -652,6 +700,24 @@ Read the PRD and create the appropriate tasks.`;
         <box style={{ width: '40%', height: '100%' }}>
           <PrdPreview content={prdContent} path={prdPath} />
         </box>
+
+        {/* Copy feedback toast - positioned at bottom right */}
+        {copyFeedback && (
+          <box
+            style={{
+              position: 'absolute',
+              bottom: 2,
+              right: 2,
+              paddingLeft: 1,
+              paddingRight: 1,
+              backgroundColor: colors.bg.tertiary,
+              border: true,
+              borderColor: colors.status.success,
+            }}
+          >
+            <text fg={colors.status.success}>✓ {copyFeedback}</text>
+          </box>
+        )}
       </box>
     );
   }
@@ -667,6 +733,7 @@ Read the PRD and create the appropriate tasks.`;
         isLoading={isLoading}
         loadingStatus={loadingStatus}
         streamingChunk={streamingChunk}
+        streamingSegments={streamingSegments}
         inputPlaceholder="Describe your feature..."
         error={error}
         inputEnabled={!isLoading && !showQuitConfirm}
@@ -683,6 +750,24 @@ Read the PRD and create the appropriate tasks.`;
         message="Your progress will be lost."
         hint="[y] Yes, cancel  [n/Esc] No, continue"
       />
+
+      {/* Copy feedback toast - positioned at bottom right */}
+      {copyFeedback && (
+        <box
+          style={{
+            position: 'absolute',
+            bottom: 2,
+            right: 2,
+            paddingLeft: 1,
+            paddingRight: 1,
+            backgroundColor: colors.bg.tertiary,
+            border: true,
+            borderColor: colors.status.success,
+          }}
+        >
+          <text fg={colors.status.success}>✓ {copyFeedback}</text>
+        </box>
+      )}
     </box>
   );
 }

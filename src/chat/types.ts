@@ -5,6 +5,7 @@
  */
 
 import type { AgentPlugin, AgentExecuteOptions } from '../plugins/agents/types.js';
+import type { FormattedSegment } from '../plugins/agents/output-formatting.js';
 
 /**
  * Role in a chat conversation.
@@ -64,8 +65,11 @@ export interface ChatEngineConfig {
  * Options for sending a message.
  */
 export interface SendMessageOptions {
-  /** Callback for streaming output chunks */
+  /** Callback for streaming output chunks (legacy string format) */
   onChunk?: (chunk: string) => void;
+
+  /** Callback for streaming output as TUI-native segments */
+  onSegments?: (segments: FormattedSegment[]) => void;
 
   /** Callback for progress status updates */
   onStatus?: (status: string) => void;

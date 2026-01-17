@@ -29,6 +29,7 @@ const mockAgentInstance = createMockAgentPlugin();
 const mockTrackerInstance: Partial<TrackerPlugin> = {
   sync: mock(() => Promise.resolve({ success: true, message: 'Synced', added: 0, updated: 0, removed: 0, syncedAt: new Date().toISOString() })),
   getTasks: mock(() => Promise.resolve([] as TrackerTask[])),
+  getNextTask: mock(() => Promise.resolve(undefined as TrackerTask | undefined)),
   isComplete: mock(() => Promise.resolve(false)),
   isTaskReady: mock(() => Promise.resolve(true)),
   updateTaskStatus: mock(() => Promise.resolve()),
@@ -769,6 +770,64 @@ describe('ExecutionEngine', () => {
       // After dispose, engine may be in 'stopping' or 'idle' state depending on timing
       const status = engine.getStatus();
       expect(['idle', 'stopping']).toContain(status);
+    });
+  });
+
+  describe('task selection - getNextAvailableTask', () => {
+    // Tests for the fix in https://github.com/subsy/ralph-tui/issues/97
+    // Engine should delegate to tracker.getNextTask() for dependency-aware ordering
+
+    test('delegates to tracker.getNextTask for task selection', async () => {
+      engine = new ExecutionEngine(config);
+      const task = createTrackerTask({ id: 'task-1', title: 'First task' });
+
+      let getNextTaskCalled = false;
+
+      // Setup: getNextTask returns no task (so engine stops with no_tasks)
+      // This ensures we test the delegation without having to run a full iteration
+      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>).mockImplementation(() => {
+        getNextTaskCalled = true;
+        return Promise.resolve(undefined); // No task available
+      });
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve([task])
+      );
+      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve(false) // Not complete, so engine tries to get next task
+      );
+
+      await engine.initialize();
+
+      // Start the engine - it will call getNextTask, find no tasks, and stop
+      await engine.start();
+
+      // Verify getNextTask was called (delegation happened)
+      expect(getNextTaskCalled).toBe(true);
+    });
+
+    test('stops with no_tasks when getNextTask returns undefined', async () => {
+      engine = new ExecutionEngine(config);
+      engine.on((event) => events.push(event));
+
+      // Setup: getNextTask returns undefined (no ready tasks)
+      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve(undefined)
+      );
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve([createTrackerTask()])
+      );
+      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve(false)
+      );
+
+      await engine.initialize();
+      await engine.start();
+
+      // Should emit engine:stopped with reason no_tasks
+      const stopEvent = events.find(
+        (e) => e.type === 'engine:stopped' && 'reason' in e && e.reason === 'no_tasks'
+      );
+      expect(stopEvent).toBeDefined();
     });
   });
 });

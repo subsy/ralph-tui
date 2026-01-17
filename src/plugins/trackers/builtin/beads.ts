@@ -9,15 +9,15 @@ import { access, constants } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BaseTrackerPlugin } from '../base.js';
 import type {
-  TrackerPluginMeta,
+  SetupQuestion,
+  SyncResult,
+  TaskCompletionResult,
+  TaskFilter,
+  TaskPriority,
   TrackerPluginFactory,
+  TrackerPluginMeta,
   TrackerTask,
   TrackerTaskStatus,
-  TaskPriority,
-  TaskFilter,
-  TaskCompletionResult,
-  SyncResult,
-  SetupQuestion,
 } from '../types.js';
 
 /**
@@ -428,7 +428,8 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     id: string,
     reason?: string
   ): Promise<TaskCompletionResult> {
-    const args = ['update', id, '--status', 'closed'];
+    // Use --force to ensure close succeeds even if issue is pinned
+    const args = ['close', id, '--force'];
 
     if (reason) {
       args.push('--reason', reason);
@@ -545,6 +546,91 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
         !t.parentId &&
         (t.status === 'open' || t.status === 'in_progress')
     );
+  }
+
+  /**
+   * Get the next task to work on using bd ready.
+   * Overrides base implementation to leverage bd's server-side dependency filtering,
+   * since bd list --json doesn't include dependency data needed for client-side filtering.
+   * See: https://github.com/subsy/ralph-tui/issues/97
+   */
+  override async getNextTask(filter?: TaskFilter): Promise<TrackerTask | undefined> {
+    // Build bd ready command args
+    const args = ['ready', '--json'];
+
+    // Apply limit - we only need the first task, but get a few for in_progress preference
+    args.push('--limit', '10');
+
+    // Filter by parent (epic)
+    if (filter?.parentId) {
+      args.push('--parent', filter.parentId);
+    } else if (this.epicId) {
+      args.push('--parent', this.epicId);
+    }
+
+    // Filter by labels
+    const labelsToFilter =
+      filter?.labels && filter.labels.length > 0 ? filter.labels : this.labels;
+    if (labelsToFilter.length > 0) {
+      args.push('--label', labelsToFilter.join(','));
+    }
+
+    // Filter by priority
+    if (filter?.priority !== undefined) {
+      const priorities = Array.isArray(filter.priority)
+        ? filter.priority
+        : [filter.priority];
+      // bd ready only supports single priority, use highest (lowest number)
+      const highestPriority = Math.min(...priorities);
+      args.push('--priority', String(highestPriority));
+    }
+
+    // Filter by assignee
+    if (filter?.assignee) {
+      args.push('--assignee', filter.assignee);
+    }
+
+    const { stdout, exitCode, stderr } = await execBd(args, this.workingDir);
+
+    if (exitCode !== 0) {
+      console.error('bd ready failed:', stderr);
+      return undefined;
+    }
+
+    // Parse JSON output
+    let beads: BeadJson[];
+    try {
+      beads = JSON.parse(stdout) as BeadJson[];
+    } catch (err) {
+      console.error('Failed to parse bd ready output:', err);
+      return undefined;
+    }
+
+    if (beads.length === 0) {
+      return undefined;
+    }
+
+    // Convert to TrackerTask
+    let tasks = beads.map(beadToTask);
+
+    // Filter out excluded task IDs (used by engine for skipped/failed tasks)
+    if (filter?.excludeIds && filter.excludeIds.length > 0) {
+      const excludeSet = new Set(filter.excludeIds);
+      tasks = tasks.filter((t) => !excludeSet.has(t.id));
+    }
+
+    if (tasks.length === 0) {
+      return undefined;
+    }
+
+    // Prefer in_progress tasks over open tasks (same as base implementation)
+    const inProgress = tasks.find((t) => t.status === 'in_progress');
+    if (inProgress) {
+      return inProgress;
+    }
+
+    // Return the first ready task (bd ready already sorted by priority/hybrid)
+    return tasks[0];
   }
 
   /**

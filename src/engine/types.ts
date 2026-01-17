@@ -195,6 +195,7 @@ export type EngineEventType =
   | 'engine:stopped'
   | 'engine:paused'
   | 'engine:resumed'
+  | 'engine:warning'
   | 'engine:iterations-added'
   | 'engine:iterations-removed'
   | 'iteration:started'
@@ -266,6 +267,17 @@ export interface EngineResumedEvent extends EngineEventBase {
   type: 'engine:resumed';
   /** Iteration resuming from */
   fromIteration: number;
+}
+
+/**
+ * Engine warning event - emitted for configuration warnings that don't block execution
+ */
+export interface EngineWarningEvent extends EngineEventBase {
+  type: 'engine:warning';
+  /** Warning code for programmatic handling */
+  code: 'sandbox-network-conflict';
+  /** Human-readable warning message */
+  message: string;
 }
 
 /**
@@ -510,6 +522,7 @@ export type EngineEvent =
   | EngineStoppedEvent
   | EnginePausedEvent
   | EngineResumedEvent
+  | EngineWarningEvent
   | IterationsAddedEvent
   | IterationsRemovedEvent
   | IterationStartedEvent
