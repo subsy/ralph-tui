@@ -43,6 +43,14 @@ opencode --version
     ralph-tui run --prd ./prd.json --agent opencode --model anthropic/claude-3-5-sonnet
     ```
   </Step>
+
+  <Step title="Select a Variant">
+    Control reasoning effort with `--variant`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent opencode --model google/gemini-2.5-pro --variant high
+    ```
+  </Step>
 </Steps>
 
 ## Configuration
@@ -58,6 +66,7 @@ agent = "opencode"
 [agentOptions]
 provider = "anthropic"
 model = "claude-3-5-sonnet"
+variant = "high"
 ```
 
 ### Full Config
@@ -74,6 +83,7 @@ timeout = 300000
 [agents.options]
 provider = "anthropic"
 model = "claude-3-5-sonnet"
+variant = "high"
 agent = "general"
 format = "default"
 ```
@@ -84,10 +94,20 @@ format = "default"
 |--------|------|---------|-------------|
 | `provider` | string | - | AI provider: `anthropic`, `openai`, `google`, `xai`, `ollama` |
 | `model` | string | - | Model name within the provider |
+| `variant` | string | - | Model reasoning effort (model-specific, e.g., `minimal`, `high`, `max` for Gemini) |
 | `agent` | string | `"general"` | Agent type: `general`, `build`, or `plan` |
 | `format` | string | `"default"` | Output format: `default` or `json` |
 | `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
 | `command` | string | `"opencode"` | Path to OpenCode CLI executable |
+
+<Callout type="tip">
+For simple configs, you can use the top-level `command` option instead of the `[[agents]]` array:
+```toml
+agent = "opencode"
+command = "/custom/path/opencode"
+```
+See [Custom Command](/docs/configuration/options#custom-command) for details.
+</Callout>
 
 ## Providers and Models
 
@@ -129,6 +149,18 @@ OpenCode supports multiple AI providers. Models are specified in `provider/model
 
 <Callout type="info">
 Model names are validated by the provider's API. Invalid model names result in errors from OpenCode, not Ralph TUI.
+</Callout>
+
+## Model Variants
+
+You can control the reasoning effort for supported models using the `variant` option:
+
+```bash
+ralph-tui run --agent opencode --model google/gemini-2.5-pro --variant max
+```
+
+<Callout type="info">
+Variant values are model-specific and validated by the provider's API. Check your model's documentation for supported variants.
 </Callout>
 
 ## Agent Types

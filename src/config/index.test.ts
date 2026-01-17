@@ -16,6 +16,7 @@ import {
   getProjectConfigPath,
   getProjectConfigDir,
   checkSetupStatus,
+  buildConfig,
   CONFIG_PATHS,
 } from './index.js';
 import type { StoredConfig, RalphConfig } from './types.js';
@@ -534,13 +535,41 @@ describe('Config merging - scalar overrides', () => {
 
   test('project replaces fallbackAgents array', async () => {
     await writeTomlConfig(globalConfigPath, { fallbackAgents: ['claude', 'codex'] });
-    
+
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
     await writeTomlConfig(join(projectConfigDir, 'config.toml'), { fallbackAgents: ['droid'] });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.fallbackAgents).toEqual(['droid']);
+  });
+
+  test('project overrides command', async () => {
+    await writeTomlConfig(globalConfigPath, { command: 'global-ccr code' });
+
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { command: 'project-ccr code' });
+
+    const config = await loadStoredConfig(tempDir, globalConfigPath);
+    expect(config.command).toBe('project-ccr code');
+  });
+
+  test('command from global config is preserved when project has none', async () => {
+    await writeTomlConfig(globalConfigPath, {
+      agent: 'claude',
+      command: 'ccr code',
+    });
+
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      maxIterations: 20,  // Other field, no command
+    });
+
+    const config = await loadStoredConfig(tempDir, globalConfigPath);
+    expect(config.command).toBe('ccr code');
+    expect(config.maxIterations).toBe(20);
   });
 });
 
@@ -704,5 +733,86 @@ describe('validateConfig', () => {
     const result = await validateConfig(config);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('PRD'))).toBe(true);
+  });
+});
+
+describe('buildConfig - command shorthand', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test('applies command shorthand to agent config', async () => {
+    // Create project config with command shorthand
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+command = "ccr code"
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.command).toBe('ccr code');
+  });
+
+  test('agent-level command takes precedence over top-level command', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+command = "top-level-command"
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude"
+plugin = "claude"
+command = "agent-level-command"
+default = true
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    // Agent-level command should win
+    expect(config!.agent.command).toBe('agent-level-command');
+  });
+
+  test('command shorthand is not applied if agent already has command', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+command = "should-not-be-used"
+tracker = "beads-bv"
+
+[[agents]]
+name = "custom-claude"
+plugin = "claude"
+command = "my-custom-claude"
+default = true
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.command).toBe('my-custom-claude');
   });
 });

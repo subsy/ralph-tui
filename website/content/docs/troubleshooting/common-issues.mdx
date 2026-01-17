@@ -100,8 +100,15 @@ Ralph TUI cannot locate your AI agent CLI executable.
    ralph-tui run --agent claude --prd ./prd.json
    ```
 
+5. Use `command` config for custom paths:
+   ```toml
+   # .ralph-tui/config.toml
+   agent = "claude"
+   command = "/custom/path/to/claude"
+   ```
+
 <Callout type="tip">
-If you installed an agent with a different package manager (npm, cargo, pip), you may need to add its bin directory to your PATH.
+If you installed an agent with a different package manager (npm, cargo, pip), you may need to add its bin directory to your PATH, or use the `command` config option to specify the full path.
 </Callout>
 
 ### Agent Output Not Streaming

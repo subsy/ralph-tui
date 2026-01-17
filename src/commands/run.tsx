@@ -115,6 +115,13 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         }
         break;
 
+      case '--variant':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.variant = nextArg;
+          i++;
+        }
+        break;
+
       case '--tracker':
         if (nextArg && !nextArg.startsWith('-')) {
           options.tracker = nextArg;
@@ -239,6 +246,7 @@ Options:
   --prd <path>        PRD file path (auto-switches to json tracker)
   --agent <name>      Override agent plugin (e.g., claude, opencode)
   --model <name>      Override model (e.g., opus, sonnet)
+  --variant <level>   Model variant/reasoning effort (minimal, high, max)
   --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json)
   --prompt <path>     Custom prompt file (default: based on tracker mode)
   --output-dir <path> Directory for iteration logs (default: .ralph-tui/iterations)

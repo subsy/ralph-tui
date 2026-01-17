@@ -391,6 +391,84 @@ describe('validateStoredConfig', () => {
   });
 });
 
+describe('StoredConfigSchema command field', () => {
+  test('accepts valid command paths', () => {
+    const result = StoredConfigSchema.parse({
+      command: 'ccr code',
+    });
+    expect(result.command).toBe('ccr code');
+  });
+
+  test('accepts absolute paths', () => {
+    const result = StoredConfigSchema.parse({
+      command: '/opt/bin/my-claude',
+    });
+    expect(result.command).toBe('/opt/bin/my-claude');
+  });
+
+  test('accepts paths with arguments', () => {
+    const result = StoredConfigSchema.parse({
+      command: 'ccr code --verbose',
+    });
+    expect(result.command).toBe('ccr code --verbose');
+  });
+
+  test('rejects commands with semicolons (command chaining)', () => {
+    expect(() =>
+      StoredConfigSchema.parse({
+        command: 'ccr; rm -rf /',
+      })
+    ).toThrow(/shell metacharacters/);
+  });
+
+  test('rejects commands with ampersands (background execution)', () => {
+    expect(() =>
+      StoredConfigSchema.parse({
+        command: 'ccr & malicious',
+      })
+    ).toThrow(/shell metacharacters/);
+  });
+
+  test('rejects commands with pipes (command piping)', () => {
+    expect(() =>
+      StoredConfigSchema.parse({
+        command: 'ccr | tee /etc/passwd',
+      })
+    ).toThrow(/shell metacharacters/);
+  });
+
+  test('rejects commands with backticks (command substitution)', () => {
+    expect(() =>
+      StoredConfigSchema.parse({
+        command: 'ccr `whoami`',
+      })
+    ).toThrow(/shell metacharacters/);
+  });
+
+  test('rejects commands with dollar signs (variable expansion)', () => {
+    expect(() =>
+      StoredConfigSchema.parse({
+        command: 'ccr $HOME',
+      })
+    ).toThrow(/shell metacharacters/);
+  });
+
+  test('rejects commands with parentheses (subshells)', () => {
+    expect(() =>
+      StoredConfigSchema.parse({
+        command: 'ccr $(cat /etc/passwd)',
+      })
+    ).toThrow(/shell metacharacters/);
+  });
+
+  test('allows dashes, underscores, and slashes in paths', () => {
+    const result = StoredConfigSchema.parse({
+      command: '/usr/local/bin/my-agent_v2',
+    });
+    expect(result.command).toBe('/usr/local/bin/my-agent_v2');
+  });
+});
+
 describe('formatConfigErrors', () => {
   test('formats single error', () => {
     const errors: ConfigValidationError[] = [
