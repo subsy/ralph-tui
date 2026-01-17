@@ -734,6 +734,20 @@ export function getProjectConfigDir(cwd: string = process.cwd()): string {
 }
 
 /**
+ * Load only the project config without merging with global config.
+ * Useful for migrations where we need to update only the project config.
+ * @param cwd Working directory
+ * @returns Project config only (empty object if no config exists)
+ */
+export async function loadProjectConfigOnly(
+  cwd: string = process.cwd()
+): Promise<StoredConfig> {
+  const projectPath = getProjectConfigPath(cwd);
+  const result = await loadConfigFile(projectPath);
+  return result.config;
+}
+
+/**
  * Result of checking setup status.
  */
 export interface SetupCheckResult {

@@ -4,12 +4,17 @@
  * Ensures skills and templates are updated while preserving user customizations.
  */
 
-import { access, constants } from 'node:fs/promises';
+import { access, constants, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { loadStoredConfig, saveProjectConfig, getProjectConfigPath } from '../config/index.js';
+import {
+  loadProjectConfigOnly,
+  saveProjectConfig,
+  getProjectConfigPath,
+} from '../config/index.js';
 import type { StoredConfig } from '../config/types.js';
 import { listBundledSkills, installSkill } from './skill-installer.js';
+import { getBuiltinTemplate } from '../templates/engine.js';
 
 /**
  * Current config version. Bump this when making breaking changes
@@ -44,6 +49,36 @@ export interface MigrationResult {
 }
 
 /**
+ * Compare two semver-like version strings numerically.
+ * Compares each segment as integers (e.g., "2.10" > "2.9").
+ * Missing segments are treated as 0.
+ *
+ * @param a First version string
+ * @param b Second version string
+ * @returns -1 if a < b, 0 if a === b, 1 if a > b
+ */
+export function compareSemverStrings(a: string, b: string): -1 | 0 | 1 {
+  // Strip any pre-release/build metadata (e.g., "2.0-beta" -> "2.0")
+  const cleanA = a.split(/[-+]/)[0];
+  const cleanB = b.split(/[-+]/)[0];
+
+  const partsA = cleanA.split('.').map((s) => parseInt(s, 10) || 0);
+  const partsB = cleanB.split('.').map((s) => parseInt(s, 10) || 0);
+
+  const maxLen = Math.max(partsA.length, partsB.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const numA = partsA[i] ?? 0;
+    const numB = partsB[i] ?? 0;
+
+    if (numA < numB) return -1;
+    if (numA > numB) return 1;
+  }
+
+  return 0;
+}
+
+/**
  * Check if config needs migration.
  * @param config The stored config to check
  * @returns true if migration is needed
@@ -56,8 +91,8 @@ export function needsMigration(config: StoredConfig): boolean {
     return true;
   }
 
-  // Compare versions (simple string comparison works for semver-like versions)
-  return version < CURRENT_CONFIG_VERSION;
+  // Compare versions numerically (handles "2.10" vs "2.9" correctly)
+  return compareSemverStrings(version, CURRENT_CONFIG_VERSION) < 0;
 }
 
 /**
@@ -96,8 +131,8 @@ export async function migrateConfig(
       return result;
     }
 
-    // Load current config
-    const config = await loadStoredConfig(cwd);
+    // Load only project config (not merged with global) to avoid persisting global settings
+    const config = await loadProjectConfigOnly(cwd);
     result.previousVersion = config.configVersion;
 
     // Check if migration is needed
@@ -178,8 +213,9 @@ export async function migrateConfig(
 
 /**
  * Update the prompt template if the user hasn't customized it.
- * We detect customization by checking if the template differs from
- * the previous default.
+ * - If template is missing → write new default template
+ * - If template exists and matches current default → no update needed
+ * - If template exists but differs → preserve user customization
  *
  * @param cwd Working directory
  * @param quiet Suppress output
@@ -192,21 +228,40 @@ async function updateTemplateIfNotCustomized(
   const log = quiet ? () => {} : console.log.bind(console);
 
   try {
-    const templatePath = join(cwd, '.ralph-tui', 'prompt.hbs');
+    const templateDir = join(cwd, '.ralph-tui');
+    const templatePath = join(templateDir, 'prompt.hbs');
+    const defaultTemplate = getBuiltinTemplate('default');
 
-    // Check if user has a custom template
+    // Check if template already exists
+    let existingTemplate: string | null = null;
     try {
-      await access(templatePath, constants.F_OK);
-      // Template exists - we preserve user customizations
-      // For now, we'll be conservative and not overwrite any existing template.
-      // Users can run `ralph-tui template init --force` to get the new template.
-      log('   · Custom prompt template detected, preserving (run "ralph-tui template init --force" to update)');
-      return false;
+      existingTemplate = await readFile(templatePath, 'utf-8');
     } catch {
-      // No custom template exists, nothing to update
+      // Template doesn't exist
+    }
+
+    if (existingTemplate === null) {
+      // No template exists - write the default template
+      await mkdir(templateDir, { recursive: true });
+      await writeFile(templatePath, defaultTemplate, 'utf-8');
+      return true;
+    }
+
+    // Template exists - check if it matches current default
+    if (existingTemplate.trim() === defaultTemplate.trim()) {
+      // Already has the current default, no update needed
+      log('   · Prompt template is already current');
       return false;
     }
-  } catch {
+
+    // Template differs from default - user has customized it, preserve
+    log('   · Custom prompt template detected, preserving (run "ralph-tui template init --force" to update)');
+    return false;
+  } catch (error) {
+    // Log error but don't fail migration
+    if (!quiet) {
+      console.warn(`   ⚠ Could not update template: ${error instanceof Error ? error.message : error}`);
+    }
     return false;
   }
 }
@@ -235,7 +290,7 @@ export async function checkAndMigrate(
       return null;
     }
 
-    const config = await loadStoredConfig(cwd);
+    const config = await loadProjectConfigOnly(cwd);
 
     if (!needsMigration(config)) {
       return null;
