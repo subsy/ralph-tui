@@ -85,8 +85,8 @@ export class CodexAgentPlugin extends BaseAgentPlugin {
   /** Model to use (e.g., 'o3', 'o4-mini', 'gpt-4.1') */
   private model?: string;
 
-  /** Skip approval prompts and sandbox for autonomous operation */
-  private bypassApprovals = true;
+  /** Skip approval prompts and sandbox for autonomous operation (requires explicit opt-in) */
+  private bypassApprovals = false;
 
   /** Sandbox mode: read-only, workspace-write, danger-full-access */
   private sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access' = 'workspace-write';
@@ -256,11 +256,11 @@ export class CodexAgentPlugin extends BaseAgentPlugin {
       },
       {
         id: 'bypassApprovals',
-        prompt: 'Bypass approval prompts?',
+        prompt: 'Bypass approval prompts? (⚠️ enables autonomous operation)',
         type: 'boolean',
-        default: true,
+        default: false,
         required: false,
-        help: 'Enable --dangerously-bypass-approvals-and-sandbox for autonomous operation',
+        help: 'Enable --dangerously-bypass-approvals-and-sandbox for fully autonomous operation. Only enable if you trust the model output.',
       },
     ];
   }
