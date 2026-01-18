@@ -33,7 +33,7 @@ import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { SubagentTraceParser } from '../plugins/agents/tracing/parser.js';
 import type { SubagentEvent } from '../plugins/agents/tracing/types.js';
-import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
+import type { ClaudeJsonlMessage } from '../plugins/agents/builtin/claude.js';
 import { createDroidStreamingJsonlParser, isDroidJsonlMessage, toClaudeJsonlMessages } from '../plugins/agents/droid/outputParser.js';
 import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
 import { saveIterationLog, buildSubagentTrace, createProgressEntry, appendProgress, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
@@ -810,13 +810,12 @@ export class ExecutionEngine {
     // Check if agent declares subagent tracing support (used for agent-specific flags)
     const supportsTracing = this.agent!.meta.supportsSubagentTracing;
 
-    // Always create a streaming JSONL parser for optimistic subagent tracking.
-    // Even if an agent doesn't declare supportsSubagentTracing, it might still
-    // output Task tool events that we can track. Parse errors are caught and ignored.
-    // This future-proofs for any agent that outputs Task tool events.
-    const jsonlParser = this.agent?.meta.id === 'droid'
+    // For Droid agent, we need a JSONL parser since Droid uses different output format.
+    // For Claude, we use the onJsonlMessage callback which gets pre-parsed messages.
+    const isDroidAgent = this.agent?.meta.id === 'droid';
+    const jsonlParser = isDroidAgent
       ? createDroidStreamingJsonlParser()
-      : ClaudeAgentPlugin.createStreamingJsonlParser();
+      : null; // Claude uses onJsonlMessage callback instead
 
     try {
       // Execute agent with subagent tracing if supported
@@ -825,6 +824,21 @@ export class ExecutionEngine {
         flags,
         sandbox: this.config.sandbox,
         subagentTracing: supportsTracing,
+        // Callback for pre-parsed JSONL messages (used by Claude plugin)
+        // This receives raw JSON objects directly from the agent's parsed JSONL output.
+        onJsonlMessage: (message: Record<string, unknown>) => {
+          // Convert raw JSON to ClaudeJsonlMessage format for SubagentParser
+          const claudeMessage: ClaudeJsonlMessage = {
+            type: message.type as string | undefined,
+            message: message.message as string | undefined,
+            tool: message.tool as { name?: string; input?: Record<string, unknown> } | undefined,
+            result: message.result,
+            cost: message.cost as { inputTokens?: number; outputTokens?: number; totalUSD?: number } | undefined,
+            sessionId: message.sessionId as string | undefined,
+            raw: message,
+          };
+          this.subagentParser.processMessage(claudeMessage);
+        },
         onStdout: (data) => {
           this.state.currentOutput += data;
           this.emit({
@@ -835,8 +849,9 @@ export class ExecutionEngine {
             iteration,
           });
 
-          // Parse JSONL output for subagent events if tracing is enabled
-          if (jsonlParser) {
+          // For Droid agent, parse JSONL output for subagent events
+          // (Claude uses onJsonlMessage callback instead)
+          if (jsonlParser && isDroidAgent) {
             const results = jsonlParser.push(data);
             for (const result of results) {
               if (result.success) {
@@ -869,8 +884,8 @@ export class ExecutionEngine {
       const agentResult = await handle.promise;
       this.currentExecution = null;
 
-      // Flush any remaining buffered JSONL data
-      if (jsonlParser) {
+      // Flush any remaining buffered JSONL data (only for Droid agent)
+      if (jsonlParser && isDroidAgent) {
         const remaining = jsonlParser.flush();
         for (const result of remaining) {
           if (result.success) {

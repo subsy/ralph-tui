@@ -139,6 +139,13 @@ export interface AgentExecuteOptions {
 
   /** Enable subagent tracing for structured output (JSONL format for Claude) */
   subagentTracing?: boolean;
+
+  /**
+   * Callback for raw JSONL messages parsed by the agent.
+   * Used by the engine to track subagent activity without re-parsing output.
+   * The message object is the raw parsed JSON from the agent's JSONL output.
+   */
+  onJsonlMessage?: (message: Record<string, unknown>) => void;
 }
 
 /**

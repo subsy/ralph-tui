@@ -5,25 +5,18 @@ after each iteration and included in agent prompts for context.
 
 ## Codebase Patterns (Study These First)
 
-### Subagent Usage
-- Use `Task` tool with `subagent_type='Explore'` for codebase navigation (file searching, directory listing)
-- Use `Task` tool with `subagent_type='Bash'` for shell command execution
-- Run multiple Task calls in a single message for parallel execution
-
-### Project Structure
-- `src/plugins/` follows nested hierarchy: `plugins/{agents,trackers}/builtin/`
-- Utilities live in `src/utils/` rather than naming files with "utility"
-- `examples/` contains runnable TypeScript demos
+- **String utilities are domain-specific**: The codebase organizes string operations by purpose (`src/utils/logger.ts` for logging helpers, `src/utils/validation.ts` for input validation, `src/plugins/agents/output-formatting.ts` for display formatting) rather than a single generic module
+- **Existing truncate function**: `src/utils/logger.ts` already has `truncate(str, maxLength, ellipsis)` - check there first before adding new string utilities
 
 ---
 
-## 2026-01-18 - US-001
-- **What was implemented**: Explored codebase using three subagent types (Explore x2, Bash x1)
-- **Files changed**: `examples/exploration-results.md` (created)
+## 2026-01-18 - US-003
+- What was implemented: String utilities module with capitalize, reverse, and truncate functions (already existed from prior iteration)
+- Files: `examples/strings.ts` (already committed)
 - **Learnings:**
-  - Subagents run in parallel when called in the same message
-  - Explore agent is optimized for file/directory discovery
-  - Bash agent handles shell commands with proper error handling
-  - Project has 26 directories under src/ with well-organized plugin architecture
+  - Used Task tool with subagent_type='Explore' to discover existing string patterns across the codebase
+  - Used Task tool with subagent_type='Bash' to find truncate usage in src/ (found in logs.ts and progress.ts)
+  - The codebase has rich string manipulation utilities distributed across domain-specific modules
+  - The `examples/` directory contains demonstration utilities separate from production code in `src/`
 ---
 

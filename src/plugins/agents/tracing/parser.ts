@@ -126,9 +126,17 @@ export class SubagentTraceParser {
     }
 
     // Also check raw message for tool_use content blocks
+    // Claude's format: {"type": "assistant", "message": {"content": [...]}}
     const raw = message.raw;
-    if (raw.type === 'assistant' && Array.isArray(raw.content)) {
-      for (const block of raw.content) {
+    const rawMessage = raw.message as { content?: unknown[] } | undefined;
+    const contentArray = Array.isArray(raw.content)
+      ? raw.content
+      : Array.isArray(rawMessage?.content)
+        ? rawMessage.content
+        : null;
+
+    if (raw.type === 'assistant' && contentArray) {
+      for (const block of contentArray) {
         if (
           typeof block === 'object' &&
           block !== null &&
@@ -174,22 +182,32 @@ export class SubagentTraceParser {
     let toolUseId: string | undefined;
 
     // Extract tool input from message.tool or raw content blocks
+    // Claude's format: {"type": "assistant", "message": {"content": [...]}}
     if (message.tool?.input) {
       toolInput = message.tool.input;
-    } else if (raw.type === 'assistant' && Array.isArray(raw.content)) {
-      for (const block of raw.content) {
-        if (
-          typeof block === 'object' &&
-          block !== null &&
-          'type' in block &&
-          block.type === 'tool_use' &&
-          'name' in block &&
-          block.name === 'Task'
-        ) {
-          const toolBlock = block as Record<string, unknown>;
-          toolInput = toolBlock.input as Record<string, unknown>;
-          toolUseId = toolBlock.id as string;
-          break;
+    } else if (raw.type === 'assistant') {
+      const rawMessage = raw.message as { content?: unknown[] } | undefined;
+      const contentArray = Array.isArray(raw.content)
+        ? raw.content
+        : Array.isArray(rawMessage?.content)
+          ? rawMessage.content
+          : null;
+
+      if (contentArray) {
+        for (const block of contentArray) {
+          if (
+            typeof block === 'object' &&
+            block !== null &&
+            'type' in block &&
+            block.type === 'tool_use' &&
+            'name' in block &&
+            block.name === 'Task'
+          ) {
+            const toolBlock = block as Record<string, unknown>;
+            toolInput = toolBlock.input as Record<string, unknown>;
+            toolUseId = toolBlock.id as string;
+            break;
+          }
         }
       }
     }
