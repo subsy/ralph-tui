@@ -4,13 +4,18 @@
  */
 
 /**
- * Creates an object composed of the picked object properties.
- * @param obj - The source object
- * @param keys - The property keys to pick
- * @returns A new object with only the specified keys
+ * Creates a new object with only the specified keys from the source object.
+ * Keys that don't exist in the source object are silently ignored.
+ *
+ * @typeParam T - The type of the source object
+ * @typeParam K - The keys to pick (must be keys of T)
+ * @param obj - The source object to pick keys from
+ * @param keys - An array of keys to include in the new object
+ * @returns A new object containing only the specified keys
  * @example
  * pick({ a: 1, b: 2, c: 3 }, ['a', 'c']) // returns { a: 1, c: 3 }
- * pick({ name: 'John', age: 30, city: 'NYC' }, ['name']) // returns { name: 'John' }
+ * pick({ name: 'Alice', age: 30 }, ['name']) // returns { name: 'Alice' }
+ * pick({ a: 1 }, []) // returns {}
  */
 export function pick<T extends object, K extends keyof T>(
   obj: T,
@@ -26,79 +31,47 @@ export function pick<T extends object, K extends keyof T>(
 }
 
 /**
- * Creates an object composed of all properties except the omitted ones.
- * @param obj - The source object
- * @param keys - The property keys to omit
- * @returns A new object without the specified keys
+ * Creates a new object with the specified keys removed from the source object.
+ * Keys that don't exist in the source object are silently ignored.
+ *
+ * @typeParam T - The type of the source object
+ * @typeParam K - The keys to omit (must be keys of T)
+ * @param obj - The source object to omit keys from
+ * @param keys - An array of keys to exclude from the new object
+ * @returns A new object with the specified keys removed
  * @example
  * omit({ a: 1, b: 2, c: 3 }, ['b']) // returns { a: 1, c: 3 }
- * omit({ name: 'John', age: 30, city: 'NYC' }, ['age', 'city']) // returns { name: 'John' }
+ * omit({ name: 'Alice', age: 30, city: 'NYC' }, ['age', 'city']) // returns { name: 'Alice' }
+ * omit({ a: 1 }, []) // returns { a: 1 }
  */
 export function omit<T extends object, K extends keyof T>(
   obj: T,
   keys: K[]
 ): Omit<T, K> {
-  const result = { ...obj };
-  for (const key of keys) {
-    delete result[key];
+  const keysToOmit = new Set(keys);
+  const result = {} as Omit<T, K>;
+  for (const key of Object.keys(obj) as (keyof T)[]) {
+    if (!keysToOmit.has(key as K)) {
+      (result as T)[key] = obj[key];
+    }
   }
-  return result as Omit<T, K>;
+  return result;
 }
 
 /**
- * Creates a deep clone of an object, copying all nested objects and arrays.
- * Handles circular references by tracking seen objects.
- * @param obj - The object to clone
- * @returns A deep copy of the object
+ * Creates a deep copy of an object, including nested objects and arrays.
+ * Handles primitives, plain objects, arrays, Date objects, and null/undefined.
+ * Does not handle circular references, functions, or class instances with methods.
+ *
+ * @typeParam T - The type of the value to clone
+ * @param value - The value to deep clone
+ * @returns A deep copy of the value
  * @example
- * const original = { a: { b: 1 }, c: [1, 2] };
- * const cloned = deepClone(original);
- * cloned.a.b = 2; // original.a.b is still 1
- * cloned.c.push(3); // original.c is still [1, 2]
+ * deepClone({ a: { b: 1 } }) // returns { a: { b: 1 } } (separate object)
+ * deepClone([1, [2, 3]]) // returns [1, [2, 3]] (separate array)
+ * deepClone(new Date('2024-01-01')) // returns new Date('2024-01-01')
+ * deepClone(null) // returns null
  */
-export function deepClone<T>(obj: T): T {
-  // Internal helper that tracks seen objects to handle circular references
-  function cloneWithMap(value: unknown, seen: WeakMap<object, unknown>): unknown {
-    // Primitives and null
-    if (value === null || typeof value !== "object") {
-      return value;
-    }
-
-    // Check if we've already cloned this object (circular reference)
-    if (seen.has(value as object)) {
-      return seen.get(value as object);
-    }
-
-    // Handle Date
-    if (value instanceof Date) {
-      return new Date(value.getTime());
-    }
-
-    // Handle RegExp
-    if (value instanceof RegExp) {
-      return new RegExp(value.source, value.flags);
-    }
-
-    // Handle Array
-    if (Array.isArray(value)) {
-      const clonedArray: unknown[] = [];
-      seen.set(value, clonedArray);
-      for (const item of value) {
-        clonedArray.push(cloneWithMap(item, seen));
-      }
-      return clonedArray;
-    }
-
-    // Handle plain object
-    const clonedObj: Record<string, unknown> = {};
-    seen.set(value as object, clonedObj);
-    for (const key in value) {
-      if (Object.prototype.hasOwnProperty.call(value, key)) {
-        clonedObj[key] = cloneWithMap((value as Record<string, unknown>)[key], seen);
-      }
-    }
-    return clonedObj;
-  }
-
-  return cloneWithMap(obj, new WeakMap()) as T;
+export function deepClone<T>(value: T): T {
+  return structuredClone(value);
 }
