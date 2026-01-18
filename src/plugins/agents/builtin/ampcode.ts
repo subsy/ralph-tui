@@ -79,8 +79,8 @@ export class AmpcodeAgentPlugin extends BaseAgentPlugin {
   /** Agent mode: free, rush, smart */
   private mode?: string;
 
-  /** Allow all tool executions without confirmation */
-  private dangerouslyAllowAll = true;
+  /** Allow all tool executions without confirmation (default: false for security) */
+  private dangerouslyAllowAll = false;
 
   /** Timeout in milliseconds (0 = no timeout) */
   protected override defaultTimeout = 0;
@@ -222,11 +222,11 @@ export class AmpcodeAgentPlugin extends BaseAgentPlugin {
       },
       {
         id: 'dangerouslyAllowAll',
-        prompt: 'Allow all tool executions without confirmation?',
+        prompt: '⚠️  Allow all tool executions without confirmation (autonomous mode)?',
         type: 'boolean',
-        default: true,
+        default: false,
         required: false,
-        help: 'Enable --dangerously-allow-all for autonomous operation',
+        help: 'Enable --dangerously-allow-all for autonomous operation. Warning: This bypasses all safety prompts.',
       },
     ];
   }
