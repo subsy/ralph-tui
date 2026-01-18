@@ -42,6 +42,12 @@ export interface CreatePrdArgs {
   prdSkill?: string;
 
   prdSkillSource?: string;
+
+  /** Input file path for conversion mode (--from) */
+  fromFile?: string;
+
+  /** Content of the input file for conversion mode */
+  fromFileContent?: string;
 }
 
 /**
@@ -73,6 +79,8 @@ export function parseCreatePrdArgs(args: string[]): CreatePrdArgs {
       }
     } else if (arg === '--prd-skill') {
       result.prdSkill = args[++i];
+    } else if (arg === '--from' || arg === '-i') {
+      result.fromFile = args[++i];
     } else if (arg === '--help' || arg === '-h') {
       printCreatePrdHelp();
       process.exit(0);
@@ -98,6 +106,7 @@ Options:
   --agent, -a <name>     Agent plugin to use (default: from config)
   --timeout, -t <ms>     Timeout for AI agent calls (default: 180000)
   --prd-skill <name>     PRD skill folder inside skills_dir
+  --from, -i <file>      Convert existing PRD file to ralph-tui format
   --force, -f            Overwrite existing files without prompting
   --help, -h             Show this help message
 
@@ -110,6 +119,11 @@ Description:
   3. Generates a markdown PRD with user stories and acceptance criteria
   4. Offers to create tracker tasks (prd.json or beads)
 
+  With --from option:
+  - Converts an existing PRD document to ralph-tui format
+  - AI analyzes the document and extracts user stories
+  - Transforms requirements into structured acceptance criteria
+
   Requires an AI agent to be configured. Run 'ralph-tui setup' to configure one.
 
 Examples:
@@ -117,6 +131,7 @@ Examples:
   ralph-tui prime                           # Alias for create-prd
   ralph-tui create-prd --agent claude       # Use specific agent
   ralph-tui create-prd --output ./docs      # Save PRD to custom directory
+  ralph-tui create-prd --from ./docs/prd.md # Convert existing PRD
 `);
 }
 
@@ -306,12 +321,34 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
         timeout={timeout}
         prdSkill={parsedArgs.prdSkill}
         prdSkillSource={parsedArgs.prdSkillSource}
+        fromFileContent={parsedArgs.fromFileContent}
         onComplete={handleComplete}
         onCancel={handleCancel}
         onError={handleError}
       />
     );
   });
+}
+
+/**
+ * Load the bundled convert-prd skill from dist/skills.
+ */
+async function loadConvertPrdSkill(): Promise<string> {
+  const skillPaths = [
+    join(import.meta.dir, '..', '..', 'skills', 'ralph-tui-convert-prd', 'SKILL.md'),
+    join(import.meta.dir, '..', '..', 'dist', 'skills', 'ralph-tui-convert-prd', 'SKILL.md'),
+  ];
+
+  for (const skillPath of skillPaths) {
+    try {
+      await access(skillPath, constants.R_OK);
+      return await readFile(skillPath, 'utf-8');
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error('Could not find ralph-tui-convert-prd skill');
 }
 
 /**
@@ -327,6 +364,40 @@ export async function executeCreatePrdCommand(args: string[]): Promise<void> {
   await requireSetup(cwd, 'ralph-tui prime');
 
   const storedConfig = await loadStoredConfig(cwd);
+
+  // Handle --from flag: load file content and use convert skill
+  if (parsedArgs.fromFile) {
+    const fromPath = resolve(cwd, parsedArgs.fromFile);
+
+    try {
+      await access(fromPath, constants.R_OK);
+    } catch {
+      console.error(`Error: Input file not found: ${fromPath}`);
+      process.exit(1);
+    }
+
+    try {
+      parsedArgs.fromFileContent = await readFile(fromPath, 'utf-8');
+      console.log(`Converting PRD from: ${fromPath}`);
+      console.log(`File size: ${parsedArgs.fromFileContent.length} characters`);
+      console.log('');
+    } catch (error) {
+      console.error(
+        `Error: Failed to read input file: ${error instanceof Error ? error.message : String(error)}`
+      );
+      process.exit(1);
+    }
+
+    // Use the convert skill instead of the regular prd skill
+    try {
+      parsedArgs.prdSkillSource = await loadConvertPrdSkill();
+    } catch (error) {
+      console.error(
+        `Error: ${error instanceof Error ? error.message : String(error)}`
+      );
+      process.exit(1);
+    }
+  }
 
   if (parsedArgs.prdSkill) {
     if (!storedConfig.skills_dir?.trim()) {
