@@ -30,3 +30,12 @@ export {
   printError,
   printInfo,
 } from './prompts.js';
+
+export {
+  checkAndMigrate,
+  migrateConfig,
+  needsMigration,
+  CURRENT_CONFIG_VERSION,
+} from './migration.js';
+
+export type { MigrationResult } from './migration.js';

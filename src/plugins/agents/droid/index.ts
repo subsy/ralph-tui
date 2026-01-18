@@ -116,6 +116,20 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
+   * Get Droid-specific suggestions for preflight failures.
+   * Provides actionable guidance for common configuration issues.
+   */
+  protected override getPreflightSuggestion(): string {
+    return (
+      'Common fixes for Factory Droid:\n' +
+      '  1. Test Droid directly: droid exec "hello"\n' +
+      '  2. Verify your API key is configured\n' +
+      '  3. Check Droid is installed: droid --version\n' +
+      '  4. Ensure you have access to the Factory platform'
+    );
+  }
+
+  /**
    * Custom execute that uses 'ignore' for stdin to prevent Ink TTY issues.
    * The droid exec command passes prompt as argument, not stdin, so we don't need stdin.
    * Setting stdin to 'ignore' prevents Ink from trying to set raw mode on a piped stdin.

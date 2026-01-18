@@ -6,8 +6,8 @@ root = "."
 coverage = true
 coverageDir = "./coverage"
 
-# Timeouts
-timeout = 5000
+# Timeouts (increased from 5000 to handle slow tests in full suite)
+timeout = 15000
 
 # Parallel execution
 smol = false

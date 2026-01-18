@@ -43,7 +43,7 @@ mock.module('node:child_process', () => ({
 }));
 
 // Import after mocking
-const { BeadsTrackerPlugin } = await import('./beads.js');
+const { BeadsTrackerPlugin } = await import('./beads/index.js');
 
 describe('BeadsTrackerPlugin', () => {
   beforeEach(() => {

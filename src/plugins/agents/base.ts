@@ -74,6 +74,7 @@ import type {
   AgentPlugin,
   AgentPluginMeta,
   AgentDetectResult,
+  AgentPreflightResult,
   AgentFileContext,
   AgentExecuteOptions,
   AgentExecutionResult,
@@ -628,6 +629,96 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
    */
   validateModel(_model: string): string | null {
     return null;
+  }
+
+  /**
+   * Run a preflight check to verify the agent is fully operational.
+   * Default implementation runs a minimal test prompt and checks for any response.
+   * Subclasses can override for agent-specific preflight logic.
+   *
+   * @param options Optional configuration for the preflight check
+   * @returns Preflight result with success status and any error/suggestion
+   */
+  async preflight(
+    options?: { timeout?: number }
+  ): Promise<AgentPreflightResult> {
+    const startTime = Date.now();
+    const timeout = options?.timeout ?? 15000; // Default 15 second timeout
+
+    try {
+      // First ensure detect passes
+      const detection = await this.detect();
+      if (!detection.available) {
+        return {
+          success: false,
+          error: detection.error ?? 'Agent not available',
+          suggestion: `Make sure ${this.meta.name} is installed and accessible`,
+          durationMs: Date.now() - startTime,
+        };
+      }
+
+      // Run a minimal test prompt
+      const testPrompt = 'Respond with exactly: PREFLIGHT_OK';
+      let output = '';
+
+      const handle = this.execute(testPrompt, [], {
+        timeout,
+        onStdout: (data: string) => {
+          output += data;
+        },
+      });
+
+      const result = await handle.promise;
+      const durationMs = Date.now() - startTime;
+
+      // Check if we got any meaningful response
+      if (result.status === 'completed' && output.length > 0) {
+        return {
+          success: true,
+          durationMs,
+        };
+      }
+
+      if (result.status === 'timeout') {
+        return {
+          success: false,
+          error: 'Agent timed out without responding',
+          suggestion: this.getPreflightSuggestion(),
+          durationMs,
+        };
+      }
+
+      if (result.status === 'failed') {
+        return {
+          success: false,
+          error: result.error ?? 'Agent execution failed',
+          suggestion: this.getPreflightSuggestion(),
+          durationMs,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Agent did not produce any output',
+        suggestion: this.getPreflightSuggestion(),
+        durationMs,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        suggestion: this.getPreflightSuggestion(),
+        durationMs: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Get agent-specific suggestions for preflight failures.
+   * Subclasses should override to provide helpful guidance.
+   */
+  protected getPreflightSuggestion(): string {
+    return `Verify ${this.meta.name} is properly configured and can respond to prompts`;
   }
 
   /**

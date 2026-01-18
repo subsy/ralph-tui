@@ -25,6 +25,24 @@ export interface AgentDetectResult {
 }
 
 /**
+ * Result of a preflight check to verify the agent is fully operational.
+ * Preflight goes beyond detection by actually running a test prompt.
+ */
+export interface AgentPreflightResult {
+  /** Whether the agent successfully responded to a test prompt */
+  success: boolean;
+
+  /** Error message if preflight failed */
+  error?: string;
+
+  /** Helpful suggestion for resolving the issue */
+  suggestion?: string;
+
+  /** How long the preflight check took in milliseconds */
+  durationMs?: number;
+}
+
+/**
  * File context to pass to the agent for execution.
  */
 export interface AgentFileContext {
@@ -355,6 +373,16 @@ export interface AgentPlugin {
    * @returns null if valid, or an error message string if invalid
    */
   validateModel(model: string): string | null;
+
+  /**
+   * Run a preflight check to verify the agent is fully operational.
+   * This goes beyond detect() by actually running a minimal test prompt
+   * to verify the agent can process requests (e.g., has a valid model configured).
+   *
+   * @param options Optional configuration for the preflight check
+   * @returns Preflight result with success status and any error/suggestion
+   */
+  preflight(options?: { timeout?: number }): Promise<AgentPreflightResult>;
 
   /**
    * Clean up resources when the plugin is unloaded.

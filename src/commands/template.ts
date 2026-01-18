@@ -11,8 +11,7 @@ import {
   getTemplateTypeFromPlugin,
   copyBuiltinTemplate,
   getCustomTemplatePath,
-  getUserConfigDir,
-  initializeUserPrompts,
+  installBuiltinTemplates,
   type BuiltinTemplateType,
 } from '../templates/index.js';
 
@@ -57,16 +56,6 @@ export async function executeTemplateCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (subcommand === 'init-prompts') {
-    // Check for help in subcommand args
-    if (args.includes('--help') || args.includes('-h')) {
-      printTemplateHelp();
-      return;
-    }
-    handleInitPrompts(args.slice(1));
-    return;
-  }
-
   // Help or unknown subcommand
   printTemplateHelp();
 }
@@ -89,7 +78,6 @@ ${BOLD}ralph-tui template${RESET} - Manage prompt templates
 ${BOLD}Commands:${RESET}
   ${CYAN}show${RESET}              Display the current template being used
   ${CYAN}init${RESET}              Copy default template for customization
-  ${CYAN}init-prompts${RESET}      Initialize user prompt files in ~/.config/ralph-tui/
 
 ${BOLD}Show Options:${RESET}
   ${DIM}--tracker <name>${RESET}   Show template for specific tracker (default, beads, beads-bv, json)
@@ -98,31 +86,33 @@ ${BOLD}Show Options:${RESET}
 ${BOLD}Init Options:${RESET}
   ${DIM}--tracker <name>${RESET}   Use template for specific tracker (default, beads, beads-bv, json)
   ${DIM}--output <path>${RESET}    Custom output path (default: ./ralph-prompt.hbs)
+  ${DIM}--global${RESET}           Install all templates to ~/.config/ralph-tui/templates/
   ${DIM}--force${RESET}            Overwrite existing file
-
-${BOLD}Init-Prompts Options:${RESET}
-  ${DIM}--force${RESET}            Overwrite existing prompt files
 
 ${BOLD}Examples:${RESET}
   ralph-tui template show                    # Show current template
   ralph-tui template show --tracker beads    # Show built-in beads template
   ralph-tui template init                    # Copy default template for customization
   ralph-tui template init --tracker beads    # Copy beads template
-  ralph-tui template init-prompts            # Initialize ~/.config/ralph-tui/ with prompts
+  ralph-tui template init --global           # Install all templates to global config
 
-${BOLD}Prompt Files:${RESET}
-  The --prompt option in 'ralph-tui run' searches for prompts in this order:
-  1. Explicit --prompt <path> argument
-  2. ~/.config/ralph-tui/prompt.md or prompt-beads.md (based on tracker mode)
-  3. Built-in template (fallback)
+${BOLD}Template Resolution Order:${RESET}
+  Ralph searches for templates in this order (first match wins):
+  1. Explicit --prompt <path> or prompt_template in config
+  2. Project templates: .ralph-tui/templates/{tracker}.hbs
+  3. Global templates: ~/.config/ralph-tui/templates/{tracker}.hbs
+  4. Tracker plugin bundled template
+  5. Built-in fallback
 
 ${BOLD}Template Variables:${RESET}
-  {{taskId}}, {{taskTitle}}, {{taskDescription}}, {{acceptanceCriteria}}
-  {{epicId}}, {{epicTitle}}, {{trackerName}}
-  {{labels}}, {{priority}}, {{status}}, {{type}}
-  {{dependsOn}}, {{blocks}}
-  {{model}}, {{agentName}}, {{cwd}}
-  {{currentDate}}, {{currentTimestamp}}
+  ${DIM}Task:${RESET}     {{taskId}}, {{taskTitle}}, {{taskDescription}}, {{acceptanceCriteria}}
+            {{type}}, {{status}}, {{priority}}, {{notes}}
+  ${DIM}Relations:${RESET} {{dependsOn}}, {{blocks}}, {{labels}}, {{epicId}}, {{epicTitle}}
+  ${DIM}Context:${RESET}  {{trackerName}}, {{agentName}}, {{model}}, {{cwd}}, {{beadsDbPath}}
+            {{currentDate}}, {{currentTimestamp}}
+  ${DIM}PRD:${RESET}      {{prdName}}, {{prdDescription}}, {{prdContent}}
+            {{prdCompletedCount}}, {{prdTotalCount}}
+  ${DIM}Progress:${RESET} {{recentProgress}}, {{codebasePatterns}}, {{selectionReason}}
 `);
 }
 
@@ -184,6 +174,7 @@ async function handleShowTemplate(args: string[]): Promise<void> {
 /**
  * Handle the 'template init' command.
  * Copies a built-in template to a custom location for customization.
+ * With --global flag, installs all templates to ~/.config/ralph-tui/templates/
  */
 async function handleInitTemplate(args: string[]): Promise<void> {
   const cwd = process.cwd();
@@ -192,6 +183,7 @@ async function handleInitTemplate(args: string[]): Promise<void> {
   let trackerType: BuiltinTemplateType = 'default';
   let outputPath = getCustomTemplatePath(cwd);
   let force = false;
+  let global = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -203,7 +195,37 @@ async function handleInitTemplate(args: string[]): Promise<void> {
         : path.resolve(cwd, args[++i]);
     } else if (arg === '--force') {
       force = true;
+    } else if (arg === '--global') {
+      global = true;
     }
+  }
+
+  // Handle --global flag: install all templates to global config
+  if (global) {
+    console.log(`${BOLD}Installing templates to global config...${RESET}`);
+    const result = installBuiltinTemplates(force);
+
+    console.log(`${DIM}Templates directory: ${result.templatesDir}${RESET}\n`);
+
+    for (const r of result.results) {
+      if (r.created) {
+        console.log(`${GREEN}✓${RESET} Created: ${CYAN}${r.file}${RESET}`);
+      } else if (r.skipped) {
+        console.log(`${DIM}⊘${RESET} Skipped: ${r.file} ${DIM}(already exists, use --force to overwrite)${RESET}`);
+      } else if (r.error) {
+        console.log(`${RED}✗${RESET} Failed: ${r.file} - ${r.error}`);
+      }
+    }
+
+    if (result.success) {
+      console.log(`\n${GREEN}Done!${RESET}`);
+      console.log(`\n${BOLD}Templates will be used as fallback for all projects.${RESET}`);
+      console.log(`${DIM}Override per-project in .ralph-tui/templates/${RESET}`);
+    } else {
+      console.log(`\n${RED}Some templates could not be created.${RESET}`);
+      process.exit(1);
+    }
+    return;
   }
 
   // Auto-detect tracker type from config if not specified
@@ -245,48 +267,3 @@ async function handleInitTemplate(args: string[]): Promise<void> {
   );
 }
 
-/**
- * Handle the 'template init-prompts' command.
- * Initializes user prompt files in ~/.config/ralph-tui/.
- */
-function handleInitPrompts(args: string[]): void {
-  const force = args.includes('--force');
-  const configDir = getUserConfigDir();
-
-  console.log(`${BOLD}Initializing user prompt files...${RESET}`);
-  console.log(`${DIM}Config directory: ${configDir}${RESET}\n`);
-
-  const result = initializeUserPrompts(force);
-
-  for (const r of result.results) {
-    if (r.created) {
-      console.log(`${GREEN}✓${RESET} Created: ${CYAN}${r.file}${RESET}`);
-    } else if (r.skipped) {
-      console.log(
-        `${DIM}⊘${RESET} Skipped: ${r.file} ${DIM}(already exists, use --force to overwrite)${RESET}`,
-      );
-    } else if (r.error) {
-      console.log(`${RED}✗${RESET} Failed: ${r.file} - ${r.error}`);
-    }
-  }
-
-  if (result.success) {
-    console.log(`\n${GREEN}Done!${RESET}`);
-    console.log(`\n${BOLD}Prompt files will be used automatically:${RESET}`);
-    console.log(
-      `  • ${CYAN}prompt.md${RESET} - for json tracker (PRD-based workflows)`,
-    );
-    console.log(
-      `  • ${CYAN}prompt-beads.md${RESET} - for beads/beads-bv trackers`,
-    );
-    console.log(
-      `\n${DIM}Edit these files to customize agent behavior.${RESET}`,
-    );
-    console.log(
-      `${DIM}Use --prompt <path> in 'ralph-tui run' for one-off custom prompts.${RESET}`,
-    );
-  } else {
-    console.log(`\n${RED}Some files could not be created.${RESET}`);
-    process.exit(1);
-  }
-}

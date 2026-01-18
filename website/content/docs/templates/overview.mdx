@@ -8,7 +8,7 @@ description: Learn how Ralph TUI uses Handlebars templates to build prompts for 
 Prompt templates are [Handlebars](https://handlebarsjs.com) templates that transform task data into structured prompts for AI agents. When Ralph picks a task from your tracker, it uses a template to build the prompt that gets sent to Claude Code, OpenCode, or Factory Droid.
 
 <Callout type="info">
-Handlebars is a simple templating language that uses `{{variable}}` syntax for variable substitution and `{{#if condition}}...{{/if}}` for conditional blocks.
+Handlebars is a simple templating language that uses `\{\{variable\}\}` syntax for variable substitution and `\{\{#if condition\}\}...\{\{/if\}\}` for conditional blocks.
 </Callout>
 
 ## Why Templates Matter
@@ -73,69 +73,123 @@ Ralph includes optimized templates for each tracker type:
 
 ### JSON Template Example
 
-The JSON tracker template structures PRD user stories:
+The JSON tracker template provides full PRD context with progress tracking:
 
 ```handlebars
-## User Story **ID**:
-{{taskId}}
-**Title**:
-{{taskTitle}}
+\{\{!-- Full PRD for project context (agent studies this first) --\}\}
+\{\{#if prdContent\}\}
+We are working in a project to implement the following Product Requirements Document (PRD):
 
-{{#if taskDescription}}
-  ## Description
-  {{taskDescription}}
-{{/if}}
+\{\{prdContent\}\}
 
-{{#if acceptanceCriteria}}
-  ## Acceptance Criteria
-  {{acceptanceCriteria}}
-{{/if}}
+---
+\{\{/if\}\}
 
-{{#if dependsOn}}
-  **Prerequisites**:
-  {{dependsOn}}
-{{/if}}
+\{\{!-- Task details --\}\}
+## Your Task: \{\{taskId\}\} - \{\{taskTitle\}\}
 
-## Instructions 1. Implement this user story following the acceptance criteria
-2. Run your project's quality checks (typecheck, lint, etc.) 3. Commit your
-changes with a descriptive message When finished, signal completion with:
+\{\{#if taskDescription\}\}
+### Description
+\{\{taskDescription\}\}
+\{\{/if\}\}
+
+\{\{#if acceptanceCriteria\}\}
+### Acceptance Criteria
+\{\{acceptanceCriteria\}\}
+\{\{/if\}\}
+
+\{\{#if dependsOn\}\}
+**Prerequisites**: \{\{dependsOn\}\}
+\{\{/if\}\}
+
+\{\{#if recentProgress\}\}
+## Recent Progress
+\{\{recentProgress\}\}
+\{\{/if\}\}
+
+## Workflow
+1. Study the PRD context above to understand the bigger picture
+2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+3. Implement this single story following acceptance criteria
+4. Run quality checks: typecheck, lint, etc.
+5. Commit with message: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}`
+6. Document learnings in `.ralph-tui/progress.md`
+7. Signal completion
+
+## Stop Condition
+**IMPORTANT**: If the work is already complete, verify it meets the
+acceptance criteria and signal completion immediately.
+
+When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
 ### Beads Template Example
 
-The Beads template includes epic context and specific instructions for the `bd` CLI:
+The Beads template includes epic context and the `bd` CLI for closing issues:
 
 ```handlebars
-## Bead Details - **ID**:
-{{taskId}}
-- **Title**:
-{{taskTitle}}
-{{#if epicId}}
-  - **Epic**:
-  {{epicId}}{{#if epicTitle}} - {{epicTitle}}{{/if}}
-{{/if}}
+\{\{!-- Full PRD for project context (if available) --\}\}
+\{\{#if prdContent\}\}
+We are working in a project to implement the following Product Requirements Document (PRD):
 
-{{#if acceptanceCriteria}}
-  ## Acceptance Criteria
-  {{acceptanceCriteria}}
-{{/if}}
+\{\{prdContent\}\}
 
-## Instructions 1. Implement the requirements (stay on current branch) 2. Run
-your project's quality checks 3. Commit: feat:
-{{taskId}}
--
-{{taskTitle}}
-4. Close the bead when done When finished, signal completion with:
+---
+\{\{/if\}\}
+
+## Bead Details
+- **ID**: \{\{taskId\}\}
+- **Title**: \{\{taskTitle\}\}
+\{\{#if epicId\}\}
+- **Epic**: \{\{epicId\}\}\{\{#if epicTitle\}\} - \{\{epicTitle\}\}\{\{/if\}\}
+\{\{/if\}\}
+\{\{#if taskDescription\}\}
+- **Description**: \{\{taskDescription\}\}
+\{\{/if\}\}
+
+\{\{#if acceptanceCriteria\}\}
+## Acceptance Criteria
+\{\{acceptanceCriteria\}\}
+\{\{/if\}\}
+
+\{\{#if dependsOn\}\}
+**Prerequisites**: \{\{dependsOn\}\}
+\{\{/if\}\}
+
+\{\{#if recentProgress\}\}
+## Recent Progress
+\{\{recentProgress\}\}
+\{\{/if\}\}
+
+## Workflow
+1. Study the PRD context above (if available)
+2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+3. Implement the requirements (stay on current branch)
+4. Run your project's quality checks
+5. Commit: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}`
+6. Close the bead: `bd close \{\{taskId\}\} --db \{\{beadsDbPath\}\} --reason "..."`
+7. Document learnings in `.ralph-tui/progress.md`
+8. Signal completion
+
+## Stop Condition
+**IMPORTANT**: If the work is already complete, verify it works
+correctly and signal completion immediately.
+
+When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
+<Callout type="info">
+Both templates include **compound learning** - agents are instructed to study `.ralph-tui/progress.md` which contains learnings, patterns, and gotchas from previous iterations.
+</Callout>
+
 ## Template Resolution Order
 
-Ralph searches for templates in this order, using the first one found:
+Ralph uses a hierarchical resolution system, checking each level in order and using the first template found:
 
 <Steps>
-  <Step title="Custom Path">
+  <Step title="Custom Path (Highest Priority)">
     Explicit `--prompt` argument or `prompt_template` in config file.
 
     ```bash
@@ -144,15 +198,37 @@ Ralph searches for templates in this order, using the first one found:
 
   </Step>
 
-<Step title="User Config Directory">
-  Templates in `~/.config/ralph-tui/`: - `prompt.md` for JSON tracker -
-  `prompt-beads.md` for Beads trackers
-</Step>
+  <Step title="Project Templates">
+    Templates in your project's `.ralph-tui/templates/` folder:
+    - `.ralph-tui/templates/beads.hbs` for Beads tracker
+    - `.ralph-tui/templates/beads-bv.hbs` for Beads-BV tracker
+    - `.ralph-tui/templates/json.hbs` for JSON tracker
+    - `.ralph-tui/templates/default.hbs` for other trackers
 
-  <Step title="Built-in Template">
-    Bundled defaults that ship with Ralph TUI.
+    This allows per-project customization without affecting other projects.
+  </Step>
+
+  <Step title="Global Templates">
+    User-level templates in `~/.config/ralph-tui/templates/`:
+    - `~/.config/ralph-tui/templates/beads.hbs`
+    - `~/.config/ralph-tui/templates/json.hbs`
+    - etc.
+
+    These apply to all your projects unless overridden at the project level.
+  </Step>
+
+  <Step title="Tracker Bundle">
+    Templates bundled with each tracker plugin. These are the optimized defaults for each tracker type.
+  </Step>
+
+  <Step title="Built-in Fallback (Lowest Priority)">
+    Embedded default templates that ship with Ralph TUI.
   </Step>
 </Steps>
+
+<Callout type="tip">
+Use **project templates** (`.ralph-tui/templates/`) for project-specific customizations and **global templates** (`~/.config/ralph-tui/templates/`) for personal preferences that apply to all projects.
+</Callout>
 
 ## Viewing Your Current Template
 

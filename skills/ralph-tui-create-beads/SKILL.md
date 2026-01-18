@@ -54,10 +54,11 @@ Extract:
 Beads use `bd create` command:
 
 ```bash
-# Create epic
+# Create epic (link back to source PRD)
 bd create --type=epic \
   --title="[Feature Name]" \
   --description="[Feature description from PRD]" \
+  --external-ref="prd:./tasks/feature-name-prd.md" \
   --labels="ralph,feature"
 
 # Create child bead (with quality gates in acceptance criteria)
@@ -257,10 +258,11 @@ For UI stories, also include:
 **Output beads:**
 
 ```bash
-# Create epic
+# Create epic (link back to source PRD)
 bd create --type=epic \
   --title="Friends Outreach Track" \
   --description="Warm outreach for deck feedback" \
+  --external-ref="prd:./tasks/friends-outreach-prd.md" \
   --labels="ralph,feature"
 
 # US-001: No deps (first - creates schema)

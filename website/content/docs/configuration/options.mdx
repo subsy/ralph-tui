@@ -16,18 +16,19 @@ This page documents every configuration option available in Ralph TUI. Options c
 
 These control basic execution behavior.
 
-| Option                  | Type    | Default                  | Description                                              |
-| ----------------------- | ------- | ------------------------ | -------------------------------------------------------- |
-| `agent`                 | string  | -                        | Agent plugin to use (e.g., "claude", "opencode")         |
-| `tracker`               | string  | -                        | Tracker plugin to use (e.g., "beads-bv", "json")         |
-| `maxIterations`         | number  | `10`                     | Maximum iterations per session (0 = unlimited, max 1000) |
-| `iterationDelay`        | number  | `1000`                   | Delay between iterations in milliseconds (max 300000)    |
-| `outputDir`             | string  | `.ralph-tui/iterations`  | Directory for iteration log files                        |
-| `progressFile`          | string  | `.ralph-tui/progress.md` | Progress file for cross-iteration context                |
-| `autoCommit`            | boolean | `false`                  | Auto-commit after each completed task                    |
-| `prompt_template`       | string  | -                        | Custom Handlebars template path                          |
-| `subagentTracingDetail` | string  | `"off"`                  | Subagent visibility level                                |
-| `skills_dir`            | string  | -                        | Directory containing custom PRD skills                   |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `agent` | string | - | Agent plugin to use (e.g., "claude", "opencode") |
+| `command` | string | - | Custom command/executable for the agent (e.g., "ccr code") |
+| `tracker` | string | - | Tracker plugin to use (e.g., "beads-bv", "json") |
+| `maxIterations` | number | `10` | Maximum iterations per session (0 = unlimited, max 1000) |
+| `iterationDelay` | number | `1000` | Delay between iterations in milliseconds (max 300000) |
+| `outputDir` | string | `.ralph-tui/iterations` | Directory for iteration log files |
+| `progressFile` | string | `.ralph-tui/progress.md` | Progress file for cross-iteration context |
+| `autoCommit` | boolean | `false` | Auto-commit after each completed task |
+| `prompt_template` | string | - | Custom Handlebars template path |
+| `subagentTracingDetail` | string | `"off"` | Subagent visibility level |
+| `skills_dir` | string | - | Directory containing custom PRD skills |
 
 ### subagentTracingDetail Values
 
@@ -53,10 +54,38 @@ agent = "claude"
 model = "claude-sonnet-4-20250514"
 ```
 
-| Option         | Type   | Default | Description             |
-| -------------- | ------ | ------- | ----------------------- |
-| `agent`        | string | -       | Agent plugin name       |
-| `agentOptions` | object | `{}`    | Plugin-specific options |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `agent` | string | - | Agent plugin name |
+| `command` | string | - | Custom command/executable path (see below) |
+| `agentOptions` | object | `{}` | Plugin-specific options |
+
+### Custom Command
+
+The `command` option lets you specify a custom binary or wrapper for your agent. This is useful for:
+
+- **AI routing tools** like [Claude Code Router (CCR)](https://github.com/anthropics/ccr) that proxy to different providers
+- **Custom wrappers** that add logging, authentication, or other behavior
+- **Alternative binary locations** when the default isn't in PATH
+
+```toml
+agent = "claude"
+command = "ccr code"
+```
+
+This uses the Claude agent plugin but routes requests through CCR, which can proxy to OpenRouter, DeepSeek, Ollama, Gemini, or other providers.
+
+#### Precedence
+
+The command follows this precedence (highest to lowest):
+
+1. **Agent-specific**: `command` field in `[[agents]]` array
+2. **Top-level**: `command` field (this option)
+3. **Plugin default**: e.g., "claude" for the Claude plugin
+
+<Callout type="warning">
+For security, the `command` field cannot contain shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`, `(`, `)`). If you need complex command logic, create a wrapper script.
+</Callout>
 
 ### Full Agent Configuration
 

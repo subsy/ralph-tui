@@ -5,9 +5,10 @@
  */
 
 import { spawn } from 'node:child_process';
-import { access, constants } from 'node:fs/promises';
-import { join } from 'node:path';
-import { BaseTrackerPlugin } from '../base.js';
+import { access, constants, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BaseTrackerPlugin } from '../../base.js';
 import type {
   SetupQuestion,
   SyncResult,
@@ -18,7 +19,7 @@ import type {
   TrackerPluginMeta,
   TrackerTask,
   TrackerTaskStatus,
-} from '../types.js';
+} from '../../types.js';
 
 /**
  * Raw bead structure from bd list --json output.
@@ -62,6 +63,16 @@ interface DetectResult {
   bdVersion?: string;
   error?: string;
 }
+
+/**
+ * Get the directory containing this module (for locating template.hbs).
+ */
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Cache for the template content to avoid repeated file reads.
+ */
+let templateCache: string | null = null;
 
 /**
  * Execute a bd command and return the output.
@@ -261,7 +272,12 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Check for .beads directory
     const beadsDirPath = join(this.workingDir, this.beadsDir);
     try {
-      await access(beadsDirPath, constants.R_OK);
+      await new Promise<void>((resolve, reject) => {
+        access(beadsDirPath, constants.R_OK, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
     } catch {
       return {
         available: false,
@@ -651,6 +667,35 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
    */
   getEpicId(): string {
     return this.epicId;
+  }
+
+  /**
+   * Get the prompt template for the Beads tracker.
+   * Reads from the co-located template.hbs file.
+   */
+  override getTemplate(): string {
+    // Return cached template if available
+    if (templateCache !== null) {
+      return templateCache;
+    }
+
+    // Read template from co-located file
+    const templatePath = join(__dirname, 'template.hbs');
+    try {
+      templateCache = readFileSync(templatePath, 'utf-8');
+      return templateCache;
+    } catch (err) {
+      console.error(`Failed to read template from ${templatePath}:`, err);
+      // Return a minimal fallback template
+      return `## Task: {{taskTitle}}
+{{#if taskDescription}}
+{{taskDescription}}
+{{/if}}
+
+When finished, signal completion with:
+<promise>COMPLETE</promise>
+`;
+    }
   }
 }
 

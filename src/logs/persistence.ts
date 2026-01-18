@@ -17,6 +17,7 @@ import type {
   IterationLog,
   IterationLogMetadata,
   IterationLogSummary,
+  IterationSummary,
   LogFilterOptions,
   LogCleanupOptions,
   LogCleanupResult,
@@ -105,6 +106,9 @@ export interface BuildMetadataOptions {
   /** Summary of how iteration completed */
   completionSummary?: string;
 
+  /** Structured summary of what was accomplished (for context recovery) */
+  summary?: IterationSummary;
+
   /** Sandbox configuration used for this iteration */
   sandboxConfig?: SandboxConfig;
 
@@ -123,18 +127,18 @@ export function buildMetadata(
   let config: Partial<RalphConfig> | undefined;
   let agentSwitches: AgentSwitchEntry[] | undefined;
   let completionSummary: string | undefined;
+  let summary: IterationSummary | undefined;
   let sandboxConfig: SandboxConfig | undefined;
   let resolvedSandboxMode: Exclude<SandboxMode, 'auto'> | undefined;
 
   // Detect new options object format by checking for any of its unique keys
-  // (config, agentSwitches, completionSummary, sandboxConfig, resolvedSandboxMode)
-  const isOptionsObject =
-    configOrOptions &&
-    ('config' in configOrOptions ||
-      'agentSwitches' in configOrOptions ||
-      'completionSummary' in configOrOptions ||
-      'sandboxConfig' in configOrOptions ||
-      'resolvedSandboxMode' in configOrOptions);
+  const isOptionsObject = configOrOptions && (
+    'config' in configOrOptions ||
+    'agentSwitches' in configOrOptions ||
+    'completionSummary' in configOrOptions ||
+    'sandboxConfig' in configOrOptions ||
+    'resolvedSandboxMode' in configOrOptions
+  );
 
   if (isOptionsObject) {
     // New options object
@@ -142,6 +146,7 @@ export function buildMetadata(
     config = opts.config;
     agentSwitches = opts.agentSwitches;
     completionSummary = opts.completionSummary;
+    summary = opts.summary;
     sandboxConfig = opts.sandboxConfig;
     resolvedSandboxMode = opts.resolvedSandboxMode;
   } else {
@@ -167,6 +172,7 @@ export function buildMetadata(
     agentSwitches:
       agentSwitches && agentSwitches.length > 0 ? agentSwitches : undefined,
     completionSummary,
+    summary,
     sandboxMode: sandboxConfig?.mode,
     resolvedSandboxMode,
     sandboxNetwork: sandboxConfig?.network,
@@ -181,6 +187,50 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
 
   lines.push(`# Iteration ${metadata.iteration} Log`);
   lines.push('');
+
+  // Summary section for context recovery (placed first for easy access)
+  if (metadata.summary) {
+    const { whatWasDone, filesChanged, commitHash, learnings } = metadata.summary;
+
+    lines.push('## Summary (For Context Recovery)');
+    lines.push(`**Task:** ${metadata.taskId} - ${metadata.taskTitle}`);
+    if (commitHash) {
+      lines.push(`**Commit:** ${commitHash}`);
+    }
+    lines.push(`**Status:** ${metadata.taskCompleted ? '✅ Completed' : '❌ Incomplete'}`);
+    lines.push('');
+
+    if (whatWasDone.length > 0) {
+      lines.push('### What Was Done');
+      for (const item of whatWasDone) {
+        lines.push(`- ${item}`);
+      }
+      lines.push('');
+    }
+
+    if (filesChanged.length > 0) {
+      lines.push('### Files Changed');
+      for (const file of filesChanged.slice(0, 20)) { // Limit to 20 files
+        lines.push(`- ${file}`);
+      }
+      if (filesChanged.length > 20) {
+        lines.push(`- ... and ${filesChanged.length - 20} more`);
+      }
+      lines.push('');
+    }
+
+    if (learnings.length > 0) {
+      lines.push('### Learnings');
+      for (const learning of learnings) {
+        lines.push(`- ${learning}`);
+      }
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+  }
+
   lines.push('## Metadata');
   lines.push('');
   lines.push(`- **Task ID**: ${metadata.taskId}`);
@@ -215,16 +265,13 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
 
   // Add sandbox configuration if present
   if (metadata.sandboxMode) {
-    const modeDisplay =
-      metadata.sandboxMode === 'auto' && metadata.resolvedSandboxMode
-        ? `auto (${metadata.resolvedSandboxMode})`
-        : metadata.sandboxMode;
+    const modeDisplay = metadata.resolvedSandboxMode
+      ? `${metadata.sandboxMode} (${metadata.resolvedSandboxMode})`
+      : metadata.sandboxMode;
     lines.push(`- **Sandbox Mode**: ${modeDisplay}`);
-    if (metadata.sandboxNetwork !== undefined) {
-      lines.push(
-        `- **Sandbox Network**: ${metadata.sandboxNetwork ? 'Enabled' : 'Disabled'}`,
-      );
-    }
+  }
+  if (metadata.sandboxNetwork !== undefined) {
+    lines.push(`- **Sandbox Network**: ${metadata.sandboxNetwork ? 'Enabled' : 'Disabled'}`);
   }
 
   // Add completion summary if present
@@ -264,6 +311,104 @@ function formatDuration(ms: number): string {
     return `${minutes}m ${seconds % 60}s`;
   }
   return `${seconds}s`;
+}
+
+/**
+ * Patterns to extract summary content from agent output.
+ */
+const SUMMARY_PATTERNS = {
+  /** Pattern for extracting learnings/insights */
+  learnings: /(?:\*\*Learnings?\*\*:?|Learnings?:)\s*([\s\S]*?)(?=\n##|\n\*\*|$)/gi,
+  /** Pattern for "what was done" bullet points */
+  whatWasDone: /(?:What was (?:done|implemented)|Completed|Implemented):?\s*([\s\S]*?)(?=\n##|\n\*\*|$)/gi,
+  /** Pattern for insight blocks (★ Insight format) */
+  insights: /`?★ Insight[─\s]*`?\n([\s\S]*?)\n`?─+`?/gi,
+};
+
+/**
+ * Extract what was accomplished from agent output.
+ * Looks for patterns like "What was done:", bullet points, etc.
+ */
+function extractWhatWasDone(output: string): string[] {
+  const items: string[] = [];
+
+  // Look for explicit "What was done" sections
+  let match;
+  SUMMARY_PATTERNS.whatWasDone.lastIndex = 0;
+  while ((match = SUMMARY_PATTERNS.whatWasDone.exec(output)) !== null) {
+    const content = match[1]?.trim();
+    if (content) {
+      // Split by bullet points
+      const lines = content.split('\n')
+        .map((l) => l.replace(/^[-*•]\s*/, '').trim())
+        .filter((l) => l.length > 0 && l.length < 200);
+      items.push(...lines);
+    }
+  }
+
+  // If no explicit section, look for commit message patterns
+  if (items.length === 0) {
+    const commitMatch = output.match(/git commit.*?-m\s*["']([^"']+)["']/i);
+    if (commitMatch?.[1]) {
+      items.push(commitMatch[1]);
+    }
+  }
+
+  return items.slice(0, 10); // Limit to 10 items
+}
+
+/**
+ * Extract learnings from agent output.
+ * Looks for patterns like "**Learnings:**", insight blocks, etc.
+ */
+function extractLearnings(output: string): string[] {
+  const learnings: string[] = [];
+
+  // Look for explicit learnings sections
+  let match;
+  SUMMARY_PATTERNS.learnings.lastIndex = 0;
+  while ((match = SUMMARY_PATTERNS.learnings.exec(output)) !== null) {
+    const content = match[1]?.trim();
+    if (content) {
+      const lines = content.split('\n')
+        .map((l) => l.replace(/^[-*•]\s*/, '').trim())
+        .filter((l) => l.length > 10 && l.length < 300);
+      learnings.push(...lines);
+    }
+  }
+
+  // Also check for ★ Insight blocks
+  SUMMARY_PATTERNS.insights.lastIndex = 0;
+  while ((match = SUMMARY_PATTERNS.insights.exec(output)) !== null) {
+    const insight = match[1]?.trim();
+    if (insight && insight.length > 10) {
+      learnings.push(insight);
+    }
+  }
+
+  // Deduplicate
+  return [...new Set(learnings)].slice(0, 5); // Limit to 5 learnings
+}
+
+/**
+ * Extract iteration summary from agent output and git state.
+ * This creates a structured summary useful for context recovery.
+ *
+ * @param output Agent stdout output
+ * @param commitHash Optional git commit hash (from git rev-parse --short HEAD)
+ * @param filesChanged Optional list of changed files (from git diff --name-only)
+ */
+export function extractIterationSummary(
+  output: string,
+  commitHash?: string,
+  filesChanged?: string[]
+): IterationSummary {
+  return {
+    whatWasDone: extractWhatWasDone(output),
+    filesChanged: filesChanged ?? [],
+    commitHash,
+    learnings: extractLearnings(output),
+  };
 }
 
 /**
@@ -313,22 +458,21 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
     const epicId = extractValue('Epic');
 
     // Parse sandbox configuration
-    const sandboxModeRaw = extractValue('Sandbox Mode');
+    const sandboxModeStr = extractValue('Sandbox Mode');
     let sandboxMode: string | undefined;
     let resolvedSandboxMode: string | undefined;
-    if (sandboxModeRaw) {
-      // Handle "auto (docker)" or "auto (sandbox-exec)" format
-      const autoMatch = sandboxModeRaw.match(/^auto\s*\(([^)]+)\)$/);
-      if (autoMatch) {
-        sandboxMode = 'auto';
-        resolvedSandboxMode = autoMatch[1];
-      } else {
-        sandboxMode = sandboxModeRaw;
+    if (sandboxModeStr) {
+      // Format is either "mode" or "mode (resolved)"
+      const sandboxMatch = sandboxModeStr.match(/^(\w+)(?:\s*\((\w+-?\w*)\))?$/);
+      if (sandboxMatch) {
+        sandboxMode = sandboxMatch[1];
+        resolvedSandboxMode = sandboxMatch[2];
       }
     }
-    const sandboxNetworkRaw = extractValue('Sandbox Network');
-    const sandboxNetwork = sandboxNetworkRaw
-      ? sandboxNetworkRaw === 'Enabled'
+
+    const sandboxNetworkStr = extractValue('Sandbox Network');
+    const sandboxNetwork = sandboxNetworkStr === 'Enabled' ? true
+      : sandboxNetworkStr === 'Disabled' ? false
       : undefined;
 
     return {
@@ -371,6 +515,9 @@ export interface SaveIterationLogOptions {
   /** Summary of how iteration completed (e.g., 'Completed on fallback (opencode) due to rate limit') */
   completionSummary?: string;
 
+  /** Structured summary of what was accomplished (for context recovery) */
+  summary?: IterationSummary;
+
   /** Sandbox configuration used for this iteration */
   sandboxConfig?: SandboxConfig;
 
@@ -400,18 +547,17 @@ export async function saveIterationLog(
   let subagentTrace: SubagentTrace | undefined;
   let agentSwitches: AgentSwitchEntry[] | undefined;
   let completionSummary: string | undefined;
+  let summary: IterationSummary | undefined;
   let sandboxConfig: SandboxConfig | undefined;
   let resolvedSandboxMode: Exclude<SandboxMode, 'auto'> | undefined;
 
   // Detect new options object format by checking for any of its unique keys
-  const isOptionsObject =
-    options &&
-    ('config' in options ||
-      'subagentTrace' in options ||
-      'agentSwitches' in options ||
-      'completionSummary' in options ||
-      'sandboxConfig' in options ||
-      'resolvedSandboxMode' in options);
+  const isOptionsObject = options && (
+    'config' in options ||
+    'subagentTrace' in options ||
+    'sandboxConfig' in options ||
+    'resolvedSandboxMode' in options
+  );
 
   if (isOptionsObject) {
     // New options object
@@ -420,6 +566,7 @@ export async function saveIterationLog(
     subagentTrace = saveOptions.subagentTrace;
     agentSwitches = saveOptions.agentSwitches;
     completionSummary = saveOptions.completionSummary;
+    summary = saveOptions.summary;
     sandboxConfig = saveOptions.sandboxConfig;
     resolvedSandboxMode = saveOptions.resolvedSandboxMode;
   } else {
@@ -434,6 +581,7 @@ export async function saveIterationLog(
     config,
     agentSwitches,
     completionSummary,
+    summary,
     sandboxConfig,
     resolvedSandboxMode,
   });
@@ -817,8 +965,10 @@ function computeTraceStats(states: SubagentState[]): SubagentTraceStats {
   };
 }
 
-// Test exports - internal functions exposed for unit testing
-// These are not part of the public API and may change without notice
+/**
+ * Test-only exports for internal functions.
+ * Do NOT use in production code.
+ */
 export const __test__ = {
   formatMetadataHeader,
   parseMetadataHeader,

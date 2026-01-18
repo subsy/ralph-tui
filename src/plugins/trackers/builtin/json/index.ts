@@ -5,8 +5,9 @@
  */
 
 import { readFile, writeFile, access, constants } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { BaseTrackerPlugin } from '../base.js';
+import { readFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { BaseTrackerPlugin } from '../../base.js';
 import type {
   TrackerPluginMeta,
   TrackerPluginFactory,
@@ -16,7 +17,7 @@ import type {
   TaskFilter,
   TaskCompletionResult,
   SetupQuestion,
-} from '../types.js';
+} from '../../types.js';
 
 /**
  * Structure of a user story in prd.json format.
@@ -75,6 +76,8 @@ interface PrdJson {
     createdAt?: string;
     updatedAt?: string;
     version?: string;
+    /** Path to the source PRD markdown file (relative to prd.json or absolute) */
+    sourcePrd?: string;
   };
 }
 
@@ -302,6 +305,29 @@ function storyToTask(story: PrdUserStory, parentName?: string): TrackerTask {
     },
   };
 }
+
+/** Template cache to avoid re-reading on every call */
+let templateCache: string | null = null;
+
+/** Fallback template used if external file not found */
+const FALLBACK_TEMPLATE = `## Your Task: {{taskId}} - {{taskTitle}}
+
+{{#if taskDescription}}
+### Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+### Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+## Workflow
+1. Implement this story following acceptance criteria
+2. Run quality checks
+3. Commit with: \`feat: {{taskId}} - {{taskTitle}}\`
+4. Signal completion with: <promise>COMPLETE</promise>
+`;
 
 /**
  * JSON tracker plugin implementation.
@@ -645,6 +671,94 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
         console.error('Failed to read prd.json for getEpics:', err);
       }
       return [];
+    }
+  }
+
+  /**
+   * Get the prompt template for the JSON tracker.
+   * Reads from external template.hbs file with caching.
+   * Falls back to embedded template if file not found.
+   */
+  override getTemplate(): string {
+    if (templateCache !== null) {
+      return templateCache;
+    }
+
+    const templatePath = join(__dirname, 'template.hbs');
+    try {
+      templateCache = readFileSync(templatePath, 'utf-8');
+      return templateCache;
+    } catch (err) {
+      // Log warning and fall back to embedded template
+      console.warn(
+        `Warning: Could not read template from ${templatePath}, using fallback template.`,
+        err instanceof Error ? err.message : err
+      );
+      templateCache = FALLBACK_TEMPLATE;
+      return templateCache;
+    }
+  }
+
+  /**
+   * Get the source PRD markdown content.
+   * Reads from metadata.sourcePrd path if specified.
+   * @returns The PRD markdown content, or empty string if not available
+   */
+  async getSourcePrdContent(): Promise<string> {
+    if (!this.filePath) {
+      return '';
+    }
+
+    try {
+      const prd = await this.readPrd();
+      const sourcePrdPath = prd.metadata?.sourcePrd;
+
+      if (!sourcePrdPath) {
+        return '';
+      }
+
+      // Resolve path relative to prd.json location
+      const prdDir = resolve(this.filePath, '..');
+      const fullPath = sourcePrdPath.startsWith('/')
+        ? sourcePrdPath
+        : resolve(prdDir, sourcePrdPath);
+
+      const content = await readFile(fullPath, 'utf-8');
+      return content;
+    } catch {
+      // Source PRD not found or not readable - this is fine, it's optional
+      return '';
+    }
+  }
+
+  /**
+   * Get PRD context for template rendering.
+   * Returns name, description, source markdown content, and completion stats.
+   */
+  async getPrdContext(): Promise<{
+    name: string;
+    description?: string;
+    content: string;
+    completedCount: number;
+    totalCount: number;
+  } | null> {
+    if (!this.filePath) {
+      return null;
+    }
+
+    try {
+      const prd = await this.readPrd();
+      const content = await this.getSourcePrdContent();
+
+      return {
+        name: prd.name,
+        description: prd.description,
+        content,
+        completedCount: prd.userStories.filter((s) => s.passes).length,
+        totalCount: prd.userStories.length,
+      };
+    } catch {
+      return null;
     }
   }
 }

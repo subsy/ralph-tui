@@ -40,23 +40,9 @@ import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { SubagentTraceParser } from '../plugins/agents/tracing/parser.js';
 import type { SubagentEvent } from '../plugins/agents/tracing/types.js';
 import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
-import {
-  createDroidStreamingJsonlParser,
-  isDroidJsonlMessage,
-  toClaudeJsonlMessages,
-} from '../plugins/agents/droid/outputParser.js';
-import {
-  updateSessionIteration,
-  updateSessionStatus,
-  updateSessionMaxIterations,
-} from '../session/index.js';
-import {
-  saveIterationLog,
-  buildSubagentTrace,
-  createProgressEntry,
-  appendProgress,
-  getRecentProgressSummary,
-} from '../logs/index.js';
+import { createDroidStreamingJsonlParser, isDroidJsonlMessage, toClaudeJsonlMessages } from '../plugins/agents/droid/outputParser.js';
+import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
+import { saveIterationLog, buildSubagentTrace, createProgressEntry, appendProgress, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 
@@ -81,16 +67,36 @@ const PRIMARY_RECOVERY_TEST_PROMPT = 'Reply with just the word "ok".';
  * Build prompt for the agent based on task using the template system.
  * Falls back to a hardcoded default if template rendering fails.
  * Includes recent progress from previous iterations for context.
+ * Includes PRD context if the tracker provides it.
+ * Uses the tracker's getTemplate() method for plugin-owned templates.
  */
 async function buildPrompt(
   task: TrackerTask,
   config: RalphConfig,
+  tracker?: TrackerPlugin
 ): Promise<string> {
   // Load recent progress for context (last 5 iterations)
   const recentProgress = await getRecentProgressSummary(config.cwd, 5);
 
-  // Use the template system
-  const result = renderPrompt(task, config, undefined, recentProgress);
+  // Load codebase patterns from progress.md (if any exist)
+  const codebasePatterns = await getCodebasePatternsForPrompt(config.cwd);
+
+  // Get template from tracker plugin (new architecture: templates owned by plugins)
+  // Use optional call syntax since not all tracker plugins implement getTemplate
+  const trackerTemplate = tracker?.getTemplate?.();
+
+  // Get PRD context if the tracker supports it
+  const prdContext = await tracker?.getPrdContext?.();
+
+  // Build extended template context with PRD data and patterns
+  const extendedContext = {
+    recentProgress,
+    codebasePatterns,
+    prd: prdContext ?? undefined,
+  };
+
+  // Use the template system (tracker template used if no custom/user override)
+  const result = renderPrompt(task, config, undefined, extendedContext, trackerTemplate);
 
   if (result.success && result.prompt) {
     return result.prompt;
@@ -304,6 +310,60 @@ export class ExecutionEngine {
       timestamp: new Date().toISOString(),
       tasks,
     });
+  }
+
+  /**
+   * Generate a preview of the prompt that would be sent to the agent for a given task.
+   * Useful for debugging and understanding what the agent will receive.
+   *
+   * @param taskId - The ID of the task to generate prompt for
+   * @returns Object with prompt content and template source, or error message
+   */
+  async generatePromptPreview(
+    taskId: string
+  ): Promise<{ success: true; prompt: string; source: string } | { success: false; error: string }> {
+    if (!this.tracker) {
+      return { success: false, error: 'No tracker configured' };
+    }
+
+    // Get the task
+    const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress'] });
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) {
+      return { success: false, error: `Task not found: ${taskId}` };
+    }
+
+    // Get tracker template (if tracker provides one)
+    const trackerTemplate = this.tracker.getTemplate?.();
+
+    // Get recent progress summary for context
+    const recentProgress = await getRecentProgressSummary(this.config.cwd, 5);
+
+    // Get codebase patterns from progress.md (if any exist)
+    const codebasePatterns = await getCodebasePatternsForPrompt(this.config.cwd);
+
+    // Get PRD context if the tracker supports it
+    const prdContext = await this.tracker.getPrdContext?.();
+
+    // Build extended template context with PRD data and patterns
+    const extendedContext = {
+      recentProgress,
+      codebasePatterns,
+      prd: prdContext ?? undefined,
+    };
+
+    // Generate the prompt
+    const result = renderPrompt(task, this.config, undefined, extendedContext, trackerTemplate);
+
+    if (!result.success || !result.prompt) {
+      return { success: false, error: result.error ?? 'Unknown error generating prompt' };
+    }
+
+    return {
+      success: true,
+      prompt: result.prompt,
+      source: result.source ?? 'unknown',
+    };
   }
 
   /**
@@ -755,8 +815,8 @@ export class ExecutionEngine {
       iteration,
     });
 
-    // Build prompt (includes recent progress context)
-    const prompt = await buildPrompt(task, this.config);
+    // Build prompt (includes recent progress context + tracker-owned template)
+    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined);
 
     // Build agent flags
     const flags: string[] = [];

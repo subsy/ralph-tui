@@ -134,8 +134,9 @@ export interface LeftPanelProps {
  * View mode for the right panel details area
  * - 'details': Show task metadata (title, ID, status, description, dependencies)
  * - 'output': Show full-height scrollable iteration output
+ * - 'prompt': Show the rendered prompt that will be sent to the agent
  */
-export type DetailsViewMode = 'details' | 'output';
+export type DetailsViewMode = 'details' | 'output' | 'prompt';
 
 /**
  * Timing information for an iteration (for output view display)
@@ -192,6 +193,10 @@ export interface RightPanelProps {
   focusedSubagentId?: string;
   /** Callback when a subagent section is toggled */
   onSubagentToggle?: (id: string) => void;
+  /** Rendered prompt content for preview (when viewMode is 'prompt') */
+  promptPreview?: string;
+  /** Source of the template used for the prompt (e.g., 'tracker:beads', 'builtin:json') */
+  templateSource?: string;
 }
 
 /**

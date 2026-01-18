@@ -112,6 +112,9 @@ export const TrackerPluginConfigSchema = z.object({
  */
 export const StoredConfigSchema = z
   .object({
+    // Config version for migrations (e.g., "2.0")
+    configVersion: z.string().optional(),
+
     // Default selections
     defaultAgent: z.string().optional(),
     defaultTracker: z.string().optional(),
@@ -129,6 +132,27 @@ export const StoredConfigSchema = z
     // Agent-specific options (shorthand for common settings)
     agent: z.string().optional(),
     agentCommand: z.string().optional(),
+    /**
+     * Custom command/executable path for the agent.
+     *
+     * Use this to route agent requests through wrapper tools like Claude Code Router (CCR)
+     * or to specify a custom binary location.
+     *
+     * Precedence (highest to lowest):
+     * 1. Agent-specific: [[agents]] command field
+     * 2. Top-level: this field
+     * 3. Plugin default: e.g., "claude" for Claude plugin
+     *
+     * @example "ccr code" - Route through Claude Code Router
+     * @example "/opt/bin/my-claude" - Absolute path to custom binary
+     */
+    command: z
+      .string()
+      .refine(
+        (cmd) => !/[;&|`$()]/.test(cmd),
+        'Command cannot contain shell metacharacters (;&|`$()). Use a wrapper script instead.'
+      )
+      .optional(),
     agentOptions: AgentOptionsSchema.optional(),
 
     // Tracker-specific options (shorthand for common settings)

@@ -1,6 +1,6 @@
 {
   "name": "ralph-tui",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Ralph TUI - AI Agent Loop Orchestrator",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,8 @@
     "ralph-tui": "./dist/cli.js"
   },
   "scripts": {
-    "build": "bun build ./src/cli.tsx --outdir ./dist --target bun --sourcemap=external && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external && cp -r assets dist/ && cp -r skills dist/",
+    "build": "bun build ./src/cli.tsx --outdir ./dist --target bun --sourcemap=external && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external && cp -r assets dist/ && cp -r skills dist/ && bun run build:templates",
+    "build:templates": "mkdir -p dist/plugins/trackers/builtin/beads dist/plugins/trackers/builtin/beads-bv dist/plugins/trackers/builtin/json && cp src/plugins/trackers/builtin/beads/template.hbs dist/plugins/trackers/builtin/beads/ && cp src/plugins/trackers/builtin/beads-bv/template.hbs dist/plugins/trackers/builtin/beads-bv/ && cp src/plugins/trackers/builtin/json/template.hbs dist/plugins/trackers/builtin/json/",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",

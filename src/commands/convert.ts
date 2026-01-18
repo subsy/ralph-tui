@@ -28,7 +28,7 @@ import {
 import {
   validatePrdJsonSchema,
   PrdJsonSchemaError,
-} from '../plugins/trackers/builtin/json.js';
+} from '../plugins/trackers/builtin/json/index.js';
 
 /**
  * Supported conversion target formats.

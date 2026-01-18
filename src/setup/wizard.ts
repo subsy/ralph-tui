@@ -33,6 +33,7 @@ import {
   installSkill,
   isSkillInstalled,
 } from './skill-installer.js';
+import { CURRENT_CONFIG_VERSION } from './migration.js';
 
 /**
  * Config directory and filename
@@ -170,6 +171,8 @@ async function saveConfig(answers: SetupAnswers, cwd: string): Promise<string> {
 
   // Build StoredConfig from answers
   const config: StoredConfig = {
+    // Config version for future migrations
+    configVersion: CURRENT_CONFIG_VERSION,
     // Use shorthand format for simpler config
     tracker: answers.tracker,
     trackerOptions: answers.trackerOptions,
@@ -389,6 +392,48 @@ export async function runSetupWizard(
     console.log();
     printSuccess(`Configuration saved to: ${configPath}`);
     console.log();
+
+    // === Verify Agent Configuration ===
+    printSection('Verifying Agent Configuration');
+
+    printInfo('Running agent preflight check...');
+    console.log();
+
+    // Get a fresh agent instance with the configured options
+    const agentRegistry = getAgentRegistry();
+    const agentInstance = await agentRegistry.getInstance({
+      name: selectedAgent,
+      plugin: selectedAgent,
+      options: agentOptions,
+    });
+
+    // Run preflight check
+    const preflightResult = await agentInstance.preflight({ timeout: 30000 });
+
+    if (preflightResult.success) {
+      printSuccess(`✓ Agent is configured correctly and responding`);
+      if (preflightResult.durationMs) {
+        printInfo(`  Response time: ${preflightResult.durationMs}ms`);
+      }
+      console.log();
+    } else {
+      printError(`✗ Agent preflight check failed`);
+      if (preflightResult.error) {
+        printError(`  ${preflightResult.error}`);
+      }
+      if (preflightResult.suggestion) {
+        console.log();
+        printInfo('Suggestions:');
+        // Split suggestion by newlines and print each line
+        for (const line of preflightResult.suggestion.split('\n')) {
+          console.log(`  ${line}`);
+        }
+      }
+      console.log();
+      printInfo('Configuration saved, but the agent is not responding.');
+      printInfo('Run "ralph-tui doctor" to diagnose issues.');
+      console.log();
+    }
 
     // Show tracker-specific instructions
     if (selectedTracker === 'json') {
