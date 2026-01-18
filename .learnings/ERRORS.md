@@ -12,7 +12,7 @@ bd create failed because no beads database exists for this repo
 ```
 Error: no beads database found
 
-Found JSONL file: /Users/dalecarman/Groove Jones Dropbox/Dale Carman/Projects/dev/ralph-tui/.beads/issues.jsonl
+Found JSONL file: <project-root>/.beads/issues.jsonl
 This looks like a fresh clone or JSONL-only project.
 
 Options:
@@ -81,7 +81,7 @@ error TS2688: Cannot find type definition file for 'node'.
 
 ### Context
 - Command attempted: `bun run typecheck`
-- Ran in /Users/dalecarman/Groove Jones Dropbox/Dale Carman/Projects/dev/ralph-tui
+- Ran in <project-root>
 
 ### Suggested Fix
 Run `bun install` or ensure node type definitions are available in node_modules.
