@@ -164,6 +164,30 @@ ralph-tui plugins trackers
 ralph-tui config show
 ```
 
+## Managing Skills
+
+Ralph TUI includes bundled skills for PRD creation and task conversion that integrate with your AI agent. These are installed automatically during setup, but you can manage them manually:
+
+```bash
+# List bundled skills and their installation status
+ralph-tui skills list
+
+# Install/reinstall all skills
+ralph-tui skills install
+
+# Force reinstall (overwrite existing)
+ralph-tui skills install --force
+
+# Install a specific skill
+ralph-tui skills install ralph-tui-prd
+```
+
+Skills are installed to your agent's skills directory (e.g., `~/.claude/skills/` for Claude Code) and become available automatically.
+
+<Callout type="tip">
+Use `ralph-tui skills install --force` after upgrading ralph-tui to ensure you have the latest skill versions.
+</Callout>
+
 ## Troubleshooting
 
 ### "Agent not found"

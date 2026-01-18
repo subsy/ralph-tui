@@ -46,7 +46,7 @@ export async function executeTemplateCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (subcommand === 'init') {
+  if (subcommand === 'init' || subcommand === 'install') {
     // Check for help in subcommand args
     if (args.includes('--help') || args.includes('-h')) {
       printTemplateHelp();
@@ -78,6 +78,7 @@ ${BOLD}ralph-tui template${RESET} - Manage prompt templates
 ${BOLD}Commands:${RESET}
   ${CYAN}show${RESET}              Display the current template being used
   ${CYAN}init${RESET}              Copy default template for customization
+  ${CYAN}install${RESET}           Alias for init
 
 ${BOLD}Show Options:${RESET}
   ${DIM}--tracker <name>${RESET}   Show template for specific tracker (default, beads, beads-bv, json)

@@ -20,6 +20,7 @@ import {
   executeDocsCommand,
   executeDoctorCommand,
   executeInfoCommand,
+  executeSkillsCommand,
 } from './commands/index.js';
 
 /**
@@ -44,6 +45,9 @@ Commands:
   config show         Display merged configuration
   template show       Display current prompt template
   template init       Copy default template for customization
+  template install    Alias for template init
+  skills list         List bundled skills
+  skills install      Install skills to ~/.claude/skills/
   plugins agents      List available agent plugins
   plugins trackers    List available tracker plugins
   docs [section]      Open documentation in browser
@@ -111,6 +115,8 @@ Examples:
   ralph-tui docs quickstart              # Open quick start guide
   ralph-tui info                         # Display system info for bug reports
   ralph-tui info -c                      # Copyable format for GitHub issues
+  ralph-tui skills list                  # List bundled skills
+  ralph-tui skills install --force       # Force reinstall all skills
 `);
 }
 
@@ -210,6 +216,12 @@ async function handleSubcommand(args: string[]): Promise<boolean> {
   // Info command
   if (command === 'info') {
     await executeInfoCommand(args.slice(1));
+    return true;
+  }
+
+  // Skills command
+  if (command === 'skills') {
+    await executeSkillsCommand(args.slice(1));
     return true;
   }
 

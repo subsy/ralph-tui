@@ -26,15 +26,20 @@ Use `ralph-tui help` to see all available commands, or `ralph-tui <command> --he
 
 ## Additional Commands
 
-These commands help with configuration and plugin management:
+These commands help with configuration, plugin management, and diagnostics:
 
 | Command | Description |
 |---------|-------------|
 | `ralph-tui config show` | Display merged configuration |
 | `ralph-tui template show` | Display current prompt template |
 | `ralph-tui template init` | Copy default template for customization |
+| `ralph-tui template install` | Alias for template init |
+| `ralph-tui skills list` | List bundled skills and installation status |
+| `ralph-tui skills install` | Install skills to your agent's skills directory |
 | `ralph-tui plugins agents` | List available agent plugins |
 | `ralph-tui plugins trackers` | List available tracker plugins |
+| `ralph-tui doctor` | Diagnose agent configuration issues |
+| `ralph-tui info` | Display system information for bug reports |
 | `ralph-tui docs [section]` | Open documentation in browser |
 | `ralph-tui help` | Show help message |
 
@@ -77,6 +82,11 @@ The commands are typically used in this order:
 
 - **[setup](/docs/cli/setup)** - Interactive wizard for initial configuration
 - **[logs](/docs/cli/logs)** - View, filter, and clean up iteration logs
+
+### Diagnostics & Troubleshooting
+
+- **doctor** - Diagnose agent configuration and detect common issues
+- **info** - Display system information useful for bug reports (version, OS, agent status)
 
 ## Global Options
 

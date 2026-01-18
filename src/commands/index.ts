@@ -80,3 +80,8 @@ export {
   formatSystemInfo,
   formatForBugReport,
 } from './info.js';
+
+export {
+  executeSkillsCommand,
+  printSkillsHelp,
+} from './skills.js';

@@ -130,20 +130,20 @@ retryDelayMs = 5000
 
 ## Skills Installation
 
-Skills are installed to your Claude Code skills directory (`~/.claude/skills/`):
+Skills are installed to your agent's skills directory:
 
-| Skill | Location | Purpose |
-|-------|----------|---------|
-| `ralph-tui-prd` | `~/.claude/skills/` | AI-powered PRD creation |
-| `ralph-tui-create-json` | `~/.claude/skills/` | Convert PRD to JSON tasks |
-| `ralph-tui-create-beads` | `~/.claude/skills/` | Convert PRD to Beads issues |
+| Skill | Purpose |
+|-------|---------|
+| `ralph-tui-prd` | AI-powered PRD creation |
+| `ralph-tui-create-json` | Convert PRD to JSON tasks |
+| `ralph-tui-create-beads` | Convert PRD to Beads issues |
 
 <Callout type="tip">
-These skills can also be used **directly in Claude Code** without the Ralph TUI interface. See [Using Skills Directly](#using-skills-directly) below.
+These skills can also be used **directly in your agent** without the Ralph TUI interface. See [Using Skills Directly](#using-skills-directly) below.
 </Callout>
 
 <Callout type="info">
-Skills require Claude Code. If using OpenCode, you can still create PRDs using the built-in template mode.
+You can manage skills manually with `ralph-tui skills list` and `ralph-tui skills install --force`.
 </Callout>
 
 ## Skipping Setup
@@ -203,27 +203,27 @@ which droid
 Ensure the skills directory is writable:
 
 ```bash
-# Create skills directory if needed
-mkdir -p ~/.claude-code/skills
+# Check which directory skills are installed to
+ralph-tui skills list
 
-# Check permissions
-ls -la ~/.claude-code/
+# Create skills directory if needed (for Claude Code)
+mkdir -p ~/.claude/skills
 ```
 
 ## Using Skills Directly
 
-After running `ralph-tui setup`, the installed skills can be used **directly in your preferred AI agent** (Claude Code, OpenCode) without needing the Ralph TUI interface. This is ideal when you want to:
+After running `ralph-tui setup`, the installed skills can be used **directly in your preferred AI agent** without needing the Ralph TUI interface. This is ideal when you want to:
 
 - Reference files and use agent-native features during PRD creation
 - Integrate PRD creation into your existing workflow
 - Use the skills as part of a larger conversation with your agent
 
-### Direct Skill Usage in Claude Code
+### Direct Skill Usage
 
-Once skills are installed, invoke them with slash commands:
+Once skills are installed, invoke them with slash commands in your agent:
 
 ```bash
-# In Claude Code, type:
+# In your agent, type:
 /ralph-tui-prd         # Start creating a PRD interactively
 /ralph-tui-create-json # Convert an existing PRD to prd.json
 /ralph-tui-create-beads # Convert an existing PRD to Beads issues
@@ -231,18 +231,18 @@ Once skills are installed, invoke them with slash commands:
 
 ### Example Workflow
 
-1. **Create a PRD directly in Claude Code:**
+1. **Create a PRD directly in your agent:**
    ```
    You: /ralph-tui-prd
-   Claude: I'll help you create a PRD. What feature would you like to plan?
+   Agent: I'll help you create a PRD. What feature would you like to plan?
    You: I want to add user authentication. Here's our existing auth code: @src/auth/
-   Claude: [Asks clarifying questions, references your code]
+   Agent: [Asks clarifying questions, references your code]
    ```
 
 2. **Convert to tasks:**
    ```
    You: /ralph-tui-create-json
-   Claude: I'll convert the PRD to prd.json format...
+   Agent: I'll convert the PRD to prd.json format...
    ```
 
 3. **Run Ralph for autonomous execution:**
@@ -255,11 +255,11 @@ Once skills are installed, invoke them with slash commands:
 | Approach | Best For |
 |----------|----------|
 | `ralph-tui create-prd --chat` | Quick standalone PRD creation |
-| `/ralph-tui-prd` in Claude Code | Complex PRDs that need file references, existing context, or iterative refinement |
+| `/ralph-tui-prd` in your agent | Complex PRDs that need file references, existing context, or iterative refinement |
 | `ralph-tui run` | Autonomous task execution |
 
 <Callout type="tip">
-Using skills directly in Claude Code gives you full access to file references (`@filename`), conversation context, and all agent features while creating your PRD.
+Using skills directly in your agent gives you full access to file references, conversation context, and all agent features while creating your PRD.
 </Callout>
 
 ## Related Commands

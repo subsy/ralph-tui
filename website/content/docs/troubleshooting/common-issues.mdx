@@ -366,14 +366,26 @@ ralph-tui config show
 
 If your issue isn't covered here:
 
-1. **Check the [Debugging Guide](/docs/troubleshooting/debugging)** for detailed diagnostic steps
+1. **Run the diagnostic command** to check for common issues:
+   ```bash
+   ralph-tui doctor
+   ```
 
-2. **Review iteration logs** for error details:
+2. **Collect system info** for bug reports:
+   ```bash
+   ralph-tui info -c   # Copyable format for GitHub issues
+   ```
+
+3. **Check the [Debugging Guide](/docs/troubleshooting/debugging)** for detailed diagnostic steps
+
+4. **Review iteration logs** for error details:
    ```bash
    ralph-tui logs --verbose
    ```
 
-3. **Check GitHub Issues** for similar problems:
+5. **Check GitHub Issues** for similar problems:
    [github.com/subsy/ralph-tui/issues](https://github.com/subsy/ralph-tui/issues)
 
-4. **Enable verbose output** for more diagnostics
+<Callout type="tip">
+When filing a bug report, include the output of `ralph-tui info -c` to help us diagnose your issue faster.
+</Callout>
