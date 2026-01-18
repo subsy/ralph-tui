@@ -70,12 +70,28 @@ const createMockAgentInstance = (id: string, name: string) => ({
 // Mock the agent registry to return our mock instance
 mock.module('../plugins/agents/registry.js', () => ({
   getAgentRegistry: () => ({
-    getInstance: () => Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
+    getInstance: () =>
+      Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
     initialize: () => Promise.resolve(),
     getRegisteredPlugins: () => [
-      { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
-      { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
-      { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
+      {
+        id: 'claude',
+        name: 'Claude Code',
+        description: 'Claude AI',
+        version: '1.0.0',
+      },
+      {
+        id: 'opencode',
+        name: 'OpenCode',
+        description: 'OpenCode AI',
+        version: '1.0.0',
+      },
+      {
+        id: 'droid',
+        name: 'Droid',
+        description: 'Factory Droid',
+        version: '1.0.0',
+      },
     ],
     createInstance: (id: string) => createMockAgentInstance(id, id),
     hasPlugin: (name: string) => ['claude', 'opencode', 'droid'].includes(name),

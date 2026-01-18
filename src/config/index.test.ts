@@ -579,7 +579,9 @@ describe('Config merging - scalar overrides', () => {
   });
 
   test('project replaces fallbackAgents array', async () => {
-    await writeTomlConfig(globalConfigPath, { fallbackAgents: ['claude', 'codex'] });
+    await writeTomlConfig(globalConfigPath, {
+      fallbackAgents: ['claude', 'codex'],
+    });
 
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
@@ -596,7 +598,9 @@ describe('Config merging - scalar overrides', () => {
 
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
-    await writeTomlConfig(join(projectConfigDir, 'config.toml'), { command: 'project-ccr code' });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      command: 'project-ccr code',
+    });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.command).toBe('project-ccr code');
@@ -611,7 +615,7 @@ describe('Config merging - scalar overrides', () => {
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
     await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
-      maxIterations: 20,  // Other field, no command
+      maxIterations: 20, // Other field, no command
     });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
@@ -809,7 +813,7 @@ agent = "claude"
 tracker = "beads-bv"
 command = "ccr code"
 `,
-      'utf-8'
+      'utf-8',
     );
 
     const config = await buildConfig({ cwd: tempDir });
@@ -833,7 +837,7 @@ plugin = "claude"
 command = "agent-level-command"
 default = true
 `,
-      'utf-8'
+      'utf-8',
     );
 
     const config = await buildConfig({ cwd: tempDir });
@@ -858,7 +862,7 @@ plugin = "claude"
 command = "my-custom-claude"
 default = true
 `,
-      'utf-8'
+      'utf-8',
     );
 
     const config = await buildConfig({ cwd: tempDir });

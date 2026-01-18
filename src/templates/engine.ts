@@ -84,15 +84,22 @@ export function getTemplateFilename(trackerType: BuiltinTemplateType): string {
   return `${trackerType}.hbs`;
 }
 
-
 /**
  * Get the path to a template in the project's .ralph-tui/templates/ folder.
  * @param cwd The working directory (project root)
  * @param trackerType The tracker type
  * @returns Full path to the project-level template
  */
-export function getProjectTemplatePath(cwd: string, trackerType: BuiltinTemplateType): string {
-  return path.join(cwd, '.ralph-tui', 'templates', getTemplateFilename(trackerType));
+export function getProjectTemplatePath(
+  cwd: string,
+  trackerType: BuiltinTemplateType,
+): string {
+  return path.join(
+    cwd,
+    '.ralph-tui',
+    'templates',
+    getTemplateFilename(trackerType),
+  );
 }
 
 /**
@@ -100,10 +107,15 @@ export function getProjectTemplatePath(cwd: string, trackerType: BuiltinTemplate
  * @param trackerType The tracker type
  * @returns Full path to the global template
  */
-export function getGlobalTemplatePath(trackerType: BuiltinTemplateType): string {
-  return path.join(getUserConfigDir(), 'templates', getTemplateFilename(trackerType));
+export function getGlobalTemplatePath(
+  trackerType: BuiltinTemplateType,
+): string {
+  return path.join(
+    getUserConfigDir(),
+    'templates',
+    getTemplateFilename(trackerType),
+  );
 }
-
 
 /**
  * Load a template from a custom path or fall back through the resolution hierarchy.
@@ -125,7 +137,7 @@ export function loadTemplate(
   customPath: string | undefined,
   trackerType: BuiltinTemplateType,
   cwd: string,
-  trackerTemplate?: string
+  trackerTemplate?: string,
 ): TemplateLoadResult {
   // 1. Try explicit custom template first (from --prompt or config)
   if (customPath) {
@@ -291,7 +303,7 @@ export function buildTemplateVariables(
   task: TrackerTask,
   config: Partial<RalphConfig>,
   epic?: { id: string; title: string; description?: string },
-  extended?: string | ExtendedTemplateContext
+  extended?: string | ExtendedTemplateContext,
 ): TemplateVariables {
   // Handle backward compatibility: if extended is a string, it's recentProgress
   let recentProgress = '';
@@ -380,7 +392,7 @@ export function buildTemplateContext(
   task: TrackerTask,
   config: Partial<RalphConfig>,
   epic?: { id: string; title: string; description?: string },
-  extended?: string | ExtendedTemplateContext
+  extended?: string | ExtendedTemplateContext,
 ): TemplateContext {
   return {
     vars: buildTemplateVariables(task, config, epic, extended),
@@ -429,14 +441,19 @@ export function renderPrompt(
   config: RalphConfig,
   epic?: { id: string; title: string; description?: string },
   extended?: string | ExtendedTemplateContext,
-  trackerTemplate?: string
+  trackerTemplate?: string,
 ): TemplateRenderResult {
   // Determine template to use
   const trackerType = getTemplateTypeFromPlugin(config.tracker.plugin);
   const customPath = config.promptTemplate;
 
   // Load the template (uses tracker template if no custom/user config override)
-  const loadResult = loadTemplate(customPath, trackerType, config.cwd, trackerTemplate);
+  const loadResult = loadTemplate(
+    customPath,
+    trackerType,
+    config.cwd,
+    trackerTemplate,
+  );
   if (!loadResult.success || !loadResult.content) {
     return {
       success: false,
@@ -550,7 +567,7 @@ export interface TemplateInstallResult {
  */
 export function installGlobalTemplates(
   templates: Record<string, string>,
-  force = false
+  force = false,
 ): {
   success: boolean;
   templatesDir: string;
@@ -568,12 +585,14 @@ export function installGlobalTemplates(
     return {
       success: false,
       templatesDir,
-      results: [{
-        file: templatesDir,
-        created: false,
-        skipped: false,
-        error: `Failed to create templates directory: ${error instanceof Error ? error.message : String(error)}`,
-      }],
+      results: [
+        {
+          file: templatesDir,
+          created: false,
+          skipped: false,
+          error: `Failed to create templates directory: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
     };
   }
 
@@ -617,10 +636,10 @@ export function installBuiltinTemplates(force = false): {
   results: TemplateInstallResult[];
 } {
   const templates: Record<string, string> = {
-    'default': DEFAULT_TEMPLATE,
-    'beads': BEADS_TEMPLATE,
+    default: DEFAULT_TEMPLATE,
+    beads: BEADS_TEMPLATE,
     'beads-bv': BEADS_BV_TEMPLATE,
-    'json': JSON_TEMPLATE,
+    json: JSON_TEMPLATE,
   };
 
   return installGlobalTemplates(templates, force);

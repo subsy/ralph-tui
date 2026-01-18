@@ -8,7 +8,10 @@ import { writeFile, mkdir, rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { JsonTrackerPlugin, validatePrdJsonSchema } from '../../src/plugins/trackers/builtin/json/index.js';
+import {
+  JsonTrackerPlugin,
+  validatePrdJsonSchema,
+} from '../../src/plugins/trackers/builtin/json/index.js';
 import { PrdJsonSchemaError } from '../../src/plugins/trackers/builtin/json/index.js';
 
 describe('JsonTrackerPlugin', () => {

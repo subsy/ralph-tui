@@ -461,7 +461,7 @@ describe('StoredConfigSchema command field', () => {
     expect(() =>
       StoredConfigSchema.parse({
         command: 'ccr; rm -rf /',
-      })
+      }),
     ).toThrow(/shell metacharacters/);
   });
 
@@ -469,7 +469,7 @@ describe('StoredConfigSchema command field', () => {
     expect(() =>
       StoredConfigSchema.parse({
         command: 'ccr & malicious',
-      })
+      }),
     ).toThrow(/shell metacharacters/);
   });
 
@@ -477,7 +477,7 @@ describe('StoredConfigSchema command field', () => {
     expect(() =>
       StoredConfigSchema.parse({
         command: 'ccr | tee /etc/passwd',
-      })
+      }),
     ).toThrow(/shell metacharacters/);
   });
 
@@ -485,7 +485,7 @@ describe('StoredConfigSchema command field', () => {
     expect(() =>
       StoredConfigSchema.parse({
         command: 'ccr `whoami`',
-      })
+      }),
     ).toThrow(/shell metacharacters/);
   });
 
@@ -493,7 +493,7 @@ describe('StoredConfigSchema command field', () => {
     expect(() =>
       StoredConfigSchema.parse({
         command: 'ccr $HOME',
-      })
+      }),
     ).toThrow(/shell metacharacters/);
   });
 
@@ -501,7 +501,7 @@ describe('StoredConfigSchema command field', () => {
     expect(() =>
       StoredConfigSchema.parse({
         command: 'ccr $(cat /etc/passwd)',
-      })
+      }),
     ).toThrow(/shell metacharacters/);
   });
 

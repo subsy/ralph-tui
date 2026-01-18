@@ -211,7 +211,9 @@ async function handleInitTemplate(args: string[]): Promise<void> {
       if (r.created) {
         console.log(`${GREEN}✓${RESET} Created: ${CYAN}${r.file}${RESET}`);
       } else if (r.skipped) {
-        console.log(`${DIM}⊘${RESET} Skipped: ${r.file} ${DIM}(already exists, use --force to overwrite)${RESET}`);
+        console.log(
+          `${DIM}⊘${RESET} Skipped: ${r.file} ${DIM}(already exists, use --force to overwrite)${RESET}`,
+        );
       } else if (r.error) {
         console.log(`${RED}✗${RESET} Failed: ${r.file} - ${r.error}`);
       }
@@ -219,8 +221,12 @@ async function handleInitTemplate(args: string[]): Promise<void> {
 
     if (result.success) {
       console.log(`\n${GREEN}Done!${RESET}`);
-      console.log(`\n${BOLD}Templates will be used as fallback for all projects.${RESET}`);
-      console.log(`${DIM}Override per-project in .ralph-tui/templates/${RESET}`);
+      console.log(
+        `\n${BOLD}Templates will be used as fallback for all projects.${RESET}`,
+      );
+      console.log(
+        `${DIM}Override per-project in .ralph-tui/templates/${RESET}`,
+      );
     } else {
       console.log(`\n${RED}Some templates could not be created.${RESET}`);
       process.exit(1);
@@ -266,4 +272,3 @@ async function handleInitTemplate(args: string[]): Promise<void> {
     `\n${DIM}See 'ralph-tui template show' for available variables${RESET}`,
   );
 }
-

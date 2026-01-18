@@ -3,13 +3,7 @@
  * Tests preflight functionality and other base plugin methods.
  */
 
-import {
-  describe,
-  expect,
-  test,
-  beforeEach,
-  afterEach,
-} from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 
 import { BaseAgentPlugin } from './base.js';
 import type {
@@ -57,7 +51,7 @@ class TestAgentPlugin extends BaseAgentPlugin {
   setMockExecutionResult(
     status: 'completed' | 'failed' | 'timeout',
     output = 'PREFLIGHT_OK',
-    error?: string
+    error?: string,
   ): void {
     this.mockExecutionStatus = status;
     this.mockExecutionOutput = output;
@@ -71,7 +65,7 @@ class TestAgentPlugin extends BaseAgentPlugin {
   protected buildArgs(
     _prompt: string,
     _files?: AgentFileContext[],
-    _options?: AgentExecuteOptions
+    _options?: AgentExecuteOptions,
   ): string[] {
     return ['run', '--prompt'];
   }
@@ -80,7 +74,7 @@ class TestAgentPlugin extends BaseAgentPlugin {
   override execute(
     _prompt: string,
     _files?: AgentFileContext[],
-    options?: AgentExecuteOptions
+    options?: AgentExecuteOptions,
   ): AgentExecutionHandle {
     const executionId = 'test-execution-' + Date.now();
     const startedAt = new Date();

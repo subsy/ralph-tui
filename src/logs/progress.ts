@@ -305,7 +305,8 @@ after each iteration and included in agent prompts for context.
 /**
  * Pattern for matching the Codebase Patterns section.
  */
-const PATTERNS_SECTION_REGEX = /## Codebase Patterns.*?\n([\s\S]*?)(?=\n---|\n## [^C])/i;
+const PATTERNS_SECTION_REGEX =
+  /## Codebase Patterns.*?\n([\s\S]*?)(?=\n---|\n## [^C])/i;
 
 /**
  * Extract codebase patterns from the progress file.
@@ -322,7 +323,10 @@ export async function extractCodebasePatterns(cwd: string): Promise<string[]> {
   if (!match || !match[1]) return [];
 
   const patternsSection = match[1].trim();
-  if (!patternsSection || patternsSection.startsWith('*Add reusable patterns')) {
+  if (
+    !patternsSection ||
+    patternsSection.startsWith('*Add reusable patterns')
+  ) {
     return [];
   }
 
@@ -342,7 +346,9 @@ export async function extractCodebasePatterns(cwd: string): Promise<string[]> {
  * @param cwd Working directory
  * @returns Formatted patterns section markdown
  */
-export async function getCodebasePatternsForPrompt(cwd: string): Promise<string> {
+export async function getCodebasePatternsForPrompt(
+  cwd: string,
+): Promise<string> {
   const patterns = await extractCodebasePatterns(cwd);
   if (patterns.length === 0) return '';
 
@@ -354,4 +360,3 @@ export async function getCodebasePatternsForPrompt(cwd: string): Promise<string>
 
   return lines.join('\n');
 }
-

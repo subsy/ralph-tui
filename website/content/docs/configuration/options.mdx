@@ -16,19 +16,19 @@ This page documents every configuration option available in Ralph TUI. Options c
 
 These control basic execution behavior.
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `agent` | string | - | Agent plugin to use (e.g., "claude", "opencode") |
-| `command` | string | - | Custom command/executable for the agent (e.g., "ccr code") |
-| `tracker` | string | - | Tracker plugin to use (e.g., "beads-bv", "json") |
-| `maxIterations` | number | `10` | Maximum iterations per session (0 = unlimited, max 1000) |
-| `iterationDelay` | number | `1000` | Delay between iterations in milliseconds (max 300000) |
-| `outputDir` | string | `.ralph-tui/iterations` | Directory for iteration log files |
-| `progressFile` | string | `.ralph-tui/progress.md` | Progress file for cross-iteration context |
-| `autoCommit` | boolean | `false` | Auto-commit after each completed task |
-| `prompt_template` | string | - | Custom Handlebars template path |
-| `subagentTracingDetail` | string | `"off"` | Subagent visibility level |
-| `skills_dir` | string | - | Directory containing custom PRD skills |
+| Option                  | Type    | Default                  | Description                                                |
+| ----------------------- | ------- | ------------------------ | ---------------------------------------------------------- |
+| `agent`                 | string  | -                        | Agent plugin to use (e.g., "claude", "opencode")           |
+| `command`               | string  | -                        | Custom command/executable for the agent (e.g., "ccr code") |
+| `tracker`               | string  | -                        | Tracker plugin to use (e.g., "beads-bv", "json")           |
+| `maxIterations`         | number  | `10`                     | Maximum iterations per session (0 = unlimited, max 1000)   |
+| `iterationDelay`        | number  | `1000`                   | Delay between iterations in milliseconds (max 300000)      |
+| `outputDir`             | string  | `.ralph-tui/iterations`  | Directory for iteration log files                          |
+| `progressFile`          | string  | `.ralph-tui/progress.md` | Progress file for cross-iteration context                  |
+| `autoCommit`            | boolean | `false`                  | Auto-commit after each completed task                      |
+| `prompt_template`       | string  | -                        | Custom Handlebars template path                            |
+| `subagentTracingDetail` | string  | `"off"`                  | Subagent visibility level                                  |
+| `skills_dir`            | string  | -                        | Directory containing custom PRD skills                     |
 
 ### subagentTracingDetail Values
 
@@ -54,11 +54,11 @@ agent = "claude"
 model = "claude-sonnet-4-20250514"
 ```
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `agent` | string | - | Agent plugin name |
-| `command` | string | - | Custom command/executable path (see below) |
-| `agentOptions` | object | `{}` | Plugin-specific options |
+| Option         | Type   | Default | Description                                |
+| -------------- | ------ | ------- | ------------------------------------------ |
+| `agent`        | string | -       | Agent plugin name                          |
+| `command`      | string | -       | Custom command/executable path (see below) |
+| `agentOptions` | object | `{}`    | Plugin-specific options                    |
 
 ### Custom Command
 
@@ -84,7 +84,9 @@ The command follows this precedence (highest to lowest):
 3. **Plugin default**: e.g., "claude" for the Claude plugin
 
 <Callout type="warning">
-For security, the `command` field cannot contain shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`, `(`, `)`). If you need complex command logic, create a wrapper script.
+  For security, the `command` field cannot contain shell metacharacters (`;`,
+  `&`, `|`, `` ` ``, `$`, `(`, `)`). If you need complex command logic, create a
+  wrapper script.
 </Callout>
 
 ### Full Agent Configuration

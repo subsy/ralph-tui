@@ -434,18 +434,27 @@ export function RunApp({
   const [showEpicLoader, setShowEpicLoader] = useState(false);
   const [epicLoaderEpics, setEpicLoaderEpics] = useState<TrackerTask[]>([]);
   const [epicLoaderLoading, setEpicLoaderLoading] = useState(false);
-  const [epicLoaderError, setEpicLoaderError] = useState<string | undefined>(undefined);
-  // Determine epic loader mode based on tracker type
-  const epicLoaderMode: EpicLoaderMode = trackerType === 'json' ? 'file-prompt' : 'list';
-  // Details panel view mode (details, output, or prompt) - default to details
-  const [detailsViewMode, setDetailsViewMode] = useState<DetailsViewMode>('details');
-  // Prompt preview content and template source (for prompt view mode)
-  const [promptPreview, setPromptPreview] = useState<string | undefined>(undefined);
-  const [templateSource, setTemplateSource] = useState<string | undefined>(undefined);
-  // Subagent tracing detail level - initialized from config, can be cycled with 't' key
-  const [subagentDetailLevel, setSubagentDetailLevel] = useState<SubagentDetailLevel>(
-    () => storedConfig?.subagentTracingDetail ?? 'off'
+  const [epicLoaderError, setEpicLoaderError] = useState<string | undefined>(
+    undefined,
   );
+  // Determine epic loader mode based on tracker type
+  const epicLoaderMode: EpicLoaderMode =
+    trackerType === 'json' ? 'file-prompt' : 'list';
+  // Details panel view mode (details, output, or prompt) - default to details
+  const [detailsViewMode, setDetailsViewMode] =
+    useState<DetailsViewMode>('details');
+  // Prompt preview content and template source (for prompt view mode)
+  const [promptPreview, setPromptPreview] = useState<string | undefined>(
+    undefined,
+  );
+  const [templateSource, setTemplateSource] = useState<string | undefined>(
+    undefined,
+  );
+  // Subagent tracing detail level - initialized from config, can be cycled with 't' key
+  const [subagentDetailLevel, setSubagentDetailLevel] =
+    useState<SubagentDetailLevel>(
+      () => storedConfig?.subagentTracingDetail ?? 'off',
+    );
   // Determine epic loader mode based on tracker type
   const epicLoaderMode: EpicLoaderMode =
     trackerType === 'json' ? 'file-prompt' : 'list';
@@ -537,12 +546,14 @@ export function RunApp({
     // Compute effective task ID based on current view mode
     // In iterations view, use the task from the selected iteration
     // In tasks view, use the task from the task list
-    const selectedIteration = viewMode === 'iterations' && iterations.length > 0
-      ? iterations[iterationSelectedIndex]
-      : undefined;
-    const effectiveTaskId = viewMode === 'iterations'
-      ? selectedIteration?.task?.id
-      : displayedTasks[selectedIndex]?.id;
+    const selectedIteration =
+      viewMode === 'iterations' && iterations.length > 0
+        ? iterations[iterationSelectedIndex]
+        : undefined;
+    const effectiveTaskId =
+      viewMode === 'iterations'
+        ? selectedIteration?.task?.id
+        : displayedTasks[selectedIndex]?.id;
 
     // If not in prompt view mode, do nothing
     if (detailsViewMode !== 'prompt') {
@@ -580,7 +591,15 @@ export function RunApp({
     return () => {
       cancelled = true;
     };
-  }, [detailsViewMode, viewMode, displayedTasks, selectedIndex, iterations, iterationSelectedIndex, engine]);
+  }, [
+    detailsViewMode,
+    viewMode,
+    displayedTasks,
+    selectedIndex,
+    iterations,
+    iterationSelectedIndex,
+    engine,
+  ]);
 
   // Update output parser when agent changes (parser was created before config was loaded)
   useEffect(() => {

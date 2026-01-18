@@ -692,7 +692,7 @@ export class JsonTrackerPlugin extends BaseTrackerPlugin {
       // Log warning and fall back to embedded template
       console.warn(
         `Warning: Could not read template from ${templatePath}, using fallback template.`,
-        err instanceof Error ? err.message : err
+        err instanceof Error ? err.message : err,
       );
       templateCache = FALLBACK_TEMPLATE;
       return templateCache;

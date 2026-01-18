@@ -639,9 +639,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
    * @param options Optional configuration for the preflight check
    * @returns Preflight result with success status and any error/suggestion
    */
-  async preflight(
-    options?: { timeout?: number }
-  ): Promise<AgentPreflightResult> {
+  async preflight(options?: {
+    timeout?: number;
+  }): Promise<AgentPreflightResult> {
     const startTime = Date.now();
     const timeout = options?.timeout ?? 15000; // Default 15 second timeout
 

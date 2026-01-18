@@ -50,7 +50,8 @@ your-project/
 Templates are automatically detected based on your tracker type. No config changes needed!
 
 <Callout type="info">
-Project templates take precedence over global templates. This lets you customize templates per-project while keeping personal defaults elsewhere.
+  Project templates take precedence over global templates. This lets you
+  customize templates per-project while keeping personal defaults elsewhere.
 </Callout>
 
 ### Global Templates
@@ -89,7 +90,7 @@ ralph-tui run --prompt ./my-template.hbs
 ```
 
 <Callout type="tip">
-Explicit paths take highest priority and override all other template sources.
+  Explicit paths take highest priority and override all other template sources.
 </Callout>
 
 ## Creating a Custom Template
@@ -99,11 +100,8 @@ Explicit paths take highest priority and override all other template sources.
 A minimal template needs the task details and completion signal:
 
 ```handlebars
-## Task: \{\{taskTitle\}\}
-
-\{\{taskDescription\}\}
-
-When finished, signal completion with:
+## Task: \{\{taskTitle\}\} \{\{taskDescription\}\} When finished, signal
+completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -112,24 +110,11 @@ When finished, signal completion with:
 Use `\{\{#if\}\}` blocks to include content only when data exists:
 
 ```handlebars
-## Task: \{\{taskTitle\}\}
-
-\{\{#if taskDescription\}\}
-### Description
-\{\{taskDescription\}\}
-\{\{/if\}\}
-
-\{\{#if acceptanceCriteria\}\}
-### Acceptance Criteria
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-\{\{#if dependsOn\}\}
-### Prerequisites
-Complete these first: \{\{dependsOn\}\}
-\{\{/if\}\}
-
-When finished, signal completion with:
+## Task: \{\{taskTitle\}\} \{\{#if taskDescription\}\} ### Description
+\{\{taskDescription\}\} \{\{/if\}\} \{\{#if acceptanceCriteria\}\} ###
+Acceptance Criteria \{\{acceptanceCriteria\}\} \{\{/if\}\} \{\{#if dependsOn\}\}
+### Prerequisites Complete these first: \{\{dependsOn\}\} \{\{/if\}\} When
+finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -138,27 +123,16 @@ When finished, signal completion with:
 Customize the instructions section for your workflow:
 
 ```handlebars
-## User Story
-**ID**: \{\{taskId\}\}
-**Title**: \{\{taskTitle\}\}
-
-\{\{#if taskDescription\}\}
-## Description
-\{\{taskDescription\}\}
-\{\{/if\}\}
-
-\{\{#if acceptanceCriteria\}\}
-## Acceptance Criteria
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-## Project-Specific Instructions ### Code Style - Use TypeScript with strict
-mode - Follow the existing patterns in `src/` - Add JSDoc comments for public
-APIs ### Quality Gates (REQUIRED) Before marking complete, run: 1. `bun run
-typecheck` - Must pass with no errors 2. `bun run lint` - Must pass with no
-warnings 3. `bun run test` - All tests must pass ### Git Workflow - Commit with
-message format: `feat(scope): description` - Keep commits atomic and focused
-When finished, signal completion with:
+## User Story **ID**: \{\{taskId\}\} **Title**: \{\{taskTitle\}\} \{\{#if
+taskDescription\}\} ## Description \{\{taskDescription\}\} \{\{/if\}\} \{\{#if
+acceptanceCriteria\}\} ## Acceptance Criteria \{\{acceptanceCriteria\}\}
+\{\{/if\}\} ## Project-Specific Instructions ### Code Style - Use TypeScript
+with strict mode - Follow the existing patterns in `src/` - Add JSDoc comments
+for public APIs ### Quality Gates (REQUIRED) Before marking complete, run: 1.
+`bun run typecheck` - Must pass with no errors 2. `bun run lint` - Must pass
+with no warnings 3. `bun run test` - All tests must pass ### Git Workflow -
+Commit with message format: `feat(scope): description` - Keep commits atomic and
+focused When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -169,15 +143,8 @@ When finished, signal completion with:
 For simple, focused prompts:
 
 ```handlebars
-Task: \{\{taskTitle\}\}
-\{\{taskDescription\}\}
-
-\{\{#if acceptanceCriteria\}\}
-Requirements:
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-Signal
+Task: \{\{taskTitle\}\} \{\{taskDescription\}\} \{\{#if acceptanceCriteria\}\}
+Requirements: \{\{acceptanceCriteria\}\} \{\{/if\}\} Signal
 <promise>COMPLETE</promise>
 when done.
 ```
@@ -188,75 +155,38 @@ This example mirrors the actual built-in templates with all features:
 
 ```handlebars
 \{\{!-- PRD Context (agent studies this first for the bigger picture) --\}\}
-\{\{#if prdContent\}\}
-We are working in a project to implement the following Product Requirements Document (PRD):
-
-\{\{prdContent\}\}
-
----
-\{\{/if\}\}
-
-\{\{!-- Selection context for beads-bv tracker --\}\}
-\{\{#if selectionReason\}\}
-## Why This Task Was Selected
-\{\{selectionReason\}\}
-\{\{/if\}\}
-
-## Your Task: \{\{taskId\}\} - \{\{taskTitle\}\}
-
-\{\{#if taskDescription\}\}
-### Description
-\{\{taskDescription\}\}
-\{\{/if\}\}
-
-\{\{#if acceptanceCriteria\}\}
-### Acceptance Criteria
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-\{\{#if notes\}\}
-### Notes
-\{\{notes\}\}
-\{\{/if\}\}
-
-\{\{#if epicId\}\}
-### Epic Context
-- **Epic**: \{\{epicId\}\}\{\{#if epicTitle\}\} - \{\{epicTitle\}\}\{\{/if\}\}
-\{\{/if\}\}
-
-\{\{#if dependsOn\}\}
-**Prerequisites**: \{\{dependsOn\}\}
-\{\{/if\}\}
-
-\{\{#if blocks\}\}
-**Unblocks**: \{\{blocks\}\}
-\{\{/if\}\}
-
-\{\{#if recentProgress\}\}
-## Recent Progress
-\{\{recentProgress\}\}
-\{\{/if\}\}
-
-## Workflow
-1. Study the PRD context above to understand the bigger picture
-2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
-3. Implement this task following acceptance criteria
-4. Run quality checks: typecheck, lint, etc.
-5. Commit with message: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}`
-6. Close the task (for beads): `bd close \{\{taskId\}\} --db \{\{beadsDbPath\}\} --reason "..."`
-7. Document learnings (see below)
-8. Signal completion
-
-## Before Completing
-APPEND to `.ralph-tui/progress.md`:
+\{\{#if prdContent\}\} We are working in a project to implement the following
+Product Requirements Document (PRD): \{\{prdContent\}\} --- \{\{/if\}\} \{\{!--
+Selection context for beads-bv tracker --\}\} \{\{#if selectionReason\}\} ## Why
+This Task Was Selected \{\{selectionReason\}\} \{\{/if\}\} ## Your Task:
+\{\{taskId\}\} - \{\{taskTitle\}\} \{\{#if taskDescription\}\} ### Description
+\{\{taskDescription\}\} \{\{/if\}\} \{\{#if acceptanceCriteria\}\} ###
+Acceptance Criteria \{\{acceptanceCriteria\}\} \{\{/if\}\} \{\{#if notes\}\} ###
+Notes \{\{notes\}\} \{\{/if\}\} \{\{#if epicId\}\} ### Epic Context - **Epic**:
+\{\{epicId\}\}\{\{#if epicTitle\}\} - \{\{epicTitle\}\}\{\{/if\}\} \{\{/if\}\}
+\{\{#if dependsOn\}\} **Prerequisites**: \{\{dependsOn\}\} \{\{/if\}\} \{\{#if
+blocks\}\} **Unblocks**: \{\{blocks\}\} \{\{/if\}\} \{\{#if recentProgress\}\}
+## Recent Progress \{\{recentProgress\}\} \{\{/if\}\} ## Workflow 1. Study the
+PRD context above to understand the bigger picture 2. Study
+`.ralph-tui/progress.md` to understand overall status, implementation progress,
+and learnings including codebase patterns and gotchas 3. Implement this task
+following acceptance criteria 4. Run quality checks: typecheck, lint, etc. 5.
+Commit with message: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}` 6. Close the
+task (for beads): `bd close \{\{taskId\}\} --db \{\{beadsDbPath\}\} --reason
+"..."` 7. Document learnings (see below) 8. Signal completion ## Before
+Completing APPEND to `.ralph-tui/progress.md`:
 ```
+
 ## [Date] - \{\{taskId\}\}
+
 - What was implemented
 - Files changed
 - **Learnings:**
   - Patterns discovered
   - Gotchas encountered
+
 ---
+
 ```
 
 If you discovered a **reusable pattern**, also add it to the `## Codebase Patterns` section at the TOP of progress.md.
@@ -269,7 +199,10 @@ When finished (or if already complete), signal completion with:
 ```
 
 <Callout type="info">
-This template includes **compound learning** - agents are instructed to study `.ralph-tui/progress.md` which contains learnings, patterns, and gotchas discovered in previous iterations. This makes each iteration smarter than the last.
+  This template includes **compound learning** - agents are instructed to study
+  `.ralph-tui/progress.md` which contains learnings, patterns, and gotchas
+  discovered in previous iterations. This makes each iteration smarter than the
+  last.
 </Callout>
 
 ### Frontend-Focused Template
@@ -277,68 +210,26 @@ This template includes **compound learning** - agents are instructed to study `.
 For UI development with browser verification:
 
 ```handlebars
-\{\{#if prdContent\}\}
-We are working in a project to implement the following PRD:
-
-\{\{prdContent\}\}
-
----
-\{\{/if\}\}
-
-## Frontend Task: \{\{taskId\}\} - \{\{taskTitle\}\}
-
-\{\{#if taskDescription\}\}
-### Description
-\{\{taskDescription\}\}
-\{\{/if\}\}
-
-\{\{#if acceptanceCriteria\}\}
-### Acceptance Criteria
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-\{\{#if dependsOn\}\}
-**Prerequisites**: \{\{dependsOn\}\}
-\{\{/if\}\}
-
-\{\{#if recentProgress\}\}
-## Recent Progress
-\{\{recentProgress\}\}
-\{\{/if\}\}
-
-## Workflow
-1. Study the PRD context above
-2. Study `.ralph-tui/progress.md` for learnings, patterns, and gotchas
-3. Implement following acceptance criteria
-4. Run quality checks and verify in browser
-5. Document learnings in progress.md
-6. Signal completion
-
-## Frontend Development Guidelines
-
-### Implementation
-1. Check for existing components in `src/components/`
-2. Follow the design system patterns
-3. Use Tailwind CSS for styling
-4. Ensure responsive design (mobile-first)
-
-### Browser Verification (REQUIRED)
-Before marking complete:
-1. Load the `dev-browser` skill
-2. Navigate to the affected page(s)
-3. Verify the UI renders correctly
-4. Test interactive elements
-5. Check responsive behavior at different viewport sizes
-
-### Quality Checks
-- `bun run typecheck` - No type errors
-- `bun run lint` - No lint warnings
-- Visual verification in browser
-
-## Stop Condition
-If the UI is already implemented, verify it works correctly and signal completion.
-
-When finished, signal completion with:
+\{\{#if prdContent\}\} We are working in a project to implement the following
+PRD: \{\{prdContent\}\} --- \{\{/if\}\} ## Frontend Task: \{\{taskId\}\} -
+\{\{taskTitle\}\} \{\{#if taskDescription\}\} ### Description
+\{\{taskDescription\}\} \{\{/if\}\} \{\{#if acceptanceCriteria\}\} ###
+Acceptance Criteria \{\{acceptanceCriteria\}\} \{\{/if\}\} \{\{#if dependsOn\}\}
+**Prerequisites**: \{\{dependsOn\}\} \{\{/if\}\} \{\{#if recentProgress\}\} ##
+Recent Progress \{\{recentProgress\}\} \{\{/if\}\} ## Workflow 1. Study the PRD
+context above 2. Study `.ralph-tui/progress.md` for learnings, patterns, and
+gotchas 3. Implement following acceptance criteria 4. Run quality checks and
+verify in browser 5. Document learnings in progress.md 6. Signal completion ##
+Frontend Development Guidelines ### Implementation 1. Check for existing
+components in `src/components/` 2. Follow the design system patterns 3. Use
+Tailwind CSS for styling 4. Ensure responsive design (mobile-first) ### Browser
+Verification (REQUIRED) Before marking complete: 1. Load the `dev-browser` skill
+2. Navigate to the affected page(s) 3. Verify the UI renders correctly 4. Test
+interactive elements 5. Check responsive behavior at different viewport sizes
+### Quality Checks - `bun run typecheck` - No type errors - `bun run lint` - No
+lint warnings - Visual verification in browser ## Stop Condition If the UI is
+already implemented, verify it works correctly and signal completion. When
+finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -347,69 +238,24 @@ When finished, signal completion with:
 For backend/API work:
 
 ```handlebars
-\{\{#if prdContent\}\}
-We are working in a project to implement the following PRD:
-
-\{\{prdContent\}\}
-
----
-\{\{/if\}\}
-
-## API Task: \{\{taskId\}\} - \{\{taskTitle\}\}
-
-\{\{#if taskDescription\}\}
-### Description
-\{\{taskDescription\}\}
-\{\{/if\}\}
-
-\{\{#if acceptanceCriteria\}\}
-### Requirements
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-\{\{#if dependsOn\}\}
-**Prerequisites**: \{\{dependsOn\}\}
-\{\{/if\}\}
-
-\{\{#if recentProgress\}\}
-## Recent Progress
-\{\{recentProgress\}\}
-\{\{/if\}\}
-
-## Workflow
-1. Study the PRD context above
-2. Study `.ralph-tui/progress.md` for learnings, patterns, and gotchas
-3. Implement following acceptance criteria
-4. Run quality checks and tests
-5. Document learnings in progress.md
-6. Signal completion
-
-## API Development Guidelines
-
-### Implementation
-1. Follow REST conventions
-2. Use proper HTTP status codes
-3. Validate input with Zod schemas
-4. Handle errors gracefully
-
-### Testing Requirements
-- Write unit tests for new functions
-- Add integration tests for endpoints
-- Cover edge cases and error paths
-
-### Documentation
-- Update API docs if adding endpoints
-- Add JSDoc comments for new functions
-
-### Quality Checks
-- `bun run typecheck`
-- `bun run lint`
-- `bun run test`
-
-## Stop Condition
-If the API endpoint already exists, verify it works correctly and signal completion.
-
-When finished, signal completion with:
+\{\{#if prdContent\}\} We are working in a project to implement the following
+PRD: \{\{prdContent\}\} --- \{\{/if\}\} ## API Task: \{\{taskId\}\} -
+\{\{taskTitle\}\} \{\{#if taskDescription\}\} ### Description
+\{\{taskDescription\}\} \{\{/if\}\} \{\{#if acceptanceCriteria\}\} ###
+Requirements \{\{acceptanceCriteria\}\} \{\{/if\}\} \{\{#if dependsOn\}\}
+**Prerequisites**: \{\{dependsOn\}\} \{\{/if\}\} \{\{#if recentProgress\}\} ##
+Recent Progress \{\{recentProgress\}\} \{\{/if\}\} ## Workflow 1. Study the PRD
+context above 2. Study `.ralph-tui/progress.md` for learnings, patterns, and
+gotchas 3. Implement following acceptance criteria 4. Run quality checks and
+tests 5. Document learnings in progress.md 6. Signal completion ## API
+Development Guidelines ### Implementation 1. Follow REST conventions 2. Use
+proper HTTP status codes 3. Validate input with Zod schemas 4. Handle errors
+gracefully ### Testing Requirements - Write unit tests for new functions - Add
+integration tests for endpoints - Cover edge cases and error paths ###
+Documentation - Update API docs if adding endpoints - Add JSDoc comments for new
+functions ### Quality Checks - `bun run typecheck` - `bun run lint` - `bun run
+test` ## Stop Condition If the API endpoint already exists, verify it works
+correctly and signal completion. When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -418,10 +264,7 @@ When finished, signal completion with:
 Ralph maintains a **progress file** (`.ralph-tui/progress.md`) that summarizes work completed across iterations. Use the `recentProgress` variable to include this summary in your prompts:
 
 ```handlebars
-\{\{#if recentProgress\}\}
-## Recent Progress
-\{\{recentProgress\}\}
-\{\{/if\}\}
+\{\{#if recentProgress\}\} ## Recent Progress \{\{recentProgress\}\} \{\{/if\}\}
 ```
 
 ### Why Use recentProgress?
@@ -441,7 +284,8 @@ Ralph maintains a **progress file** (`.ralph-tui/progress.md`) that summarizes w
 3. The summary includes completed tasks, key changes, and notes from previous work
 
 <Callout type="info">
-The progress file is distinct from iteration logs (`.ralph-tui/iterations/`). Use `recentProgress` for context and `ralph-tui logs` for detailed debugging.
+  The progress file is distinct from iteration logs (`.ralph-tui/iterations/`).
+  Use `recentProgress` for context and `ralph-tui logs` for detailed debugging.
 </Callout>
 
 ### Customizing Progress Content
@@ -457,14 +301,9 @@ The progress file is managed by Ralph's engine. To customize what gets included:
 For advanced templates, you can access the raw task and config objects:
 
 ```handlebars
-\{\{!-- Access nested task metadata --\}\}
-\{\{#if task.metadata.customField\}\}
-Custom: \{\{task.metadata.customField\}\}
-\{\{/if\}\}
-
-\{\{!-- Access config values --\}\}
-Working directory: \{\{cwd\}\}
-Model: \{\{model\}\}
+\{\{!-- Access nested task metadata --\}\} \{\{#if task.metadata.customField\}\}
+Custom: \{\{task.metadata.customField\}\} \{\{/if\}\} \{\{!-- Access config
+values --\}\} Working directory: \{\{cwd\}\} Model: \{\{model\}\}
 ```
 
 <Callout type="warning">
@@ -492,13 +331,8 @@ ralph-tui run --prd ./prd.json --iterations 1 --headless
 Handlebars will error on invalid syntax. Common issues:
 
 ```handlebars
-\{\{!-- Wrong: unclosed block --\}\}
-\{\{#if condition\}\}
-Content here...
-
-\{\{!-- Correct: properly closed --\}\}
-\{\{#if condition\}\}
-Content here...
+\{\{!-- Wrong: unclosed block --\}\} \{\{#if condition\}\} Content here...
+\{\{!-- Correct: properly closed --\}\} \{\{#if condition\}\} Content here...
 \{\{/if\}\}
 ```
 

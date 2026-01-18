@@ -497,12 +497,12 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
-    * Validate a model name for the OpenCode agent.
-    * Accepts either "provider/model" format or just "model" name.
-    * Provider validation is delegated to the OpenCode CLI which supports 75+ providers.
-    * @param model The model name to validate
-    * @returns null if valid, error message if invalid
-    */
+   * Validate a model name for the OpenCode agent.
+   * Accepts either "provider/model" format or just "model" name.
+   * Provider validation is delegated to the OpenCode CLI which supports 75+ providers.
+   * @param model The model name to validate
+   * @returns null if valid, error message if invalid
+   */
   override validateModel(model: string): string | null {
     if (model === '' || model === undefined) {
       return null; // Empty is valid (uses default)

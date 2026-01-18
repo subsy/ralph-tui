@@ -107,13 +107,27 @@ function createControllableAgent(
       }
       return false;
     },
-    interruptAll() { currentExecution?.interrupt(); },
-    getCurrentExecution() { return currentExecution; },
-    getSetupQuestions() { return []; },
-    async validateSetup() { return null; },
-    validateModel() { return null; },
-    async dispose() { currentExecution = undefined; },
-    getSandboxRequirements() { return { network: false, filesystem: 'read-only' as const }; },
+    interruptAll() {
+      currentExecution?.interrupt();
+    },
+    getCurrentExecution() {
+      return currentExecution;
+    },
+    getSetupQuestions() {
+      return [];
+    },
+    async validateSetup() {
+      return null;
+    },
+    validateModel() {
+      return null;
+    },
+    async dispose() {
+      currentExecution = undefined;
+    },
+    getSandboxRequirements() {
+      return { network: false, filesystem: 'read-only' as const };
+    },
   };
 
   return { agent, getCallCount: () => callIndex };
@@ -237,7 +251,9 @@ function createControllableTracker(
       return null;
     },
     async dispose() {},
-    getTemplate() { return ''; },  // Empty string signals to use builtin template
+    getTemplate() {
+      return '';
+    }, // Empty string signals to use builtin template
   };
 
   return {

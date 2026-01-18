@@ -18,7 +18,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Store mock implementations that can be changed per test
-let mockDetectResult = { available: true, version: '1.0.0', executablePath: '/usr/bin/mock' };
+let mockDetectResult = {
+  available: true,
+  version: '1.0.0',
+  executablePath: '/usr/bin/mock',
+};
 let mockPreflightResult = { success: true, durationMs: 100 };
 
 // Mock agent instance
@@ -37,8 +41,18 @@ mock.module('../plugins/agents/registry.js', () => ({
     hasPlugin: (name: string) => name === 'claude' || name === 'opencode',
     registerBuiltin: () => {},
     getRegisteredPlugins: () => [
-      { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
-      { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
+      {
+        id: 'claude',
+        name: 'Claude Code',
+        description: 'Claude AI',
+        version: '1.0.0',
+      },
+      {
+        id: 'opencode',
+        name: 'OpenCode',
+        description: 'OpenCode AI',
+        version: '1.0.0',
+      },
     ],
   }),
 }));
@@ -81,7 +95,11 @@ describe('doctor command', () => {
     capturedErrors = [];
 
     // Reset mock values
-    mockDetectResult = { available: true, version: '1.0.0', executablePath: '/usr/bin/mock' };
+    mockDetectResult = {
+      available: true,
+      version: '1.0.0',
+      executablePath: '/usr/bin/mock',
+    };
     mockPreflightResult = { success: true, durationMs: 100 };
 
     // Spy on console
@@ -160,8 +178,10 @@ describe('doctor command', () => {
       }
 
       // Find the JSON output line (should be the last non-empty line)
-      const outputLines = capturedOutput.filter(line => line.trim().length > 0);
-      const jsonLine = outputLines.find(line => line.startsWith('{'));
+      const outputLines = capturedOutput.filter(
+        (line) => line.trim().length > 0,
+      );
+      const jsonLine = outputLines.find((line) => line.startsWith('{'));
       expect(jsonLine).toBeDefined();
 
       const result = JSON.parse(jsonLine!) as DoctorResult;
@@ -176,7 +196,7 @@ describe('doctor command', () => {
         // Expected
       }
 
-      const jsonLine = capturedOutput.find(line => line.startsWith('{'));
+      const jsonLine = capturedOutput.find((line) => line.startsWith('{'));
       expect(jsonLine).toBeDefined();
       const result = JSON.parse(jsonLine!) as DoctorResult;
 
@@ -195,7 +215,7 @@ describe('doctor command', () => {
         // Expected
       }
 
-      const jsonLine = capturedOutput.find(line => line.startsWith('{'));
+      const jsonLine = capturedOutput.find((line) => line.startsWith('{'));
       expect(jsonLine).toBeDefined();
       const result = JSON.parse(jsonLine!) as DoctorResult;
 
@@ -204,7 +224,10 @@ describe('doctor command', () => {
     });
 
     test('reports unhealthy when preflight fails', async () => {
-      mockPreflightResult = { success: false, error: 'No API key configured' } as any;
+      mockPreflightResult = {
+        success: false,
+        error: 'No API key configured',
+      } as any;
 
       try {
         await executeDoctorCommand(['--json', '--cwd', tempDir]);
@@ -212,7 +235,7 @@ describe('doctor command', () => {
         // Expected
       }
 
-      const jsonLine = capturedOutput.find(line => line.startsWith('{'));
+      const jsonLine = capturedOutput.find((line) => line.startsWith('{'));
       expect(jsonLine).toBeDefined();
       const result = JSON.parse(jsonLine!) as DoctorResult;
 
@@ -296,13 +319,19 @@ describe('doctor result structure', () => {
     tempDir = await createTempDir();
     process.chdir(tempDir);
 
-    mockDetectResult = { available: true, version: '2.0.0', executablePath: '/custom/path' };
+    mockDetectResult = {
+      available: true,
+      version: '2.0.0',
+      executablePath: '/custom/path',
+    };
     mockPreflightResult = { success: true, durationMs: 250 };
     output = [];
 
-    consoleLogSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-      output.push(args.join(' '));
-    });
+    consoleLogSpy = spyOn(console, 'log').mockImplementation(
+      (...args: unknown[]) => {
+        output.push(args.join(' '));
+      },
+    );
     processExitSpy = spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('exit');
     });
@@ -324,7 +353,7 @@ describe('doctor result structure', () => {
       // Expected
     }
 
-    const jsonLine = output.find(line => line.startsWith('{'));
+    const jsonLine = output.find((line) => line.startsWith('{'));
     expect(jsonLine).toBeDefined();
     const result = JSON.parse(jsonLine!) as DoctorResult;
     expect(result.detection.version).toBe('2.0.0');
@@ -337,7 +366,7 @@ describe('doctor result structure', () => {
       // Expected
     }
 
-    const jsonLine = output.find(line => line.startsWith('{'));
+    const jsonLine = output.find((line) => line.startsWith('{'));
     expect(jsonLine).toBeDefined();
     const result = JSON.parse(jsonLine!) as DoctorResult;
     expect(result.detection.executablePath).toBe('/custom/path');
@@ -350,7 +379,7 @@ describe('doctor result structure', () => {
       // Expected
     }
 
-    const jsonLine = output.find(line => line.startsWith('{'));
+    const jsonLine = output.find((line) => line.startsWith('{'));
     expect(jsonLine).toBeDefined();
     const result = JSON.parse(jsonLine!) as DoctorResult;
     expect(result.preflight?.durationMs).toBe(250);

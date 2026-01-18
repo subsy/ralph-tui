@@ -3,14 +3,7 @@
  * Tests automatic upgrade functionality when users update to new versions.
  */
 
-import {
-  describe,
-  expect,
-  test,
-  beforeEach,
-  afterEach,
-  spyOn,
-} from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,7 +23,10 @@ async function createTempDir(): Promise<string> {
 }
 
 // Helper to write a TOML config file
-async function writeConfig(dir: string, config: Record<string, unknown>): Promise<void> {
+async function writeConfig(
+  dir: string,
+  config: Record<string, unknown>,
+): Promise<void> {
   const configDir = join(dir, '.ralph-tui');
   await mkdir(configDir, { recursive: true });
 
@@ -49,7 +45,10 @@ async function writeConfig(dir: string, config: Record<string, unknown>): Promis
 
 // Helper to read and parse a TOML config file
 async function readConfig(dir: string): Promise<Record<string, string>> {
-  const content = await readFile(join(dir, '.ralph-tui', 'config.toml'), 'utf-8');
+  const content = await readFile(
+    join(dir, '.ralph-tui', 'config.toml'),
+    'utf-8',
+  );
   const result: Record<string, string> = {};
 
   for (const line of content.split('\n')) {

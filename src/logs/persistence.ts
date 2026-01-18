@@ -132,13 +132,13 @@ export function buildMetadata(
   let resolvedSandboxMode: Exclude<SandboxMode, 'auto'> | undefined;
 
   // Detect new options object format by checking for any of its unique keys
-  const isOptionsObject = configOrOptions && (
-    'config' in configOrOptions ||
-    'agentSwitches' in configOrOptions ||
-    'completionSummary' in configOrOptions ||
-    'sandboxConfig' in configOrOptions ||
-    'resolvedSandboxMode' in configOrOptions
-  );
+  const isOptionsObject =
+    configOrOptions &&
+    ('config' in configOrOptions ||
+      'agentSwitches' in configOrOptions ||
+      'completionSummary' in configOrOptions ||
+      'sandboxConfig' in configOrOptions ||
+      'resolvedSandboxMode' in configOrOptions);
 
   if (isOptionsObject) {
     // New options object
@@ -190,14 +190,17 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
 
   // Summary section for context recovery (placed first for easy access)
   if (metadata.summary) {
-    const { whatWasDone, filesChanged, commitHash, learnings } = metadata.summary;
+    const { whatWasDone, filesChanged, commitHash, learnings } =
+      metadata.summary;
 
     lines.push('## Summary (For Context Recovery)');
     lines.push(`**Task:** ${metadata.taskId} - ${metadata.taskTitle}`);
     if (commitHash) {
       lines.push(`**Commit:** ${commitHash}`);
     }
-    lines.push(`**Status:** ${metadata.taskCompleted ? '✅ Completed' : '❌ Incomplete'}`);
+    lines.push(
+      `**Status:** ${metadata.taskCompleted ? '✅ Completed' : '❌ Incomplete'}`,
+    );
     lines.push('');
 
     if (whatWasDone.length > 0) {
@@ -210,7 +213,8 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
 
     if (filesChanged.length > 0) {
       lines.push('### Files Changed');
-      for (const file of filesChanged.slice(0, 20)) { // Limit to 20 files
+      for (const file of filesChanged.slice(0, 20)) {
+        // Limit to 20 files
         lines.push(`- ${file}`);
       }
       if (filesChanged.length > 20) {
@@ -271,7 +275,9 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
     lines.push(`- **Sandbox Mode**: ${modeDisplay}`);
   }
   if (metadata.sandboxNetwork !== undefined) {
-    lines.push(`- **Sandbox Network**: ${metadata.sandboxNetwork ? 'Enabled' : 'Disabled'}`);
+    lines.push(
+      `- **Sandbox Network**: ${metadata.sandboxNetwork ? 'Enabled' : 'Disabled'}`,
+    );
   }
 
   // Add completion summary if present
@@ -318,9 +324,11 @@ function formatDuration(ms: number): string {
  */
 const SUMMARY_PATTERNS = {
   /** Pattern for extracting learnings/insights */
-  learnings: /(?:\*\*Learnings?\*\*:?|Learnings?:)\s*([\s\S]*?)(?=\n##|\n\*\*|$)/gi,
+  learnings:
+    /(?:\*\*Learnings?\*\*:?|Learnings?:)\s*([\s\S]*?)(?=\n##|\n\*\*|$)/gi,
   /** Pattern for "what was done" bullet points */
-  whatWasDone: /(?:What was (?:done|implemented)|Completed|Implemented):?\s*([\s\S]*?)(?=\n##|\n\*\*|$)/gi,
+  whatWasDone:
+    /(?:What was (?:done|implemented)|Completed|Implemented):?\s*([\s\S]*?)(?=\n##|\n\*\*|$)/gi,
   /** Pattern for insight blocks (★ Insight format) */
   insights: /`?★ Insight[─\s]*`?\n([\s\S]*?)\n`?─+`?/gi,
 };
@@ -339,7 +347,8 @@ function extractWhatWasDone(output: string): string[] {
     const content = match[1]?.trim();
     if (content) {
       // Split by bullet points
-      const lines = content.split('\n')
+      const lines = content
+        .split('\n')
         .map((l) => l.replace(/^[-*•]\s*/, '').trim())
         .filter((l) => l.length > 0 && l.length < 200);
       items.push(...lines);
@@ -370,7 +379,8 @@ function extractLearnings(output: string): string[] {
   while ((match = SUMMARY_PATTERNS.learnings.exec(output)) !== null) {
     const content = match[1]?.trim();
     if (content) {
-      const lines = content.split('\n')
+      const lines = content
+        .split('\n')
         .map((l) => l.replace(/^[-*•]\s*/, '').trim())
         .filter((l) => l.length > 10 && l.length < 300);
       learnings.push(...lines);
@@ -401,7 +411,7 @@ function extractLearnings(output: string): string[] {
 export function extractIterationSummary(
   output: string,
   commitHash?: string,
-  filesChanged?: string[]
+  filesChanged?: string[],
 ): IterationSummary {
   return {
     whatWasDone: extractWhatWasDone(output),
@@ -463,7 +473,9 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
     let resolvedSandboxMode: string | undefined;
     if (sandboxModeStr) {
       // Format is either "mode" or "mode (resolved)"
-      const sandboxMatch = sandboxModeStr.match(/^(\w+)(?:\s*\((\w+-?\w*)\))?$/);
+      const sandboxMatch = sandboxModeStr.match(
+        /^(\w+)(?:\s*\((\w+-?\w*)\))?$/,
+      );
       if (sandboxMatch) {
         sandboxMode = sandboxMatch[1];
         resolvedSandboxMode = sandboxMatch[2];
@@ -471,9 +483,12 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
     }
 
     const sandboxNetworkStr = extractValue('Sandbox Network');
-    const sandboxNetwork = sandboxNetworkStr === 'Enabled' ? true
-      : sandboxNetworkStr === 'Disabled' ? false
-      : undefined;
+    const sandboxNetwork =
+      sandboxNetworkStr === 'Enabled'
+        ? true
+        : sandboxNetworkStr === 'Disabled'
+          ? false
+          : undefined;
 
     return {
       iteration,
@@ -552,12 +567,12 @@ export async function saveIterationLog(
   let resolvedSandboxMode: Exclude<SandboxMode, 'auto'> | undefined;
 
   // Detect new options object format by checking for any of its unique keys
-  const isOptionsObject = options && (
-    'config' in options ||
-    'subagentTrace' in options ||
-    'sandboxConfig' in options ||
-    'resolvedSandboxMode' in options
-  );
+  const isOptionsObject =
+    options &&
+    ('config' in options ||
+      'subagentTrace' in options ||
+      'sandboxConfig' in options ||
+      'resolvedSandboxMode' in options);
 
   if (isOptionsObject) {
     // New options object

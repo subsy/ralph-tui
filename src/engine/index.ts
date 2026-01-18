@@ -40,9 +40,24 @@ import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { SubagentTraceParser } from '../plugins/agents/tracing/parser.js';
 import type { SubagentEvent } from '../plugins/agents/tracing/types.js';
 import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
-import { createDroidStreamingJsonlParser, isDroidJsonlMessage, toClaudeJsonlMessages } from '../plugins/agents/droid/outputParser.js';
-import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
-import { saveIterationLog, buildSubagentTrace, createProgressEntry, appendProgress, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
+import {
+  createDroidStreamingJsonlParser,
+  isDroidJsonlMessage,
+  toClaudeJsonlMessages,
+} from '../plugins/agents/droid/outputParser.js';
+import {
+  updateSessionIteration,
+  updateSessionStatus,
+  updateSessionMaxIterations,
+} from '../session/index.js';
+import {
+  saveIterationLog,
+  buildSubagentTrace,
+  createProgressEntry,
+  appendProgress,
+  getRecentProgressSummary,
+  getCodebasePatternsForPrompt,
+} from '../logs/index.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 
@@ -73,7 +88,7 @@ const PRIMARY_RECOVERY_TEST_PROMPT = 'Reply with just the word "ok".';
 async function buildPrompt(
   task: TrackerTask,
   config: RalphConfig,
-  tracker?: TrackerPlugin
+  tracker?: TrackerPlugin,
 ): Promise<string> {
   // Load recent progress for context (last 5 iterations)
   const recentProgress = await getRecentProgressSummary(config.cwd, 5);
@@ -96,7 +111,13 @@ async function buildPrompt(
   };
 
   // Use the template system (tracker template used if no custom/user override)
-  const result = renderPrompt(task, config, undefined, extendedContext, trackerTemplate);
+  const result = renderPrompt(
+    task,
+    config,
+    undefined,
+    extendedContext,
+    trackerTemplate,
+  );
 
   if (result.success && result.prompt) {
     return result.prompt;
@@ -320,14 +341,19 @@ export class ExecutionEngine {
    * @returns Object with prompt content and template source, or error message
    */
   async generatePromptPreview(
-    taskId: string
-  ): Promise<{ success: true; prompt: string; source: string } | { success: false; error: string }> {
+    taskId: string,
+  ): Promise<
+    | { success: true; prompt: string; source: string }
+    | { success: false; error: string }
+  > {
     if (!this.tracker) {
       return { success: false, error: 'No tracker configured' };
     }
 
     // Get the task
-    const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress'] });
+    const tasks = await this.tracker.getTasks({
+      status: ['open', 'in_progress'],
+    });
     const task = tasks.find((t) => t.id === taskId);
     if (!task) {
       return { success: false, error: `Task not found: ${taskId}` };
@@ -340,7 +366,9 @@ export class ExecutionEngine {
     const recentProgress = await getRecentProgressSummary(this.config.cwd, 5);
 
     // Get codebase patterns from progress.md (if any exist)
-    const codebasePatterns = await getCodebasePatternsForPrompt(this.config.cwd);
+    const codebasePatterns = await getCodebasePatternsForPrompt(
+      this.config.cwd,
+    );
 
     // Get PRD context if the tracker supports it
     const prdContext = await this.tracker.getPrdContext?.();
@@ -353,10 +381,19 @@ export class ExecutionEngine {
     };
 
     // Generate the prompt
-    const result = renderPrompt(task, this.config, undefined, extendedContext, trackerTemplate);
+    const result = renderPrompt(
+      task,
+      this.config,
+      undefined,
+      extendedContext,
+      trackerTemplate,
+    );
 
     if (!result.success || !result.prompt) {
-      return { success: false, error: result.error ?? 'Unknown error generating prompt' };
+      return {
+        success: false,
+        error: result.error ?? 'Unknown error generating prompt',
+      };
     }
 
     return {
@@ -816,7 +853,11 @@ export class ExecutionEngine {
     });
 
     // Build prompt (includes recent progress context + tracker-owned template)
-    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined);
+    const prompt = await buildPrompt(
+      task,
+      this.config,
+      this.tracker ?? undefined,
+    );
 
     // Build agent flags
     const flags: string[] = [];

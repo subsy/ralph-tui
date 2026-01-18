@@ -49,13 +49,6 @@ export {
   printConvertHelp,
 } from './convert.js';
 
-export {
-  executeDocsCommand,
-  parseDocsArgs,
-  printDocsHelp,
-} from './docs.js';
+export { executeDocsCommand, parseDocsArgs, printDocsHelp } from './docs.js';
 
-export {
-  executeDoctorCommand,
-  printDoctorHelp,
-} from './doctor.js';
+export { executeDoctorCommand, printDoctorHelp } from './doctor.js';

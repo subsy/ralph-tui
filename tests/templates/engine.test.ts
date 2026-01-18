@@ -186,8 +186,12 @@ describe('Template Engine - Pure Functions', () => {
     });
 
     test('handles different tracker types', () => {
-      expect(getProjectTemplatePath('/proj', 'json')).toBe('/proj/.ralph-tui/templates/json.hbs');
-      expect(getProjectTemplatePath('/proj', 'beads-bv')).toBe('/proj/.ralph-tui/templates/beads-bv.hbs');
+      expect(getProjectTemplatePath('/proj', 'json')).toBe(
+        '/proj/.ralph-tui/templates/json.hbs',
+      );
+      expect(getProjectTemplatePath('/proj', 'beads-bv')).toBe(
+        '/proj/.ralph-tui/templates/beads-bv.hbs',
+      );
     });
   });
 
@@ -199,7 +203,9 @@ describe('Template Engine - Pure Functions', () => {
 
     test('handles different tracker types', () => {
       expect(getGlobalTemplatePath('json')).toContain('templates/json.hbs');
-      expect(getGlobalTemplatePath('beads-bv')).toContain('templates/beads-bv.hbs');
+      expect(getGlobalTemplatePath('beads-bv')).toContain(
+        'templates/beads-bv.hbs',
+      );
     });
   });
 
@@ -214,7 +220,6 @@ describe('Template Engine - Pure Functions', () => {
       expect(path).toBe('/my/project/custom.hbs');
     });
   });
-
 });
 
 // ============================================================================
@@ -250,7 +255,11 @@ describe('Template Engine - Variables and Context', () => {
     test('includes epic information when provided', () => {
       const task = createMockTask();
       const config = createMockConfig();
-      const epic = { id: 'epic-1', title: 'Epic Title', description: 'Epic desc' };
+      const epic = {
+        id: 'epic-1',
+        title: 'Epic Title',
+        description: 'Epic desc',
+      };
       const vars = buildTemplateVariables(task, config, epic);
 
       expect(vars.epicId).toBe('epic-1');
@@ -268,7 +277,12 @@ describe('Template Engine - Variables and Context', () => {
     test('includes recentProgress from string parameter', () => {
       const task = createMockTask();
       const config = createMockConfig();
-      const vars = buildTemplateVariables(task, config, undefined, 'Previous work done');
+      const vars = buildTemplateVariables(
+        task,
+        config,
+        undefined,
+        'Previous work done',
+      );
 
       expect(vars.recentProgress).toBe('Previous work done');
     });
@@ -408,7 +422,11 @@ describe('Template Engine - Loading (Filesystem)', () => {
     });
 
     test('1. Returns error for non-existent custom path', () => {
-      const result = loadTemplate('/nonexistent/template.hbs', 'beads', testDir);
+      const result = loadTemplate(
+        '/nonexistent/template.hbs',
+        'beads',
+        testDir,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('not found');
@@ -417,7 +435,10 @@ describe('Template Engine - Loading (Filesystem)', () => {
     test('2. Uses project template when no custom path', async () => {
       const projectTemplateDir = join(testDir, '.ralph-tui', 'templates');
       await mkdir(projectTemplateDir, { recursive: true });
-      await writeFile(join(projectTemplateDir, 'beads.hbs'), 'Project template');
+      await writeFile(
+        join(projectTemplateDir, 'beads.hbs'),
+        'Project template',
+      );
 
       const result = loadTemplate(undefined, 'beads', testDir);
 
@@ -435,8 +456,10 @@ describe('Template Engine - Loading (Filesystem)', () => {
       // Template comes from either global (if installed), tracker, or builtin
       // We just verify resolution succeeded - specific source depends on environment
       expect(result.content).toBeTruthy();
-      expect(['tracker:beads', 'builtin:beads'].includes(result.source!) ||
-             result.source?.includes('global:')).toBe(true);
+      expect(
+        ['tracker:beads', 'builtin:beads'].includes(result.source!) ||
+          result.source?.includes('global:'),
+      ).toBe(true);
     });
 
     test('4. Falls back to available template when nothing higher priority exists', () => {
@@ -453,7 +476,12 @@ describe('Template Engine - Loading (Filesystem)', () => {
       await mkdir(projectTemplateDir, { recursive: true });
       await writeFile(join(projectTemplateDir, 'beads.hbs'), 'Project wins');
 
-      const result = loadTemplate(undefined, 'beads', testDir, 'Tracker template');
+      const result = loadTemplate(
+        undefined,
+        'beads',
+        testDir,
+        'Tracker template',
+      );
 
       expect(result.success).toBe(true);
       expect(result.content).toBe('Project wins');
@@ -466,7 +494,10 @@ describe('Template Engine - Loading (Filesystem)', () => {
 
       const projectTemplateDir = join(testDir, '.ralph-tui', 'templates');
       await mkdir(projectTemplateDir, { recursive: true });
-      await writeFile(join(projectTemplateDir, 'beads.hbs'), 'Project template');
+      await writeFile(
+        join(projectTemplateDir, 'beads.hbs'),
+        'Project template',
+      );
 
       const result = loadTemplate(customPath, 'beads', testDir);
 
@@ -529,9 +560,10 @@ describe('Template Engine - Installation', () => {
     testDir = await createTestDir();
     // Sandbox user config by mocking getUserConfigDir to return a temp directory
     // This prevents tests from polluting ~/.config/ralph-tui/templates
-    getUserConfigDirSpy = spyOn(templateEngine, 'getUserConfigDir').mockReturnValue(
-      join(testDir, '.config', 'ralph-tui')
-    );
+    getUserConfigDirSpy = spyOn(
+      templateEngine,
+      'getUserConfigDir',
+    ).mockReturnValue(join(testDir, '.config', 'ralph-tui'));
   });
 
   afterEach(async () => {
@@ -544,12 +576,16 @@ describe('Template Engine - Installation', () => {
     test('creates templates directory and files', () => {
       const templatesDir = join(testDir, 'templates');
       const templates = {
-        'beads': '## Beads Template',
-        'json': '## JSON Template',
+        beads: '## Beads Template',
+        json: '## JSON Template',
       };
 
       // Mock getUserConfigDir by using a custom installation
-      const result = installGlobalTemplatesInDir(templatesDir, templates, false);
+      const result = installGlobalTemplatesInDir(
+        templatesDir,
+        templates,
+        false,
+      );
 
       expect(result.success).toBe(true);
       expect(result.results.length).toBe(2);
@@ -562,8 +598,12 @@ describe('Template Engine - Installation', () => {
       await mkdir(templatesDir, { recursive: true });
       await writeFile(join(templatesDir, 'beads.hbs'), 'Existing content');
 
-      const templates = { 'beads': 'New content' };
-      const result = installGlobalTemplatesInDir(templatesDir, templates, false);
+      const templates = { beads: 'New content' };
+      const result = installGlobalTemplatesInDir(
+        templatesDir,
+        templates,
+        false,
+      );
 
       expect(result.success).toBe(true);
       expect(result.results[0]?.skipped).toBe(true);
@@ -579,7 +619,7 @@ describe('Template Engine - Installation', () => {
       await mkdir(templatesDir, { recursive: true });
       await writeFile(join(templatesDir, 'beads.hbs'), 'Old content');
 
-      const templates = { 'beads': 'New content' };
+      const templates = { beads: 'New content' };
       const result = installGlobalTemplatesInDir(templatesDir, templates, true);
 
       expect(result.success).toBe(true);
@@ -632,21 +672,33 @@ describe('Template Engine - Installation', () => {
       // Verify it's using the sandboxed directory
       expect(result.templatesDir.startsWith(testDir)).toBe(true);
       // Verify templates were actually created
-      expect(result.results.every(r => r.created || r.skipped)).toBe(true);
+      expect(result.results.every((r) => r.created || r.skipped)).toBe(true);
     });
   });
-
 });
 
 // Helper function to test installGlobalTemplates with custom directory
 function installGlobalTemplatesInDir(
   templatesDir: string,
   templates: Record<string, string>,
-  force: boolean
-): { success: boolean; results: Array<{ file: string; created: boolean; skipped: boolean; error?: string }> } {
+  force: boolean,
+): {
+  success: boolean;
+  results: Array<{
+    file: string;
+    created: boolean;
+    skipped: boolean;
+    error?: string;
+  }>;
+} {
   const fs = require('node:fs');
   const path = require('node:path');
-  const results: Array<{ file: string; created: boolean; skipped: boolean; error?: string }> = [];
+  const results: Array<{
+    file: string;
+    created: boolean;
+    skipped: boolean;
+    error?: string;
+  }> = [];
 
   // Ensure templates directory exists
   if (!fs.existsSync(templatesDir)) {
@@ -712,7 +764,10 @@ describe('Template Engine - Rendering', () => {
       const task = createMockTask();
       const customPath = join(testDir, 'custom.hbs');
       await writeFile(customPath, '## Task: {{taskId}}\n{{taskTitle}}');
-      const config = createMockConfig({ cwd: testDir, promptTemplate: customPath });
+      const config = createMockConfig({
+        cwd: testDir,
+        promptTemplate: customPath,
+      });
 
       const result = renderPrompt(task, config);
 
@@ -757,8 +812,14 @@ describe('Template Engine - Rendering', () => {
     test('handles Handlebars conditionals with custom template', async () => {
       const task = createMockTask({ description: undefined });
       const customPath = join(testDir, 'custom.hbs');
-      await writeFile(customPath, '{{#if taskDescription}}Desc: {{taskDescription}}{{else}}No description{{/if}}');
-      const config = createMockConfig({ cwd: testDir, promptTemplate: customPath });
+      await writeFile(
+        customPath,
+        '{{#if taskDescription}}Desc: {{taskDescription}}{{else}}No description{{/if}}',
+      );
+      const config = createMockConfig({
+        cwd: testDir,
+        promptTemplate: customPath,
+      });
 
       const result = renderPrompt(task, config);
 
@@ -770,7 +831,10 @@ describe('Template Engine - Rendering', () => {
       const task = createMockTask();
       const customPath = join(testDir, 'custom.hbs');
       await writeFile(customPath, 'Labels: {{labels}}');
-      const config = createMockConfig({ cwd: testDir, promptTemplate: customPath });
+      const config = createMockConfig({
+        cwd: testDir,
+        promptTemplate: customPath,
+      });
 
       const result = renderPrompt(task, config);
 
@@ -782,7 +846,10 @@ describe('Template Engine - Rendering', () => {
       const task = createMockTask();
       const customPath = join(testDir, 'invalid.hbs');
       await writeFile(customPath, '{{#if}}Invalid{{/if}}'); // Missing condition
-      const config = createMockConfig({ cwd: testDir, promptTemplate: customPath });
+      const config = createMockConfig({
+        cwd: testDir,
+        promptTemplate: customPath,
+      });
 
       const result = renderPrompt(task, config);
 
@@ -797,19 +864,30 @@ describe('Template Engine - Rendering', () => {
       const config = createMockConfig();
 
       // First render caches the template
-      renderPrompt(task, config, undefined, undefined, 'Template v1: {{taskId}}');
+      renderPrompt(
+        task,
+        config,
+        undefined,
+        undefined,
+        'Template v1: {{taskId}}',
+      );
 
       // Clear cache
       clearTemplateCache();
 
       // Second render should use new template
-      const result = renderPrompt(task, config, undefined, undefined, 'Template v2: {{taskId}}');
+      const result = renderPrompt(
+        task,
+        config,
+        undefined,
+        undefined,
+        'Template v2: {{taskId}}',
+      );
 
       expect(result.success).toBe(true);
       // Note: The source key for caching includes the template content,
       // so different templates will have different cache entries anyway
     });
-
   });
 });
 
@@ -836,13 +914,19 @@ describe('Template Engine - Integration', () => {
       await mkdir(projectTemplateDir, { recursive: true });
       await writeFile(
         join(projectTemplateDir, 'beads.hbs'),
-        '# Project Custom Template\nTask: {{taskId}} - {{taskTitle}}\nStatus: {{status}}'
+        '# Project Custom Template\nTask: {{taskId}} - {{taskTitle}}\nStatus: {{status}}',
       );
 
       const task = createMockTask({ id: 'PROJ-1', title: 'Project Task' });
       const config = createMockConfig({ cwd: testDir });
 
-      const result = renderPrompt(task, config, undefined, undefined, 'Tracker template (should not be used)');
+      const result = renderPrompt(
+        task,
+        config,
+        undefined,
+        undefined,
+        'Tracker template (should not be used)',
+      );
 
       expect(result.success).toBe(true);
       expect(result.prompt).toContain('# Project Custom Template');
@@ -859,10 +943,16 @@ describe('Template Engine - Integration', () => {
       // Also create project template (should be ignored)
       const projectTemplateDir = join(testDir, '.ralph-tui', 'templates');
       await mkdir(projectTemplateDir, { recursive: true });
-      await writeFile(join(projectTemplateDir, 'beads.hbs'), 'PROJECT: {{taskId}}');
+      await writeFile(
+        join(projectTemplateDir, 'beads.hbs'),
+        'PROJECT: {{taskId}}',
+      );
 
       const task = createMockTask({ id: 'TEST-1' });
-      const config = createMockConfig({ cwd: testDir, promptTemplate: customPath });
+      const config = createMockConfig({
+        cwd: testDir,
+        promptTemplate: customPath,
+      });
 
       const result = renderPrompt(task, config);
 
@@ -885,7 +975,10 @@ describe('Template Engine - Integration', () => {
       // User creates project template
       const projectTemplateDir = join(testDir, '.ralph-tui', 'templates');
       await mkdir(projectTemplateDir, { recursive: true });
-      await writeFile(join(projectTemplateDir, 'beads.hbs'), 'Custom: {{taskId}}');
+      await writeFile(
+        join(projectTemplateDir, 'beads.hbs'),
+        'Custom: {{taskId}}',
+      );
 
       // Clear cache to pick up new template
       clearTemplateCache();
@@ -907,7 +1000,10 @@ describe('Template Engine - Integration', () => {
       // Create project template
       const projectTemplateDir = join(testDir, '.ralph-tui', 'templates');
       await mkdir(projectTemplateDir, { recursive: true });
-      await writeFile(join(projectTemplateDir, 'beads.hbs'), 'Project: {{taskId}}');
+      await writeFile(
+        join(projectTemplateDir, 'beads.hbs'),
+        'Project: {{taskId}}',
+      );
 
       const result = renderPrompt(task, config);
 
@@ -931,9 +1027,10 @@ describe('Template Engine - Error Handling', () => {
     clearTemplateCache();
     // Sandbox user config by mocking getUserConfigDir to return a temp directory
     // This prevents tests from polluting ~/.config/ralph-tui/templates
-    getUserConfigDirSpy = spyOn(templateEngine, 'getUserConfigDir').mockReturnValue(
-      join(testDir, '.config', 'ralph-tui')
-    );
+    getUserConfigDirSpy = spyOn(
+      templateEngine,
+      'getUserConfigDir',
+    ).mockReturnValue(join(testDir, '.config', 'ralph-tui'));
   });
 
   afterEach(async () => {
@@ -947,7 +1044,12 @@ describe('Template Engine - Error Handling', () => {
       // Use a unique tracker type that won't have global templates
       const uniqueType = `tracker-${Date.now()}` as any;
       const trackerTemplate = 'Tracker Template: {{taskId}} - {{taskTitle}}';
-      const result = loadTemplate(undefined, uniqueType, testDir, trackerTemplate);
+      const result = loadTemplate(
+        undefined,
+        uniqueType,
+        testDir,
+        trackerTemplate,
+      );
 
       expect(result.success).toBe(true);
       expect(result.content).toBe(trackerTemplate);
@@ -1115,7 +1217,13 @@ describe('Template Engine - Error Handling', () => {
       expect(result.results[0]?.created).toBe(true);
 
       // Verify file was actually created in sandboxed location
-      const expectedPath = join(testDir, '.config', 'ralph-tui', 'templates', 'sandbox-test.hbs');
+      const expectedPath = join(
+        testDir,
+        '.config',
+        'ralph-tui',
+        'templates',
+        'sandbox-test.hbs',
+      );
       expect(existsSync(expectedPath)).toBe(true);
 
       const content = await readFile(expectedPath, 'utf-8');
@@ -1150,7 +1258,12 @@ describe('Template Engine - Tracker Template Integration', () => {
 
     // Test with a tracker type that won't have global templates
     const trackerTemplate = 'Tracker Template Content';
-    const result = loadTemplate(undefined, 'custom-tracker' as any, testDir, trackerTemplate);
+    const result = loadTemplate(
+      undefined,
+      'custom-tracker' as any,
+      testDir,
+      trackerTemplate,
+    );
 
     expect(result.success).toBe(true);
     // With a custom tracker type, no global template exists, so tracker template is used
@@ -1168,7 +1281,13 @@ describe('Template Engine - Tracker Template Integration', () => {
     const config = createMockConfig({ cwd: testDir });
     const trackerTemplate = 'Tracker says: {{taskId}}';
 
-    const result = renderPrompt(task, config, undefined, undefined, trackerTemplate);
+    const result = renderPrompt(
+      task,
+      config,
+      undefined,
+      undefined,
+      trackerTemplate,
+    );
 
     expect(result.success).toBe(true);
     expect(result.prompt).toBe('Project says: task-123');
@@ -1189,7 +1308,12 @@ describe('Template Engine - Tracker Template Integration', () => {
     // Use a unique tracker type that definitely has no global template
     const uniqueType = `unique-tracker-${Date.now()}` as any;
     const trackerTemplate = 'My custom tracker template';
-    const result = loadTemplate(undefined, uniqueType, testDir, trackerTemplate);
+    const result = loadTemplate(
+      undefined,
+      uniqueType,
+      testDir,
+      trackerTemplate,
+    );
 
     expect(result.success).toBe(true);
     expect(result.content).toBe(trackerTemplate);

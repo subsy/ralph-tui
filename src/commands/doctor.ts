@@ -7,7 +7,11 @@
 import { loadStoredConfig } from '../config/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
-import type { AgentPlugin, AgentPreflightResult, AgentDetectResult } from '../plugins/agents/types.js';
+import type {
+  AgentPlugin,
+  AgentPreflightResult,
+  AgentDetectResult,
+} from '../plugins/agents/types.js';
 
 /**
  * Result of the doctor command diagnostics
@@ -38,7 +42,7 @@ export interface DoctorResult {
 async function runDiagnostics(
   cwd: string,
   agentOverride?: string,
-  quiet = false
+  quiet = false,
 ): Promise<DoctorResult> {
   const log = quiet ? () => {} : console.log.bind(console);
   // Load configuration
@@ -58,7 +62,10 @@ async function runDiagnostics(
     return {
       healthy: false,
       agent: { name: agentName, plugin: agentName },
-      detection: { available: false, error: `Unknown agent plugin: ${agentName}` },
+      detection: {
+        available: false,
+        error: `Unknown agent plugin: ${agentName}`,
+      },
       message: `Agent plugin '${agentName}' is not registered`,
     };
   }
@@ -75,7 +82,10 @@ async function runDiagnostics(
     return {
       healthy: false,
       agent: { name: agentName, plugin: agentName },
-      detection: { available: false, error: error instanceof Error ? error.message : String(error) },
+      detection: {
+        available: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
       message: `Failed to initialize agent '${agentName}'`,
     };
   }
@@ -131,9 +141,15 @@ async function runDiagnostics(
  * Print doctor results in human-readable format
  */
 function printHumanResult(result: DoctorResult): void {
-  console.log('\n═══════════════════════════════════════════════════════════════');
-  console.log('                    Ralph TUI Doctor Report                     ');
-  console.log('═══════════════════════════════════════════════════════════════\n');
+  console.log(
+    '\n═══════════════════════════════════════════════════════════════',
+  );
+  console.log(
+    '                    Ralph TUI Doctor Report                     ',
+  );
+  console.log(
+    '═══════════════════════════════════════════════════════════════\n',
+  );
 
   // Status
   const statusIcon = result.healthy ? '✓' : '✗';
@@ -187,7 +203,9 @@ function printHumanResult(result: DoctorResult): void {
   }
 
   // Summary
-  console.log('───────────────────────────────────────────────────────────────');
+  console.log(
+    '───────────────────────────────────────────────────────────────',
+  );
   if (result.healthy) {
     console.log('  ✓ Your agent is configured correctly and ready to use.');
     console.log('');
@@ -197,7 +215,9 @@ function printHumanResult(result: DoctorResult): void {
     console.log('');
     console.log('  Please fix the issues above and run: ralph-tui doctor');
   }
-  console.log('───────────────────────────────────────────────────────────────');
+  console.log(
+    '───────────────────────────────────────────────────────────────',
+  );
   console.log('');
 }
 
@@ -238,13 +258,21 @@ export async function executeDoctorCommand(args: string[]): Promise<void> {
     process.exit(result.healthy ? 0 : 1);
   } catch (error) {
     if (outputJson) {
-      console.log(JSON.stringify({
-        healthy: false,
-        error: error instanceof Error ? error.message : String(error),
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            healthy: false,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          null,
+          2,
+        ),
+      );
     } else {
       console.error('');
-      console.error(`✗ Doctor failed: ${error instanceof Error ? error.message : error}`);
+      console.error(
+        `✗ Doctor failed: ${error instanceof Error ? error.message : error}`,
+      );
       console.error('');
     }
     process.exit(1);

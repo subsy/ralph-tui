@@ -150,7 +150,7 @@ export const StoredConfigSchema = z
       .string()
       .refine(
         (cmd) => !/[;&|`$()]/.test(cmd),
-        'Command cannot contain shell metacharacters (;&|`$()). Use a wrapper script instead.'
+        'Command cannot contain shell metacharacters (;&|`$()). Use a wrapper script instead.',
       )
       .optional(),
     agentOptions: AgentOptionsSchema.optional(),

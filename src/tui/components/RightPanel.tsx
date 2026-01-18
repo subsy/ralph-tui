@@ -594,7 +594,13 @@ function PromptPreviewView({
   return (
     <box style={{ flexDirection: 'column', padding: 1, flexGrow: 1 }}>
       {/* Compact task header with template source */}
-      <box style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1 }}>
+      <box
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginBottom: 1,
+        }}
+      >
         <box>
           <text>
             <span fg={statusColor}>{statusIndicator}</span>
@@ -954,7 +960,8 @@ export function RightPanel({
     prompt: '[Prompt]',
   };
   const modeIndicator = modeIndicators[viewMode];
-  const subagentIndicator = subagentDetailLevel !== 'off' ? ` [Trace: ${subagentDetailLevel}]` : '';
+  const subagentIndicator =
+    subagentDetailLevel !== 'off' ? ` [Trace: ${subagentDetailLevel}]` : '';
   const title = `Details ${modeIndicator}${subagentIndicator}`;
 
   return (

@@ -289,13 +289,20 @@ describe('run command', () => {
     describe('combined options', () => {
       test('parses multiple options', () => {
         const result = parseRunArgs([
-          '--epic', 'my-epic',
-          '--agent', 'claude',
-          '--model', 'opus',
-          '--variant', 'high',
-          '--tracker', 'beads-bv',
-          '--iterations', '15',
-          '--delay', '1000',
+          '--epic',
+          'my-epic',
+          '--agent',
+          'claude',
+          '--model',
+          'opus',
+          '--variant',
+          'high',
+          '--tracker',
+          'beads-bv',
+          '--iterations',
+          '15',
+          '--delay',
+          '1000',
           '--headless',
           '--notify',
         ]);

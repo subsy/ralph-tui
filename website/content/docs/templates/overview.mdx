@@ -76,51 +76,23 @@ Ralph includes optimized templates for each tracker type:
 The JSON tracker template provides full PRD context with progress tracking:
 
 ```handlebars
-\{\{!-- Full PRD for project context (agent studies this first) --\}\}
-\{\{#if prdContent\}\}
-We are working in a project to implement the following Product Requirements Document (PRD):
-
-\{\{prdContent\}\}
-
----
-\{\{/if\}\}
-
-\{\{!-- Task details --\}\}
-## Your Task: \{\{taskId\}\} - \{\{taskTitle\}\}
-
-\{\{#if taskDescription\}\}
-### Description
-\{\{taskDescription\}\}
-\{\{/if\}\}
-
-\{\{#if acceptanceCriteria\}\}
-### Acceptance Criteria
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-\{\{#if dependsOn\}\}
-**Prerequisites**: \{\{dependsOn\}\}
-\{\{/if\}\}
-
-\{\{#if recentProgress\}\}
-## Recent Progress
-\{\{recentProgress\}\}
-\{\{/if\}\}
-
-## Workflow
-1. Study the PRD context above to understand the bigger picture
-2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
-3. Implement this single story following acceptance criteria
-4. Run quality checks: typecheck, lint, etc.
-5. Commit with message: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}`
-6. Document learnings in `.ralph-tui/progress.md`
-7. Signal completion
-
-## Stop Condition
-**IMPORTANT**: If the work is already complete, verify it meets the
-acceptance criteria and signal completion immediately.
-
-When finished, signal completion with:
+\{\{!-- Full PRD for project context (agent studies this first) --\}\} \{\{#if
+prdContent\}\} We are working in a project to implement the following Product
+Requirements Document (PRD): \{\{prdContent\}\} --- \{\{/if\}\} \{\{!-- Task
+details --\}\} ## Your Task: \{\{taskId\}\} - \{\{taskTitle\}\} \{\{#if
+taskDescription\}\} ### Description \{\{taskDescription\}\} \{\{/if\}\} \{\{#if
+acceptanceCriteria\}\} ### Acceptance Criteria \{\{acceptanceCriteria\}\}
+\{\{/if\}\} \{\{#if dependsOn\}\} **Prerequisites**: \{\{dependsOn\}\}
+\{\{/if\}\} \{\{#if recentProgress\}\} ## Recent Progress \{\{recentProgress\}\}
+\{\{/if\}\} ## Workflow 1. Study the PRD context above to understand the bigger
+picture 2. Study `.ralph-tui/progress.md` to understand overall status,
+implementation progress, and learnings including codebase patterns and gotchas
+3. Implement this single story following acceptance criteria 4. Run quality
+checks: typecheck, lint, etc. 5. Commit with message: `feat: \{\{taskId\}\} -
+\{\{taskTitle\}\}` 6. Document learnings in `.ralph-tui/progress.md` 7. Signal
+completion ## Stop Condition **IMPORTANT**: If the work is already complete,
+verify it meets the acceptance criteria and signal completion immediately. When
+finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
@@ -129,59 +101,32 @@ When finished, signal completion with:
 The Beads template includes epic context and the `bd` CLI for closing issues:
 
 ```handlebars
-\{\{!-- Full PRD for project context (if available) --\}\}
-\{\{#if prdContent\}\}
-We are working in a project to implement the following Product Requirements Document (PRD):
-
-\{\{prdContent\}\}
-
----
-\{\{/if\}\}
-
-## Bead Details
-- **ID**: \{\{taskId\}\}
-- **Title**: \{\{taskTitle\}\}
-\{\{#if epicId\}\}
-- **Epic**: \{\{epicId\}\}\{\{#if epicTitle\}\} - \{\{epicTitle\}\}\{\{/if\}\}
-\{\{/if\}\}
-\{\{#if taskDescription\}\}
-- **Description**: \{\{taskDescription\}\}
-\{\{/if\}\}
-
-\{\{#if acceptanceCriteria\}\}
-## Acceptance Criteria
-\{\{acceptanceCriteria\}\}
-\{\{/if\}\}
-
-\{\{#if dependsOn\}\}
-**Prerequisites**: \{\{dependsOn\}\}
-\{\{/if\}\}
-
-\{\{#if recentProgress\}\}
-## Recent Progress
-\{\{recentProgress\}\}
-\{\{/if\}\}
-
-## Workflow
-1. Study the PRD context above (if available)
-2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
-3. Implement the requirements (stay on current branch)
-4. Run your project's quality checks
-5. Commit: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}`
-6. Close the bead: `bd close \{\{taskId\}\} --db \{\{beadsDbPath\}\} --reason "..."`
-7. Document learnings in `.ralph-tui/progress.md`
-8. Signal completion
-
-## Stop Condition
-**IMPORTANT**: If the work is already complete, verify it works
-correctly and signal completion immediately.
-
-When finished, signal completion with:
+\{\{!-- Full PRD for project context (if available) --\}\} \{\{#if
+prdContent\}\} We are working in a project to implement the following Product
+Requirements Document (PRD): \{\{prdContent\}\} --- \{\{/if\}\} ## Bead Details
+- **ID**: \{\{taskId\}\} - **Title**: \{\{taskTitle\}\} \{\{#if epicId\}\} -
+**Epic**: \{\{epicId\}\}\{\{#if epicTitle\}\} - \{\{epicTitle\}\}\{\{/if\}\}
+\{\{/if\}\} \{\{#if taskDescription\}\} - **Description**:
+\{\{taskDescription\}\} \{\{/if\}\} \{\{#if acceptanceCriteria\}\} ## Acceptance
+Criteria \{\{acceptanceCriteria\}\} \{\{/if\}\} \{\{#if dependsOn\}\}
+**Prerequisites**: \{\{dependsOn\}\} \{\{/if\}\} \{\{#if recentProgress\}\} ##
+Recent Progress \{\{recentProgress\}\} \{\{/if\}\} ## Workflow 1. Study the PRD
+context above (if available) 2. Study `.ralph-tui/progress.md` to understand
+overall status, implementation progress, and learnings including codebase
+patterns and gotchas 3. Implement the requirements (stay on current branch) 4.
+Run your project's quality checks 5. Commit: `feat: \{\{taskId\}\} -
+\{\{taskTitle\}\}` 6. Close the bead: `bd close \{\{taskId\}\} --db
+\{\{beadsDbPath\}\} --reason "..."` 7. Document learnings in
+`.ralph-tui/progress.md` 8. Signal completion ## Stop Condition **IMPORTANT**:
+If the work is already complete, verify it works correctly and signal completion
+immediately. When finished, signal completion with:
 <promise>COMPLETE</promise>
 ```
 
 <Callout type="info">
-Both templates include **compound learning** - agents are instructed to study `.ralph-tui/progress.md` which contains learnings, patterns, and gotchas from previous iterations.
+  Both templates include **compound learning** - agents are instructed to study
+  `.ralph-tui/progress.md` which contains learnings, patterns, and gotchas from
+  previous iterations.
 </Callout>
 
 ## Template Resolution Order
@@ -206,6 +151,7 @@ Ralph uses a hierarchical resolution system, checking each level in order and us
     - `.ralph-tui/templates/default.hbs` for other trackers
 
     This allows per-project customization without affecting other projects.
+
   </Step>
 
   <Step title="Global Templates">
@@ -215,11 +161,13 @@ Ralph uses a hierarchical resolution system, checking each level in order and us
     - etc.
 
     These apply to all your projects unless overridden at the project level.
+
   </Step>
 
-  <Step title="Tracker Bundle">
-    Templates bundled with each tracker plugin. These are the optimized defaults for each tracker type.
-  </Step>
+<Step title="Tracker Bundle">
+  Templates bundled with each tracker plugin. These are the optimized defaults
+  for each tracker type.
+</Step>
 
   <Step title="Built-in Fallback (Lowest Priority)">
     Embedded default templates that ship with Ralph TUI.
@@ -227,7 +175,9 @@ Ralph uses a hierarchical resolution system, checking each level in order and us
 </Steps>
 
 <Callout type="tip">
-Use **project templates** (`.ralph-tui/templates/`) for project-specific customizations and **global templates** (`~/.config/ralph-tui/templates/`) for personal preferences that apply to all projects.
+  Use **project templates** (`.ralph-tui/templates/`) for project-specific
+  customizations and **global templates** (`~/.config/ralph-tui/templates/`) for
+  personal preferences that apply to all projects.
 </Callout>
 
 ## Viewing Your Current Template

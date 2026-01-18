@@ -148,7 +148,8 @@ function mergeConfigs(
   const merged: StoredConfig = { ...global };
 
   // Config version from project takes precedence
-  if (project.configVersion !== undefined) merged.configVersion = project.configVersion;
+  if (project.configVersion !== undefined)
+    merged.configVersion = project.configVersion;
 
   // Override scalar values from project
   if (project.defaultAgent !== undefined)
@@ -161,7 +162,8 @@ function mergeConfigs(
     merged.iterationDelay = project.iterationDelay;
   if (project.outputDir !== undefined) merged.outputDir = project.outputDir;
   if (project.agent !== undefined) merged.agent = project.agent;
-  if (project.agentCommand !== undefined) merged.agentCommand = project.agentCommand;
+  if (project.agentCommand !== undefined)
+    merged.agentCommand = project.agentCommand;
   if (project.command !== undefined) merged.command = project.command;
   if (project.tracker !== undefined) merged.tracker = project.tracker;
 
@@ -784,7 +786,7 @@ export function getProjectConfigDir(cwd: string = process.cwd()): string {
  * @returns Project config only (empty object if no config exists)
  */
 export async function loadProjectConfigOnly(
-  cwd: string = process.cwd()
+  cwd: string = process.cwd(),
 ): Promise<StoredConfig> {
   const projectPath = getProjectConfigPath(cwd);
   const result = await loadConfigFile(projectPath);

@@ -72,7 +72,6 @@ const mockUpdateSessionIteration = mock(() => Promise.resolve());
 const mockUpdateSessionStatus = mock(() => Promise.resolve());
 const mockUpdateSessionMaxIterations = mock(() => Promise.resolve());
 
-
 // Override module imports
 mock.module('../../src/plugins/agents/registry.js', () => ({
   getAgentRegistry: () => ({

@@ -109,7 +109,7 @@ export async function migrateConfig(
     forceSkills?: boolean;
     /** Quiet mode - suppress console output */
     quiet?: boolean;
-  } = {}
+  } = {},
 ): Promise<MigrationResult> {
   const log = options.quiet ? () => {} : console.log.bind(console);
   const result: MigrationResult = {
@@ -157,7 +157,9 @@ export async function migrateConfig(
       } else if (installResult.skipped) {
         log(`   · Skill already installed: ${skill.name}`);
       } else if (installResult.error) {
-        result.warnings.push(`Failed to install skill ${skill.name}: ${installResult.error}`);
+        result.warnings.push(
+          `Failed to install skill ${skill.name}: ${installResult.error}`,
+        );
       }
     }
 
@@ -225,7 +227,9 @@ function installGlobalTemplatesIfMissing(quiet?: boolean): boolean {
     if (!result.success) {
       const errors = result.results.filter((r) => r.error);
       if (errors.length > 0) {
-        log(`   ⚠ Some templates failed to install: ${errors.map((e) => e.error).join(', ')}`);
+        log(
+          `   ⚠ Some templates failed to install: ${errors.map((e) => e.error).join(', ')}`,
+        );
       }
       return false;
     }
@@ -234,7 +238,9 @@ function installGlobalTemplatesIfMissing(quiet?: boolean): boolean {
     const skipped = result.results.filter((r) => r.skipped);
 
     if (installed.length > 0) {
-      log(`   ✓ Installed ${installed.length} template(s) to ${result.templatesDir}`);
+      log(
+        `   ✓ Installed ${installed.length} template(s) to ${result.templatesDir}`,
+      );
       return true;
     }
 
@@ -246,7 +252,9 @@ function installGlobalTemplatesIfMissing(quiet?: boolean): boolean {
   } catch (error) {
     // Log error but don't fail migration
     if (!quiet) {
-      console.warn(`   ⚠ Could not install templates: ${error instanceof Error ? error.message : error}`);
+      console.warn(
+        `   ⚠ Could not install templates: ${error instanceof Error ? error.message : error}`,
+      );
     }
     return false;
   }
@@ -264,7 +272,7 @@ export async function checkAndMigrate(
   cwd: string,
   options: {
     quiet?: boolean;
-  } = {}
+  } = {},
 ): Promise<MigrationResult | null> {
   try {
     // First check if a project config actually exists

@@ -125,8 +125,16 @@ export const fullKeyboardShortcuts = [
   { key: 'l', description: 'Load / switch epic', category: 'Execution' },
   { key: 'd', description: 'Toggle progress dashboard', category: 'Views' },
   { key: 'h', description: 'Toggle show/hide closed tasks', category: 'Views' },
-  { key: 'v', description: 'Toggle iterations / tasks view', category: 'Views' },
-  { key: 'o', description: 'Cycle views (details/output/prompt)', category: 'Views' },
+  {
+    key: 'v',
+    description: 'Toggle iterations / tasks view',
+    category: 'Views',
+  },
+  {
+    key: 'o',
+    description: 'Cycle views (details/output/prompt)',
+    category: 'Views',
+  },
   { key: 'O', description: 'Jump to prompt preview', category: 'Views' },
   { key: 't', description: 'Cycle subagent detail level', category: 'Views' },
   { key: 'T', description: 'Toggle subagent tree panel', category: 'Views' },
