@@ -128,8 +128,8 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
     supportsFileContext: true,
     supportsSubagentTracing: true,
     skillsPaths: {
-      personal: '~/.opencode/skill',
-      repo: '.opencode/skill',
+      personal: '~/.config/opencode/skills',
+      repo: '.opencode/skills',
     },
   };
 

@@ -160,11 +160,11 @@ describe('skills list command', () => {
     const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
 
     // Should show at least one agent's skill path
-    // The paths vary by agent: .claude/skills, .opencode/skill, .factory/skills
+    // The paths vary by agent: .claude/skills, .config/opencode/skills, .factory/skills
     // All registered agents are listed with their paths (even if not installed)
     const hasAgentPaths =
       allOutput.includes('.claude/skills') ||
-      allOutput.includes('.opencode/skill') ||
+      allOutput.includes('.config/opencode/skills') ||
       allOutput.includes('.factory/skills');
 
     // In CI environments, the agent registry should still show paths for all

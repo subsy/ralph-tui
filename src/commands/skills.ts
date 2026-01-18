@@ -137,7 +137,7 @@ ${BOLD}Examples:${RESET}
 
 ${BOLD}Supported Agents:${RESET}
   ${CYAN}claude${RESET}    Claude Code     ~/.claude/skills/
-  ${CYAN}opencode${RESET}  OpenCode        ~/.opencode/skill/
+  ${CYAN}opencode${RESET}  OpenCode        ~/.config/opencode/skills/
   ${CYAN}droid${RESET}     Factory Droid   ~/.factory/skills/
 
 ${BOLD}Note:${RESET}
