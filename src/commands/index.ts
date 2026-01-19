@@ -91,3 +91,9 @@ export {
   parseListenArgs,
   printListenHelp,
 } from './listen.js';
+
+export {
+  executeRemoteCommand,
+  parseRemoteArgs,
+  printRemoteHelp,
+} from './remote.js';

@@ -22,6 +22,7 @@ import {
   executeInfoCommand,
   executeSkillsCommand,
   executeListenCommand,
+  executeRemoteCommand,
 } from './commands/index.js';
 
 /**
@@ -41,6 +42,7 @@ Commands:
   resume [options]    Resume an interrupted session
   status [options]    Check session status (headless, for CI/scripts)
   listen [options]    Start remote listener (WebSocket server)
+  remote [subcommand] Manage remote server configurations
   logs [options]      View/manage iteration output logs
   setup [options]     Run interactive project setup (alias: init)
   doctor [options]    Diagnose agent configuration issues
@@ -121,6 +123,9 @@ Examples:
   ralph-tui skills install --force       # Force reinstall all skills
   ralph-tui listen                       # Start remote listener
   ralph-tui listen --daemon              # Start as background daemon
+  ralph-tui remote add prod server:7890 --token abc  # Add remote
+  ralph-tui remote list                  # List remotes with status
+  ralph-tui remote test prod             # Test connectivity
 `);
 }
 
@@ -232,6 +237,12 @@ async function handleSubcommand(args: string[]): Promise<boolean> {
   // Listen command (remote listener)
   if (command === 'listen') {
     await executeListenCommand(args.slice(1));
+    return true;
+  }
+
+  // Remote command (manage remote configurations)
+  if (command === 'remote') {
+    await executeRemoteCommand(args.slice(1));
     return true;
   }
 
