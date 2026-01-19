@@ -5,7 +5,7 @@
  * stream-json output, timeout, and graceful interruption.
  */
 
-import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath } from '../base.js';
 import type {
   AgentPluginMeta,
@@ -148,50 +148,36 @@ export class AmpcodeAgentPlugin extends BaseAgentPlugin {
     command: string
   ): Promise<{ success: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
-      const proc = spawn(command, ['--version'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      proc.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      proc.on('error', (error) => {
-        resolve({
-          success: false,
-          error: `Failed to execute: ${error.message}`,
-        });
-      });
-
-      proc.on('close', (code) => {
-        if (code === 0) {
-          // Extract version from output
-          const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
-          resolve({
-            success: true,
-            version: versionMatch?.[1],
-          });
-        } else {
-          resolve({
-            success: false,
-            error: stderr || `Exited with code ${code}`,
-          });
-        }
-      });
+      let resolved = false;
 
       // Timeout after 5 seconds
-      setTimeout(() => {
-        proc.kill();
-        resolve({ success: false, error: 'Timeout waiting for --version' });
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve({ success: false, error: 'Timeout waiting for --version' });
+        }
       }, 5000);
+
+      execFile(command, ['--version'], (error, stdout, stderr) => {
+        clearTimeout(timer);
+        if (resolved) return;
+        resolved = true;
+
+        if (error) {
+          resolve({
+            success: false,
+            error: stderr || `Failed to execute: ${error.message}`,
+          });
+          return;
+        }
+
+        // Extract version from output
+        const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
+        resolve({
+          success: true,
+          version: versionMatch?.[1],
+        });
+      });
     });
   }
 
