@@ -53,7 +53,7 @@ export class WorkerManager extends EventEmitter {
     const id = `worker-${++this.workerCounter}`;
     const rangeArg = formatRange(range);
 
-    const args = ['run', '--task-range', rangeArg];
+    const args = ['run', '--task-range', rangeArg, '--no-notify'];
     if (this.config.headless) args.push('--headless');
     if (this.config.workerArgs) args.push(...this.config.workerArgs);
 
