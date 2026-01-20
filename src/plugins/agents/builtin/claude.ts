@@ -535,6 +535,85 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
+   * Override preflight to add --max-turns 1 for faster, more reliable checks.
+   * Without --max-turns, Claude may run multiple turns which can exceed the timeout.
+   */
+  override async preflight(
+    options?: { timeout?: number }
+  ): Promise<import('../types.js').AgentPreflightResult> {
+    const startTime = Date.now();
+    const timeout = options?.timeout ?? 15000;
+
+    try {
+      // First ensure detect passes
+      const detection = await this.detect();
+      if (!detection.available) {
+        return {
+          success: false,
+          error: detection.error ?? 'Agent not available',
+          suggestion: `Make sure ${this.meta.name} is installed and accessible`,
+          durationMs: Date.now() - startTime,
+        };
+      }
+
+      // Run a minimal test prompt with --max-turns 1 for quick response
+      const testPrompt = 'Respond with exactly: PREFLIGHT_OK';
+      let output = '';
+
+      const handle = this.execute(testPrompt, [], {
+        timeout,
+        flags: ['--max-turns', '1'],
+        onStdout: (data: string) => {
+          output += data;
+        },
+      });
+
+      const result = await handle.promise;
+      const durationMs = Date.now() - startTime;
+
+      // Check if we got any meaningful response
+      if (result.status === 'completed' && output.length > 0) {
+        return {
+          success: true,
+          durationMs,
+        };
+      }
+
+      if (result.status === 'timeout') {
+        return {
+          success: false,
+          error: 'Agent timed out without responding',
+          suggestion: this.getPreflightSuggestion(),
+          durationMs,
+        };
+      }
+
+      if (result.status === 'failed') {
+        return {
+          success: false,
+          error: result.error ?? 'Agent execution failed',
+          suggestion: this.getPreflightSuggestion(),
+          durationMs,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Agent did not produce any output',
+        suggestion: this.getPreflightSuggestion(),
+        durationMs,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        suggestion: this.getPreflightSuggestion(),
+        durationMs: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
    * Get Claude-specific suggestions for preflight failures.
    * Provides actionable guidance for common configuration issues.
    */
