@@ -94,6 +94,9 @@ export class WorkerManager extends EventEmitter {
   }
 
   private handleOutput(worker: ManagedWorker, text: string): void {
+    const prevProgress = worker.state.progress;
+    const prevTask = worker.state.currentTaskId;
+
     const progressMatch = text.match(/progress[:\s]+(\d+)/i);
     if (progressMatch) {
       worker.state.progress = parseInt(progressMatch[1], 10);
@@ -102,12 +105,16 @@ export class WorkerManager extends EventEmitter {
     if (taskMatch) {
       worker.state.currentTaskId = taskMatch[1];
     }
-    this.emitEvent({
-      type: 'worker:progress',
-      workerId: worker.id,
-      progress: worker.state.progress,
-      currentTaskId: worker.state.currentTaskId,
-    });
+
+    // Only emit if something changed
+    if (worker.state.progress !== prevProgress || worker.state.currentTaskId !== prevTask) {
+      this.emitEvent({
+        type: 'worker:progress',
+        workerId: worker.id,
+        progress: worker.state.progress,
+        currentTaskId: worker.state.currentTaskId,
+      });
+    }
   }
 
   private updateState(worker: ManagedWorker, status: WorkerStatus, error?: string): void {

@@ -188,11 +188,12 @@
         "Clean shutdown on exit",
         "Under 100 lines"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 3,
       "dependsOn": [
         "US-009"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-011",
@@ -205,11 +206,12 @@
         "Emit orchestrator events over WebSocket",
         "Document protocol in src/remote/protocol.ts"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 3,
       "dependsOn": [
         "US-007"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-012",
@@ -222,12 +224,13 @@
         "Display remote orchestrator TUI locally",
         "Handle disconnect/reconnect gracefully"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 3,
       "dependsOn": [
         "US-008",
         "US-011"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-013",
@@ -241,11 +244,12 @@
         "Test full orchestration run with mock PRD",
         "All tests pass"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 4,
       "dependsOn": [
         "US-008"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-014",
@@ -258,11 +262,12 @@
         "Test reconnection after disconnect",
         "All tests pass"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 4,
       "dependsOn": [
         "US-012"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-015",
@@ -275,11 +280,12 @@
         "Add examples for common workflows",
         "Update README.md with orchestrator section"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 4,
       "dependsOn": [
         "US-012"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-016",
@@ -304,6 +310,6 @@
     }
   ],
   "metadata": {
-    "updatedAt": "2026-01-20T14:55:06.239Z"
+    "updatedAt": "2026-01-20T15:21:29.607Z"
   }
 }
