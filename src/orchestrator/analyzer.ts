@@ -26,6 +26,15 @@ export interface AnalyzeOptions {
   analyzeParallelism?: (stories: PrdUserStory[]) => Promise<Map<string, ParallelismHint>>;
 }
 
+/** Sort IDs numerically if all are numbers, otherwise lexicographically */
+function sortIds(ids: string[]): string[] {
+  const allNumeric = ids.every((id) => /^\d+$/.test(id));
+  if (allNumeric) {
+    return [...ids].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+  }
+  return [...ids].sort();
+}
+
 const FILE_PATTERNS = [
   /src\/[^\s"'`,)]+\.[a-z]+/gi,
   /(?:^|\s)([a-zA-Z0-9_-]+\/)+[a-zA-Z0-9_-]+\.[a-z]+/gi,
@@ -63,7 +72,7 @@ function detectImplicitDeps(nodes: Map<string, StoryNode>): void {
   }
   for (const [, storyIds] of fileToStories) {
     if (storyIds.length < 2) continue;
-    const sorted = storyIds.sort();
+    const sorted = sortIds(storyIds);
     for (let i = 1; i < sorted.length; i++) {
       const later = nodes.get(sorted[i]);
       const earlier = sorted[i - 1];
@@ -92,9 +101,9 @@ function groupParallel(nodes: Map<string, StoryNode>): string[][] {
       groups.push(Array.from(nodes.keys()).filter((id) => !completed.has(id)));
       break;
     }
-    ready.sort();
-    groups.push(ready);
-    ready.forEach((id) => completed.add(id));
+    const sortedReady = sortIds(ready);
+    groups.push(sortedReady);
+    sortedReady.forEach((id) => completed.add(id));
   }
   return groups;
 }
@@ -156,7 +165,7 @@ export async function analyzePrd(
 /** Convert parallel groups to IdRange format */
 export function groupsToRanges(groups: string[][]): IdRange[] {
   return groups.map((g) => {
-    const sorted = g.sort();
+    const sorted = sortIds(g);
     return { from: sorted[0], to: sorted[sorted.length - 1] };
   });
 }
