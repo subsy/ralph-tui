@@ -97,3 +97,9 @@ export {
   parseRemoteArgs,
   printRemoteHelp,
 } from './remote.js';
+
+export {
+  executeOrchestrateCommand,
+  parseOrchestrateArgs,
+  printOrchestrateHelp,
+} from './orchestrate.js';

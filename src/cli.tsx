@@ -22,6 +22,7 @@ import {
   executeInfoCommand,
   executeSkillsCommand,
   executeRemoteCommand,
+  executeOrchestrateCommand,
 } from './commands/index.js';
 
 /**
@@ -38,6 +39,7 @@ Commands:
   create-prd [opts]   Create a new PRD interactively (alias: prime)
   convert [options]   Convert PRD markdown to JSON format
   run [options]       Start Ralph execution
+  orchestrate [opts]  Run parallel multi-agent orchestration
   resume [options]    Resume an interrupted session
   status [options]    Check session status (headless, for CI/scripts)
   remote [subcommand] Manage remote server configurations
@@ -90,6 +92,11 @@ Status Options:
   --json              Output in JSON format for CI/scripts
   --cwd <path>        Working directory
 
+Orchestrate Options:
+  --prd <path>        PRD file path (required)
+  --max-workers <n>   Maximum parallel workers (default: 4)
+  --headless          Run without TUI, output structured logs
+
 Convert Options:
   --to <format>       Target format: json
   --output, -o <path> Output file path (default: ./prd.json)
@@ -102,6 +109,7 @@ Examples:
   ralph-tui create-prd --chat            # Create PRD with AI chat mode
   ralph-tui convert --to json ./prd.md   # Convert PRD to JSON
   ralph-tui run                          # Start execution with defaults
+  ralph-tui orchestrate --prd ./prd.json # Parallel multi-agent orchestration
   ralph-tui run --epic myproject-epic    # Run with specific epic
   ralph-tui run --prd ./prd.json         # Run with PRD file
   ralph-tui resume                       # Resume interrupted session
@@ -173,6 +181,12 @@ async function handleSubcommand(args: string[]): Promise<boolean> {
   // Run command
   if (command === 'run') {
     await executeRunCommand(args.slice(1));
+    return true;
+  }
+
+  // Orchestrate command
+  if (command === 'orchestrate') {
+    await executeOrchestrateCommand(args.slice(1));
     return true;
   }
 
