@@ -137,6 +137,9 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       };
     }
 
+    // Store the resolved path for execute() to use
+    this.commandPath = findResult.path;
+
     // Verify the binary works by running --version
     const versionResult = await this.runVersion(findResult.path);
 

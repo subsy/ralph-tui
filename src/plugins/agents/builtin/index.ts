@@ -7,6 +7,9 @@ import { getAgentRegistry } from '../registry.js';
 import createDroidAgent from '../droid/index.js';
 import createClaudeAgent from './claude.js';
 import createOpenCodeAgent from './opencode.js';
+import createGeminiAgent from './gemini.js';
+import createCodexAgent from './codex.js';
+import createKiroAgent from './kiro.js';
 
 /**
  * Register all built-in agent plugins with the registry.
@@ -19,11 +22,26 @@ export function registerBuiltinAgents(): void {
   registry.registerBuiltin(createClaudeAgent);
   registry.registerBuiltin(createOpenCodeAgent);
   registry.registerBuiltin(createDroidAgent);
+  registry.registerBuiltin(createGeminiAgent);
+  registry.registerBuiltin(createCodexAgent);
+  registry.registerBuiltin(createKiroAgent);
 }
 
 // Export the factory functions for direct use
-export { createClaudeAgent, createOpenCodeAgent, createDroidAgent };
+export {
+  createClaudeAgent,
+  createOpenCodeAgent,
+  createDroidAgent,
+  createGeminiAgent,
+  createCodexAgent,
+  createKiroAgent,
+};
 
 // Export Claude JSONL parsing types and utilities
 export type { ClaudeJsonlMessage, JsonlParseResult } from './claude.js';
 export { ClaudeAgentPlugin } from './claude.js';
+
+// Export new agent plugin classes
+export { GeminiAgentPlugin } from './gemini.js';
+export { CodexAgentPlugin } from './codex.js';
+export { KiroAgentPlugin } from './kiro.js';
