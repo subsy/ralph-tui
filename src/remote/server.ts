@@ -40,7 +40,19 @@ import type {
   CheckConfigResponseMessage,
   PushConfigMessage,
   PushConfigResponseMessage,
+  OrchestrateStartMessage,
+  OrchestrateStatusMessage,
+  OrchestratePauseMessage,
+  OrchestrateResumeMessage,
 } from './types.js';
+import {
+  handleOrchestrateStart,
+  handleOrchestrateStatus,
+  handleOrchestratePause,
+  handleOrchestrateResume,
+  unsubscribeFromOrchestrator,
+  cleanupOrchestrator,
+} from './orchestration-handlers.js';
 import {
   validateServerToken,
   validateConnectionToken,
@@ -324,6 +336,9 @@ export class RemoteServer {
           const clientId = `${clientState.id}@${clientState.ip}`;
           revokeClientTokens(clientId);
 
+          // Unsubscribe from orchestrator events
+          unsubscribeFromOrchestrator(ws);
+
           self.auditLogger.logConnection(clientId, 'disconnect');
           self.options.onDisconnect?.(clientState.id);
           self.clients.delete(ws);
@@ -440,6 +455,9 @@ export class RemoteServer {
       this.engineUnsubscribe();
       this.engineUnsubscribe = null;
     }
+
+    // Clean up orchestrator state
+    cleanupOrchestrator();
 
     // Close all client connections
     for (const [ws] of this.clients) {
@@ -583,6 +601,41 @@ export class RemoteServer {
         break;
       case 'push_config':
         await this.handlePushConfig(ws, clientState, message as PushConfigMessage);
+        break;
+
+      // US-011: Orchestration commands
+      case 'orchestrate:start':
+        handleOrchestrateStart(
+          ws,
+          message as OrchestrateStartMessage,
+          this.send.bind(this),
+          createMessage,
+          this.options.cwd ?? process.cwd()
+        );
+        break;
+      case 'orchestrate:status':
+        handleOrchestrateStatus(
+          ws,
+          message as OrchestrateStatusMessage,
+          this.send.bind(this),
+          createMessage
+        );
+        break;
+      case 'orchestrate:pause':
+        handleOrchestratePause(
+          ws,
+          message as OrchestratePauseMessage,
+          this.send.bind(this),
+          createMessage
+        );
+        break;
+      case 'orchestrate:resume':
+        handleOrchestrateResume(
+          ws,
+          message as OrchestrateResumeMessage,
+          this.send.bind(this),
+          createMessage
+        );
         break;
 
       default:

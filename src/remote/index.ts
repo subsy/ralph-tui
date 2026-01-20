@@ -10,3 +10,5 @@ export * from './server.js';
 export * from './config.js';
 export * from './client.js';
 export * from './instance-manager.js';
+export * from './orchestration-handlers.js';
+export * from './protocol.js';

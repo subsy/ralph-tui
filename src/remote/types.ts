@@ -509,6 +509,69 @@ export interface PushConfigResponseMessage extends WSMessage {
 }
 
 // ============================================================================
+// Orchestration Messages (US-011)
+// ============================================================================
+
+import type { OrchestratorEvent, WorkerState } from '../orchestrator/types.js';
+
+/** Current orchestrator status */
+export type OrchestratorStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed';
+
+/** Orchestrator state for remote transport */
+export interface RemoteOrchestratorState {
+  status: OrchestratorStatus;
+  currentPhase?: string;
+  currentPhaseIndex?: number;
+  totalPhases?: number;
+  workers: WorkerState[];
+  completedTasks: number;
+  totalTasks: number;
+  startedAt?: string;
+}
+
+/** Request to start orchestration */
+export interface OrchestrateStartMessage extends WSMessage {
+  type: 'orchestrate:start';
+  prdPath: string;
+  maxWorkers?: number;
+  headless?: boolean;
+}
+
+/** Response to orchestrate:start */
+export interface OrchestrateStartResponseMessage extends WSMessage {
+  type: 'orchestrate:start_response';
+  success: boolean;
+  error?: string;
+}
+
+/** Request orchestrator status */
+export interface OrchestrateStatusMessage extends WSMessage {
+  type: 'orchestrate:status';
+}
+
+/** Response with orchestrator status */
+export interface OrchestrateStatusResponseMessage extends WSMessage {
+  type: 'orchestrate:status_response';
+  state: RemoteOrchestratorState;
+}
+
+/** Request to pause orchestration */
+export interface OrchestratePauseMessage extends WSMessage {
+  type: 'orchestrate:pause';
+}
+
+/** Request to resume orchestration */
+export interface OrchestrateResumeMessage extends WSMessage {
+  type: 'orchestrate:resume';
+}
+
+/** Orchestrator event forwarded to clients */
+export interface OrchestratorEventMessage extends WSMessage {
+  type: 'orchestrator_event';
+  event: OrchestratorEvent;
+}
+
+// ============================================================================
 // Prompt Preview Messages (for viewing prompt that would be sent to agent)
 // ============================================================================
 
@@ -602,4 +665,11 @@ export type RemoteWSMessageType =
   | CheckConfigMessage
   | CheckConfigResponseMessage
   | PushConfigMessage
-  | PushConfigResponseMessage;
+  | PushConfigResponseMessage
+  | OrchestrateStartMessage
+  | OrchestrateStartResponseMessage
+  | OrchestrateStatusMessage
+  | OrchestrateStatusResponseMessage
+  | OrchestratePauseMessage
+  | OrchestrateResumeMessage
+  | OrchestratorEventMessage;
