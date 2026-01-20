@@ -5,6 +5,12 @@
 
 export type WorkerStatus = 'idle' | 'running' | 'completed' | 'failed' | 'killed';
 
+/** Hint about parallelism confidence for a story */
+export interface ParallelismHint {
+  confidence: number; // 0-1, higher = more parallelizable
+  reason: string;
+}
+
 /** A range of task IDs (lexicographic, inclusive) */
 export interface IdRange {
   from: string;

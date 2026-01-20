@@ -5,6 +5,7 @@
 
 import type { DependencyGraph, StoryNode } from './analyzer.js';
 import type { Phase, StoryGroup, OrchestratorConfig } from './types.js';
+import { groupConfidence } from './heuristics.js';
 
 export interface SchedulerConfig {
   maxWorkers: number;
@@ -58,9 +59,23 @@ function canRunInParallel(nodes: Map<string, StoryNode>, groups: string[][]): bo
   return true;
 }
 
-function determineWorkerCount(groupCount: number, sched: SchedulerConfig): number {
+function determineWorkerCount(
+  groupCount: number,
+  sched: SchedulerConfig,
+  nodes: Map<string, StoryNode>,
+  storyIds: string[]
+): number {
   const byRate = sched.rateLimit ?? sched.maxWorkers;
-  return Math.min(groupCount, sched.maxWorkers, byRate);
+  const baseCount = Math.min(groupCount, sched.maxWorkers, byRate);
+
+  const hints = storyIds
+    .map((id) => nodes.get(id)?.parallelismHint)
+    .filter((h) => h !== undefined);
+  const avgConfidence = groupConfidence(hints);
+
+  // Scale workers by confidence: low confidence = fewer workers
+  const scaledCount = Math.max(1, Math.round(baseCount * avgConfidence));
+  return scaledCount;
 }
 
 /** Create execution schedule from dependency graph */
@@ -73,7 +88,7 @@ export function createSchedule(graph: DependencyGraph, config: OrchestratorConfi
     const group = parallelGroups[i];
     const maxPerWorker = sched.maxStoriesPerWorker ?? 5;
     const partitions = partitionGroup(group, maxPerWorker);
-    const workerCount = determineWorkerCount(partitions.length, sched);
+    const workerCount = determineWorkerCount(partitions.length, sched, nodes, group);
 
     // Re-partition to match actual worker count if needed
     const finalPartitions = redistributePartitions(group, workerCount);
