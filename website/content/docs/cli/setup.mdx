@@ -47,7 +47,8 @@ The interactive wizard performs these steps:
     Installs bundled skills for PRD creation and task conversion:
     - `ralph-tui-prd` - AI-powered PRD creation
     - `ralph-tui-create-json` - Convert PRD to prd.json
-    - `ralph-tui-create-beads` - Convert PRD to Beads issues
+    - `ralph-tui-create-beads` - Convert PRD to Beads issues (CLI version)
+    - `ralph-tui-create-beads-mcp` - Convert PRD to Beads issues (MCP version)
   </Step>
 
   <Step title="Detect Existing Trackers">
@@ -97,6 +98,7 @@ Installing skills...
 ✓ Installed ralph-tui-prd
 ✓ Installed ralph-tui-create-json
 ✓ Installed ralph-tui-create-beads
+✓ Installed ralph-tui-create-beads-mcp
 
 Setup complete! Next steps:
 1. Create a PRD: ralph-tui create-prd --chat
@@ -146,7 +148,8 @@ Skills are installed to your agent's skills directory. Each detected agent recei
 |-------|---------|
 | `ralph-tui-prd` | AI-powered PRD creation |
 | `ralph-tui-create-json` | Convert PRD to JSON tasks |
-| `ralph-tui-create-beads` | Convert PRD to Beads issues |
+| `ralph-tui-create-beads` | Convert PRD to Beads issues (CLI version) |
+| `ralph-tui-create-beads-mcp` | Convert PRD to Beads issues (MCP version) |
 
 <Callout type="tip">
 These skills can also be used **directly in your agent** without the Ralph TUI interface. See [Using Skills Directly](#using-skills-directly) below.
@@ -237,9 +240,10 @@ Once skills are installed, invoke them with slash commands in your agent:
 
 ```bash
 # In your agent, type:
-/ralph-tui-prd         # Start creating a PRD interactively
-/ralph-tui-create-json # Convert an existing PRD to prd.json
-/ralph-tui-create-beads # Convert an existing PRD to Beads issues
+/ralph-tui-prd           # Start creating a PRD interactively
+/ralph-tui-create-json   # Convert an existing PRD to prd.json
+/ralph-tui-create-beads  # Convert an existing PRD to Beads issues (CLI version)
+/ralph-tui-create-beads-mcp  # Convert an existing PRD to Beads issues (MCP version)
 ```
 
 ### Example Workflow

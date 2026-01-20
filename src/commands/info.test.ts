@@ -185,7 +185,7 @@ describe('formatSystemInfo', () => {
       name: 'beads',
     },
     skills: {
-      bundled: ['ralph-tui-prd', 'ralph-tui-create-beads'],
+      bundled: ['ralph-tui-prd', 'ralph-tui-create-json', 'ralph-tui-create-beads', 'ralph-tui-create-beads-mcp'],
       customDir: null,
       customSkills: [],
       agents: [
@@ -251,7 +251,7 @@ describe('formatSystemInfo', () => {
     const output = formatSystemInfo(mockInfo);
 
     expect(output).toContain('Skills:');
-    expect(output).toContain('Bundled: ralph-tui-prd, ralph-tui-create-beads');
+    expect(output).toContain('Bundled: ralph-tui-prd, ralph-tui-create-json, ralph-tui-create-beads, ralph-tui-create-beads-mcp');
     expect(output).toContain('Claude Code:');
     expect(output).toContain('Path: /home/user/.claude/skills');
     expect(output).toContain('Installed: ralph-tui-prd');
@@ -334,7 +334,7 @@ describe('formatForBugReport', () => {
       name: 'beads',
     },
     skills: {
-      bundled: ['ralph-tui-prd', 'ralph-tui-create-beads'],
+      bundled: ['ralph-tui-prd', 'ralph-tui-create-json', 'ralph-tui-create-beads', 'ralph-tui-create-beads-mcp'],
       customDir: null,
       customSkills: [],
       agents: [
@@ -411,7 +411,7 @@ describe('formatForBugReport', () => {
   test('includes skills info', () => {
     const output = formatForBugReport(mockInfo);
 
-    expect(output).toContain('bundled-skills: 2');
+    expect(output).toContain('bundled-skills: 4');
     expect(output).toContain('skills-installed: claude:1');
   });
 });

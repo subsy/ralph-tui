@@ -179,9 +179,10 @@ After running `ralph-tui setup`, skills are installed to your agent's skills dir
 Use these slash commands in your agent:
 
 ```bash
-/ralph-tui-prd           # Create a PRD interactively
-/ralph-tui-create-json   # Convert PRD to prd.json
-/ralph-tui-create-beads  # Convert PRD to Beads issues
+/ralph-tui-prd             # Create a PRD interactively
+/ralph-tui-create-json     # Convert PRD to prd.json
+/ralph-tui-create-beads    # Convert PRD to Beads issues (CLI version)
+/ralph-tui-create-beads-mcp # Convert PRD to Beads issues (MCP version)
 ```
 
 This lets you create PRDs while referencing source files (`@filename`) and using your full conversation context—then use `ralph-tui run` for autonomous execution.
@@ -463,7 +464,8 @@ ralph-tui/
 ├── skills/               # Bundled skills for PRD/task creation
 │   ├── ralph-tui-prd/
 │   ├── ralph-tui-create-json/
-│   └── ralph-tui-create-beads/
+│   ├── ralph-tui-create-beads/
+│   └── ralph-tui-create-beads-mcp/
 ├── website/              # Documentation website (Next.js)
 └── docs/                 # Images and static assets
 ```
