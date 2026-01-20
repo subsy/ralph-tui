@@ -13,8 +13,9 @@
         "Stories with IDs lexicographically between from and to (inclusive) are included",
         "Existing filter behavior unchanged when idRange not specified"
       ],
-      "passes": false,
-      "priority": 1
+      "passes": true,
+      "priority": 1,
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-002",
@@ -26,9 +27,12 @@
         "Engine filters tasks using the range",
         "Works with all tracker plugins"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 1,
-      "dependsOn": ["US-001"]
+      "dependsOn": [
+        "US-001"
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-003",
@@ -43,8 +47,9 @@
         "Define OrchestratorEvent union type for all events",
         "Under 100 lines"
       ],
-      "passes": false,
-      "priority": 1
+      "passes": true,
+      "priority": 1,
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-004",
@@ -60,9 +65,12 @@
         "Use Claude to analyze ambiguous cases",
         "Under 150 lines"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 2,
-      "dependsOn": ["US-003"]
+      "dependsOn": [
+        "US-003"
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-005",
@@ -77,9 +85,12 @@
         "Consider rate limits and resource constraints",
         "Under 100 lines"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 2,
-      "dependsOn": ["US-004"]
+      "dependsOn": [
+        "US-004"
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-006",
@@ -95,9 +106,13 @@
         "Git sync between workers (pull --rebase before push)",
         "Under 150 lines"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 2,
-      "dependsOn": ["US-002", "US-003"]
+      "dependsOn": [
+        "US-002",
+        "US-003"
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-007",
@@ -114,9 +129,14 @@
         "Handle graceful shutdown on SIGINT",
         "Under 200 lines"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 2,
-      "dependsOn": ["US-004", "US-005", "US-006"]
+      "dependsOn": [
+        "US-004",
+        "US-005",
+        "US-006"
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-008",
@@ -129,9 +149,12 @@
         "Show progress in headless mode via logs",
         "Return appropriate exit codes"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 2,
-      "dependsOn": ["US-007"]
+      "dependsOn": [
+        "US-007"
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-009",
@@ -148,7 +171,9 @@
       ],
       "passes": false,
       "priority": 3,
-      "dependsOn": ["US-007"]
+      "dependsOn": [
+        "US-007"
+      ]
     },
     {
       "id": "US-010",
@@ -164,7 +189,9 @@
       ],
       "passes": false,
       "priority": 3,
-      "dependsOn": ["US-009"]
+      "dependsOn": [
+        "US-009"
+      ]
     },
     {
       "id": "US-011",
@@ -179,7 +206,9 @@
       ],
       "passes": false,
       "priority": 3,
-      "dependsOn": ["US-007"]
+      "dependsOn": [
+        "US-007"
+      ]
     },
     {
       "id": "US-012",
@@ -194,7 +223,10 @@
       ],
       "passes": false,
       "priority": 3,
-      "dependsOn": ["US-008", "US-011"]
+      "dependsOn": [
+        "US-008",
+        "US-011"
+      ]
     },
     {
       "id": "US-013",
@@ -210,7 +242,9 @@
       ],
       "passes": false,
       "priority": 4,
-      "dependsOn": ["US-008"]
+      "dependsOn": [
+        "US-008"
+      ]
     },
     {
       "id": "US-014",
@@ -225,7 +259,9 @@
       ],
       "passes": false,
       "priority": 4,
-      "dependsOn": ["US-012"]
+      "dependsOn": [
+        "US-012"
+      ]
     },
     {
       "id": "US-015",
@@ -240,7 +276,32 @@
       ],
       "passes": false,
       "priority": 4,
-      "dependsOn": ["US-012"]
+      "dependsOn": [
+        "US-012"
+      ]
+    },
+    {
+      "id": "US-016",
+      "title": "Add smart parallelism heuristics to analyzer",
+      "description": "Classify story types and adjust parallelism recommendations based on content analysis.",
+      "acceptanceCriteria": [
+        "Detect test stories (title/description contains 'test', 'spec') → high parallelism confidence",
+        "Detect refactor stories ('refactor', 'rename', 'move') → low parallelism confidence",
+        "Detect documentation stories ('docs', 'readme', 'document') → high parallelism confidence",
+        "Add ParallelismHint type with confidence score (0-1) and reason",
+        "Extend StoryNode with parallelismHint field",
+        "Use Claude to classify ambiguous stories when confidence < 0.5",
+        "Scheduler uses hints to adjust worker count per phase",
+        "Under 100 lines for new heuristics code"
+      ],
+      "passes": false,
+      "priority": 2,
+      "dependsOn": [
+        "US-004"
+      ]
     }
-  ]
+  ],
+  "metadata": {
+    "updatedAt": "2026-01-20T15:30:00.000Z"
+  }
 }
