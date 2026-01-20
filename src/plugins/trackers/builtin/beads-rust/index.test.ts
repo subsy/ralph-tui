@@ -322,6 +322,118 @@ describe('BeadsRustTrackerPlugin', () => {
     });
   });
 
+  describe('getNextTask', () => {
+    test('executes br ready --json and supports filters', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't1', title: 'Task 1', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      await plugin.getNextTask({
+        limit: 25,
+        parentId: 'epic',
+        labels: ['a', 'b'],
+        priority: [0, 2],
+        assignee: 'alice',
+      });
+
+      expect(mockSpawnArgs.length).toBe(1);
+      expect(mockSpawnArgs[0]?.cmd).toBe('br');
+      expect(mockSpawnArgs[0]?.args).toEqual([
+        'ready',
+        '--json',
+        '--limit',
+        '25',
+        '--parent',
+        'epic',
+        '--label',
+        'a,b',
+        '--priority',
+        '0',
+        '--assignee',
+        'alice',
+      ]);
+    });
+
+    test('prefers in_progress tasks over open tasks', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't-open', title: 'Open', status: 'open', priority: 1 },
+            {
+              id: 't-wip',
+              title: 'In progress',
+              status: 'in_progress',
+              priority: 4,
+            },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const task = await plugin.getNextTask();
+
+      expect(task?.id).toBe('t-wip');
+      expect(mockSpawnArgs[0]?.args).toEqual(['ready', '--json', '--limit', '10']);
+    });
+
+    test('excludes tasks listed in excludeIds', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            {
+              id: 't-wip',
+              title: 'In progress',
+              status: 'in_progress',
+              priority: 1,
+            },
+            { id: 't-open', title: 'Open', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const task = await plugin.getNextTask({ excludeIds: ['t-wip'] });
+
+      expect(task?.id).toBe('t-open');
+    });
+
+    test('returns undefined when br ready fails', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        { exitCode: 1, stderr: 'boom' },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const task = await plugin.getNextTask();
+
+      expect(task).toBeUndefined();
+      expect(mockSpawnArgs[0]?.args).toEqual(['ready', '--json', '--limit', '10']);
+    });
+  });
+
   describe('completeTask', () => {
     test('executes br close <id> without --force', async () => {
       mockSpawnResponses = [{ exitCode: 0, stdout: 'br version 0.4.1\n' }];

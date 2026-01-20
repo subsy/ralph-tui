@@ -379,6 +379,87 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
     return brTaskToTask(tasksJson[0]!);
   }
 
+  /**
+   * Get the next task to work on using br ready.
+   *
+   * This overrides the base implementation to leverage br's server-side readiness
+   * selection (dependency-aware), since br list output may not contain enough
+   * dependency information for client-side readiness filtering.
+   */
+  override async getNextTask(filter?: TaskFilter): Promise<TrackerTask | undefined> {
+    const args = ['ready', '--json'];
+
+    // We only need one task, but fetch a small batch so we can prefer
+    // in_progress tasks over open tasks.
+    const requestedLimit =
+      typeof filter?.limit === 'number' && filter.limit > 0 ? filter.limit : 10;
+    args.push('--limit', String(Math.max(10, requestedLimit)));
+
+    const parentId = filter?.parentId ?? this.epicId;
+    if (parentId) {
+      args.push('--parent', parentId);
+    }
+
+    const labelsToFilter =
+      filter?.labels && filter.labels.length > 0 ? filter.labels : this.labels;
+    if (labelsToFilter.length > 0) {
+      args.push('--label', labelsToFilter.join(','));
+    }
+
+    if (filter?.priority !== undefined) {
+      const priorities = Array.isArray(filter.priority)
+        ? filter.priority
+        : [filter.priority];
+      // br ready only supports a single priority value; use the highest (lowest number).
+      const highestPriority = Math.min(...priorities);
+      args.push('--priority', String(highestPriority));
+    }
+
+    if (filter?.assignee) {
+      args.push('--assignee', filter.assignee);
+    }
+
+    const { stdout, exitCode, stderr } = await execBr(args, this.workingDir);
+
+    if (exitCode !== 0) {
+      console.error('br ready failed:', stderr);
+      return undefined;
+    }
+
+    let tasksJson: BrTaskJson[];
+    try {
+      tasksJson = JSON.parse(stdout) as BrTaskJson[];
+    } catch (err) {
+      console.error('Failed to parse br ready output:', err);
+      return undefined;
+    }
+
+    if (tasksJson.length === 0) {
+      return undefined;
+    }
+
+    let tasks = tasksJson.map(brTaskToTask);
+
+    // Exclude specific task IDs (used by engine for skipped/failed tasks)
+    if (filter?.excludeIds && filter.excludeIds.length > 0) {
+      const excludeSet = new Set(filter.excludeIds);
+      tasks = tasks.filter((t) => !excludeSet.has(t.id));
+    }
+
+    if (tasks.length === 0) {
+      return undefined;
+    }
+
+    // Prefer in_progress tasks over open tasks
+    const inProgress = tasks.find((t) => t.status === 'in_progress');
+    if (inProgress) {
+      return inProgress;
+    }
+
+    // br ready is expected to return tasks in a sensible order.
+    return tasks[0];
+  }
+
   override async completeTask(
     id: string,
     reason?: string
