@@ -179,6 +179,9 @@ export interface TaskFilter {
 
   /** Exclude tasks with these IDs (used by engine to skip failed tasks) */
   excludeIds?: string[];
+
+  /** Filter by ID range (lexicographic, inclusive) */
+  idRange?: { from: string; to: string };
 }
 
 /**

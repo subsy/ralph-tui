@@ -298,6 +298,12 @@ When finished, signal completion with:
       result = result.filter((t) => !excludeSet.has(t.id));
     }
 
+    // Filter by ID range (lexicographic comparison, inclusive)
+    if (filter.idRange) {
+      const { from, to } = filter.idRange;
+      result = result.filter((t) => t.id >= from && t.id <= to);
+    }
+
     // Filter to ready tasks (no unresolved dependencies)
     if (filter.ready) {
       result = result.filter((t) => this.checkTaskReady(t, tasks));
