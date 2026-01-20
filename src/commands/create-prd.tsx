@@ -39,6 +39,9 @@ export interface CreatePrdArgs {
   /** Timeout for agent calls in milliseconds */
   timeout?: number;
 
+  /** Skip the agent preflight verification check */
+  noVerify?: boolean;
+
   prdSkill?: string;
 
   prdSkillSource?: string;
@@ -73,6 +76,8 @@ export function parseCreatePrdArgs(args: string[]): CreatePrdArgs {
       }
     } else if (arg === '--prd-skill') {
       result.prdSkill = args[++i];
+    } else if (arg === '--no-verify') {
+      result.noVerify = true;
     } else if (arg === '--help' || arg === '-h') {
       printCreatePrdHelp();
       process.exit(0);
@@ -98,6 +103,7 @@ Options:
   --agent, -a <name>     Agent plugin to use (default: from config)
   --timeout, -t <ms>     Timeout for AI agent calls (default: 180000)
   --prd-skill <name>     PRD skill folder inside skills_dir
+  --no-verify            Skip the agent preflight verification check
   --force, -f            Overwrite existing files without prompting
   --help, -h             Show this help message
 
@@ -246,28 +252,34 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
   console.log(`Using agent: ${agent.meta.name}`);
 
   // Run preflight check to verify agent can respond before starting conversation
-  console.log('Verifying agent configuration...');
-  const preflightResult = await agent.preflight({ timeout: 30000 });
+  // Skip if --no-verify flag was passed
+  if (!parsedArgs.noVerify) {
+    console.log('Verifying agent configuration...');
+    const preflightResult = await agent.preflight({ timeout: 30000 });
 
-  if (!preflightResult.success) {
-    console.error('');
-    console.error('❌ Agent preflight check failed');
-    if (preflightResult.error) {
-      console.error(`   ${preflightResult.error}`);
-    }
-    if (preflightResult.suggestion) {
+    if (!preflightResult.success) {
       console.error('');
-      console.error('Suggestions:');
-      for (const line of preflightResult.suggestion.split('\n')) {
-        console.error(`  ${line}`);
+      console.error('❌ Agent preflight check failed');
+      if (preflightResult.error) {
+        console.error(`   ${preflightResult.error}`);
       }
+      if (preflightResult.suggestion) {
+        console.error('');
+        console.error('Suggestions:');
+        for (const line of preflightResult.suggestion.split('\n')) {
+          console.error(`  ${line}`);
+        }
+      }
+      console.error('');
+      console.error('Run "ralph-tui doctor" to diagnose agent issues.');
+      console.error('Or use --no-verify to skip this check.');
+      process.exit(1);
     }
-    console.error('');
-    console.error('Run "ralph-tui doctor" to diagnose agent issues.');
-    process.exit(1);
-  }
 
-  console.log('✓ Agent is ready');
+    console.log('✓ Agent is ready');
+  } else {
+    console.log('Skipping agent verification (--no-verify)');
+  }
   console.log('');
 
   // Create renderer and render the chat app
