@@ -5,12 +5,14 @@
 
 import { Orchestrator, type OrchestratorConfig, type OrchestratorEvent } from '../orchestrator/index.js';
 import { createStructuredLogger } from '../logs/index.js';
+import { runRemoteOrchestration } from './remote-orchestrate.js';
 
 interface OrchestrateOptions {
   prdPath?: string;
   maxWorkers: number;
   headless: boolean;
   cwd: string;
+  remote?: string;
 }
 
 /**
@@ -56,6 +58,13 @@ export function parseOrchestrateArgs(args: string[]): OrchestrateOptions {
           i++;
         }
         break;
+
+      case '--remote':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.remote = nextArg;
+          i++;
+        }
+        break;
     }
   }
 
@@ -76,6 +85,7 @@ Options:
   --max-workers <n>     Maximum parallel workers (default: 4)
   --headless            Run without TUI, output structured logs
   --cwd <path>          Working directory (default: current)
+  --remote <alias>      Run orchestration on a remote instance
   -h, --help            Show this help message
 
 Exit Codes:
@@ -92,6 +102,7 @@ Examples:
   ralph-tui orchestrate --prd ./prd.json
   ralph-tui orchestrate --prd ./prd.json --max-workers 2
   ralph-tui orchestrate --prd ./prd.json --headless
+  ralph-tui orchestrate --prd ./prd.json --remote my-server
 `);
 }
 
@@ -154,6 +165,12 @@ export async function executeOrchestrateCommand(args: string[]): Promise<void> {
     console.error('Error: --prd <path> is required');
     console.error('Run "ralph-tui orchestrate --help" for usage');
     process.exit(1);
+  }
+
+  // Handle remote orchestration
+  if (options.remote) {
+    await runRemoteOrchestration(options.remote, options.prdPath, options.maxWorkers, options.headless);
+    return;
   }
 
   const config: OrchestratorConfig = {
