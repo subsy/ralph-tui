@@ -1,0 +1,246 @@
+{
+  "name": "Parallel Agent Orchestration",
+  "description": "Add multi-agent orchestration to ralph-tui for parallel task execution with automatic dependency analysis and remote instance support.",
+  "branchName": "feat/orchestrator",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add task-range filter to TaskFilter type",
+      "description": "Extend the TaskFilter interface to support filtering tasks by ID range.",
+      "acceptanceCriteria": [
+        "Add idRange?: { from: string; to: string } to TaskFilter in src/plugins/trackers/types.ts",
+        "Update filterTasks in BaseTrackerPlugin to handle idRange",
+        "Stories with IDs lexicographically between from and to (inclusive) are included",
+        "Existing filter behavior unchanged when idRange not specified"
+      ],
+      "passes": false,
+      "priority": 1
+    },
+    {
+      "id": "US-002",
+      "title": "Add --task-range CLI flag to run command",
+      "description": "Allow users to specify a task range when running ralph-tui.",
+      "acceptanceCriteria": [
+        "Add --task-range <from>:<to> option to run command in src/cli.tsx",
+        "Parse range and pass to engine config",
+        "Engine filters tasks using the range",
+        "Works with all tracker plugins"
+      ],
+      "passes": false,
+      "priority": 1,
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-003",
+      "title": "Create orchestrator types",
+      "description": "Define TypeScript types for the orchestrator module.",
+      "acceptanceCriteria": [
+        "Create src/orchestrator/types.ts",
+        "Define Phase interface (name, storyGroups, parallel boolean)",
+        "Define StoryGroup interface (id range, estimated files)",
+        "Define WorkerState interface (id, range, status, progress)",
+        "Define OrchestratorConfig interface",
+        "Define OrchestratorEvent union type for all events",
+        "Under 100 lines"
+      ],
+      "passes": false,
+      "priority": 1
+    },
+    {
+      "id": "US-004",
+      "title": "Create PRD analyzer",
+      "description": "Analyze PRD to detect dependencies and group independent stories.",
+      "acceptanceCriteria": [
+        "Create src/orchestrator/analyzer.ts",
+        "analyzePrd(prd) function returns DependencyGraph",
+        "Extract file hints from story titles and descriptions",
+        "Detect explicit dependsOn relationships",
+        "Infer implicit dependencies from file paths (same file = dependent)",
+        "Group stories that can run in parallel",
+        "Use Claude to analyze ambiguous cases",
+        "Under 150 lines"
+      ],
+      "passes": false,
+      "priority": 2,
+      "dependsOn": ["US-003"]
+    },
+    {
+      "id": "US-005",
+      "title": "Create scheduler",
+      "description": "Plan execution phases based on dependency analysis.",
+      "acceptanceCriteria": [
+        "Create src/orchestrator/scheduler.ts",
+        "createSchedule(graph, config) returns Phase[]",
+        "Topological sort respects dependencies",
+        "Group independent stories into parallel phases",
+        "Determine optimal worker count per phase",
+        "Consider rate limits and resource constraints",
+        "Under 100 lines"
+      ],
+      "passes": false,
+      "priority": 2,
+      "dependsOn": ["US-004"]
+    },
+    {
+      "id": "US-006",
+      "title": "Create worker manager",
+      "description": "Spawn and monitor worker processes.",
+      "acceptanceCriteria": [
+        "Create src/orchestrator/worker-manager.ts",
+        "WorkerManager class with spawn/monitor/kill methods",
+        "spawnWorker(range) starts ralph-tui process with --task-range",
+        "Monitor worker stdout/stderr and exit codes",
+        "Emit events for worker state changes",
+        "Handle worker failures with retry or reassignment",
+        "Git sync between workers (pull --rebase before push)",
+        "Under 150 lines"
+      ],
+      "passes": false,
+      "priority": 2,
+      "dependsOn": ["US-002", "US-003"]
+    },
+    {
+      "id": "US-007",
+      "title": "Create main orchestrator class",
+      "description": "Coordinate analyzer, scheduler, and worker manager.",
+      "acceptanceCriteria": [
+        "Create src/orchestrator/index.ts",
+        "Orchestrator class with run() method",
+        "Load PRD and run analyzer",
+        "Create schedule from analysis",
+        "Execute phases sequentially",
+        "Execute workers within phase (parallel or sequential)",
+        "Emit events for phase/worker progress",
+        "Handle graceful shutdown on SIGINT",
+        "Under 200 lines"
+      ],
+      "passes": false,
+      "priority": 2,
+      "dependsOn": ["US-004", "US-005", "US-006"]
+    },
+    {
+      "id": "US-008",
+      "title": "Add orchestrate CLI command",
+      "description": "Add the orchestrate command to ralph-tui CLI.",
+      "acceptanceCriteria": [
+        "Add 'orchestrate' command to src/cli.tsx",
+        "Options: --prd, --max-workers, --headless",
+        "Instantiate and run Orchestrator",
+        "Show progress in headless mode via logs",
+        "Return appropriate exit codes"
+      ],
+      "passes": false,
+      "priority": 2,
+      "dependsOn": ["US-007"]
+    },
+    {
+      "id": "US-009",
+      "title": "Create orchestrator TUI view",
+      "description": "Create a TUI component for monitoring orchestration.",
+      "acceptanceCriteria": [
+        "Create src/tui/components/OrchestratorView.tsx",
+        "Show current phase and progress",
+        "Show all workers with status and current task",
+        "Show live output from selected worker",
+        "Keyboard navigation to switch between workers",
+        "Show overall progress (stories done / total)",
+        "Under 200 lines"
+      ],
+      "passes": false,
+      "priority": 3,
+      "dependsOn": ["US-007"]
+    },
+    {
+      "id": "US-010",
+      "title": "Create OrchestratorApp TUI entry point",
+      "description": "Create the main TUI app for orchestration mode.",
+      "acceptanceCriteria": [
+        "Create src/tui/components/OrchestratorApp.tsx",
+        "Initialize orchestrator and subscribe to events",
+        "Render OrchestratorView with orchestrator state",
+        "Handle keyboard shortcuts (q=quit, p=pause, 1-9=select worker)",
+        "Clean shutdown on exit",
+        "Under 100 lines"
+      ],
+      "passes": false,
+      "priority": 3,
+      "dependsOn": ["US-009"]
+    },
+    {
+      "id": "US-011",
+      "title": "Add remote orchestration protocol",
+      "description": "Extend remote protocol to support orchestration commands.",
+      "acceptanceCriteria": [
+        "Add orchestrate:start command to remote protocol",
+        "Add orchestrate:status query",
+        "Add orchestrate:pause/resume commands",
+        "Emit orchestrator events over WebSocket",
+        "Document protocol in src/remote/protocol.ts"
+      ],
+      "passes": false,
+      "priority": 3,
+      "dependsOn": ["US-007"]
+    },
+    {
+      "id": "US-012",
+      "title": "Add --remote flag to orchestrate command",
+      "description": "Allow running orchestration on a remote instance.",
+      "acceptanceCriteria": [
+        "Add --remote <alias> option to orchestrate command",
+        "Connect to remote via existing remote infrastructure",
+        "Send orchestrate:start command with config",
+        "Display remote orchestrator TUI locally",
+        "Handle disconnect/reconnect gracefully"
+      ],
+      "passes": false,
+      "priority": 3,
+      "dependsOn": ["US-008", "US-011"]
+    },
+    {
+      "id": "US-013",
+      "title": "Test orchestrator with local workers",
+      "description": "End-to-end test of local orchestration.",
+      "acceptanceCriteria": [
+        "Create tests/orchestrator/local.test.ts",
+        "Test analyzer correctly groups independent stories",
+        "Test scheduler creates valid phases",
+        "Test worker manager spawns and monitors processes",
+        "Test full orchestration run with mock PRD",
+        "All tests pass"
+      ],
+      "passes": false,
+      "priority": 4,
+      "dependsOn": ["US-008"]
+    },
+    {
+      "id": "US-014",
+      "title": "Test orchestrator with remote instance",
+      "description": "Test remote orchestration workflow.",
+      "acceptanceCriteria": [
+        "Create tests/orchestrator/remote.test.ts",
+        "Test remote protocol commands",
+        "Test TUI displays remote state correctly",
+        "Test reconnection after disconnect",
+        "All tests pass"
+      ],
+      "passes": false,
+      "priority": 4,
+      "dependsOn": ["US-012"]
+    },
+    {
+      "id": "US-015",
+      "title": "Add orchestrator documentation",
+      "description": "Document the orchestrator feature.",
+      "acceptanceCriteria": [
+        "Add docs/orchestrator.md with usage guide",
+        "Document CLI options",
+        "Document PRD format requirements for parallelism",
+        "Add examples for common workflows",
+        "Update README.md with orchestrator section"
+      ],
+      "passes": false,
+      "priority": 4,
+      "dependsOn": ["US-012"]
+    }
+  ]
+}
