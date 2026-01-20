@@ -81,6 +81,7 @@ Ralph selects the highest-priority task, builds a prompt, executes your AI agent
 |---------|-------------|
 | `ralph-tui` | Launch the interactive TUI |
 | `ralph-tui run [options]` | Start Ralph execution |
+| `ralph-tui orchestrate [opts]` | Run parallel multi-agent orchestration |
 | `ralph-tui resume` | Resume an interrupted session |
 | `ralph-tui status` | Check session status |
 | `ralph-tui logs` | View iteration output logs |
@@ -397,6 +398,48 @@ All operations work identically to local control with <100ms perceived latency.
 | `~/.config/ralph-tui/audit.log` | Audit log of all remote actions |
 | `~/.config/ralph-tui/listen.pid` | Daemon PID file |
 
+## Parallel Orchestration
+
+Run multiple ralph-tui workers in parallel for faster task completion. The orchestrator analyzes your PRD for dependencies and automatically groups independent stories.
+
+```bash
+# Basic parallel execution
+ralph-tui orchestrate --prd ./prd.json
+
+# Limit parallel workers
+ralph-tui orchestrate --prd ./prd.json --max-workers 2
+
+# Headless mode for CI/CD
+ralph-tui orchestrate --prd ./prd.json --headless
+
+# Run on a remote instance
+ralph-tui orchestrate --prd ./prd.json --remote my-server
+```
+
+### How It Works
+
+1. **Analyze** - Scans PRD for explicit `dependsOn` and implicit file-based dependencies
+2. **Schedule** - Groups independent stories into parallel execution phases
+3. **Execute** - Spawns workers with `--task-range` for parallel processing
+4. **Coordinate** - Workers sync via git between phases
+
+### PRD Format for Parallelism
+
+Use `dependsOn` to declare explicit dependencies:
+
+```json
+{
+  "userStories": [
+    { "id": "US-001", "title": "Create user model" },
+    { "id": "US-002", "title": "Add authentication", "dependsOn": ["US-001"] }
+  ]
+}
+```
+
+The analyzer also detects implicit dependencies when stories mention the same files.
+
+See [docs/orchestrator.md](docs/orchestrator.md) for full documentation.
+
 ## Contributing
 
 ### Development Setup
@@ -453,6 +496,12 @@ ralph-tui/
 │   │   ├── config.ts     # Remote server configuration (TOML)
 │   │   ├── audit.ts      # JSONL audit logging
 │   │   └── types.ts      # Type definitions
+│   ├── orchestrator/     # Multi-agent parallel execution
+│   │   ├── index.ts      # Main orchestrator class
+│   │   ├── analyzer.ts   # PRD dependency analysis
+│   │   ├── scheduler.ts  # Execution phase planning
+│   │   ├── worker-manager.ts  # Worker process management
+│   │   └── heuristics.ts # Parallelism hints
 │   ├── session/          # Session persistence and lock management
 │   ├── setup/            # Interactive setup wizard
 │   ├── templates/        # Handlebars prompt templates
