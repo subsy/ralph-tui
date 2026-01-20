@@ -52,13 +52,12 @@ function parseMiniMaxOutputToEvents(data: string): AgentDisplayEvent[] {
         }
 
         case 'result': {
-          // Final result - check for errors and include result text
+          // Final result - check for errors first
           if (event.subtype === 'error' || event.is_error) {
             const errorMsg = event.error || event.result || 'Unknown error';
             allEvents.push({ type: 'error', message: String(errorMsg) });
-          }
-          // Include result text if available
-          if (event.result && typeof event.result === 'string') {
+          } else if (event.result && typeof event.result === 'string') {
+            // Include result text only if not an error (avoid duplicate)
             allEvents.push({ type: 'text', content: event.result });
           }
           break;
@@ -401,9 +400,9 @@ export class MiniMaxAgentPlugin extends BaseAgentPlugin {
     if (
       model !== undefined &&
       model !== '' &&
-      !['MiniMax-M2.1', 'MiniMax-M2', 'MiniMax-M1'].includes(String(model))
+      !MiniMaxAgentPlugin.VALID_MODELS.includes(String(model) as typeof MiniMaxAgentPlugin.VALID_MODELS[number])
     ) {
-      return 'Invalid model. Must be one of: MiniMax-M2.1, MiniMax-M2, MiniMax-M1 (or leave empty for default)';
+      return `Invalid model. Must be one of: ${MiniMaxAgentPlugin.VALID_MODELS.join(', ')} (or leave empty for default)`;
     }
 
     return null;

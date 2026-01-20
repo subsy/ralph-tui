@@ -51,13 +51,12 @@ function parseZaiOutputToEvents(data: string): AgentDisplayEvent[] {
         }
 
         case 'result': {
-          // Final result - check for errors and include result text
-          if (event.subtype === 'error' || event.is_error) {
+          // Final result - check for errors first
+          if (event.subtype === 'error' || event.is_error || event.error) {
             const errorMsg = event.error || event.result || 'Unknown error';
             allEvents.push({ type: 'error', message: String(errorMsg) });
-          }
-          // Include result text if available
-          if (event.result && typeof event.result === 'string') {
+          } else if (event.result && typeof event.result === 'string') {
+            // Include result text only if not an error (avoid duplicate)
             allEvents.push({ type: 'text', content: event.result });
           }
           break;
@@ -186,7 +185,7 @@ export class ZaiAgentPlugin extends BaseAgentPlugin {
   override getSandboxRequirements() {
     return {
       authPaths: ['~/.cc-mirror/zai/config', '~/.zai', '~/.config/zai'],
-      binaryPaths: ['/usr/local/bin', '~/.local/bin', '/Users/roshan/.local/bin'],
+      binaryPaths: ['/usr/local/bin', '~/.local/bin'],
       runtimePaths: ['~/.bun', '~/.nvm'],
       requiresNetwork: true,
     };
