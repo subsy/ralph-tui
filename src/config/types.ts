@@ -139,6 +139,9 @@ export interface RuntimeOptions {
   notify?: boolean;
 
   sandbox?: SandboxConfig;
+
+  /** Filter tasks by ID range (from:to, inclusive, lexicographic) */
+  taskRange?: { from: string; to: string };
 }
 
 /**
@@ -276,6 +279,9 @@ export interface RalphConfig {
 
   /** Custom prompt template path (resolved) */
   promptTemplate?: string;
+
+  /** Filter tasks by ID range (from:to, inclusive, lexicographic) */
+  taskRange?: { from: string; to: string };
 }
 
 /**

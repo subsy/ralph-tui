@@ -79,6 +79,7 @@ Run Options:
   --listen            Enable remote listener (WebSocket server)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
+  --task-range <from>:<to>  Filter tasks by ID range (inclusive)
 
 Resume Options:
   --cwd <path>        Working directory

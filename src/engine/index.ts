@@ -539,6 +539,7 @@ export class ExecutionEngine {
     const task = await this.tracker!.getNextTask({
       status: ['open', 'in_progress'],
       excludeIds: excludeIds.length > 0 ? excludeIds : undefined,
+      idRange: this.config.taskRange,
     });
 
     return task ?? null;

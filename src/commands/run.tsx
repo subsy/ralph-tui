@@ -318,6 +318,16 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--rotate-token':
         options.rotateToken = true;
         break;
+
+      case '--task-range':
+        if (nextArg && !nextArg.startsWith('-')) {
+          const rangeParts = nextArg.split(':');
+          if (rangeParts.length === 2 && rangeParts[0] && rangeParts[1]) {
+            options.taskRange = { from: rangeParts[0], to: rangeParts[1] };
+          }
+          i++;
+        }
+        break;
     }
   }
 
@@ -362,6 +372,7 @@ Options:
   --listen            Enable remote listener (implies --headless)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
+  --task-range <from>:<to>  Filter tasks by ID range (inclusive, lexicographic)
 
 Log Output Format (--no-tui mode):
   [timestamp] [level] [component] message
