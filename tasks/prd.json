@@ -169,11 +169,12 @@
         "Show overall progress (stories done / total)",
         "Under 200 lines"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 3,
       "dependsOn": [
         "US-007"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-010",
@@ -294,14 +295,15 @@
         "Scheduler uses hints to adjust worker count per phase",
         "Under 100 lines for new heuristics code"
       ],
-      "passes": false,
+      "passes": true,
       "priority": 2,
       "dependsOn": [
         "US-004"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     }
   ],
   "metadata": {
-    "updatedAt": "2026-01-20T15:30:00.000Z"
+    "updatedAt": "2026-01-20T14:55:06.239Z"
   }
 }

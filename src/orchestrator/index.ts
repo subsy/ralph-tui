@@ -191,4 +191,4 @@ function countTasks(graph: DependencyGraph): number {
 }
 
 export { analyzePrd, createSchedule, WorkerManager };
-export type { OrchestratorConfig, OrchestratorEvent, Phase, DependencyGraph, AnalyzeOptions };
+export type { OrchestratorConfig, OrchestratorEvent, Phase, WorkerState, DependencyGraph, AnalyzeOptions };
