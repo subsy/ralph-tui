@@ -47,7 +47,7 @@ Extract:
 
 ## Output Format
 
-Beads use `bd create` command:
+Beads use `bd create` command with type distinction:
 
 ```bash
 # Create epic (link back to source PRD)
@@ -57,14 +57,33 @@ bd create --type=epic \
   --external-ref="prd:./tasks/feature-name-prd.md" \
   --labels="ralph,feature"
 
-# Create child bead (with quality gates in acceptance criteria)
-bd create \
+# Create user story (US-xxx) - user-facing features
+bd create --type=story \
   --parent=EPIC_ID \
-  --title="[Story Title]" \
-  --description="[Story description with acceptance criteria INCLUDING quality gates]" \
+  --title="US-xxx: [Story Title]" \
+  --description="As a [user], I want [feature] so that [benefit]..." \
+  --priority=[1-4] \
+  --labels="ralph,story"
+
+# Create task (T-xxx) - technical/implementation work
+bd create --type=task \
+  --parent=EPIC_ID \
+  --title="T-xxx: [Task Title]" \
+  --description="[Technical task description with implementation details]" \
   --priority=[1-4] \
   --labels="ralph,task"
 ```
+
+### When to Use Each Type
+
+| PRD Item | Bead Type | Title Format | Example |
+|----------|-----------|--------------|---------|
+| **User Story (US-xxx)** | `--type=story` | `US-xxx: Title` | "US-001: View investor details" |
+| **Functional Req (FR-xxx)** | `--type=task` | `T-xxx: Title` | "T-001: Add investorType column" |
+| **Technical Task** | `--type=task` | `T-xxx: Title` | "T-002: Set up database migration" |
+
+**User Stories (US-xxx):** User-facing features described as "As a [user], I want..."
+**Tasks (T-xxx):** Technical work, database changes, refactoring, infrastructure
 
 ---
 
@@ -157,14 +176,26 @@ Each bead's description should include acceptance criteria with:
 ## Conversion Rules
 
 1. **Extract Quality Gates** from PRD first
-2. **Each user story → one bead**
-3. **First story**: No dependencies (creates foundation)
-4. **Subsequent stories**: Depend on their predecessors (UI depends on backend, etc.)
+2. **Convert PRD items to appropriate bead types:**
+   - **User Stories (US-xxx)** → `--type=story` bead with `US-xxx:` prefix
+   - **Functional Requirements (FR-xxx)** → `--type=task` bead with `T-xxx:` prefix
+   - **Technical work** (database, migrations, infrastructure) → `--type=task`
+3. **First item**: No dependencies (creates foundation)
+4. **Subsequent items**: Depend on their predecessors (UI depends on backend, etc.)
 5. **Priority**: Based on dependency order, then document order (0=critical, 2=medium, 4=backlog)
-6. **Labels**: Epic gets `ralph,feature`; Tasks get `ralph,task`
-7. **All stories**: `status: "open"`
-8. **Acceptance criteria**: Story criteria + quality gates appended
-9. **UI stories**: Also append UI-specific gates (browser verification)
+6. **Labels**: Epic gets `ralph,feature`; Stories get `ralph,story`; Tasks get `ralph,task`
+7. **All items**: `status: "open"`
+8. **Acceptance criteria**: Item criteria + quality gates appended
+9. **UI items**: Also append UI-specific gates (browser verification)
+
+### FR-xxx to T-xxx Mapping
+
+Functional Requirements (FR-xxx) in PRDs are technical tasks, not user stories. Convert them:
+
+| PRD | Bead |
+|-----|------|
+| `FR-001: Add investorType column` | `T-001: Add investorType column` with `--type=task` |
+| `FR-002: Set up migration` | `T-002: Set up migration` with `--type=task` |
 
 ---
 
@@ -206,16 +237,18 @@ These commands must pass for every user story:
 For UI stories, also include:
 - Verify in browser using dev-browser skill
 
-## User Stories
+## Functional Requirements
 
-### US-001: Add investorType field to investor table
-**Description:** As a developer, I need to categorize investors as 'cold' or 'friend'.
+### FR-001: Add investorType column to database
+Add investorType column: 'cold' | 'friend' with default 'cold'.
 
 **Acceptance Criteria:**
-- [ ] Add investorType column: 'cold' | 'friend' (default 'cold')
+- [ ] Add investorType column to investor table
 - [ ] Generate and run migration successfully
 
-### US-002: Add type toggle to investor list rows
+## User Stories
+
+### US-001: Add type toggle to investor list rows
 **Description:** As Ryan, I want to toggle investor type directly from the list.
 
 **Acceptance Criteria:**
@@ -223,7 +256,7 @@ For UI stories, also include:
 - [ ] Switching shows confirmation dialog
 - [ ] On confirm: updates type in database
 
-### US-003: Filter investors by type
+### US-002: Filter investors by type
 **Description:** As Ryan, I want to filter the list to see just friends or cold.
 
 **Acceptance Criteria:**
@@ -240,22 +273,22 @@ bd create --type=epic \
   --external-ref="prd:./tasks/friends-outreach-prd.md" \
   --labels="ralph,feature"
 
-# US-001: No deps (first - creates schema)
-bd create --parent=ralph-tui-abc \
-  --title="US-001: Add investorType field to investor table" \
-  --description="As a developer, I need to categorize investors as 'cold' or 'friend'.
+# T-001: Technical task (FR-001 → T-001)
+bd create --type=task --parent=ralph-tui-abc \
+  --title="T-001: Add investorType column to database" \
+  --description="Add investorType column: 'cold' | 'friend' with default 'cold'.
 
 ## Acceptance Criteria
-- [ ] Add investorType column: 'cold' | 'friend' (default 'cold')
+- [ ] Add investorType column to investor table
 - [ ] Generate and run migration successfully
 - [ ] pnpm typecheck passes
 - [ ] pnpm lint passes" \
   --priority=1 \
   --labels="ralph,task"
 
-# US-002: UI story (gets browser verification too)
-bd create --parent=ralph-tui-abc \
-  --title="US-002: Add type toggle to investor list rows" \
+# US-001: User story with UI (gets browser verification too)
+bd create --type=story --parent=ralph-tui-abc \
+  --title="US-001: Add type toggle to investor list rows" \
   --description="As Ryan, I want to toggle investor type directly from the list.
 
 ## Acceptance Criteria
@@ -266,14 +299,14 @@ bd create --parent=ralph-tui-abc \
 - [ ] pnpm lint passes
 - [ ] Verify in browser using dev-browser skill" \
   --priority=2 \
-  --labels="ralph,task"
+  --labels="ralph,story"
 
-# Add dependency: US-002 depends on US-001
+# Add dependency: US-001 depends on T-001 (UI needs schema first)
 bd dep add ralph-tui-002 ralph-tui-001
 
-# US-003: UI story
-bd create --parent=ralph-tui-abc \
-  --title="US-003: Filter investors by type" \
+# US-002: User story with UI
+bd create --type=story --parent=ralph-tui-abc \
+  --title="US-002: Filter investors by type" \
   --description="As Ryan, I want to filter the list to see just friends or cold.
 
 ## Acceptance Criteria
@@ -283,9 +316,9 @@ bd create --parent=ralph-tui-abc \
 - [ ] pnpm lint passes
 - [ ] Verify in browser using dev-browser skill" \
   --priority=3 \
-  --labels="ralph,task"
+  --labels="ralph,story"
 
-# Add dependency: US-003 depends on US-002
+# Add dependency: US-002 depends on US-001
 bd dep add ralph-tui-003 ralph-tui-002
 ```
 

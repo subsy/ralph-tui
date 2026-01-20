@@ -58,12 +58,12 @@ The JSON file MUST be a FLAT object at the root level:
   "description": "[Feature description from PRD]",
   "userStories": [
     {
-      "id": "US-001",
-      "title": "[Story title]",
-      "description": "As a [user], I want [feature] so that [benefit]",
+      "id": "T-001",
+      "type": "task",
+      "title": "[Technical task title]",
+      "description": "Technical task description...",
       "acceptanceCriteria": [
         "Criterion 1 from PRD",
-        "Criterion 2 from PRD",
         "pnpm typecheck passes",
         "pnpm lint passes"
       ],
@@ -73,11 +73,13 @@ The JSON file MUST be a FLAT object at the root level:
       "dependsOn": []
     },
     {
-      "id": "US-002",
-      "title": "[UI Story that depends on US-001]",
-      "description": "...",
+      "id": "US-001",
+      "type": "story",
+      "title": "[Story title]",
+      "description": "As a [user], I want [feature] so that [benefit]",
       "acceptanceCriteria": [
-        "...",
+        "Criterion 1 from PRD",
+        "Criterion 2 from PRD",
         "pnpm typecheck passes",
         "pnpm lint passes",
         "Verify in browser using dev-browser skill"
@@ -85,11 +87,20 @@ The JSON file MUST be a FLAT object at the root level:
       "priority": 2,
       "passes": false,
       "notes": "",
-      "dependsOn": ["US-001"]
+      "dependsOn": ["T-001"]
     }
   ]
 }
 ```
+
+### Task Types
+
+| PRD Item | ID Format | Type | Description |
+|----------|-----------|------|-------------|
+| **User Story (US-xxx)** | `US-001` | `"story"` | User-facing features: "As a [user], I want..." |
+| **Functional Req (FR-xxx)** | `T-001` | `"task"` | Technical work: database, migrations, refactoring |
+
+The `type` field is optional (defaults to `"story"`) but recommended for clarity.
 
 ---
 
@@ -232,14 +243,17 @@ Each story's acceptance criteria should include:
 ## Conversion Rules
 
 1. **Extract Quality Gates** from PRD first
-2. **Each user story → one JSON entry**
-3. **IDs**: Sequential (US-001, US-002, etc.)
+2. **Convert PRD items to appropriate types:**
+   - **User Stories (US-xxx)** → `id: "US-xxx"`, `type: "story"`
+   - **Functional Requirements (FR-xxx)** → `id: "T-xxx"`, `type: "task"`
+   - **Technical work** → `id: "T-xxx"`, `type: "task"`
+3. **IDs**: Sequential within type (T-001, T-002 for tasks; US-001, US-002 for stories)
 4. **Priority**: Based on dependency order (1 = highest)
-5. **dependsOn**: Array of story IDs this story requires
-6. **All stories**: `passes: false` and empty `notes`
+5. **dependsOn**: Array of item IDs this item requires
+6. **All items**: `passes: false` and empty `notes`
 7. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
-8. **Acceptance criteria**: Story criteria + quality gates appended
-9. **UI stories**: Also append UI-specific gates (browser verification)
+8. **Acceptance criteria**: Item criteria + quality gates appended
+9. **UI items**: Also append UI-specific gates (browser verification)
 
 ---
 
