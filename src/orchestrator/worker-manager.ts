@@ -7,6 +7,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import type { WorkerState, WorkerStatus, OrchestratorEvent } from './types.js';
 import { runProcess } from '../utils/process.js';
+import { withCommitLock } from './commit-lock.js';
 
 export interface WorkerConfig {
   cwd: string;
@@ -48,7 +49,7 @@ export class WorkerManager extends EventEmitter {
   async spawnWorker(taskId: string): Promise<string> {
     const id = `worker-${++this.workerCounter}`;
 
-    const args = ['run', '--task', taskId, '--no-notify'];
+    const args = ['run', '--task', taskId, '--no-notify', '--no-git-write'];
     if (this.config.headless) args.push('--headless');
     if (this.config.workerArgs) args.push(...this.config.workerArgs);
 
@@ -82,9 +83,21 @@ export class WorkerManager extends EventEmitter {
     });
 
     proc.on('close', (code) => {
-      const status: WorkerStatus = code === 0 ? 'completed' : 'failed';
-      this.updateState(worker, status, code !== 0 ? `Exit code ${code}` : undefined);
-      this.workers.delete(id);
+      if (code === 0) {
+        this.commitChanges(worker).then(
+          () => {
+            this.updateState(worker, 'completed');
+            this.workers.delete(id);
+          },
+          (err) => {
+            this.updateState(worker, 'failed', `Commit failed: ${err}`);
+            this.workers.delete(id);
+          }
+        );
+      } else {
+        this.updateState(worker, 'failed', `Exit code ${code}`);
+        this.workers.delete(id);
+      }
     });
   }
 
@@ -104,6 +117,35 @@ export class WorkerManager extends EventEmitter {
         taskId: worker.taskId,
       });
     }
+  }
+
+  private async commitChanges(worker: ManagedWorker): Promise<void> {
+    const { cwd } = this.config;
+    const { taskId } = worker;
+
+    await withCommitLock(cwd, async () => {
+      // Check if there are changes to commit
+      const statusResult = await runProcess('git', ['status', '--porcelain'], { cwd });
+      if (!statusResult.success || !statusResult.stdout.trim()) {
+        return; // No changes to commit
+      }
+
+      // Stage all changes
+      const addResult = await runProcess('git', ['add', '-A'], { cwd });
+      if (!addResult.success) {
+        throw new Error(`git add failed: ${addResult.stderr}`);
+      }
+
+      // Commit with task ID in message
+      const commitResult = await runProcess(
+        'git',
+        ['commit', '-m', `feat(${taskId}): complete task ${taskId}`],
+        { cwd }
+      );
+      if (!commitResult.success) {
+        throw new Error(`git commit failed: ${commitResult.stderr}`);
+      }
+    });
   }
 
   private updateState(worker: ManagedWorker, status: WorkerStatus, error?: string): void {
