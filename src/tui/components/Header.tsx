@@ -18,6 +18,9 @@ const SANDBOX_ICON = '🔒';
 /** Remote indicator icon */
 const REMOTE_ICON = '🌐';
 
+/** Orchestration mode indicator icon */
+const ORCHESTRATE_ICON = '⚡';
+
 /**
  * Truncate text to fit within a given width, adding ellipsis if needed
  */
@@ -179,6 +182,7 @@ export function Header({
   currentModel,
   sandboxConfig,
   remoteInfo,
+  orchestrationEnabled,
 }: HeaderProps): ReactNode {
   const statusDisplay = getStatusDisplay(status);
   const formattedTime = formatElapsedTime(elapsedTime);
@@ -254,12 +258,16 @@ export function Header({
 
         {/* Right section: Agent/Tracker + Model + Sandbox + Progress (X/Y) with mini bar + elapsed time */}
         <box style={{ flexDirection: 'row', gap: 2, alignItems: 'center' }}>
-          {/* Agent, model, tracker, and sandbox indicators */}
-          {(agentDisplay.displayName || trackerName || modelDisplay || sandboxDisplay) && (
+          {/* Agent, model, tracker, sandbox, and orchestration indicators */}
+          {(agentDisplay.displayName || trackerName || modelDisplay || sandboxDisplay || orchestrationEnabled) && (
             <text fg={colors.fg.muted}>
               {agentDisplay.showRateLimitIcon && (
                 <span fg={colors.status.warning}>{RATE_LIMIT_ICON} </span>
               )}
+              {orchestrationEnabled && (
+                <span fg={colors.status.success}>{ORCHESTRATE_ICON} Orchestrate</span>
+              )}
+              {orchestrationEnabled && (agentDisplay.displayName || trackerName || modelDisplay || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
               {agentDisplay.displayName && (
                 <span fg={agentDisplay.color}>{agentDisplay.displayName}</span>
               )}
