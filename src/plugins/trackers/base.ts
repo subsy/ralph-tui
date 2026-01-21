@@ -298,6 +298,11 @@ When finished, signal completion with:
       result = result.filter((t) => !excludeSet.has(t.id));
     }
 
+    // Filter by single task ID
+    if (filter.taskId) {
+      result = result.filter((t) => t.id === filter.taskId);
+    }
+
     // Filter to ready tasks (no unresolved dependencies)
     if (filter.ready) {
       result = result.filter((t) => this.checkTaskReady(t, tasks));

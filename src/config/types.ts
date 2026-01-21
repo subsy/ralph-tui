@@ -139,6 +139,12 @@ export interface RuntimeOptions {
   notify?: boolean;
 
   sandbox?: SandboxConfig;
+
+  /** Single task ID to run */
+  taskId?: string;
+
+  /** Skip git write operations (add, commit, push) - used by orchestrator workers */
+  noGitWrite?: boolean;
 }
 
 /**
@@ -276,6 +282,12 @@ export interface RalphConfig {
 
   /** Custom prompt template path (resolved) */
   promptTemplate?: string;
+
+  /** Single task ID to run */
+  taskId?: string;
+
+  /** Skip git write operations (add, commit, push) - used by orchestrator workers */
+  noGitWrite?: boolean;
 }
 
 /**

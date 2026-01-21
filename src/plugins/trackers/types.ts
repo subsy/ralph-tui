@@ -179,6 +179,9 @@ export interface TaskFilter {
 
   /** Exclude tasks with these IDs (used by engine to skip failed tasks) */
   excludeIds?: string[];
+
+  /** Filter by single task ID */
+  taskId?: string;
 }
 
 /**

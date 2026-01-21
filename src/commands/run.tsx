@@ -131,6 +131,8 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   listenPort?: number;
   /** Rotate server token before starting listener */
   rotateToken?: boolean;
+  /** Skip git write operations (add, commit, push) - used by orchestrator */
+  noGitWrite?: boolean;
 }
 
 /**
@@ -296,6 +298,10 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         options.notify = false;
         break;
 
+      case '--no-git-write':
+        options.noGitWrite = true;
+        break;
+
       case '--verify':
         options.verify = true;
         break;
@@ -318,6 +324,14 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--rotate-token':
         options.rotateToken = true;
         break;
+
+      case '--task':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.taskId = nextArg;
+          i++;
+        }
+        break;
+
     }
   }
 
@@ -362,6 +376,8 @@ Options:
   --listen            Enable remote listener (implies --headless)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
+  --task <id>           Run a single task by ID
+  --no-git-write        Skip git write operations (add, commit, push)
 
 Log Output Format (--no-tui mode):
   [timestamp] [level] [component] message

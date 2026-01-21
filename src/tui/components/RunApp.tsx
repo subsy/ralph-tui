@@ -52,6 +52,8 @@ import { platform } from 'node:os';
 import { writeToClipboard } from '../../utils/index.js';
 import { StreamingOutputParser } from '../output-parser.js';
 import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
+import { WorkerManager } from '../../orchestrator/worker-manager.js';
+import { analyzeTrackerTasks } from '../../orchestrator/tracker-adapter.js';
 
 /**
  * View modes for the RunApp component
@@ -488,6 +490,10 @@ export function RunApp({
   // Rate limit state from engine - tracks primary agent rate limiting
   const [rateLimitState, setRateLimitState] = useState<RateLimitState | null>(null);
 
+  // Orchestration mode state - when enabled, spawns parallel workers for tasks
+  const [orchestrationEnabled, setOrchestrationEnabled] = useState(false);
+  const [workerManager, setWorkerManager] = useState<WorkerManager | null>(null);
+
   // Remote viewing state
   const isViewingRemote = selectedTabIndex > 0;
   const [remoteTasks, setRemoteTasks] = useState<TaskItem[]>([]);
@@ -896,6 +902,113 @@ export function RunApp({
       outputParserRef.current.setAgentPlugin(agentName);
     }
   }, [agentName]);
+
+  // Orchestration mode effect - spawns parallel workers when enabled
+  useEffect(() => {
+    if (!orchestrationEnabled || !initialTasks || initialTasks.length === 0) {
+      // Clean up existing workers when disabled
+      if (workerManager) {
+        workerManager.killAll();
+        setWorkerManager(null);
+      }
+      return;
+    }
+
+    // Analyze tasks and start workers with DAG scheduling
+    const startOrchestration = async () => {
+      const graph = await analyzeTrackerTasks(initialTasks);
+
+      if (graph.nodes.size === 0) {
+        setOrchestrationEnabled(false);
+        return;
+      }
+
+      const manager = new WorkerManager({
+        cwd,
+        headless: true,
+        workerArgs: [],
+      });
+
+      setWorkerManager(manager);
+
+      // DAG scheduling state
+      const pending = new Set<string>(graph.nodes.keys());
+      const completed = new Set<string>();
+      const running = new Map<string, string>(); // workerId -> taskId
+
+      const getAllDeps = (taskId: string): string[] => {
+        const node = graph.nodes.get(taskId);
+        if (!node) return [];
+        return [...new Set([...node.explicitDeps, ...node.implicitDeps])];
+      };
+
+      const getReady = (): string[] => {
+        const ready: string[] = [];
+        for (const taskId of pending) {
+          if (getAllDeps(taskId).every((d) => completed.has(d))) {
+            ready.push(taskId);
+          }
+        }
+        return ready;
+      };
+
+      const scheduleReady = async (): Promise<void> => {
+        const ready = getReady();
+        for (const taskId of ready) {
+          pending.delete(taskId);
+          const workerId = await manager.spawnWorker(taskId);
+          running.set(workerId, taskId);
+        }
+      };
+
+      // Subscribe to worker events
+      manager.on('worker:progress', (event: { workerId: string; currentTaskId?: string }) => {
+        if (event.currentTaskId) {
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === event.currentTaskId ? { ...t, status: 'active' as TaskStatus } : t
+            )
+          );
+        }
+      });
+
+      manager.on('worker:completed', (event: { workerId: string }) => {
+        const taskId = running.get(event.workerId);
+        if (taskId) {
+          running.delete(event.workerId);
+          completed.add(taskId);
+        }
+        engine.refreshTasks();
+        scheduleReady();
+      });
+
+      manager.on('worker:failed', (event: { workerId: string }) => {
+        const taskId = running.get(event.workerId);
+        if (taskId) {
+          running.delete(event.workerId);
+          // Don't add to completed - dependent tasks won't run
+        }
+        engine.refreshTasks();
+        scheduleReady();
+      });
+
+      // Initial sync and spawn ready tasks
+      await manager.syncBeforeWork();
+      await scheduleReady();
+    };
+
+    startOrchestration().catch((err) => {
+      console.error('Orchestration failed to start:', err);
+      setOrchestrationEnabled(false);
+    });
+
+    // Cleanup on unmount or when disabled
+    return () => {
+      if (workerManager) {
+        workerManager.killAll();
+      }
+    };
+  }, [orchestrationEnabled, initialTasks, cwd, engine]);
 
   // Subscribe to engine events
   useEffect(() => {
@@ -1324,6 +1437,14 @@ export function RunApp({
           break;
 
         case 'p':
+          // Shift+P: Toggle orchestration mode (parallel worker execution)
+          if (key.sequence === 'P') {
+            // Only allow toggling in ready state, and only for local (not remote)
+            if (!isViewingRemote && status === 'ready' && initialTasks && initialTasks.length > 0) {
+              setOrchestrationEnabled((prev) => !prev);
+            }
+            break;
+          }
           // Toggle pause/resume
           // When running/executing/selecting, pause will transition to pausing, then to paused
           // When pausing, pressing p again will cancel the pause request
@@ -2260,6 +2381,7 @@ export function RunApp({
               }
             : undefined
         }
+        orchestrationEnabled={orchestrationEnabled}
       />
 
       {/* Progress Dashboard - toggleable with 'd' key */}

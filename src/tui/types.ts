@@ -111,6 +111,8 @@ export interface HeaderProps {
     host: string;
     port: number;
   };
+  /** Whether orchestration mode is enabled (parallel worker execution) */
+  orchestrationEnabled?: boolean;
 }
 
 /**
