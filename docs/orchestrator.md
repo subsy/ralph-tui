@@ -38,7 +38,7 @@ ralph-tui orchestrate --prd ./prd.json --remote my-server
 
 1. **Analyzer** - Scans PRD for dependencies (explicit `dependsOn` + implicit file conflicts)
 2. **Scheduler** - Creates execution phases respecting dependencies
-3. **Workers** - Spawns ralph-tui processes with `--task-range` for parallel execution
+3. **Workers** - Spawns ralph-tui processes with `--task <id>` for parallel execution
 
 ## CLI Options
 
@@ -268,7 +268,7 @@ When using `--remote`, the orchestrator communicates via WebSocket:
 4. Create execution phases (topological sort)
 5. For each phase:
    - Git sync (`git pull --rebase`)
-   - Spawn workers with `--task-range`
+   - Spawn workers with `--task <id>`
    - Wait for completion (parallel or sequential)
 6. Report results
 
@@ -277,7 +277,7 @@ When using `--remote`, the orchestrator communicates via WebSocket:
 Workers are spawned as separate `ralph-tui run` processes:
 
 ```bash
-ralph-tui run --task-range US-001:US-003 --headless
+ralph-tui run --task US-001 --headless
 ```
 
 The orchestrator monitors stdout for progress:

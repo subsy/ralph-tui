@@ -420,7 +420,7 @@ ralph-tui orchestrate --prd ./prd.json --remote my-server
 
 1. **Analyze** - Scans PRD for explicit `dependsOn` and implicit file-based dependencies
 2. **Schedule** - Groups independent stories into parallel execution phases
-3. **Execute** - Spawns workers with `--task-range` for parallel processing
+3. **Execute** - Spawns workers with `--task <id>` for parallel processing
 4. **Coordinate** - Workers sync via git between phases
 
 ### PRD Format for Parallelism

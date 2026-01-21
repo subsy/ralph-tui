@@ -81,7 +81,8 @@ Run Options:
   --listen            Enable remote listener (WebSocket server)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
-  --task-range <from>:<to>  Filter tasks by ID range (inclusive)
+  --task <id>         Run a single task by ID (used by workers)
+  --no-git-write      Disable git add/commit/push in agent
 
 Resume Options:
   --cwd <path>        Working directory

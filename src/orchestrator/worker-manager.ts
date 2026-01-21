@@ -48,7 +48,7 @@ export class WorkerManager extends EventEmitter {
   async spawnWorker(taskId: string): Promise<string> {
     const id = `worker-${++this.workerCounter}`;
 
-    const args = ['run', '--task-range', `${taskId}:${taskId}`, '--no-notify'];
+    const args = ['run', '--task', taskId, '--no-notify'];
     if (this.config.headless) args.push('--headless');
     if (this.config.workerArgs) args.push(...this.config.workerArgs);
 

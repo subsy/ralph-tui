@@ -140,8 +140,11 @@ export interface RuntimeOptions {
 
   sandbox?: SandboxConfig;
 
-  /** Filter tasks by ID range (from:to, inclusive, lexicographic) */
-  taskRange?: { from: string; to: string };
+  /** Single task ID to run */
+  taskId?: string;
+
+  /** Skip git write operations (add, commit, push) - used by orchestrator workers */
+  noGitWrite?: boolean;
 }
 
 /**
@@ -280,8 +283,11 @@ export interface RalphConfig {
   /** Custom prompt template path (resolved) */
   promptTemplate?: string;
 
-  /** Filter tasks by ID range (from:to, inclusive, lexicographic) */
-  taskRange?: { from: string; to: string };
+  /** Single task ID to run */
+  taskId?: string;
+
+  /** Skip git write operations (add, commit, push) - used by orchestrator workers */
+  noGitWrite?: boolean;
 }
 
 /**

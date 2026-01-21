@@ -577,8 +577,10 @@ export async function buildConfig(
     sandbox,
     // CLI --prompt takes precedence over config file prompt_template
     promptTemplate: options.promptPath ?? storedConfig.prompt_template,
-    // Task range filter from CLI
-    taskRange: options.taskRange,
+    // Single task ID from CLI
+    taskId: options.taskId,
+    // Skip git write operations (for orchestrator workers)
+    noGitWrite: options.noGitWrite,
   };
 }
 

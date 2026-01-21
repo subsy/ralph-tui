@@ -97,7 +97,14 @@ async function buildPrompt(
   const result = renderPrompt(task, config, undefined, extendedContext, trackerTemplate);
 
   if (result.success && result.prompt) {
-    return result.prompt;
+    let prompt = result.prompt;
+
+    // Append no-git-write instruction if flag is set
+    if (config.noGitWrite) {
+      prompt += `\n\n## Git Instructions\n**IMPORTANT:** Do NOT run any git write operations (git add, git commit, git push). You may use git read operations (git status, git log, git diff) for information. The orchestrator will handle all git commits.`;
+    }
+
+    return prompt;
   }
 
   // Log template error and fall back to simple format
@@ -119,6 +126,13 @@ async function buildPrompt(
   lines.push('## Instructions');
   lines.push('Complete the task described above. When finished, signal completion with:');
   lines.push('<promise>COMPLETE</promise>');
+
+  // Append no-git-write instruction if flag is set
+  if (config.noGitWrite) {
+    lines.push('');
+    lines.push('## Git Instructions');
+    lines.push('**IMPORTANT:** Do NOT run any git write operations (git add, git commit, git push). You may use git read operations (git status, git log, git diff) for information. The orchestrator will handle all git commits.');
+  }
 
   return lines.join('\n');
 }
@@ -539,7 +553,7 @@ export class ExecutionEngine {
     const task = await this.tracker!.getNextTask({
       status: ['open', 'in_progress'],
       excludeIds: excludeIds.length > 0 ? excludeIds : undefined,
-      idRange: this.config.taskRange,
+      taskId: this.config.taskId,
     });
 
     return task ?? null;
