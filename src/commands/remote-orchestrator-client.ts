@@ -57,7 +57,7 @@ export class RemoteOrchestratorClient {
   /**
    * Start orchestration on the remote and wait for completion.
    */
-  async runOrchestration(prdPath: string, maxWorkers: number): Promise<OrchestrationResult> {
+  async runOrchestration(prdPath: string, maxWorkers?: number): Promise<OrchestrationResult> {
     // Subscribe to events first
     await this.client.subscribe();
 
@@ -176,18 +176,11 @@ export class RemoteOrchestratorClient {
 
   private handleOrchestratorEvent(event: OrchestratorEvent): void {
     switch (event.type) {
-      case 'phase:started':
-        this.log(`Phase ${event.phaseIndex + 1}/${event.totalPhases}: ${event.phaseName}`);
-        break;
-      case 'phase:completed':
-        this.log(`Phase ${event.phaseIndex + 1} completed`);
-        break;
       case 'worker:started':
-        this.log(`Worker ${event.workerId}: ${event.range.from} → ${event.range.to}`);
+        this.log(`Worker ${event.workerId}: ${event.taskId}`);
         break;
       case 'worker:progress':
         if (!this.headless) {
-          // Only show progress in non-headless mode to avoid spam
           process.stdout.write(`\rWorker ${event.workerId}: ${event.progress}%`);
         }
         break;

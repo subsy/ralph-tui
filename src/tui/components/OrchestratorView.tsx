@@ -1,22 +1,18 @@
 /**
  * ABOUTME: TUI component for monitoring multi-agent orchestration.
- * Displays phase progress, worker status, and live output from selected worker.
+ * Displays worker status and live output from selected worker.
  */
 
 import type { ReactNode } from 'react';
 import { colors, statusIndicators } from '../theme.js';
-import type { WorkerState, Phase } from '../../orchestrator/types.js';
+import type { WorkerState } from '../../orchestrator/types.js';
 
 export interface OrchestratorViewProps {
-  currentPhase?: Phase;
-  phaseIndex: number;
-  totalPhases: number;
   workers: WorkerState[];
   selectedWorkerIndex: number;
   selectedWorkerOutput?: string;
   totalStories: number;
   completedStories: number;
-  onSelectWorker?: (index: number) => void;
 }
 
 function getWorkerIcon(status: WorkerState['status']): string {
@@ -44,8 +40,7 @@ function getWorkerColor(status: WorkerState['status']): string {
 function WorkerRow({ worker, isSelected }: { worker: WorkerState; isSelected: boolean }): ReactNode {
   const icon = getWorkerIcon(worker.status);
   const color = getWorkerColor(worker.status);
-  const range = `${worker.range.from}→${worker.range.to}`;
-  const task = worker.currentTaskId ? ` [${worker.currentTaskId}]` : '';
+  const task = worker.taskId;
   const pct = worker.status === 'running' ? ` ${worker.progress}%` : '';
 
   return (
@@ -53,8 +48,7 @@ function WorkerRow({ worker, isSelected }: { worker: WorkerState; isSelected: bo
       <text>
         <span fg={color}>{icon}</span>
         <span fg={colors.fg.secondary}> {worker.id}</span>
-        <span fg={colors.fg.muted}> ({range})</span>
-        {task && <span fg={colors.accent.tertiary}>{task}</span>}
+        <span fg={colors.accent.tertiary}> [{task}]</span>
         {pct && <span fg={colors.status.info}>{pct}</span>}
         {worker.error && <span fg={colors.status.error}> {worker.error.slice(0, 30)}</span>}
       </text>
@@ -62,20 +56,21 @@ function WorkerRow({ worker, isSelected }: { worker: WorkerState; isSelected: bo
   );
 }
 
-function PhaseHeader({ currentPhase, phaseIndex, totalPhases, totalStories, completedStories }: {
-  currentPhase?: Phase; phaseIndex: number; totalPhases: number; totalStories: number; completedStories: number;
+function ProgressHeader({ workers, totalStories, completedStories }: {
+  workers: WorkerState[]; totalStories: number; completedStories: number;
 }): ReactNode {
-  const name = currentPhase?.name ?? 'No active phase';
+  const running = workers.filter((w) => w.status === 'running').length;
+  const failed = workers.filter((w) => w.status === 'failed').length;
   const pct = totalStories > 0 ? Math.round((completedStories / totalStories) * 100) : 0;
-  const mode = currentPhase?.parallel ? '⫘' : '→';
 
   return (
     <box style={{ width: '100%', backgroundColor: colors.bg.secondary, padding: 1, border: true, borderColor: colors.border.normal, flexDirection: 'column' }}>
       <box style={{ flexDirection: 'row' }}>
         <text>
-          <span fg={colors.accent.primary}>Phase {phaseIndex + 1}/{totalPhases}:</span>
-          <span fg={colors.fg.primary}> {name}</span>
-          <span fg={colors.fg.muted}> {mode}</span>
+          <span fg={colors.accent.primary}>Orchestrator</span>
+          <span fg={colors.fg.muted}> — </span>
+          <span fg={colors.status.info}>{running} running</span>
+          {failed > 0 && <span fg={colors.status.error}>, {failed} failed</span>}
         </text>
       </box>
       <box><text fg={colors.fg.secondary}>Progress: {completedStories}/{totalStories} ({pct}%)</text></box>
@@ -125,13 +120,13 @@ function WorkerOutput({ worker, output }: { worker?: WorkerState; output?: strin
 }
 
 export function OrchestratorView({
-  currentPhase, phaseIndex, totalPhases, workers, selectedWorkerIndex, selectedWorkerOutput, totalStories, completedStories,
+  workers, selectedWorkerIndex, selectedWorkerOutput, totalStories, completedStories,
 }: OrchestratorViewProps): ReactNode {
   const selected = workers[selectedWorkerIndex];
 
   return (
     <box style={{ flexDirection: 'column', flexGrow: 1, backgroundColor: colors.bg.primary }}>
-      <PhaseHeader currentPhase={currentPhase} phaseIndex={phaseIndex} totalPhases={totalPhases} totalStories={totalStories} completedStories={completedStories} />
+      <ProgressHeader workers={workers} totalStories={totalStories} completedStories={completedStories} />
       <box style={{ flexDirection: 'row', flexGrow: 1 }}>
         <WorkerList workers={workers} selectedIndex={selectedWorkerIndex} width={45} />
         <WorkerOutput worker={selected} output={selectedWorkerOutput} />

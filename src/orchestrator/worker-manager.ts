@@ -5,7 +5,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import type { IdRange, WorkerState, WorkerStatus, OrchestratorEvent } from './types.js';
+import type { WorkerState, WorkerStatus, OrchestratorEvent } from './types.js';
 import { runProcess } from '../utils/process.js';
 
 export interface WorkerConfig {
@@ -16,17 +16,13 @@ export interface WorkerConfig {
 
 interface ManagedWorker {
   id: string;
-  range: IdRange;
+  taskId: string;
   process: ChildProcess;
   state: WorkerState;
 }
 
-function formatRange(range: IdRange): string {
-  return `${range.from}:${range.to}`;
-}
-
-function createWorkerState(id: string, range: IdRange, status: WorkerStatus): WorkerState {
-  return { id, range, status, progress: 0 };
+function createWorkerState(id: string, taskId: string, status: WorkerStatus): WorkerState {
+  return { id, taskId, status, progress: 0 };
 }
 
 async function gitSync(cwd: string): Promise<{ ok: boolean; error?: string }> {
@@ -49,11 +45,10 @@ export class WorkerManager extends EventEmitter {
     super.emit(event.type, event);
   }
 
-  async spawnWorker(range: IdRange): Promise<string> {
+  async spawnWorker(taskId: string): Promise<string> {
     const id = `worker-${++this.workerCounter}`;
-    const rangeArg = formatRange(range);
 
-    const args = ['run', '--task-range', rangeArg, '--no-notify'];
+    const args = ['run', '--task-range', `${taskId}:${taskId}`, '--no-notify'];
     if (this.config.headless) args.push('--headless');
     if (this.config.workerArgs) args.push(...this.config.workerArgs);
 
@@ -62,11 +57,11 @@ export class WorkerManager extends EventEmitter {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    const state = createWorkerState(id, range, 'running');
-    const worker: ManagedWorker = { id, range, process: proc, state };
+    const state = createWorkerState(id, taskId, 'running');
+    const worker: ManagedWorker = { id, taskId, process: proc, state };
     this.workers.set(id, worker);
 
-    this.emitEvent({ type: 'worker:started', workerId: id, range });
+    this.emitEvent({ type: 'worker:started', workerId: id, taskId });
     this.attachListeners(worker);
     return id;
   }
@@ -95,24 +90,18 @@ export class WorkerManager extends EventEmitter {
 
   private handleOutput(worker: ManagedWorker, text: string): void {
     const prevProgress = worker.state.progress;
-    const prevTask = worker.state.currentTaskId;
 
     const progressMatch = text.match(/progress[:\s]+(\d+)/i);
     if (progressMatch) {
       worker.state.progress = parseInt(progressMatch[1], 10);
     }
-    const taskMatch = text.match(/task[:\s]+(US-\d+)/i);
-    if (taskMatch) {
-      worker.state.currentTaskId = taskMatch[1];
-    }
 
-    // Only emit if something changed
-    if (worker.state.progress !== prevProgress || worker.state.currentTaskId !== prevTask) {
+    if (worker.state.progress !== prevProgress) {
       this.emitEvent({
         type: 'worker:progress',
         workerId: worker.id,
         progress: worker.state.progress,
-        currentTaskId: worker.state.currentTaskId,
+        taskId: worker.taskId,
       });
     }
   }

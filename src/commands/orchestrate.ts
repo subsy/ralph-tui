@@ -9,7 +9,7 @@ import { runRemoteOrchestration } from './remote-orchestrate.js';
 
 interface OrchestrateOptions {
   prdPath?: string;
-  maxWorkers: number;
+  maxWorkers?: number;
   headless: boolean;
   cwd: string;
   remote?: string;
@@ -20,7 +20,6 @@ interface OrchestrateOptions {
  */
 export function parseOrchestrateArgs(args: string[]): OrchestrateOptions {
   const options: OrchestrateOptions = {
-    maxWorkers: 4,
     headless: false,
     cwd: process.cwd(),
   };
@@ -82,7 +81,7 @@ Usage: ralph-tui orchestrate [options]
 
 Options:
   --prd <path>          PRD file path (required)
-  --max-workers <n>     Maximum parallel workers (default: 4)
+  --max-workers <n>     Limit parallel workers (default: unlimited)
   --headless            Run without TUI, output structured logs
   --cwd <path>          Working directory (default: current)
   --remote <alias>      Run orchestration on a remote instance
@@ -94,13 +93,12 @@ Exit Codes:
 
 Description:
   Orchestrate analyzes the PRD, detects dependencies between stories,
-  and runs multiple ralph-tui workers in parallel when safe.
-
-  Each worker processes a range of tasks and coordinates via git.
+  and runs multiple ralph-tui workers in parallel as soon as their
+  dependencies complete.
 
 Examples:
   ralph-tui orchestrate --prd ./prd.json
-  ralph-tui orchestrate --prd ./prd.json --max-workers 2
+  ralph-tui orchestrate --prd ./prd.json --max-workers 4
   ralph-tui orchestrate --prd ./prd.json --headless
   ralph-tui orchestrate --prd ./prd.json --remote my-server
 `);
@@ -110,9 +108,7 @@ Examples:
  * Create structured logger for headless orchestration output
  */
 function createOrchestratorLogger(): {
-  phaseStarted: (name: string, index: number, total: number) => void;
-  phaseCompleted: (name: string, index: number) => void;
-  workerStarted: (id: string, from: string, to: string) => void;
+  workerStarted: (id: string, taskId: string) => void;
   workerProgress: (id: string, progress: number, taskId?: string) => void;
   workerCompleted: (id: string) => void;
   workerFailed: (id: string, error: string) => void;
@@ -123,14 +119,8 @@ function createOrchestratorLogger(): {
   const baseLogger = createStructuredLogger();
 
   return {
-    phaseStarted: (name, index, total) => {
-      baseLogger.info('engine', `Phase ${index + 1}/${total}: ${name}`);
-    },
-    phaseCompleted: (name, index) => {
-      baseLogger.info('engine', `Phase ${index + 1} completed: ${name}`);
-    },
-    workerStarted: (id, from, to) => {
-      baseLogger.info('agent', `Worker ${id} started: tasks ${from} to ${to}`);
+    workerStarted: (id, taskId) => {
+      baseLogger.info('agent', `Worker ${id} started: ${taskId}`);
     },
     workerProgress: (id, progress, taskId) => {
       const taskInfo = taskId ? ` (${taskId})` : '';
@@ -193,7 +183,7 @@ async function runHeadless(orchestrator: Orchestrator, config: OrchestratorConfi
   const logger = createOrchestratorLogger();
 
   logger.info(`Starting orchestration: ${config.prdPath}`);
-  logger.info(`Max workers: ${config.maxWorkers}`);
+  logger.info(`Max workers: ${config.maxWorkers ?? 'unlimited'}`);
 
   subscribeToEvents(orchestrator, logger);
 
@@ -220,7 +210,7 @@ async function runWithProgress(orchestrator: Orchestrator, config: OrchestratorC
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('');
   console.log(`  PRD:           ${config.prdPath}`);
-  console.log(`  Max Workers:   ${config.maxWorkers}`);
+  console.log(`  Max Workers:   ${config.maxWorkers ?? 'unlimited'}`);
   console.log(`  Working Dir:   ${config.cwd}`);
   console.log('');
 
@@ -232,7 +222,6 @@ async function runWithProgress(orchestrator: Orchestrator, config: OrchestratorC
     console.log('');
     console.log('───────────────────────────────────────────────────────────────');
     console.log(`  Orchestration complete`);
-    console.log(`  Phases: ${result.phases}`);
     console.log(`  Completed: ${result.completed}`);
     console.log(`  Failed: ${result.failed}`);
     console.log('───────────────────────────────────────────────────────────────');
@@ -250,27 +239,15 @@ function subscribeToEvents(
   orchestrator: Orchestrator,
   logger: ReturnType<typeof createOrchestratorLogger>
 ): void {
-  orchestrator.on('phase:started', (event: OrchestratorEvent) => {
-    if (event.type === 'phase:started') {
-      logger.phaseStarted(event.phaseName, event.phaseIndex, event.totalPhases);
-    }
-  });
-
-  orchestrator.on('phase:completed', (event: OrchestratorEvent) => {
-    if (event.type === 'phase:completed') {
-      logger.phaseCompleted(event.phaseName, event.phaseIndex);
-    }
-  });
-
   orchestrator.on('worker:started', (event: OrchestratorEvent) => {
     if (event.type === 'worker:started') {
-      logger.workerStarted(event.workerId, event.range.from, event.range.to);
+      logger.workerStarted(event.workerId, event.taskId);
     }
   });
 
   orchestrator.on('worker:progress', (event: OrchestratorEvent) => {
     if (event.type === 'worker:progress') {
-      logger.workerProgress(event.workerId, event.progress, event.currentTaskId);
+      logger.workerProgress(event.workerId, event.progress, event.taskId);
     }
   });
 
@@ -288,22 +265,9 @@ function subscribeToEvents(
 }
 
 function subscribeToConsoleEvents(orchestrator: Orchestrator): void {
-  orchestrator.on('phase:started', (event: OrchestratorEvent) => {
-    if (event.type === 'phase:started') {
-      console.log(`▶ Phase ${event.phaseIndex + 1}/${event.totalPhases}: ${event.phaseName}`);
-    }
-  });
-
-  orchestrator.on('phase:completed', (event: OrchestratorEvent) => {
-    if (event.type === 'phase:completed') {
-      console.log(`✓ Phase ${event.phaseIndex + 1} completed`);
-      console.log('');
-    }
-  });
-
   orchestrator.on('worker:started', (event: OrchestratorEvent) => {
     if (event.type === 'worker:started') {
-      console.log(`  ↳ Worker ${event.workerId}: ${event.range.from} → ${event.range.to}`);
+      console.log(`  ↳ Worker ${event.workerId}: ${event.taskId}`);
     }
   });
 

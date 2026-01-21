@@ -4,8 +4,6 @@
  */
 
 import type { PrdUserStory } from '../prd/types.js';
-import type { IdRange, ParallelismHint } from './types.js';
-import { computeParallelismHint, needsAiAnalysis } from './heuristics.js';
 
 export interface StoryNode {
   id: string;
@@ -13,7 +11,6 @@ export interface StoryNode {
   estimatedFiles: string[];
   explicitDeps: string[];
   implicitDeps: string[];
-  parallelismHint?: ParallelismHint;
 }
 
 export interface DependencyGraph {
@@ -23,7 +20,6 @@ export interface DependencyGraph {
 
 export interface AnalyzeOptions {
   analyzeAmbiguous?: (stories: PrdUserStory[]) => Promise<Map<string, string[]>>;
-  analyzeParallelism?: (stories: PrdUserStory[]) => Promise<Map<string, ParallelismHint>>;
 }
 
 /** Sort IDs numerically if all are numbers, otherwise lexicographically */
@@ -108,31 +104,6 @@ function groupParallel(nodes: Map<string, StoryNode>): string[][] {
   return groups;
 }
 
-function applyParallelismHints(stories: PrdUserStory[], nodes: Map<string, StoryNode>): void {
-  for (const story of stories) {
-    const node = nodes.get(story.id);
-    if (node) node.parallelismHint = computeParallelismHint(story);
-  }
-}
-
-async function applyAiParallelismHints(
-  stories: PrdUserStory[],
-  nodes: Map<string, StoryNode>,
-  options?: AnalyzeOptions
-): Promise<void> {
-  if (!options?.analyzeParallelism) return;
-  const ambiguous = stories.filter((s) => {
-    const node = nodes.get(s.id);
-    return node?.parallelismHint && needsAiAnalysis(node.parallelismHint);
-  });
-  if (ambiguous.length === 0) return;
-  const aiHints = await options.analyzeParallelism(ambiguous);
-  for (const [storyId, hint] of aiHints) {
-    const node = nodes.get(storyId);
-    if (node) node.parallelismHint = hint;
-  }
-}
-
 /** Analyze PRD to detect dependencies and group stories for parallel execution */
 export async function analyzePrd(
   stories: PrdUserStory[],
@@ -142,7 +113,6 @@ export async function analyzePrd(
   for (const story of stories) nodes.set(story.id, buildNode(story));
 
   detectImplicitDeps(nodes);
-  applyParallelismHints(stories, nodes);
 
   if (options?.analyzeAmbiguous) {
     const additionalDeps = await options.analyzeAmbiguous(stories);
@@ -157,15 +127,6 @@ export async function analyzePrd(
     }
   }
 
-  await applyAiParallelismHints(stories, nodes, options);
-
   return { nodes, parallelGroups: groupParallel(nodes) };
 }
 
-/** Convert parallel groups to IdRange format */
-export function groupsToRanges(groups: string[][]): IdRange[] {
-  return groups.map((g) => {
-    const sorted = sortIds(g);
-    return { from: sorted[0], to: sorted[sorted.length - 1] };
-  });
-}

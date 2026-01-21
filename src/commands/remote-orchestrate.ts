@@ -14,7 +14,7 @@ import { createStructuredLogger } from '../logs/index.js';
 export async function runRemoteOrchestration(
   alias: string,
   prdPath: string,
-  maxWorkers: number,
+  maxWorkers: number | undefined,
   headless: boolean
 ): Promise<void> {
   const remote = await getRemote(alias);

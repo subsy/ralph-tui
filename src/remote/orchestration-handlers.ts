@@ -32,9 +32,6 @@ type CreateMessageFn = <T extends WSMessage>(
 interface OrchestratorState {
   orchestrator: Orchestrator | null;
   status: OrchestratorStatus;
-  currentPhase?: string;
-  currentPhaseIndex?: number;
-  totalPhases?: number;
   workers: WorkerState[];
   completedTasks: number;
   totalTasks: number;
@@ -57,9 +54,6 @@ const orchestratorSubscribers = new Set<ServerWebSocket<WebSocketData>>();
 function buildRemoteState(): RemoteOrchestratorState {
   return {
     status: orchestratorState.status,
-    currentPhase: orchestratorState.currentPhase,
-    currentPhaseIndex: orchestratorState.currentPhaseIndex,
-    totalPhases: orchestratorState.totalPhases,
     workers: orchestratorState.workers,
     completedTasks: orchestratorState.completedTasks,
     totalTasks: orchestratorState.totalTasks,
@@ -80,19 +74,11 @@ function broadcastOrchestratorEvent(
 
 function updateStateFromEvent(event: OrchestratorEvent): void {
   switch (event.type) {
-    case 'phase:started':
-      orchestratorState.currentPhase = event.phaseName;
-      orchestratorState.currentPhaseIndex = event.phaseIndex;
-      orchestratorState.totalPhases = event.totalPhases;
-      break;
-    case 'phase:completed':
-      // Phase done
-      break;
     case 'worker:started': {
       const existingIdx = orchestratorState.workers.findIndex((w) => w.id === event.workerId);
       const newWorker: WorkerState = {
         id: event.workerId,
-        range: event.range,
+        taskId: event.taskId,
         status: 'running',
         progress: 0,
       };
@@ -107,7 +93,6 @@ function updateStateFromEvent(event: OrchestratorEvent): void {
       const worker = orchestratorState.workers.find((w) => w.id === event.workerId);
       if (worker) {
         worker.progress = event.progress;
-        worker.currentTaskId = event.currentTaskId;
       }
       break;
     }
@@ -164,7 +149,7 @@ export function handleOrchestrateStart(
 
   const orchestrator = new Orchestrator({
     prdPath: message.prdPath,
-    maxWorkers: message.maxWorkers ?? 3,
+    maxWorkers: message.maxWorkers,
     headless: message.headless ?? true,
     cwd,
   });
@@ -176,8 +161,6 @@ export function handleOrchestrateStart(
     'worker:progress',
     'worker:completed',
     'worker:failed',
-    'phase:started',
-    'phase:completed',
     'orchestration:completed',
   ];
   const handlers: Array<() => void> = [];
@@ -201,7 +184,6 @@ export function handleOrchestrateStart(
     }
   }).catch(() => {
     orchestratorState.status = 'failed';
-    // Send completion event indicating failure
     const errorEvent: OrchestratorEvent = {
       type: 'orchestration:completed',
       totalTasks: orchestratorState.totalTasks,
@@ -247,9 +229,6 @@ export function handleOrchestratePause(
     return;
   }
 
-  // Note: The Orchestrator class doesn't have pause/resume yet.
-  // For now, we just update the status. A full implementation would
-  // require extending Orchestrator with pause/resume methods.
   orchestratorState.status = 'paused';
 
   const response = createMessage<OperationResultMessage>('operation_result', {

@@ -520,9 +520,6 @@ export type OrchestratorStatus = 'idle' | 'running' | 'paused' | 'completed' | '
 /** Orchestrator state for remote transport */
 export interface RemoteOrchestratorState {
   status: OrchestratorStatus;
-  currentPhase?: string;
-  currentPhaseIndex?: number;
-  totalPhases?: number;
   workers: WorkerState[];
   completedTasks: number;
   totalTasks: number;

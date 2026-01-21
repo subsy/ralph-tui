@@ -1,13 +1,12 @@
 /**
- * ABOUTME: Main orchestrator class for coordinating multi-agent execution.
- * Coordinates analyzer, scheduler, and worker manager to execute PRD tasks.
+ * ABOUTME: DAG-based orchestrator for multi-agent parallel execution.
+ * Starts tasks as soon as their dependencies complete, maximizing parallelism.
  */
 
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
-import type { OrchestratorConfig, OrchestratorEvent, Phase, WorkerState } from './types.js';
-import { analyzePrd, type AnalyzeOptions, type DependencyGraph } from './analyzer.js';
-import { createSchedule } from './scheduler.js';
+import type { OrchestratorConfig, OrchestratorEvent, WorkerState } from './types.js';
+import { analyzePrd, type AnalyzeOptions, type DependencyGraph, type StoryNode } from './analyzer.js';
 import { WorkerManager } from './worker-manager.js';
 import { parsePrdMarkdown } from '../prd/parser.js';
 import type { PrdUserStory } from '../prd/types.js';
@@ -15,7 +14,6 @@ import type { PrdUserStory } from '../prd/types.js';
 interface RunResult {
   completed: number;
   failed: number;
-  phases: number;
 }
 
 async function loadStories(prdPath: string): Promise<PrdUserStory[]> {
@@ -46,9 +44,8 @@ export class Orchestrator extends EventEmitter {
     this.setupSignalHandler();
     const stories = await loadStories(this.config.prdPath);
     const graph = await analyzePrd(stories, analyzeOptions);
-    const phases = createSchedule(graph, this.config);
 
-    return this.executePhases(phases, graph);
+    return this.executeDag(graph);
   }
 
   private setupSignalHandler(): void {
@@ -60,64 +57,90 @@ export class Orchestrator extends EventEmitter {
     process.on('SIGINT', handler);
   }
 
-  private async executePhases(phases: Phase[], graph: DependencyGraph): Promise<RunResult> {
-    let completed = 0;
-    let failed = 0;
-
-    for (let i = 0; i < phases.length; i++) {
-      if (this.shutdownRequested) break;
-
-      const phase = phases[i];
-      if (!phase) continue;
-
-      this.emitEvent({
-        type: 'phase:started',
-        phaseName: phase.name,
-        phaseIndex: i,
-        totalPhases: phases.length,
-      });
-
-      const result = await this.executePhase(phase);
-      completed += result.completed;
-      failed += result.failed;
-
-      this.emitEvent({
-        type: 'phase:completed',
-        phaseName: phase.name,
-        phaseIndex: i,
-      });
-    }
-
-    const totalTasks = countTasks(graph);
-    this.emitEvent({
-      type: 'orchestration:completed',
-      totalTasks,
-      completedTasks: completed,
-    });
-
-    return { completed, failed, phases: phases.length };
-  }
-
-  private async executePhase(phase: Phase): Promise<{ completed: number; failed: number }> {
+  private async executeDag(graph: DependencyGraph): Promise<RunResult> {
     const manager = this.createWorkerManager();
     this.workerManager = manager;
 
     await manager.syncBeforeWork();
     this.forwardWorkerEvents(manager);
 
-    const workerIds: string[] = [];
-    for (const group of phase.storyGroups) {
-      if (this.shutdownRequested) break;
-      const id = await manager.spawnWorker(group.idRange);
-      workerIds.push(id);
-      if (!phase.parallel) await this.waitForWorker(manager, id);
-    }
+    const completed = new Set<string>();
+    const failed = new Set<string>();
+    const running = new Map<string, string>(); // workerId -> taskId
+    const pending = new Set<string>(graph.nodes.keys());
 
-    if (phase.parallel) {
-      await this.waitForAllWorkers(manager, workerIds);
-    }
+    const getReady = (): string[] => {
+      const ready: string[] = [];
+      for (const taskId of pending) {
+        const node = graph.nodes.get(taskId);
+        if (!node) continue;
+        const deps = getAllDeps(node);
+        if (deps.every((d) => completed.has(d))) {
+          ready.push(taskId);
+        }
+      }
+      return ready;
+    };
 
-    return this.countResults(manager, workerIds);
+    const startTask = async (taskId: string): Promise<string> => {
+      pending.delete(taskId);
+      const workerId = await manager.spawnWorker(taskId);
+      running.set(workerId, taskId);
+      return workerId;
+    };
+
+    const runningCount = (): number => running.size;
+    const maxConcurrent = this.config.maxWorkers ?? Infinity;
+
+    return new Promise((resolve) => {
+      const scheduleReady = async (): Promise<void> => {
+        if (this.shutdownRequested) return;
+
+        const ready = getReady();
+        for (const taskId of ready) {
+          if (runningCount() >= maxConcurrent) break;
+          await startTask(taskId);
+        }
+
+        if (pending.size === 0 && running.size === 0) {
+          this.emitEvent({
+            type: 'orchestration:completed',
+            totalTasks: graph.nodes.size,
+            completedTasks: completed.size,
+          });
+          resolve({ completed: completed.size, failed: failed.size });
+        }
+      };
+
+      const handleWorkerDone = (workerId: string, success: boolean): void => {
+        const taskId = running.get(workerId);
+        if (!taskId) return;
+
+        running.delete(workerId);
+        if (success) {
+          completed.add(taskId);
+        } else {
+          failed.add(taskId);
+        }
+
+        scheduleReady();
+      };
+
+      manager.on('worker:completed', (event: OrchestratorEvent) => {
+        if (event.type === 'worker:completed') {
+          handleWorkerDone(event.workerId, true);
+        }
+      });
+
+      manager.on('worker:failed', (event: OrchestratorEvent) => {
+        if (event.type === 'worker:failed') {
+          handleWorkerDone(event.workerId, false);
+        }
+      });
+
+      // Start initial ready tasks
+      scheduleReady();
+    });
   }
 
   private createWorkerManager(): WorkerManager {
@@ -135,60 +158,15 @@ export class Orchestrator extends EventEmitter {
     }
   }
 
-  private waitForWorker(manager: WorkerManager, id: string): Promise<void> {
-    return new Promise((resolve) => {
-      const checkDone = (): void => {
-        const state = manager.getWorkerState(id);
-        if (!state || isTerminal(state.status)) {
-          resolve();
-        }
-      };
-      manager.on('worker:completed', checkDone);
-      manager.on('worker:failed', checkDone);
-      checkDone();
-    });
-  }
-
-  private waitForAllWorkers(manager: WorkerManager, _ids: string[]): Promise<void> {
-    return new Promise((resolve) => {
-      const checkAllDone = (): void => {
-        const states = manager.getAllWorkerStates();
-        const activeCount = states.filter((s) => !isTerminal(s.status)).length;
-        if (activeCount === 0) resolve();
-      };
-      manager.on('worker:completed', checkAllDone);
-      manager.on('worker:failed', checkAllDone);
-      checkAllDone();
-    });
-  }
-
-  private countResults(
-    manager: WorkerManager,
-    ids: string[]
-  ): { completed: number; failed: number } {
-    let completed = 0;
-    let failed = 0;
-    for (const id of ids) {
-      const state = manager.getWorkerState(id);
-      if (state?.status === 'completed') completed++;
-      else if (state?.status === 'failed' || state?.status === 'killed') failed++;
-    }
-    return { completed, failed };
-  }
-
   shutdown(): void {
     this.shutdownRequested = true;
     this.workerManager?.killAll();
   }
 }
 
-function isTerminal(status: WorkerState['status']): boolean {
-  return status === 'completed' || status === 'failed' || status === 'killed';
+function getAllDeps(node: StoryNode): string[] {
+  return [...new Set([...node.explicitDeps, ...node.implicitDeps])];
 }
 
-function countTasks(graph: DependencyGraph): number {
-  return graph.nodes.size;
-}
-
-export { analyzePrd, createSchedule, WorkerManager };
-export type { OrchestratorConfig, OrchestratorEvent, Phase, WorkerState, DependencyGraph, AnalyzeOptions };
+export { analyzePrd, WorkerManager };
+export type { OrchestratorConfig, OrchestratorEvent, WorkerState, DependencyGraph, AnalyzeOptions };

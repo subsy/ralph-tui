@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { OrchestratorView } from './OrchestratorView.js';
-import type { Orchestrator, OrchestratorEvent, Phase, WorkerState } from '../../orchestrator/index.js';
+import type { Orchestrator, OrchestratorEvent, WorkerState } from '../../orchestrator/index.js';
 
 export interface OrchestratorAppProps {
   orchestrator: Orchestrator;
@@ -15,9 +15,6 @@ export interface OrchestratorAppProps {
 }
 
 interface AppState {
-  currentPhase?: Phase;
-  phaseIndex: number;
-  totalPhases: number;
   workers: WorkerState[];
   selectedWorkerIndex: number;
   totalStories: number;
@@ -25,7 +22,10 @@ interface AppState {
 }
 
 const INITIAL_STATE: AppState = {
-  phaseIndex: 0, totalPhases: 0, workers: [], selectedWorkerIndex: 0, totalStories: 0, completedStories: 0,
+  workers: [],
+  selectedWorkerIndex: 0,
+  totalStories: 0,
+  completedStories: 0,
 };
 
 function updateWorker(workers: WorkerState[], id: string, patch: Partial<WorkerState>): WorkerState[] {
@@ -35,18 +35,20 @@ function updateWorker(workers: WorkerState[], id: string, patch: Partial<WorkerS
 function useOrchestratorEvents(orchestrator: Orchestrator, setState: React.Dispatch<React.SetStateAction<AppState>>): void {
   useEffect(() => {
     const handlers: Record<string, (e: OrchestratorEvent) => void> = {
-      'phase:started': (e) => e.type === 'phase:started' && setState((s) => ({ ...s, phaseIndex: e.phaseIndex, totalPhases: e.totalPhases })),
       'worker:started': (e) => e.type === 'worker:started' && setState((s) => ({
-        ...s, workers: [...s.workers, { id: e.workerId, range: e.range, status: 'running', progress: 0 }],
+        ...s, workers: [...s.workers, { id: e.workerId, taskId: e.taskId, status: 'running', progress: 0 }],
       })),
       'worker:progress': (e) => e.type === 'worker:progress' && setState((s) => ({
-        ...s, workers: updateWorker(s.workers, e.workerId, { progress: e.progress, currentTaskId: e.currentTaskId }),
+        ...s, workers: updateWorker(s.workers, e.workerId, { progress: e.progress }),
       })),
       'worker:completed': (e) => e.type === 'worker:completed' && setState((s) => ({
         ...s, workers: updateWorker(s.workers, e.workerId, { status: 'completed', progress: 100 }), completedStories: s.completedStories + 1,
       })),
       'worker:failed': (e) => e.type === 'worker:failed' && setState((s) => ({
         ...s, workers: updateWorker(s.workers, e.workerId, { status: 'failed', error: e.error }),
+      })),
+      'orchestration:completed': (e) => e.type === 'orchestration:completed' && setState((s) => ({
+        ...s, totalStories: e.totalTasks, completedStories: e.completedTasks,
       })),
     };
     for (const [event, handler] of Object.entries(handlers)) orchestrator.on(event, handler);
@@ -68,9 +70,6 @@ export function OrchestratorApp({ orchestrator, onQuit }: OrchestratorAppProps):
 
   return (
     <OrchestratorView
-      currentPhase={state.currentPhase}
-      phaseIndex={state.phaseIndex}
-      totalPhases={state.totalPhases}
       workers={state.workers}
       selectedWorkerIndex={state.selectedWorkerIndex}
       totalStories={state.totalStories}

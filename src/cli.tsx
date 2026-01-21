@@ -94,7 +94,7 @@ Status Options:
 
 Orchestrate Options:
   --prd <path>        PRD file path (required)
-  --max-workers <n>   Maximum parallel workers (default: 4)
+  --max-workers <n>   Limit parallel workers (default: unlimited)
   --headless          Run without TUI, output structured logs
 
 Convert Options:

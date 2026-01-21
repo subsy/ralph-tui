@@ -916,9 +916,9 @@ export function RunApp({
 
     // Analyze tasks and start workers
     const startOrchestration = async () => {
-      const { phases } = await analyzeTrackerTasks(initialTasks, { maxWorkers: 4 });
+      const graph = await analyzeTrackerTasks(initialTasks);
 
-      if (phases.length === 0) {
+      if (graph.nodes.size === 0) {
         setOrchestrationEnabled(false);
         return;
       }
@@ -933,7 +933,6 @@ export function RunApp({
 
       // Subscribe to worker events to update task status
       manager.on('worker:progress', (event: { workerId: string; currentTaskId?: string }) => {
-        // Update task status to show it's being worked on
         if (event.currentTaskId) {
           setTasks((prev) =>
             prev.map((t) =>
@@ -944,17 +943,14 @@ export function RunApp({
       });
 
       manager.on('worker:completed', () => {
-        // Refresh tasks to pick up completed status
         engine.refreshTasks();
       });
 
-      // Execute first phase (spawn workers)
-      const firstPhase = phases[0];
-      if (firstPhase) {
-        await manager.syncBeforeWork();
-        for (const group of firstPhase.storyGroups) {
-          await manager.spawnWorker(group.idRange);
-        }
+      // Spawn workers for all ready tasks (no blockers)
+      await manager.syncBeforeWork();
+      const readyTasks = graph.parallelGroups[0] ?? [];
+      for (const taskId of readyTasks) {
+        await manager.spawnWorker(taskId);
       }
     };
 
