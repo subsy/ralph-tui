@@ -387,16 +387,28 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
     files?: AgentFileContext[],
     options?: AgentExecuteOptions
   ): AgentExecutionHandle {
+    let buffer = '';
+
     // Wrap callbacks to parse JSON events
     const parsedOptions: AgentExecuteOptions = {
       ...options,
       onStdout: (options?.onStdout || options?.onStdoutSegments || options?.onJsonlMessage)
         ? (data: string) => {
-            // Parse raw JSONL lines and forward to onJsonlMessage for subagent tracing
-            if (options?.onJsonlMessage) {
-              for (const line of data.split('\n')) {
-                const trimmed = line.trim();
-                if (trimmed && trimmed.startsWith('{')) {
+            buffer += data;
+
+            // If no newline, wait for more data
+            if (!buffer.includes('\n')) return;
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? ''; // Keep the last partial line (or empty string) in buffer
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+
+              // Parse raw JSONL lines and forward to onJsonlMessage for subagent tracing
+              if (options?.onJsonlMessage) {
+                if (trimmed.startsWith('{')) {
                   try {
                     const parsed = JSON.parse(trimmed);
                     options.onJsonlMessage(parsed);
@@ -405,23 +417,23 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
                   }
                 }
               }
-            }
 
-            // Process for display events
-            const events = parseOpenCodeOutputToEvents(data);
-            if (events.length > 0) {
-              // Call TUI-native segments callback if provided
-              if (options?.onStdoutSegments) {
-                const segments = processAgentEventsToSegments(events);
-                if (segments.length > 0) {
-                  options.onStdoutSegments(segments);
+              // Process for display events
+              const events = parseOpenCodeJsonLine(trimmed);
+              if (events.length > 0) {
+                // Call TUI-native segments callback if provided
+                if (options?.onStdoutSegments) {
+                  const segments = processAgentEventsToSegments(events);
+                  if (segments.length > 0) {
+                    options.onStdoutSegments(segments);
+                  }
                 }
-              }
-              // Also call legacy string callback if provided
-              if (options?.onStdout) {
-                const parsed = processAgentEvents(events);
-                if (parsed.length > 0) {
-                  options.onStdout(parsed);
+                // Also call legacy string callback if provided
+                if (options?.onStdout) {
+                  const parsed = processAgentEvents(events);
+                  if (parsed.length > 0) {
+                    options.onStdout(parsed);
+                  }
                 }
               }
             }
