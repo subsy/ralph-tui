@@ -914,7 +914,7 @@ export function RunApp({
       return;
     }
 
-    // Analyze tasks and start workers
+    // Analyze tasks and start workers with DAG scheduling
     const startOrchestration = async () => {
       const graph = await analyzeTrackerTasks(initialTasks);
 
@@ -931,7 +931,37 @@ export function RunApp({
 
       setWorkerManager(manager);
 
-      // Subscribe to worker events to update task status
+      // DAG scheduling state
+      const pending = new Set<string>(graph.nodes.keys());
+      const completed = new Set<string>();
+      const running = new Map<string, string>(); // workerId -> taskId
+
+      const getAllDeps = (taskId: string): string[] => {
+        const node = graph.nodes.get(taskId);
+        if (!node) return [];
+        return [...new Set([...node.explicitDeps, ...node.implicitDeps])];
+      };
+
+      const getReady = (): string[] => {
+        const ready: string[] = [];
+        for (const taskId of pending) {
+          if (getAllDeps(taskId).every((d) => completed.has(d))) {
+            ready.push(taskId);
+          }
+        }
+        return ready;
+      };
+
+      const scheduleReady = async (): Promise<void> => {
+        const ready = getReady();
+        for (const taskId of ready) {
+          pending.delete(taskId);
+          const workerId = await manager.spawnWorker(taskId);
+          running.set(workerId, taskId);
+        }
+      };
+
+      // Subscribe to worker events
       manager.on('worker:progress', (event: { workerId: string; currentTaskId?: string }) => {
         if (event.currentTaskId) {
           setTasks((prev) =>
@@ -942,16 +972,29 @@ export function RunApp({
         }
       });
 
-      manager.on('worker:completed', () => {
+      manager.on('worker:completed', (event: { workerId: string }) => {
+        const taskId = running.get(event.workerId);
+        if (taskId) {
+          running.delete(event.workerId);
+          completed.add(taskId);
+        }
         engine.refreshTasks();
+        scheduleReady();
       });
 
-      // Spawn workers for all ready tasks (no blockers)
+      manager.on('worker:failed', (event: { workerId: string }) => {
+        const taskId = running.get(event.workerId);
+        if (taskId) {
+          running.delete(event.workerId);
+          // Don't add to completed - dependent tasks won't run
+        }
+        engine.refreshTasks();
+        scheduleReady();
+      });
+
+      // Initial sync and spawn ready tasks
       await manager.syncBeforeWork();
-      const readyTasks = graph.parallelGroups[0] ?? [];
-      for (const taskId of readyTasks) {
-        await manager.spawnWorker(taskId);
-      }
+      await scheduleReady();
     };
 
     startOrchestration().catch((err) => {
