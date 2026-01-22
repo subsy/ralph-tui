@@ -20,8 +20,9 @@ import type {
 /**
  * Extract a string error message from various error formats.
  * Handles: string, { message: string }, or other objects.
+ * @internal Exported for testing only.
  */
-function extractErrorMessage(err: unknown): string {
+export function extractErrorMessage(err: unknown): string {
   if (!err) return '';
   if (typeof err === 'string') return err;
   if (typeof err === 'object') {
@@ -49,8 +50,9 @@ function extractErrorMessage(err: unknown): string {
  * - "item.completed": Item finished - extract text from agent_message
  * - "turn.completed": Turn finished with usage stats (skip)
  * - "error": Error from Codex
+ * @internal Exported for testing only.
  */
-function parseCodexJsonLine(jsonLine: string): AgentDisplayEvent[] {
+export function parseCodexJsonLine(jsonLine: string): AgentDisplayEvent[] {
   if (!jsonLine || jsonLine.length === 0) return [];
 
   try {
@@ -104,8 +106,9 @@ function parseCodexJsonLine(jsonLine: string): AgentDisplayEvent[] {
 
 /**
  * Parse Codex JSON stream output into display events.
+ * @internal Exported for testing only.
  */
-function parseCodexOutputToEvents(data: string): AgentDisplayEvent[] {
+export function parseCodexOutputToEvents(data: string): AgentDisplayEvent[] {
   const allEvents: AgentDisplayEvent[] = [];
   for (const line of data.split('\n')) {
     const events = parseCodexJsonLine(line.trim());

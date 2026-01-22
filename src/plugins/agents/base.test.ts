@@ -301,3 +301,142 @@ describe('BaseAgentPlugin', () => {
     });
   });
 });
+
+/**
+ * Test plugin that uses the real execute method for testing lifecycle hooks.
+ * Uses 'echo' or 'true' commands which exist on all platforms.
+ */
+class RealExecuteTestPlugin extends BaseAgentPlugin {
+  readonly meta: AgentPluginMeta = {
+    id: 'real-execute-test',
+    name: 'Real Execute Test',
+    description: 'Test plugin using real execute method',
+    version: '1.0.0',
+    author: 'Test',
+    defaultCommand: process.platform === 'win32' ? 'cmd' : 'echo',
+    supportsStreaming: true,
+    supportsInterrupt: true,
+    supportsFileContext: false,
+    supportsSubagentTracing: false,
+  };
+
+  protected buildArgs(
+    prompt: string,
+    _files?: AgentFileContext[],
+    _options?: AgentExecuteOptions
+  ): string[] {
+    // On Windows: cmd /c echo <prompt>
+    // On Unix: echo (command) with prompt as arg
+    if (process.platform === 'win32') {
+      return ['/c', 'echo', prompt];
+    }
+    return [prompt];
+  }
+
+  override async detect(): Promise<AgentDetectResult> {
+    return {
+      available: true,
+      version: '1.0.0',
+      executablePath: this.meta.defaultCommand,
+    };
+  }
+}
+
+describe('BaseAgentPlugin execute lifecycle', () => {
+  let agent: RealExecuteTestPlugin;
+
+  beforeEach(() => {
+    agent = new RealExecuteTestPlugin();
+  });
+
+  afterEach(async () => {
+    await agent.dispose();
+  });
+
+  describe('onEnd lifecycle hook', () => {
+    test('calls onEnd with execution result when process completes', async () => {
+      await agent.initialize({});
+
+      let onEndCalled = false;
+      let receivedResult: unknown = null;
+
+      const handle = agent.execute('test-output', [], {
+        onEnd: (result) => {
+          onEndCalled = true;
+          receivedResult = result;
+        },
+      });
+
+      const result = await handle.promise;
+
+      expect(result.status).toBe('completed');
+      expect(onEndCalled).toBe(true);
+      expect(receivedResult).not.toBeNull();
+      expect((receivedResult as { executionId: string }).executionId).toBe(result.executionId);
+    });
+
+    test('resolves promise even when onEnd throws', async () => {
+      await agent.initialize({});
+
+      const handle = agent.execute('test-output', [], {
+        onEnd: () => {
+          throw new Error('onEnd hook intentionally threw');
+        },
+      });
+
+      // Should NOT reject, should still resolve
+      const result = await handle.promise;
+
+      expect(result.status).toBe('completed');
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('executes without onEnd callback', async () => {
+      await agent.initialize({});
+
+      // Execute without onEnd - should not throw
+      const handle = agent.execute('test-output', [], {});
+
+      const result = await handle.promise;
+
+      expect(result.status).toBe('completed');
+    });
+  });
+
+  describe('onStdout callback', () => {
+    test('calls onStdout with process output', async () => {
+      await agent.initialize({});
+
+      let stdoutData = '';
+
+      const handle = agent.execute('hello-world', [], {
+        onStdout: (data) => {
+          stdoutData += data;
+        },
+      });
+
+      await handle.promise;
+
+      expect(stdoutData).toContain('hello-world');
+    });
+  });
+
+  describe('onStart callback', () => {
+    test('calls onStart with execution ID', async () => {
+      await agent.initialize({});
+
+      let startExecutionId = '';
+
+      const handle = agent.execute('test', [], {
+        onStart: (execId) => {
+          startExecutionId = execId;
+        },
+      });
+
+      const result = await handle.promise;
+
+      expect(startExecutionId).not.toBe('');
+      expect(startExecutionId).toBe(result.executionId);
+    });
+  });
+});

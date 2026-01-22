@@ -20,8 +20,9 @@ import type {
 /**
  * Extract a string error message from various error formats.
  * Handles: string, { message: string }, or other objects.
+ * @internal Exported for testing only.
  */
-function extractErrorMessage(err: unknown): string {
+export function extractErrorMessage(err: unknown): string {
   if (!err) return '';
   if (typeof err === 'string') return err;
   if (typeof err === 'object') {
@@ -50,8 +51,9 @@ function extractErrorMessage(err: unknown): string {
  * - "tool_result": Tool execution result
  * - "result": Stats/completion (skip)
  * - "error": Error from Gemini
+ * @internal Exported for testing only.
  */
-function parseGeminiJsonLine(jsonLine: string): AgentDisplayEvent[] {
+export function parseGeminiJsonLine(jsonLine: string): AgentDisplayEvent[] {
   if (!jsonLine || jsonLine.length === 0) return [];
 
   try {
@@ -97,8 +99,9 @@ function parseGeminiJsonLine(jsonLine: string): AgentDisplayEvent[] {
 
 /**
  * Parse Gemini JSON stream output into display events.
+ * @internal Exported for testing only.
  */
-function parseGeminiOutputToEvents(data: string): AgentDisplayEvent[] {
+export function parseGeminiOutputToEvents(data: string): AgentDisplayEvent[] {
   const allEvents: AgentDisplayEvent[] = [];
   for (const line of data.split('\n')) {
     const events = parseGeminiJsonLine(line.trim());
