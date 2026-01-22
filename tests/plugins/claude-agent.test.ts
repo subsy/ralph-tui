@@ -407,4 +407,30 @@ describe('ClaudeAgentPlugin', () => {
       expect(await plugin.isReady()).toBe(false);
     });
   });
+
+  describe('getSandboxRequirements', () => {
+    test('returns correct auth paths', () => {
+      const requirements = plugin.getSandboxRequirements();
+      expect(requirements.authPaths).toContain('~/.claude');
+      expect(requirements.authPaths).toContain('~/.anthropic');
+    });
+
+    test('returns correct binary paths', () => {
+      const requirements = plugin.getSandboxRequirements();
+      expect(requirements.binaryPaths).toContain('/usr/local/bin');
+      expect(requirements.binaryPaths).toContain('~/.local/bin');
+      expect(requirements.binaryPaths).toContain('~/.local/share/claude');
+    });
+
+    test('requires network', () => {
+      const requirements = plugin.getSandboxRequirements();
+      expect(requirements.requiresNetwork).toBe(true);
+    });
+
+    test('includes runtime paths for bun and nvm', () => {
+      const requirements = plugin.getSandboxRequirements();
+      expect(requirements.runtimePaths).toContain('~/.bun');
+      expect(requirements.runtimePaths).toContain('~/.nvm');
+    });
+  });
 });
