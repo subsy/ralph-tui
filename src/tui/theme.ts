@@ -34,7 +34,7 @@ export const colors = {
   // Task status colors
   task: {
     done: '#9ece6a',
-    active: '#7aa2f7',
+    active: '#9ece6a', // Green - currently running
     actionable: '#9ece6a', // Green - ready to work on
     pending: '#565f89',
     blocked: '#f7768e',
@@ -59,16 +59,16 @@ export const colors = {
 
 /**
  * Status indicator symbols
- * Task status: ✓ (done), ▶ (active/actionable), ○ (pending), ⊘ (blocked), ✓ (closed - greyed)
+ * Task status: ✓ (done), ▶ (active/running), ○ (actionable/pending), ⊘ (blocked), ✗ (error), ✓ (closed - greyed)
  * Ralph status: ▶ (running), ◎ (pausing), ⏸ (paused), ■ (stopped), ✓ (complete), ○ (idle/ready)
  */
 export const statusIndicators = {
   done: '✓',
-  active: '▶',
-  actionable: '▶', // Ready to work on - green arrow
+  active: '▶', // Currently running - green play triangle
+  actionable: '○', // Ready to work on - green circle
   pending: '○',
-  blocked: '⊘',
-  error: '✗', // Error/failed task
+  blocked: '⊘', // Blocked by dependencies - red no-entry
+  error: '✗', // Error/failed task - red x
   closed: '✓', // Same indicator as done, but will be greyed out
   running: '▶',
   selecting: '◐', // Selecting next task - half-filled circle (animated feel)
@@ -186,13 +186,13 @@ export type RalphStatus = 'ready' | 'running' | 'selecting' | 'executing' | 'pau
 
 /**
  * Task status types matching the acceptance criteria
- * - 'done': Task completed in current session (green checkmark)
- * - 'active': Task currently being worked on (blue arrow)
- * - 'actionable': Task ready to work on with no blocking dependencies (green arrow)
- * - 'pending': Task waiting to be worked on (grey circle) - legacy, prefer actionable
- * - 'blocked': Task blocked by dependencies (red symbol)
- * - 'error': Task execution failed (red X)
- * - 'closed': Previously completed task (greyed out checkmark for historical tasks)
+ * - 'done': Task completed in current session (green checkmark ✓)
+ * - 'active': Task currently being worked on (green play triangle ▶)
+ * - 'actionable': Task ready to work on with no blocking dependencies (green circle ○)
+ * - 'pending': Task waiting to be worked on (grey circle ○) - legacy, prefer actionable
+ * - 'blocked': Task blocked by dependencies (red no-entry ⊘)
+ * - 'error': Task execution failed (red X ✗)
+ * - 'closed': Previously completed task (greyed out checkmark ✓ for historical tasks)
  */
 export type TaskStatus = 'done' | 'active' | 'actionable' | 'pending' | 'blocked' | 'error' | 'closed';
 
