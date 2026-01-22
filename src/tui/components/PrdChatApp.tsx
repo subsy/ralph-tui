@@ -54,6 +54,9 @@ export interface PrdChatAppProps {
 
   prdSkillSource?: string;
 
+  /** Content of an existing PRD file to convert (--from mode) */
+  fromFileContent?: string;
+
   /** Callback when PRD is successfully generated */
   onComplete: (result: PrdCreationResult) => void;
 
@@ -72,6 +75,17 @@ const WELCOME_MESSAGE: ChatMessage = {
   content: `I'll help you create a Product Requirements Document (PRD).
 
 What feature would you like to build? Describe it in a few sentences, and I'll ask clarifying questions to understand your needs.`,
+  timestamp: new Date(),
+};
+
+/**
+ * Welcome message for conversion mode (--from file)
+ */
+const CONVERSION_WELCOME_MESSAGE: ChatMessage = {
+  role: 'assistant',
+  content: `I'll analyze and convert your existing PRD document to ralph-tui format.
+
+I'm now reading your document to extract user stories and acceptance criteria...`,
   timestamp: new Date(),
 };
 
@@ -229,6 +243,7 @@ export function PrdChatApp({
   timeout = 0,
   prdSkill,
   prdSkillSource,
+  fromFileContent,
   onComplete,
   onCancel,
   onError,
@@ -245,8 +260,9 @@ export function PrdChatApp({
   const [prdPath, setPrdPath] = useState<string | null>(null);
   const [featureName, setFeatureName] = useState<string | null>(null);
 
-  // Chat state
-  const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
+  // Chat state - use conversion welcome message if in --from mode
+  const initialMessage = fromFileContent ? CONVERSION_WELCOME_MESSAGE : WELCOME_MESSAGE;
+  const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
@@ -259,6 +275,9 @@ export function PrdChatApp({
 
   // Track which tracker format was selected for tasks
   const [selectedTrackerFormat, setSelectedTrackerFormat] = useState<'json' | 'beads' | null>(null);
+
+  // Track if auto-conversion has been triggered
+  const autoConversionTriggeredRef = useRef(false);
 
   // Refs
   const engineRef = useRef<ChatEngine | null>(null);
@@ -307,6 +326,75 @@ export function PrdChatApp({
       unsubscribe();
     };
   }, [agent, cwd, timeout, prdSkill, prdSkillSource, onError]);
+
+  // Auto-trigger conversion when --from mode is active
+  useEffect(() => {
+    if (!fromFileContent || autoConversionTriggeredRef.current || !engineRef.current) {
+      return;
+    }
+
+    autoConversionTriggeredRef.current = true;
+
+    const triggerConversion = async () => {
+      setIsLoading(true);
+      setLoadingStatus('Analyzing PRD document...');
+
+      const conversionPrompt = `Please convert the following PRD document to ralph-tui format.
+
+---BEGIN PRD DOCUMENT---
+${fromFileContent}
+---END PRD DOCUMENT---
+
+Analyze this document and convert it to ralph-tui format with:
+1. User stories in US-XXX format
+2. Acceptance criteria as checklists
+3. Dependencies based on logical order
+
+Output the converted PRD wrapped in [PRD]...[/PRD] markers.`;
+
+      try {
+        const result = await engineRef.current!.sendMessage(conversionPrompt, {
+          onSegments: (segments: FormattedSegment[]) => {
+            if (isMountedRef.current) {
+              setStreamingSegments((prev: FormattedSegment[]) => [...prev, ...segments]);
+            }
+          },
+          onStatus: (status: string) => {
+            if (isMountedRef.current) {
+              setLoadingStatus(status);
+            }
+          },
+        });
+
+        if (isMountedRef.current) {
+          if (result.success && result.response) {
+            setMessages((prev: ChatMessage[]) => [...prev, result.response!]);
+            setStreamingChunk('');
+            setStreamingSegments([]);
+          } else if (!result.success) {
+            setError(result.error || 'Failed to convert PRD');
+          }
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        if (isMountedRef.current) {
+          setError(errorMsg);
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setIsLoading(false);
+          setLoadingStatus('');
+        }
+      }
+    };
+
+    // Small delay to ensure engine is ready
+    const timer = setTimeout(() => {
+      void triggerConversion();
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [fromFileContent]);
 
   /**
    * Handle PRD detection - save file and switch to review phase
