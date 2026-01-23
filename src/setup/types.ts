@@ -50,6 +50,9 @@ export interface SetupAnswers {
   /** Maximum iterations per run (0 = unlimited) */
   maxIterations: number;
 
+  /** Preflight timeout in milliseconds (0 = no timeout) */
+  preflightTimeoutMs: number;
+
   /** Whether to auto-commit on task completion */
   autoCommit: boolean;
 }

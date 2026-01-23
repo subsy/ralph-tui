@@ -11,7 +11,7 @@ import { constants } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { PrdChatApp } from '../tui/components/PrdChatApp.js';
 import type { PrdCreationResult } from '../tui/components/PrdChatApp.js';
-import { loadStoredConfig, requireSetup } from '../config/index.js';
+import { loadStoredConfig, requireSetup, type StoredConfig } from '../config/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPlugin, AgentPluginConfig } from '../plugins/agents/types.js';
@@ -78,8 +78,12 @@ export function parseCreatePrdArgs(args: string[]): CreatePrdArgs {
       process.exit(0);
     }
   }
-
   return result;
+}
+
+interface LoadedAgent {
+  agent: AgentPlugin;
+  storedConfig: StoredConfig;
 }
 
 /**
@@ -225,7 +229,7 @@ async function loadPrdSkillSource(
 /**
  * Get the configured agent plugin.
  */
-async function getAgent(agentName?: string): Promise<AgentPlugin | null> {
+async function getAgent(agentName?: string): Promise<LoadedAgent | null> {
   try {
     const cwd = process.cwd();
     const storedConfig = await loadStoredConfig(cwd);
@@ -260,7 +264,7 @@ async function getAgent(agentName?: string): Promise<AgentPlugin | null> {
       }
     }
 
-    return agent;
+    return { agent, storedConfig };
   } catch (error) {
     console.error('Failed to load agent:', error instanceof Error ? error.message : error);
     return null;
@@ -273,14 +277,16 @@ async function getAgent(agentName?: string): Promise<AgentPlugin | null> {
  */
 async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult | null> {
   // Get agent
-  const agent = await getAgent(parsedArgs.agent);
-  if (!agent) {
+  const loadedAgent = await getAgent(parsedArgs.agent);
+  if (!loadedAgent) {
     console.error('');
     console.error('Chat mode requires an AI agent. Options:');
     console.error('  1. Run "ralph-tui setup" to configure an agent');
     console.error('  2. Use "--agent claude" or "--agent opencode" to specify one');
     process.exit(1);
   }
+
+  const { agent, storedConfig } = loadedAgent;
 
   const cwd = parsedArgs.cwd || process.cwd();
   const outputDir = parsedArgs.output || 'tasks';
@@ -290,7 +296,8 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
 
   // Run preflight check to verify agent can respond before starting conversation
   console.log('Verifying agent configuration...');
-  const preflightResult = await agent.preflight({ timeout: 30000 });
+  const preflightTimeoutMs = storedConfig.preflightTimeoutMs ?? 30000;
+  const preflightResult = await agent.preflight({ timeout: preflightTimeoutMs });
 
   if (!preflightResult.success) {
     console.error('');

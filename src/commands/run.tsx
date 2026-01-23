@@ -1551,7 +1551,8 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     const agentRegistry = getAgentRegistry();
     const agentInstance = await agentRegistry.getInstance(config.agent);
 
-    const preflightResult = await agentInstance.preflight({ timeout: 30000 });
+    const preflightTimeoutMs = storedConfig.preflightTimeoutMs ?? 30000;
+    const preflightResult = await agentInstance.preflight({ timeout: preflightTimeoutMs });
 
     if (preflightResult.success) {
       console.log('✓ Agent is ready');

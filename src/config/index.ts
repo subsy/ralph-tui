@@ -147,6 +147,9 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
   if (project.defaultTracker !== undefined) merged.defaultTracker = project.defaultTracker;
   if (project.maxIterations !== undefined) merged.maxIterations = project.maxIterations;
   if (project.iterationDelay !== undefined) merged.iterationDelay = project.iterationDelay;
+  if (project.preflightTimeoutMs !== undefined) {
+    merged.preflightTimeoutMs = project.preflightTimeoutMs;
+  }
   if (project.outputDir !== undefined) merged.outputDir = project.outputDir;
   if (project.agent !== undefined) merged.agent = project.agent;
   if (project.agentCommand !== undefined) merged.agentCommand = project.agentCommand;

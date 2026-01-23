@@ -106,7 +106,8 @@ async function runDiagnostics(
   log('\n  Step 2: Preflight (testing if agent can respond)...');
   log('    Running test prompt...');
 
-  const preflight = await agent.preflight({ timeout: 30000 });
+  const preflightTimeoutMs = storedConfig.preflightTimeoutMs ?? 30000;
+  const preflight = await agent.preflight({ timeout: preflightTimeoutMs });
 
   if (!preflight.success) {
     return {

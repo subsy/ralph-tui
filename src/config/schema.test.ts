@@ -285,6 +285,7 @@ describe('StoredConfigSchema', () => {
       defaultTracker: 'beads-bv',
       maxIterations: 20,
       iterationDelay: 2000,
+      preflightTimeoutMs: 180000,
       outputDir: './output',
       autoCommit: true,
       agents: [
@@ -321,6 +322,13 @@ describe('StoredConfigSchema', () => {
   test('validates iterationDelay bounds', () => {
     expect(() => StoredConfigSchema.parse({ iterationDelay: -1 })).toThrow();
     expect(() => StoredConfigSchema.parse({ iterationDelay: 300001 })).toThrow();
+  });
+
+  test('validates preflightTimeoutMs as non-negative integer', () => {
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: -1 })).toThrow();
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: 1.5 })).toThrow();
+    expect(StoredConfigSchema.parse({ preflightTimeoutMs: 0 }).preflightTimeoutMs).toBe(0);
+    expect(StoredConfigSchema.parse({ preflightTimeoutMs: 30000 }).preflightTimeoutMs).toBe(30000);
   });
 
   test('rejects unknown fields (strict mode)', () => {

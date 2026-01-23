@@ -182,6 +182,7 @@ async function saveConfig(
     agent: answers.agent,
     agentOptions: answers.agentOptions,
     maxIterations: answers.maxIterations,
+    preflightTimeoutMs: answers.preflightTimeoutMs,
     autoCommit: answers.autoCommit,
   };
 
@@ -329,6 +330,13 @@ export async function runSetupWizard(
       }
     );
 
+    const preflightTimeoutMs = await promptNumber('Agent preflight timeout (ms)?', {
+      default: selectedAgent === 'droid' ? 120000 : 30000,
+      min: 0,
+      max: 3600000,
+      help: 'Timeout for agent verification checks (setup/doctor/--verify). 0 = no timeout.',
+    });
+
     const autoCommit = await promptBoolean(
       'Auto-commit on task completion?',
       {
@@ -406,6 +414,7 @@ export async function runSetupWizard(
       agent: selectedAgent,
       agentOptions,
       maxIterations,
+      preflightTimeoutMs,
       autoCommit,
     };
 
@@ -431,7 +440,7 @@ export async function runSetupWizard(
     });
 
     // Run preflight check
-    const preflightResult = await agentInstance.preflight({ timeout: 30000 });
+    const preflightResult = await agentInstance.preflight({ timeout: preflightTimeoutMs });
 
     if (preflightResult.success) {
       printSuccess(`✓ Agent is configured correctly and responding`);

@@ -113,6 +113,7 @@ export const StoredConfigSchema = z
     // Core settings
     maxIterations: z.number().int().min(0).max(1000).optional(),
     iterationDelay: z.number().int().min(0).max(300000).optional(),
+    preflightTimeoutMs: z.number().int().min(0).optional(),
     outputDir: z.string().optional(),
     autoCommit: z.boolean().optional(),
 
