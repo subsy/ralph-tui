@@ -113,14 +113,6 @@ export function resolveSkillsPath(skillsPath: string, cwd?: string): string {
 }
 
 /**
- * Get the path to the user's Claude Code skills directory.
- * @deprecated Use resolveSkillsPath with plugin.meta.skillsPaths instead
- */
-export function getClaudeSkillsDir(): string {
-  return join(homedir(), '.claude', 'skills');
-}
-
-/**
  * Compute the skills path based on the current directory.
  * This is extracted as a pure function to enable testing.
  *
@@ -212,14 +204,6 @@ export async function isSkillInstalledAt(skillName: string, targetDir: string): 
 }
 
 /**
- * Check if a skill is already installed (Claude Code path).
- * @deprecated Use isSkillInstalledAt with plugin paths instead
- */
-export async function isSkillInstalled(skillName: string): Promise<boolean> {
-  return isSkillInstalledAt(skillName, getClaudeSkillsDir());
-}
-
-/**
  * Install a bundled skill to a specific target directory.
  *
  * @param skillName - Name of the bundled skill to install
@@ -277,66 +261,6 @@ export async function installSkillTo(
       error: error instanceof Error ? error.message : String(error),
     };
   }
-}
-
-/**
- * Install a bundled skill to the user's Claude Code skills directory.
- * @deprecated Use installSkillTo with plugin paths instead
- */
-export async function installSkill(
-  skillName: string,
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<SkillInstallResult> {
-  return installSkillTo(skillName, getClaudeSkillsDir(), options);
-}
-
-/**
- * Install the ralph-tui-prd skill specifically.
- * @deprecated Use installSkillTo with plugin paths instead
- */
-export async function installRalphTuiPrdSkill(
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<SkillInstallResult> {
-  return installSkill('ralph-tui-prd', options);
-}
-
-/**
- * Install all bundled skills to a specific directory.
- *
- * @param targetDir - Absolute path to the skills directory
- * @param options - Installation options
- */
-export async function installAllSkillsTo(
-  targetDir: string,
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<Map<string, SkillInstallResult>> {
-  const results = new Map<string, SkillInstallResult>();
-  const skills = await listBundledSkills();
-
-  for (const skill of skills) {
-    const result = await installSkillTo(skill.name, targetDir, options);
-    results.set(skill.name, result);
-  }
-
-  return results;
-}
-
-/**
- * Install all bundled skills to Claude Code skills directory.
- * @deprecated Use installAllSkillsTo with plugin paths instead
- */
-export async function installAllSkills(
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<Map<string, SkillInstallResult>> {
-  return installAllSkillsTo(getClaudeSkillsDir(), options);
 }
 
 /**

@@ -1,18 +1,30 @@
 /**
  * ABOUTME: Skills command for managing agent skills.
  * Provides ralph-tui skills list and ralph-tui skills install commands.
- * Supports multiple agents (Claude Code, OpenCode, Factory Droid) via plugin-defined paths.
+ * Install delegates to Vercel's add-skill CLI for ecosystem compatibility.
  */
 
+import { spawn } from 'node:child_process';
 import {
   listBundledSkills,
   resolveSkillsPath,
-  installSkillsForAgent,
   getSkillStatusForAgent,
 } from '../setup/skill-installer.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPluginMeta, AgentSkillsPaths } from '../plugins/agents/types.js';
+
+/**
+ * Mapping from ralph-tui agent IDs to add-skill agent IDs.
+ * Used when delegating install to bunx add-skill.
+ */
+const AGENT_ID_MAP: Record<string, string> = {
+  claude: 'claude-code',
+  opencode: 'opencode',
+  codex: 'codex',
+  gemini: 'gemini',
+  kiro: 'kiro',
+};
 
 // ANSI color codes
 const RESET = '\x1b[0m';
@@ -119,40 +131,29 @@ ${BOLD}ralph-tui skills${RESET} - Manage agent skills
 
 ${BOLD}Commands:${RESET}
   ${CYAN}list${RESET}              List bundled skills and installation status per agent
-  ${CYAN}install${RESET}           Install skills to detected agents
+  ${CYAN}install${RESET}           Install skills via add-skill (supports 20+ agents)
 
 ${BOLD}Install Options:${RESET}
   ${DIM}<name>${RESET}             Install a specific skill by name
   ${DIM}--all${RESET}              Install all bundled skills (default if no name given)
-  ${DIM}--force${RESET}            Overwrite existing skills
-  ${DIM}--agent <id>${RESET}       Install only to specific agent (claude, opencode, droid)
-  ${DIM}--local${RESET}            Install to project-local directory (takes precedence)
+  ${DIM}--agent <id>${RESET}       Install only to specific agent (claude, opencode, codex, gemini, kiro)
+  ${DIM}--local${RESET}            Install to project-local directory
   ${DIM}--global${RESET}           Install to personal/global directory (default)
 
 ${BOLD}Examples:${RESET}
   ralph-tui skills list                    # List all skills per agent
-  ralph-tui skills install                 # Install all skills to global dirs
+  ralph-tui skills install                 # Install all skills globally
   ralph-tui skills install --local         # Install all skills to local project
-  ralph-tui skills install --force         # Force reinstall all skills
   ralph-tui skills install ralph-tui-prd   # Install specific skill
   ralph-tui skills install --agent claude  # Install only to Claude Code
-  ralph-tui skills install --agent claude --local  # Install to .claude/skills/
 
-${BOLD}Skills Locations:${RESET}
+${BOLD}Direct add-skill usage:${RESET}
+  bunx add-skill subsy/ralph-tui --all     # Install to all agents globally
+  bunx add-skill subsy/ralph-tui -s ralph-tui-prd -a claude-code -g -y
 
-  ${CYAN}Global (personal)${RESET} - Available across all projects:
-    Claude Code     ~/.claude/skills/
-    OpenCode        ~/.config/opencode/skills/
-    Factory Droid   ~/.factory/skills/
-
-  ${CYAN}Local (project)${RESET} - Takes precedence, version-controllable:
-    Claude Code     .claude/skills/
-    OpenCode        .opencode/skills/
-    Factory Droid   .factory/skills/
-
-${BOLD}Precedence:${RESET}
-  Local (project) skills take precedence over global (personal) skills.
-  This allows project-specific customizations.
+${BOLD}Supported Agents:${RESET}
+  claude (claude-code), opencode, codex, gemini, kiro, and any agent
+  supported by add-skill (cursor, cline, openhands, windsurf, etc.)
 `);
 }
 
@@ -222,17 +223,13 @@ async function handleListSkills(): Promise<void> {
 /**
  * Parse arguments for the install command.
  */
-function parseInstallArgs(args: string[]): {
+export function parseInstallArgs(args: string[]): {
   skillName: string | null;
-  all: boolean;
-  force: boolean;
   agentId: string | null;
   local: boolean;
   global: boolean;
 } {
   let skillName: string | null = null;
-  let all = false;
-  let force = false;
   let agentId: string | null = null;
   let local = false;
   let global = false;
@@ -240,30 +237,23 @@ function parseInstallArgs(args: string[]): {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg === '--force' || arg === '-f') {
-      force = true;
-    } else if (arg === '--all' || arg === '-a') {
-      all = true;
-    } else if (arg === '--local' || arg === '-l') {
+    if (arg === '--local' || arg === '-l') {
       local = true;
     } else if (arg === '--global' || arg === '-g') {
       global = true;
+    } else if (arg === '--all' || arg === '-a') {
+      // Accepted for backwards compat but is now the default
+    } else if (arg === '--force' || arg === '-f') {
+      // Accepted for backwards compat; add-skill always overwrites
     } else if (arg === '--agent') {
-      // Next arg is the agent ID
       if (i + 1 < args.length) {
         agentId = args[++i];
       }
     } else if (arg.startsWith('--agent=')) {
       agentId = arg.substring('--agent='.length);
     } else if (!arg.startsWith('-')) {
-      // Positional argument = skill name
       skillName = arg;
     }
-  }
-
-  // If no skill name and no --all flag, default to --all
-  if (!skillName && !all) {
-    all = true;
   }
 
   // If neither --local nor --global specified, default to global
@@ -271,129 +261,109 @@ function parseInstallArgs(args: string[]): {
     global = true;
   }
 
-  return { skillName, all, force, agentId, local, global };
+  return { skillName, agentId, local, global };
+}
+
+/**
+ * Resolve the add-skill agent ID from a ralph-tui agent ID.
+ * Returns null if the agent is not supported by add-skill.
+ */
+function resolveAddSkillAgent(ralphTuiId: string): string | null {
+  return AGENT_ID_MAP[ralphTuiId] ?? null;
+}
+
+/**
+ * Build the bunx add-skill command arguments from parsed install options.
+ */
+export function buildAddSkillArgs(options: {
+  skillName: string | null;
+  agentId: string | null;
+  local: boolean;
+  global: boolean;
+}): string[] {
+  const args = ['add-skill', 'subsy/ralph-tui'];
+
+  // Skill selection
+  if (options.skillName) {
+    args.push('-s', options.skillName);
+  }
+
+  // Agent targeting
+  if (options.agentId) {
+    const addSkillId = resolveAddSkillAgent(options.agentId);
+    if (addSkillId) {
+      args.push('-a', addSkillId);
+    } else {
+      // Pass through as-is; add-skill may support it directly
+      args.push('-a', options.agentId);
+    }
+  }
+
+  // Global vs local
+  if (options.global) {
+    args.push('-g');
+  }
+
+  // Non-interactive
+  args.push('-y');
+
+  return args;
 }
 
 /**
  * Handle the 'skills install' command.
- * Installs skills to all detected agents (or a specific agent).
+ * Delegates to bunx add-skill for actual installation.
  */
 async function handleInstallSkills(args: string[]): Promise<void> {
-  const { skillName, force, agentId, local, global } = parseInstallArgs(args);
-  const cwd = process.cwd();
+  const options = parseInstallArgs(args);
 
-  const skills = await listBundledSkills();
-
-  if (skills.length === 0) {
-    console.log(`${YELLOW}No bundled skills found.${RESET}`);
-    return;
-  }
-
-  // Validate skill name if provided
-  if (skillName) {
-    const skill = skills.find((s) => s.name === skillName);
-    if (!skill) {
-      console.error(`${RED}Error:${RESET} Skill '${skillName}' not found.`);
-      console.log(`${DIM}Available skills: ${skills.map((s) => s.name).join(', ')}${RESET}`);
-      process.exit(1);
-    }
-  }
-
-  // Get agents to install to
-  let agents = await getSkillCapableAgents();
-
-  // Filter by agent ID if specified
-  if (agentId) {
-    const matchingAgent = agents.find((a) => a.meta.id === agentId);
-    if (!matchingAgent) {
-      console.error(`${RED}Error:${RESET} Unknown agent '${agentId}'.`);
-      console.log(`${DIM}Available agents: ${agents.map((a) => a.meta.id).join(', ')}${RESET}`);
-      process.exit(1);
-    }
-    agents = [matchingAgent];
-  }
-
-  // Filter to only available agents (unless specific agent requested)
-  const availableAgents = agentId
-    ? agents // If specific agent requested, include it even if not available
-    : agents.filter((a) => a.available);
-
-  if (availableAgents.length === 0) {
-    console.log(`${YELLOW}No supported agents detected.${RESET}`);
-    console.log(`${DIM}Install Claude Code, OpenCode, or Factory Droid to use skills.${RESET}`);
-    return;
-  }
-
-  // Build location description
-  const locationText = local && global
-    ? 'global + local'
-    : local
-      ? 'local (project)'
-      : 'global';
-
-  // Show what we're installing
-  const skillText = skillName ? `skill: ${CYAN}${skillName}${RESET}` : 'all skills';
-  const agentText = agentId
-    ? `to ${CYAN}${agentId}${RESET}`
-    : `to ${availableAgents.length} agent(s)`;
-  console.log(`${BOLD}Installing ${skillText} ${agentText} [${locationText}]...${RESET}\n`);
-
-  let totalInstalled = 0;
-  let totalSkipped = 0;
-  let totalFailed = 0;
-
-  // Install to each agent
-  for (const agent of availableAgents) {
-    console.log(`${BOLD}${agent.meta.name}${RESET}`);
-
-    const result = await installSkillsForAgent(
-      agent.meta.id,
-      agent.meta.name,
-      agent.skillsPaths,
-      {
-        force,
-        personal: global,
-        repo: local,
-        cwd,
-        skillName: skillName ?? undefined,
-      }
-    );
-
-    // Show results for each skill
-    for (const [name, targetResults] of result.skills) {
-      for (const { target, result: skillResult } of targetResults) {
-        const targetLabel = target === 'personal' ? 'global' : 'local';
-        if (skillResult.success) {
-          if (skillResult.skipped) {
-            console.log(`  ${DIM}⊘${RESET} Skipped [${targetLabel}]: ${name} ${DIM}(already exists)${RESET}`);
-            totalSkipped++;
-          } else {
-            console.log(`  ${GREEN}✓${RESET} Installed [${targetLabel}]: ${CYAN}${name}${RESET}`);
-            console.log(`    ${DIM}${skillResult.path}${RESET}`);
-            totalInstalled++;
-          }
-        } else {
-          console.log(`  ${RED}✗${RESET} Failed [${targetLabel}]: ${name} - ${skillResult.error}`);
-          totalFailed++;
-        }
+  // Validate agent ID if provided
+  if (options.agentId) {
+    const addSkillId = resolveAddSkillAgent(options.agentId);
+    if (!addSkillId) {
+      // Check if it's a known ralph-tui agent without add-skill support
+      const agents = await getSkillCapableAgents();
+      const knownAgent = agents.find((a) => a.meta.id === options.agentId);
+      if (knownAgent) {
+        console.log(`${YELLOW}Warning:${RESET} Agent '${options.agentId}' is not directly supported by add-skill.`);
+        console.log(`${DIM}Passing through to add-skill as '${options.agentId}'...${RESET}\n`);
       }
     }
-    console.log();
   }
 
-  // Summary
-  console.log(`${DIM}${'─'.repeat(50)}${RESET}`);
-  console.log(`${GREEN}Installed:${RESET} ${totalInstalled}  ${DIM}Skipped:${RESET} ${totalSkipped}  ${RED}Failed:${RESET} ${totalFailed}`);
+  const addSkillArgs = buildAddSkillArgs(options);
 
-  if (totalSkipped > 0 && !force) {
-    console.log(`\n${DIM}Tip: Use --force to overwrite existing skills${RESET}`);
-  }
+  // Show what we're doing
+  const skillText = options.skillName
+    ? `skill: ${CYAN}${options.skillName}${RESET}`
+    : 'all skills';
+  const agentText = options.agentId
+    ? `to ${CYAN}${options.agentId}${RESET}`
+    : 'to all detected agents';
+  const locationText = options.local ? 'local (project)' : 'global';
+  console.log(`${BOLD}Installing ${skillText} ${agentText} [${locationText}]${RESET}`);
+  console.log(`${DIM}$ bunx ${addSkillArgs.join(' ')}${RESET}\n`);
 
-  if (local) {
-    console.log(`\n${DIM}Note: Local skills take precedence over global skills.${RESET}`);
-  }
+  // Spawn bunx add-skill
+  const exitCode = await new Promise<number>((resolve) => {
+    const child = spawn('bunx', addSkillArgs, {
+      stdio: 'inherit',
+      cwd: process.cwd(),
+    });
 
-  if (totalFailed > 0) {
-    process.exit(1);
+    child.on('error', (err) => {
+      console.error(`${RED}Error:${RESET} Failed to run add-skill: ${err.message}`);
+      console.log(`${DIM}Ensure bun is installed. You can also run directly:${RESET}`);
+      console.log(`${DIM}  bunx ${addSkillArgs.join(' ')}${RESET}`);
+      resolve(1);
+    });
+
+    child.on('close', (code) => {
+      resolve(code ?? 1);
+    });
+  });
+
+  if (exitCode !== 0) {
+    process.exit(exitCode);
   }
 }

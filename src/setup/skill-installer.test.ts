@@ -22,29 +22,16 @@ mock.restore();
 // Use dynamic import to get the real module after mock restoration
 const skillInstaller = await import('./skill-installer.js');
 const {
-  getClaudeSkillsDir,
   getBundledSkillsDir,
   listBundledSkills,
-  isSkillInstalled,
   isSkillInstalledAt,
-  installSkill,
   installSkillTo,
-  installAllSkills,
-  installAllSkillsTo,
-  installRalphTuiPrdSkill,
   computeSkillsPath,
   expandTilde,
   resolveSkillsPath,
   installSkillsForAgent,
   getSkillStatusForAgent,
 } = skillInstaller;
-
-describe('getClaudeSkillsDir', () => {
-  test('returns path in user home directory', () => {
-    const skillsDir = getClaudeSkillsDir();
-    expect(skillsDir).toBe(join(homedir(), '.claude', 'skills'));
-  });
-});
 
 describe('computeSkillsPath', () => {
   test('returns bundled path when currentDir ends with dist', () => {
@@ -162,141 +149,6 @@ describe('listBundledSkills', () => {
     const skills = await listBundledSkills();
     // Should return skills (or empty array if none exist)
     expect(Array.isArray(skills)).toBe(true);
-  });
-});
-
-describe('isSkillInstalled', () => {
-  let tempDir: string;
-  let originalHome: string | undefined;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'ralph-tui-skill-test-'));
-    originalHome = process.env.HOME;
-    // Note: We can't easily mock homedir() since it's called at import time
-    // These tests verify the function logic with the real home directory
-  });
-
-  afterEach(async () => {
-    if (originalHome !== undefined) {
-      process.env.HOME = originalHome;
-    }
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test('returns false for non-existent skill', async () => {
-    const installed = await isSkillInstalled('definitely-not-a-real-skill-12345');
-    expect(installed).toBe(false);
-  });
-});
-
-describe('installSkill', () => {
-  test('returns error for non-existent skill', async () => {
-    const skills = await listBundledSkills();
-    // Skip if no skills available (CI environment)
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-    const result = await installSkill('non-existent-skill-xyz');
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('not found in bundled skills');
-  });
-
-  test('installs real bundled skill', async () => {
-    const skills = await listBundledSkills();
-    // Skip if no skills available (CI environment)
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-    // This will actually install to ~/.claude/skills/
-    // We test with a real skill to ensure the full flow works
-    const result = await installSkill('ralph-tui-prd', { force: true });
-    expect(result.success).toBe(true);
-    expect(result.path).toBeDefined();
-    expect(result.path).toContain('ralph-tui-prd');
-  });
-
-  test('skips already installed skill without force', async () => {
-    const skills = await listBundledSkills();
-    // Skip if no skills available (CI environment)
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-    // First install
-    await installSkill('ralph-tui-prd', { force: true });
-
-    // Second install without force should skip
-    const result = await installSkill('ralph-tui-prd', { force: false });
-    expect(result.success).toBe(true);
-    expect(result.skipped).toBe(true);
-  });
-
-  test('overwrites with force option', async () => {
-    const skills = await listBundledSkills();
-    // Skip if no skills available (CI environment)
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-    // First install
-    await installSkill('ralph-tui-prd', { force: true });
-
-    // Second install with force should not skip
-    const result = await installSkill('ralph-tui-prd', { force: true });
-    expect(result.success).toBe(true);
-    expect(result.skipped).toBeFalsy();
-  });
-});
-
-describe('installRalphTuiPrdSkill', () => {
-  test('installs the ralph-tui-prd skill', async () => {
-    const skills = await listBundledSkills();
-    // Skip if no skills available (CI environment)
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-    const result = await installRalphTuiPrdSkill({ force: true });
-    expect(result.success).toBe(true);
-    expect(result.path).toContain('ralph-tui-prd');
-  });
-
-  test('respects force option', async () => {
-    const skills = await listBundledSkills();
-    // Skip if no skills available (CI environment)
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-    // First install
-    await installRalphTuiPrdSkill({ force: true });
-
-    // Without force should skip
-    const result = await installRalphTuiPrdSkill({ force: false });
-    expect(result.success).toBe(true);
-    expect(result.skipped).toBe(true);
-  });
-});
-
-describe('installAllSkills', () => {
-  test('returns map of results', async () => {
-    const results = await installAllSkills({ force: true });
-    expect(results instanceof Map).toBe(true);
-  });
-
-  test('installs all bundled skills', async () => {
-    const skills = await listBundledSkills();
-    const results = await installAllSkills({ force: true });
-
-    // Should have result for each skill
-    expect(results.size).toBe(skills.length);
-
-    // All should succeed
-    for (const [_name, result] of results) {
-      expect(result.success).toBe(true);
-    }
   });
 });
 
@@ -470,28 +322,6 @@ describe('installSkillTo', () => {
     const result = await installSkillTo('ralph-tui-prd', tempDir, { force: true });
     expect(result.success).toBe(true);
     expect(result.skipped).toBeFalsy();
-  });
-});
-
-describe('installAllSkillsTo', () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'ralph-tui-skill-test-'));
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test('installs all skills to specified directory', async () => {
-    const skills = await listBundledSkills();
-    const results = await installAllSkillsTo(tempDir, { force: true });
-    expect(results.size).toBe(skills.length);
-    for (const [_name, result] of results) {
-      expect(result.success).toBe(true);
-      expect(result.path).toContain(tempDir);
-    }
   });
 });
 
