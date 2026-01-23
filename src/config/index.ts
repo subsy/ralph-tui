@@ -190,6 +190,7 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
   // Replace arrays entirely if present in project config
   if (project.fallbackAgents !== undefined) merged.fallbackAgents = project.fallbackAgents;
   if (project.envExclude !== undefined) merged.envExclude = project.envExclude;
+  if (project.envPassthrough !== undefined) merged.envPassthrough = project.envPassthrough;
 
   // Merge nested objects
   if (project.rateLimitHandling !== undefined) {
@@ -344,6 +345,14 @@ function getDefaultAgentConfig(
       result = {
         ...result,
         envExclude: storedConfig.envExclude,
+      };
+    }
+
+    // Apply envPassthrough shorthand (only if not already set on agent config)
+    if (storedConfig.envPassthrough && !result.envPassthrough) {
+      result = {
+        ...result,
+        envPassthrough: storedConfig.envPassthrough,
       };
     }
 

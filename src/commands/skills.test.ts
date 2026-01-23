@@ -1,7 +1,7 @@
 /**
  * ABOUTME: Tests for the skills command CLI interface.
  * Tests the list and install subcommands for managing agent skills.
- * Supports multi-agent skill installation (Claude Code, OpenCode, Factory Droid).
+ * Install delegates to Vercel's add-skill CLI for ecosystem compatibility.
  *
  * NOTE: These tests are designed to work both:
  * - In environments with real agents installed (full testing)
@@ -14,8 +14,7 @@ import { describe, expect, test, beforeEach, afterEach, spyOn, mock } from 'bun:
 mock.restore();
 
 // Import the command functions - these use the real agent registry
-import { executeSkillsCommand, printSkillsHelp } from './skills.js';
-import { listBundledSkills } from '../setup/skill-installer.js';
+import { executeSkillsCommand, printSkillsHelp, parseInstallArgs, buildAddSkillArgs, parseAddSkillOutput } from './skills.js';
 
 describe('printSkillsHelp', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
@@ -42,9 +41,10 @@ describe('printSkillsHelp', () => {
     printSkillsHelp();
 
     const output = consoleSpy.mock.calls[0][0];
-    expect(output).toContain('--force');
     expect(output).toContain('--all');
     expect(output).toContain('--agent');
+    expect(output).toContain('--global');
+    expect(output).toContain('--local');
   });
 
   test('includes examples in help', () => {
@@ -62,7 +62,15 @@ describe('printSkillsHelp', () => {
     const output = consoleSpy.mock.calls[0][0];
     expect(output).toContain('claude');
     expect(output).toContain('opencode');
-    expect(output).toContain('droid');
+    expect(output).toContain('codex');
+  });
+
+  test('mentions add-skill direct usage in help', () => {
+    printSkillsHelp();
+
+    const output = consoleSpy.mock.calls[0][0];
+    expect(output).toContain('bunx add-skill');
+    expect(output).toContain('subsy/ralph-tui');
   });
 });
 
@@ -179,229 +187,230 @@ describe('skills list command', () => {
   });
 });
 
+describe('parseInstallArgs', () => {
+  test('defaults to global when no location specified', () => {
+    const result = parseInstallArgs([]);
+    expect(result.global).toBe(true);
+    expect(result.local).toBe(false);
+  });
+
+  test('parses --local flag', () => {
+    const result = parseInstallArgs(['--local']);
+    expect(result.local).toBe(true);
+    expect(result.global).toBe(false);
+  });
+
+  test('parses -l shorthand', () => {
+    const result = parseInstallArgs(['-l']);
+    expect(result.local).toBe(true);
+  });
+
+  test('parses --global flag', () => {
+    const result = parseInstallArgs(['--global']);
+    expect(result.global).toBe(true);
+  });
+
+  test('parses -g shorthand', () => {
+    const result = parseInstallArgs(['-g']);
+    expect(result.global).toBe(true);
+  });
+
+  test('parses skill name as positional argument', () => {
+    const result = parseInstallArgs(['ralph-tui-prd']);
+    expect(result.skillName).toBe('ralph-tui-prd');
+  });
+
+  test('parses --agent flag', () => {
+    const result = parseInstallArgs(['--agent', 'claude']);
+    expect(result.agentId).toBe('claude');
+  });
+
+  test('parses --agent=value form', () => {
+    const result = parseInstallArgs(['--agent=opencode']);
+    expect(result.agentId).toBe('opencode');
+  });
+
+  test('accepts --force for backwards compat without error', () => {
+    const result = parseInstallArgs(['--force']);
+    expect(result.global).toBe(true);
+  });
+
+  test('accepts --all for backwards compat without error', () => {
+    const result = parseInstallArgs(['--all']);
+    expect(result.global).toBe(true);
+  });
+
+  test('parses combined flags', () => {
+    const result = parseInstallArgs(['ralph-tui-prd', '--agent', 'claude', '--local']);
+    expect(result.skillName).toBe('ralph-tui-prd');
+    expect(result.agentId).toBe('claude');
+    expect(result.local).toBe(true);
+    expect(result.global).toBe(false);
+  });
+});
+
+describe('buildAddSkillArgs', () => {
+  test('builds basic global install args', () => {
+    const args = buildAddSkillArgs({
+      skillName: null,
+      agentId: null,
+      local: false,
+      global: true,
+    });
+    expect(args).toEqual(['add-skill', 'subsy/ralph-tui', '-g', '-y']);
+  });
+
+  test('builds local install args (no -g flag)', () => {
+    const args = buildAddSkillArgs({
+      skillName: null,
+      agentId: null,
+      local: true,
+      global: false,
+    });
+    expect(args).toEqual(['add-skill', 'subsy/ralph-tui', '-y']);
+  });
+
+  test('includes -s flag for specific skill', () => {
+    const args = buildAddSkillArgs({
+      skillName: 'ralph-tui-prd',
+      agentId: null,
+      local: false,
+      global: true,
+    });
+    expect(args).toEqual(['add-skill', 'subsy/ralph-tui', '-s', 'ralph-tui-prd', '-g', '-y']);
+  });
+
+  test('maps claude agent ID to claude-code', () => {
+    const args = buildAddSkillArgs({
+      skillName: null,
+      agentId: 'claude',
+      local: false,
+      global: true,
+    });
+    expect(args).toContain('-a');
+    expect(args).toContain('claude-code');
+  });
+
+  test('passes through opencode agent ID unchanged', () => {
+    const args = buildAddSkillArgs({
+      skillName: null,
+      agentId: 'opencode',
+      local: false,
+      global: true,
+    });
+    expect(args).toContain('-a');
+    expect(args).toContain('opencode');
+  });
+
+  test('passes through unknown agent IDs as-is', () => {
+    const args = buildAddSkillArgs({
+      skillName: null,
+      agentId: 'cursor',
+      local: false,
+      global: true,
+    });
+    expect(args).toContain('-a');
+    expect(args).toContain('cursor');
+  });
+
+  test('builds full command with all options', () => {
+    const args = buildAddSkillArgs({
+      skillName: 'ralph-tui-prd',
+      agentId: 'claude',
+      local: false,
+      global: true,
+    });
+    expect(args).toEqual([
+      'add-skill', 'subsy/ralph-tui',
+      '-s', 'ralph-tui-prd',
+      '-a', 'claude-code',
+      '-g', '-y',
+    ]);
+  });
+});
+
 describe('skills install command', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
-  let consoleErrorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
-    consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     consoleSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
   });
 
-  test('installs all skills to detected agents by default', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    await executeSkillsCommand(['install', '--force']);
+  test('shows help with --help flag', async () => {
+    await executeSkillsCommand(['install', '--help']);
 
     const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(allOutput).toContain('ralph-tui skills');
+    expect(allOutput).toContain('add-skill');
+  });
+});
 
-    // In CI without agents installed, we get "No supported agents detected"
-    if (allOutput.includes('No supported agents detected')) {
-      expect(allOutput).toContain('Install Claude Code, OpenCode, or Factory Droid');
-      return;
-    }
-
-    // Should show "Installing all skills to N agent(s)"
-    expect(allOutput).toContain('Installing all skills');
-    expect(allOutput).toContain('agent');
+describe('parseAddSkillOutput', () => {
+  test('parses successful install with no failures', () => {
+    const output = `Found 4 skills
+Detected 3 agents
+Installing to: Claude Code, OpenCode, Codex
+Installation complete`;
+    const result = parseAddSkillOutput(output);
+    expect(result.skillCount).toBe(4);
+    expect(result.agentCount).toBe(3);
+    expect(result.agents).toEqual(['Claude Code', 'OpenCode', 'Codex']);
+    expect(result.installed).toBe(true);
+    expect(result.failureCount).toBe(0);
+    expect(result.eloopOnly).toBe(false);
   });
 
-  test('installs specific skill by name', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    await executeSkillsCommand(['install', 'ralph-tui-prd', '--force']);
-
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-
-    // In CI without agents installed, we get "No supported agents detected"
-    if (allOutput.includes('No supported agents detected')) {
-      expect(allOutput).toContain('Install Claude Code, OpenCode, or Factory Droid');
-      return;
-    }
-
-    // Should show installing specific skill
-    expect(allOutput).toContain('ralph-tui-prd');
+  test('parses install with ELOOP-only failures', () => {
+    const output = `Found 4 skills
+Detected 9 agents
+Installing to: Amp, Antigravity, Claude Code, Codex, Cursor, Droid, Gemini CLI, GitHub Copilot, OpenCode
+Installation complete
+Failed to install 36
+ELOOP: too many symbolic links encountered, mkdir`;
+    const result = parseAddSkillOutput(output);
+    expect(result.skillCount).toBe(4);
+    expect(result.agentCount).toBe(9);
+    expect(result.installed).toBe(true);
+    expect(result.failureCount).toBe(36);
+    expect(result.eloopOnly).toBe(true);
   });
 
-  test('shows error for non-existent skill', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    // Mock process.exit to prevent test from exiting
-    const exitSpy = spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
-
-    try {
-      await executeSkillsCommand(['install', 'non-existent-skill-xyz']);
-    } catch {
-      // Expected - process.exit throws
-    }
-
-    const errorOutput = consoleErrorSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-    expect(errorOutput).toContain('not found');
-
-    exitSpy.mockRestore();
+  test('parses install with non-ELOOP failures', () => {
+    const output = `Found 2 skills
+Detected 2 agents
+Installing to: Claude Code, OpenCode
+Installation complete
+Failed to install 1
+ENOENT: no such file or directory`;
+    const result = parseAddSkillOutput(output);
+    expect(result.installed).toBe(true);
+    expect(result.failureCount).toBe(1);
+    expect(result.eloopOnly).toBe(false);
   });
 
-  test('accepts --force flag', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    // First install
-    await executeSkillsCommand(['install', '--force']);
-
-    // Second install with force should not skip
-    consoleSpy.mockClear();
-    await executeSkillsCommand(['install', '--force']);
-
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-
-    // In CI without agents installed, we get "No supported agents detected"
-    if (allOutput.includes('No supported agents detected')) {
-      expect(allOutput).toContain('Install Claude Code, OpenCode, or Factory Droid');
-      return;
-    }
-
-    // Should show "Installed" not "Skipped" for at least some skills
-    expect(allOutput).toContain('Installed');
+  test('handles empty output', () => {
+    const result = parseAddSkillOutput('');
+    expect(result.skillCount).toBe(0);
+    expect(result.agentCount).toBe(0);
+    expect(result.agents).toEqual([]);
+    expect(result.installed).toBe(false);
+    expect(result.failureCount).toBe(0);
+    expect(result.eloopOnly).toBe(false);
   });
 
-  test('accepts -f shorthand for --force', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    await executeSkillsCommand(['install', '-f']);
-
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-
-    // In CI without agents installed, we get "No supported agents detected"
-    if (allOutput.includes('No supported agents detected')) {
-      expect(allOutput).toContain('Install Claude Code, OpenCode, or Factory Droid');
-      return;
-    }
-
-    // Should show installation output
-    expect(allOutput).toContain('Installing all skills');
-  });
-
-  test('accepts --all flag explicitly', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    await executeSkillsCommand(['install', '--all', '--force']);
-
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-
-    // In CI without agents installed, we get "No supported agents detected"
-    if (allOutput.includes('No supported agents detected')) {
-      expect(allOutput).toContain('Install Claude Code, OpenCode, or Factory Droid');
-      return;
-    }
-
-    // Should show installing all
-    expect(allOutput).toContain('Installing all skills');
-  });
-
-  test('accepts --agent flag to install to specific agent', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    await executeSkillsCommand(['install', '--agent', 'claude', '--force']);
-
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-
-    // When --agent is specified, it attempts to install even if agent not available
-    // Should show installing to specific agent (agent name appears in output)
-    expect(allOutput).toContain('claude');
-  });
-
-  test('accepts --agent=value form', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    await executeSkillsCommand(['install', '--agent=opencode', '--force']);
-
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-
-    // When --agent is specified, it attempts to install even if agent not available
-    // Should show installing to specific agent (agent name appears in output)
-    expect(allOutput).toContain('opencode');
-  });
-
-  test('shows error for unknown agent', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    // Mock process.exit to prevent test from exiting
-    const exitSpy = spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
-
-    try {
-      await executeSkillsCommand(['install', '--agent', 'nonexistent-agent']);
-    } catch {
-      // Expected - process.exit throws
-    }
-
-    const errorOutput = consoleErrorSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-    expect(errorOutput).toContain('Unknown agent');
-
-    exitSpy.mockRestore();
-  });
-
-  test('shows summary after installation', async () => {
-    const skills = await listBundledSkills();
-    if (skills.length === 0) {
-      console.log('Skipping: No bundled skills found');
-      return;
-    }
-
-    await executeSkillsCommand(['install', '--force']);
-
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
-
-    // In CI without agents installed, we get "No supported agents detected"
-    if (allOutput.includes('No supported agents detected')) {
-      expect(allOutput).toContain('Install Claude Code, OpenCode, or Factory Droid');
-      return;
-    }
-
-    // Should show summary with counts
-    expect(allOutput).toContain('Installed:');
+  test('handles single skill single agent', () => {
+    const output = `Found 1 skill
+Detected 1 agent
+Installing to: Claude Code
+Installation complete`;
+    const result = parseAddSkillOutput(output);
+    expect(result.skillCount).toBe(1);
+    expect(result.agentCount).toBe(1);
+    expect(result.agents).toEqual(['Claude Code']);
+    expect(result.installed).toBe(true);
   });
 });

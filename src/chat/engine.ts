@@ -138,18 +138,22 @@ export class ChatEngine {
 
   /**
    * Build the prompt for the agent including conversation history.
+   * Uses markdown formatting (not XML tags) for compatibility with CLI agents
+   * that may interpret angle-bracket tags as protocol markers.
    */
   private buildPrompt(userMessage: string): string {
     const parts: string[] = [];
 
-    // Add system prompt
-    parts.push(`<system>\n${this.config.systemPrompt}\n</system>\n`);
+    // Add system instructions using markdown header
+    parts.push('## Instructions\n');
+    parts.push(this.config.systemPrompt);
+    parts.push('');
 
     // Add conversation history (limited by maxHistoryMessages)
     const historyToInclude = this.messages.slice(-this.config.maxHistoryMessages);
 
     if (historyToInclude.length > 0) {
-      parts.push('<conversation>');
+      parts.push('## Conversation History\n');
       for (const msg of historyToInclude) {
         if (msg.role === 'user') {
           parts.push(`User: ${msg.content}`);
@@ -157,12 +161,12 @@ export class ChatEngine {
           parts.push(`Assistant: ${msg.content}`);
         }
       }
-      parts.push('</conversation>\n');
+      parts.push('');
     }
 
     // Add the current user message
-    parts.push(`User: ${userMessage}\n`);
-    parts.push('Assistant:');
+    parts.push('## Current Request\n');
+    parts.push(userMessage);
 
     return parts.join('\n');
   }

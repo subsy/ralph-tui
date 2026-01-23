@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { platform } from 'node:os';
-import { BaseAgentPlugin } from '../base.js';
+import { BaseAgentPlugin, quoteForWindowsShell } from '../base.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -191,7 +191,7 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
 
     let proc;
     if (isWindows) {
-      proc = spawn(command, allArgs, {
+      proc = spawn(quoteForWindowsShell(command), allArgs, {
         cwd: options?.cwd ?? process.cwd(),
         env,
         stdio: ['ignore', 'pipe', 'pipe'],

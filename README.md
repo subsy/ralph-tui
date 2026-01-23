@@ -168,16 +168,19 @@ See the [full CLI reference](https://ralph-tui.com/docs/cli/overview) for all op
 
 ### Using Skills Directly in Your Agent
 
-After running `ralph-tui setup`, skills are installed to your agent's skills directory:
+Install ralph-tui skills to your agent using [add-skill](https://github.com/vercel-labs/add-skill):
 
-| Agent | Skills Location |
-|-------|-----------------|
-| Claude Code | `~/.claude/skills/` |
-| OpenCode | `~/.config/opencode/skills/` |
-| Factory Droid | `~/.factory/skills/` |
-| Gemini CLI | `~/.gemini/skills/` |
-| Codex | `~/.codex/skills/` |
-| Kiro CLI | `~/.kiro/skills/` |
+```bash
+# Install all skills to all detected agents globally
+bunx add-skill subsy/ralph-tui --all
+
+# Install to a specific agent
+bunx add-skill subsy/ralph-tui -a claude-code -g -y
+
+# Or use the ralph-tui wrapper (maps agent IDs automatically)
+ralph-tui skills install
+ralph-tui skills install --agent claude
+```
 
 Use these slash commands in your agent:
 

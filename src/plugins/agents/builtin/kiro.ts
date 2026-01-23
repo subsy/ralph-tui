@@ -5,7 +5,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { BaseAgentPlugin, findCommandPath } from '../base.js';
+import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -113,7 +113,7 @@ export class KiroAgentPlugin extends BaseAgentPlugin {
       // Use -V flag (the documented version flag for kiro-cli)
       // Only use shell on Windows where direct spawn may not work
       const useShell = process.platform === 'win32';
-      const proc = spawn(command, ['-V'], {
+      const proc = spawn(useShell ? quoteForWindowsShell(command) : command, ['-V'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: useShell,
       });

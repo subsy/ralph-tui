@@ -230,6 +230,67 @@ describe('AgentPluginConfigSchema', () => {
       fallbackAgents: [''],
     })).toThrow();
   });
+
+  test('accepts valid envExclude patterns', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: ['*_API_KEY', 'MY_SECRET'],
+    });
+    expect(result.envExclude).toEqual(['*_API_KEY', 'MY_SECRET']);
+  });
+
+  test('rejects envExclude with empty strings', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: [''],
+    })).toThrow();
+  });
+
+  test('rejects envExclude with non-string values', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: [123],
+    })).toThrow();
+  });
+
+  test('accepts valid envPassthrough patterns', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envPassthrough: ['ANTHROPIC_API_KEY', '*_SECRET'],
+    });
+    expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY', '*_SECRET']);
+  });
+
+  test('rejects envPassthrough with empty strings', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envPassthrough: [''],
+    })).toThrow();
+  });
+
+  test('rejects envPassthrough with non-string values', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envPassthrough: [42],
+    })).toThrow();
+  });
+
+  test('accepts both envExclude and envPassthrough together', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: ['*_TOKEN'],
+      envPassthrough: ['ANTHROPIC_API_KEY'],
+    });
+    expect(result.envExclude).toEqual(['*_TOKEN']);
+    expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY']);
+  });
 });
 
 describe('TrackerOptionsSchema', () => {
@@ -345,6 +406,37 @@ describe('StoredConfigSchema', () => {
     expect(() => StoredConfigSchema.parse({
       trackers: [{ name: 'test', plugin: '' }],
     })).toThrow();
+  });
+
+  test('accepts top-level envExclude', () => {
+    const result = StoredConfigSchema.parse({
+      envExclude: ['*_API_KEY', '*_SECRET'],
+    });
+    expect(result.envExclude).toEqual(['*_API_KEY', '*_SECRET']);
+  });
+
+  test('rejects top-level envExclude with empty strings', () => {
+    expect(() => StoredConfigSchema.parse({ envExclude: [''] })).toThrow();
+  });
+
+  test('accepts top-level envPassthrough', () => {
+    const result = StoredConfigSchema.parse({
+      envPassthrough: ['ANTHROPIC_API_KEY'],
+    });
+    expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY']);
+  });
+
+  test('rejects top-level envPassthrough with empty strings', () => {
+    expect(() => StoredConfigSchema.parse({ envPassthrough: [''] })).toThrow();
+  });
+
+  test('accepts envExclude and envPassthrough together at top level', () => {
+    const result = StoredConfigSchema.parse({
+      envExclude: ['*_TOKEN'],
+      envPassthrough: ['MY_API_KEY'],
+    });
+    expect(result.envExclude).toEqual(['*_TOKEN']);
+    expect(result.envPassthrough).toEqual(['MY_API_KEY']);
   });
 });
 

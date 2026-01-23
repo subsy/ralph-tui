@@ -6,7 +6,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { BaseAgentPlugin, findCommandPath } from '../base.js';
+import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
 import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
 import type {
   AgentPluginMeta,
@@ -300,7 +300,7 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   ): Promise<{ success: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
       const useShell = process.platform === 'win32';
-      const proc = spawn(command, ['--version'], {
+      const proc = spawn(useShell ? quoteForWindowsShell(command) : command, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: useShell,
       });

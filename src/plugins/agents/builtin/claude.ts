@@ -6,7 +6,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { BaseAgentPlugin, findCommandPath } from '../base.js';
+import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
 import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
 import type {
   AgentPluginMeta,
@@ -177,7 +177,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   ): Promise<{ success: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
       const useShell = process.platform === 'win32';
-      const proc = spawn(command, ['--version'], {
+      const proc = spawn(useShell ? quoteForWindowsShell(command) : command, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: useShell,
       });
@@ -440,8 +440,17 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     // Wrap callbacks to parse JSONL events when using stream-json output
     const isStreamingJson = options?.subagentTracing || this.printMode === 'json' || this.printMode === 'stream';
 
+    // When skipPermissions is enabled, Claude Code requires IS_SANDBOX=1 in the
+    // environment (particularly on Linux VMs running as root). Without it, Claude
+    // exits with a non-zero code even if the prompt is valid.
+    const sandboxEnv: Record<string, string> = {};
+    if (this.skipPermissions) {
+      sandboxEnv.IS_SANDBOX = '1';
+    }
+
     const parsedOptions: AgentExecuteOptions = {
       ...options,
+      env: { ...sandboxEnv, ...options?.env },
       // TUI-native segments callback (preferred)
       onStdoutSegments: options?.onStdoutSegments && isStreamingJson
         ? (/* original segments ignored - we parse from raw */) => {
@@ -548,7 +557,8 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       '  1. Test Claude Code directly: claude "hello"\n' +
       '  2. Verify your Anthropic API key: echo $ANTHROPIC_API_KEY\n' +
       '  3. Check Claude Code is installed: claude --version\n' +
-      '  4. Try running: claude --print-system-prompt (should show system prompt)'
+      '  4. Try running: claude --print-system-prompt (should show system prompt)\n' +
+      '  5. On Linux VMs (especially as root): ensure IS_SANDBOX=1 is set in the environment'
     );
   }
 

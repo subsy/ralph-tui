@@ -3,9 +3,11 @@
  * Tests prompt building, response parsing, JSONL parsing, and setup validation.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { ClaudeAgentPlugin } from '../../src/plugins/agents/builtin/claude.js';
 import type { ClaudeJsonlMessage, JsonlParseResult } from '../../src/plugins/agents/builtin/claude.js';
+import { BaseAgentPlugin } from '../../src/plugins/agents/base.js';
+import type { AgentExecuteOptions, AgentExecutionHandle, AgentExecutionResult } from '../../src/plugins/agents/types.js';
 
 describe('ClaudeAgentPlugin', () => {
   let plugin: ClaudeAgentPlugin;
@@ -431,6 +433,100 @@ describe('ClaudeAgentPlugin', () => {
       const requirements = plugin.getSandboxRequirements();
       expect(requirements.runtimePaths).toContain('~/.bun');
       expect(requirements.runtimePaths).toContain('~/.nvm');
+    });
+  });
+
+  describe('IS_SANDBOX environment variable', () => {
+    const fakeHandle: AgentExecutionHandle = {
+      executionId: 'test-id',
+      promise: Promise.resolve({
+        executionId: 'test-id',
+        status: 'completed',
+        stdout: '',
+        stderr: '',
+        durationMs: 0,
+        interrupted: false,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+      } as AgentExecutionResult),
+      interrupt: () => true,
+      isRunning: () => false,
+    };
+
+    test('sets IS_SANDBOX=1 when skipPermissions is true (explicit)', async () => {
+      const testPlugin = new ClaudeAgentPlugin();
+      await testPlugin.initialize({ skipPermissions: true });
+
+      const executeSpy = spyOn(BaseAgentPlugin.prototype, 'execute')
+        .mockReturnValue(fakeHandle);
+
+      try {
+        testPlugin.execute('test prompt', []);
+
+        expect(executeSpy).toHaveBeenCalled();
+        const calledOptions = executeSpy.mock.calls[0]?.[2] as AgentExecuteOptions | undefined;
+        expect(calledOptions?.env).toBeDefined();
+        expect(calledOptions?.env?.IS_SANDBOX).toBe('1');
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    test('sets IS_SANDBOX=1 with default skipPermissions (true by default)', async () => {
+      const testPlugin = new ClaudeAgentPlugin();
+      await testPlugin.initialize({});
+
+      const executeSpy = spyOn(BaseAgentPlugin.prototype, 'execute')
+        .mockReturnValue(fakeHandle);
+
+      try {
+        testPlugin.execute('test prompt', []);
+
+        expect(executeSpy).toHaveBeenCalled();
+        const calledOptions = executeSpy.mock.calls[0]?.[2] as AgentExecuteOptions | undefined;
+        expect(calledOptions?.env).toBeDefined();
+        expect(calledOptions?.env?.IS_SANDBOX).toBe('1');
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    test('does not set IS_SANDBOX when skipPermissions is false', async () => {
+      const testPlugin = new ClaudeAgentPlugin();
+      await testPlugin.initialize({ skipPermissions: false });
+
+      const executeSpy = spyOn(BaseAgentPlugin.prototype, 'execute')
+        .mockReturnValue(fakeHandle);
+
+      try {
+        testPlugin.execute('test prompt', []);
+
+        expect(executeSpy).toHaveBeenCalled();
+        const calledOptions = executeSpy.mock.calls[0]?.[2] as AgentExecuteOptions | undefined;
+        expect(calledOptions?.env?.IS_SANDBOX).toBeUndefined();
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    test('user-provided env overrides sandbox env', async () => {
+      const testPlugin = new ClaudeAgentPlugin();
+      await testPlugin.initialize({ skipPermissions: true });
+
+      const executeSpy = spyOn(BaseAgentPlugin.prototype, 'execute')
+        .mockReturnValue(fakeHandle);
+
+      try {
+        testPlugin.execute('test prompt', [], {
+          env: { IS_SANDBOX: 'custom' },
+        });
+
+        expect(executeSpy).toHaveBeenCalled();
+        const calledOptions = executeSpy.mock.calls[0]?.[2] as AgentExecuteOptions | undefined;
+        expect(calledOptions?.env?.IS_SANDBOX).toBe('custom');
+      } finally {
+        executeSpy.mockRestore();
+      }
     });
   });
 });

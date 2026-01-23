@@ -118,7 +118,8 @@ timeout = 300000
 | `options` | object | `{}` | Plugin-specific options |
 | `fallbackAgents` | string[] | `[]` | Agents to try on rate limit |
 | `rateLimitHandling` | object | - | Rate limit configuration |
-| `envExclude` | string[] | `[]` | Environment variables to exclude (see below) |
+| `envExclude` | string[] | `[]` | Additional env var patterns to exclude |
+| `envPassthrough` | string[] | `[]` | Env vars to allow through despite exclusion patterns |
 
 ## Tracker Options
 
@@ -242,27 +243,72 @@ Controls which environment variables are passed to agent subprocesses. This is e
 
 ### The Problem
 
-When you run ralph-tui from a directory containing a `.env` or `.env.local` file, tools like **direnv**, **dotenv-cli**, or frameworks like **Next.js** may automatically load these variables into your shell environment. If one of these variables is an API key (e.g., `ANTHROPIC_API_KEY`), the agent CLI will use it instead of your intended authentication method (like a Max subscription).
+When you run ralph-tui from a directory containing a `.env` or `.env.local` file, runtimes like **Bun** or tools like **direnv** and **dotenv-cli** may automatically load these variables into your shell environment. If one of these variables is an API key (e.g., `ANTHROPIC_API_KEY`), the agent CLI will use it instead of your intended authentication method (like a Max subscription), causing unexpected billing.
 
-### Solution: envExclude
+### Default Exclusion Patterns
 
-The `envExclude` option specifies environment variable patterns to filter out before spawning the agent process.
+Ralph TUI automatically excludes environment variables matching these patterns from agent subprocesses:
+
+- `*_API_KEY` — blocks `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.
+- `*_SECRET_KEY` — blocks `AWS_SECRET_KEY`, etc.
+- `*_SECRET` — blocks `DB_SECRET`, `JWT_SECRET`, etc.
+
+These defaults are always active, even without any configuration. You'll see which variables are blocked (and which are allowed through) in the startup output of `ralph-tui run`, `ralph-tui prime`, `ralph-tui doctor`, and `ralph-tui info`.
+
+<Callout type="info">
+The defaults protect against the most common accidental credential leakage. If no environment variables match these patterns, you'll see a message confirming the filter is active but found nothing to block.
+</Callout>
+
+### envPassthrough: Allowing Specific Variables
+
+If you need a blocked variable to reach the agent (e.g., when the agent genuinely needs the API key), use `envPassthrough` to override the exclusion:
 
 ```toml
-# Exclude specific variables
-envExclude = ["ANTHROPIC_API_KEY"]
+# Allow ANTHROPIC_API_KEY through despite matching *_API_KEY
+envPassthrough = ["ANTHROPIC_API_KEY"]
+```
 
-# Or use glob patterns to exclude multiple keys
-envExclude = ["*_API_KEY", "*_SECRET", "*_TOKEN"]
+Passthrough supports glob patterns:
+
+```toml
+# Allow all *_API_KEY variables through
+envPassthrough = ["*_API_KEY"]
+```
+
+### envExclude: Additional Exclusions
+
+The `envExclude` option adds patterns on top of the defaults. Use it to block variables not covered by the default patterns:
+
+```toml
+# Block tokens and passwords in addition to defaults
+envExclude = ["*_TOKEN", "*_PASSWORD"]
+```
+
+### Three-Layer Filtering
+
+Environment variables are filtered through three layers (in order):
+
+1. **Default patterns** — `*_API_KEY`, `*_SECRET_KEY`, `*_SECRET` (always applied)
+2. **User envExclude** — additional patterns you configure (stacked on defaults)
+3. **envPassthrough** — overrides both defaults and user excludes
+
+```
+process.env variables
+  │
+  ├─ Matches default pattern? ──── BLOCKED (unless in passthrough)
+  ├─ Matches envExclude?      ──── BLOCKED (unless in passthrough)
+  ├─ Matches envPassthrough?  ──── ALLOWED (overrides exclusion)
+  └─ No pattern match         ──── ALLOWED (passed through)
 ```
 
 ### Shorthand Configuration
 
-Apply to the default agent with a top-level setting:
+Apply to the default agent with top-level settings:
 
 ```toml
 agent = "claude"
-envExclude = ["ANTHROPIC_API_KEY"]
+envExclude = ["*_TOKEN"]
+envPassthrough = ["ANTHROPIC_API_KEY"]
 ```
 
 ### Per-Agent Configuration
@@ -273,17 +319,18 @@ Apply to specific agents in the `[[agents]]` array:
 [[agents]]
 name = "claude-max"
 plugin = "claude"
-envExclude = ["ANTHROPIC_API_KEY"]
+# Uses defaults - ANTHROPIC_API_KEY is blocked
 
 [[agents]]
 name = "claude-api"
 plugin = "claude"
-# No envExclude - uses ANTHROPIC_API_KEY from environment
+envPassthrough = ["ANTHROPIC_API_KEY"]
+# Explicitly allows the API key through for API-based auth
 ```
 
 ### Glob Pattern Syntax
 
-The `envExclude` patterns support glob-style wildcards:
+Both `envExclude` and `envPassthrough` patterns support glob-style wildcards:
 
 | Pattern | Matches |
 |---------|---------|
@@ -295,24 +342,55 @@ The `envExclude` patterns support glob-style wildcards:
 
 ### Common Use Cases
 
-**Use Max subscription instead of API credits:**
+**Use Max subscription (default behavior, no config needed):**
+```toml
+# ANTHROPIC_API_KEY is blocked by default
+agent = "claude"
+```
+
+**Explicitly use API key authentication:**
 ```toml
 agent = "claude"
-envExclude = ["ANTHROPIC_API_KEY"]
+envPassthrough = ["ANTHROPIC_API_KEY"]
 ```
 
-**Exclude all sensitive keys:**
+**Block additional sensitive variables:**
 ```toml
-envExclude = ["*_API_KEY", "*_SECRET", "*_TOKEN", "*_PASSWORD"]
+envExclude = ["*_TOKEN", "*_PASSWORD", "DATABASE_URL"]
 ```
 
-**Keep environment clean for multiple agents:**
+**Multiple agents with different auth methods:**
 ```toml
-envExclude = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"]
+[[agents]]
+name = "claude-max"
+plugin = "claude"
+# Default: ANTHROPIC_API_KEY blocked, uses Max subscription
+
+[[agents]]
+name = "claude-api"
+plugin = "claude"
+envPassthrough = ["ANTHROPIC_API_KEY"]
+# Uses API key from environment
+```
+
+### Diagnostics
+
+Run `ralph-tui doctor` to see which variables are blocked vs. allowed:
+
+```
+Env filter:
+  Blocked:     ANTHROPIC_API_KEY, OPENAI_API_KEY
+  Passthrough: (none)
+```
+
+Or if nothing matches:
+
+```
+Env filter: no vars matched exclusion patterns (*_API_KEY, *_SECRET_KEY, *_SECRET)
 ```
 
 <Callout type="tip">
-If you're experiencing unexpected API credit usage while using a Max subscription, check if your shell environment has `ANTHROPIC_API_KEY` set. Run `echo $ANTHROPIC_API_KEY` to verify.
+If you're experiencing unexpected API credit usage while using a Max subscription, run `ralph-tui doctor` to verify that `ANTHROPIC_API_KEY` is listed under "Blocked". If it's not, check whether Bun is loading it from a `.env` file.
 </Callout>
 
 ## Notifications
@@ -490,19 +568,17 @@ Ralph TUI respects these environment variables:
 
 ### Environment Variable Filtering
 
-By default, Ralph TUI passes all parent process environment variables to agent subprocesses. Use the `envExclude` option to filter specific variables:
+Ralph TUI automatically excludes variables matching `*_API_KEY`, `*_SECRET_KEY`, and `*_SECRET` from agent subprocesses. Use `envPassthrough` to allow specific variables through, or `envExclude` to block additional patterns:
 
 ```toml
-# Prevent ANTHROPIC_API_KEY from being passed to the agent
-envExclude = ["ANTHROPIC_API_KEY"]
+# Allow a specific key through (overrides default block)
+envPassthrough = ["ANTHROPIC_API_KEY"]
+
+# Block additional patterns beyond defaults
+envExclude = ["*_TOKEN", "DATABASE_URL"]
 ```
 
-This is particularly useful when:
-- Your shell auto-loads `.env` files via direnv or similar tools
-- You want to use a subscription-based auth (like Claude Max) instead of API keys
-- You need to prevent credential leakage to agent processes
-
-See [Environment Variable Exclusion](#environment-variable-exclusion) for details.
+See [Environment Variable Exclusion](#environment-variable-exclusion) for the full three-layer filtering details.
 
 ## Next Steps
 

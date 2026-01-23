@@ -16,6 +16,7 @@ import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPlugin, AgentPluginConfig } from '../plugins/agents/types.js';
 import { executeRunCommand } from './run.js';
+import { getEnvExclusionReport, formatEnvExclusionReport } from '../plugins/agents/base.js';
 
 /**
  * Command-line arguments for the create-prd command.
@@ -42,6 +43,9 @@ export interface CreatePrdArgs {
   prdSkill?: string;
 
   prdSkillSource?: string;
+
+  /** Labels to apply to created beads issues (from config trackerOptions) */
+  trackerLabels?: string[];
 }
 
 /**
@@ -84,6 +88,29 @@ export function parseCreatePrdArgs(args: string[]): CreatePrdArgs {
 interface LoadedAgent {
   agent: AgentPlugin;
   storedConfig: StoredConfig;
+}
+
+/**
+ * Parse tracker labels from config trackerOptions.
+ * Handles both string (comma-separated) and array formats.
+ * @internal Exported for testing
+ */
+export function parseTrackerLabels(
+  trackerOptions?: Record<string, unknown>
+): string[] | undefined {
+  const configLabels = trackerOptions?.labels;
+  if (typeof configLabels === 'string') {
+    const parsed = configLabels.split(',').map((l) => l.trim()).filter(Boolean);
+    return parsed.length > 0 ? parsed : undefined;
+  }
+  if (Array.isArray(configLabels)) {
+    const parsed = (configLabels as unknown[])
+      .filter((l): l is string => typeof l === 'string')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    return parsed.length > 0 ? parsed : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -249,6 +276,7 @@ async function getAgent(agentName?: string): Promise<LoadedAgent | null> {
       options: storedConfig.agentOptions || {},
       command: storedConfig.command,
       envExclude: storedConfig.envExclude,
+      envPassthrough: storedConfig.envPassthrough,
     };
 
     // Get agent instance
@@ -293,6 +321,31 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
   const timeout = parsedArgs.timeout ?? 0;
 
   console.log(`Using agent: ${agent.meta.name}`);
+
+  // Show environment variable exclusion report upfront
+  const storedConfig = await loadStoredConfig(cwd);
+  const envReport = getEnvExclusionReport(
+    process.env,
+    storedConfig.envPassthrough,
+    storedConfig.envExclude
+  );
+  const envLines = formatEnvExclusionReport(envReport);
+  for (const line of envLines) {
+    console.log(line);
+  }
+
+  // Block until Enter so user can read blocked vars before TUI clears screen.
+  // Only block when stdin is a TTY (interactive terminal).
+  if (envReport.blocked.length > 0 && process.stdin.isTTY) {
+    const { createInterface } = await import('node:readline');
+    await new Promise<void>(resolve => {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      rl.question('  Press Enter to continue...', () => {
+        rl.close();
+        resolve();
+      });
+    });
+  }
 
   // Run preflight check to verify agent can respond before starting conversation
   console.log('Verifying agent configuration...');
@@ -366,6 +419,7 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
         timeout={timeout}
         prdSkill={parsedArgs.prdSkill}
         prdSkillSource={parsedArgs.prdSkillSource}
+        trackerLabels={parsedArgs.trackerLabels}
         onComplete={handleComplete}
         onCancel={handleCancel}
         onError={handleError}
@@ -387,6 +441,8 @@ export async function executeCreatePrdCommand(args: string[]): Promise<void> {
   await requireSetup(cwd, 'ralph-tui prime');
 
   const storedConfig = await loadStoredConfig(cwd);
+
+  parsedArgs.trackerLabels = parseTrackerLabels(storedConfig.trackerOptions);
 
   if (parsedArgs.prdSkill) {
     if (!storedConfig.skills_dir?.trim()) {

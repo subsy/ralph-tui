@@ -71,8 +71,8 @@ jobs:
           bun test src/commands/info.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/info.lcov
 
-          echo "=== Running skills.test.ts ===" | tee -a coverage-output.txt
-          bun test src/commands/skills.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          echo "=== Running skills tests ===" | tee -a coverage-output.txt
+          bun test src/commands/skills.test.ts src/commands/skills-install.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/skills.lcov
 
           echo "=== Running src/config/ ===" | tee -a coverage-output.txt
@@ -111,9 +111,19 @@ jobs:
           bun test src/setup/wizard.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/wizard.lcov
 
-          echo "=== Running src/setup/ (excluding wizard) ===" | tee -a coverage-output.txt
+          echo "=== Running src/setup/ (excluding wizard and spawn-mocked tests) ===" | tee -a coverage-output.txt
           bun test src/setup/skill-installer.test.ts src/setup/migration.test.ts src/setup/prompts.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/setup.lcov
+
+          # Run spawn-mocked tests isolated: they mock node:child_process which conflicts with migration.test.ts
+          echo "=== Running skill-installer-spawn.test.ts (isolated) ===" | tee -a coverage-output.txt
+          bun test src/setup/skill-installer-spawn.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/skill-installer-spawn.lcov
+
+          # Run migration-install test isolated: it mocks config/registry which conflicts with migration.test.ts
+          echo "=== Running migration-install.test.ts (isolated) ===" | tee -a coverage-output.txt
+          bun test src/setup/migration-install.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/migration-install.lcov
 
           echo "=== Running src/templates/ ===" | tee -a coverage-output.txt
           bun test src/templates/ --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
@@ -159,7 +169,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           # Upload all batch coverage files - Codecov will merge them correctly
-          files: ./coverage-parts/tests.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/plugins.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov
+          files: ./coverage-parts/tests.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/plugins.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov
           fail_ci_if_error: false
           verbose: true
         env:

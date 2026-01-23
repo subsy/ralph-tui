@@ -72,6 +72,7 @@ import {
 import type { ConnectionToastMessage } from '../tui/components/Toast.js';
 import { spawnSync } from 'node:child_process';
 import { basename } from 'node:path';
+import { getEnvExclusionReport, formatEnvExclusionReport } from '../plugins/agents/base.js';
 
 /**
  * Get git repository information for the current working directory.
@@ -1542,6 +1543,31 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   for (const warning of validation.warnings) {
     console.warn(`Warning: ${warning}`);
   }
+
+  // Show environment variable exclusion report upfront (using resolved agent config)
+  const envReport = getEnvExclusionReport(
+    process.env,
+    config.agent.envPassthrough,
+    config.agent.envExclude
+  );
+  const envLines = formatEnvExclusionReport(envReport);
+  for (const line of envLines) {
+    console.log(line);
+  }
+
+  // Block until Enter so user can read blocked vars before TUI clears screen.
+  // Only block in interactive TUI mode (stdin is TTY and not headless).
+  if (envReport.blocked.length > 0 && process.stdin.isTTY && !options.headless) {
+    const { createInterface } = await import('node:readline');
+    await new Promise<void>(resolve => {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      rl.question('  Press Enter to continue...', () => {
+        rl.close();
+        resolve();
+      });
+    });
+  }
+  console.log('');
 
   // Run preflight check if --verify flag is specified
   if (options.verify) {

@@ -69,6 +69,21 @@ export function findCommandPath(
   });
 }
 
+/**
+ * Quote a command path for Windows shell execution.
+ * When spawn is used with shell: true on Windows, paths containing spaces
+ * must be wrapped in double quotes to prevent cmd.exe from splitting them
+ * at the space (e.g., "C:\Program Files\..." would be parsed as "C:\Program").
+ * Returns the path unchanged if it has no spaces or is already quoted.
+ * Callers should only use this when shell: true is set on Windows.
+ */
+export function quoteForWindowsShell(commandPath: string): string {
+  if (!commandPath.includes(' ')) return commandPath;
+  // Already quoted
+  if (commandPath.startsWith('"') && commandPath.endsWith('"')) return commandPath;
+  return `"${commandPath}"`;
+}
+
 import { randomUUID } from 'node:crypto';
 import type {
   AgentPlugin,
@@ -103,6 +118,19 @@ interface RunningExecution {
 }
 
 /**
+ * Default environment variable exclusion patterns.
+ * These patterns are always excluded from agent subprocesses to prevent accidental
+ * API key leakage (e.g., from .env files auto-loaded by Bun) which can cause
+ * unexpected billing. Use the envPassthrough config option to explicitly allow
+ * specific variables matching these patterns through to the agent.
+ */
+export const DEFAULT_ENV_EXCLUDE_PATTERNS: readonly string[] = [
+  '*_API_KEY',
+  '*_SECRET_KEY',
+  '*_SECRET',
+];
+
+/**
  * Abstract base class for agent plugins.
  * Provides sensible defaults and utility methods for executing CLI-based agents.
  */
@@ -121,14 +149,17 @@ function globMatch(pattern: string, str: string): boolean {
 }
 
 /**
- * Filter environment variables by excluding those matching patterns.
+ * Filter environment variables by excluding those matching patterns,
+ * with an optional passthrough list that overrides exclusions.
  * @param env Environment variables object
  * @param excludePatterns Patterns to exclude (exact names or glob patterns)
+ * @param passthroughPatterns Patterns to allow through despite matching exclusions
  * @returns Filtered environment object
  */
-function filterEnvByExclude(
+function filterEnvByExcludeWithPassthrough(
   env: NodeJS.ProcessEnv,
-  excludePatterns: string[]
+  excludePatterns: string[],
+  passthroughPatterns: string[]
 ): NodeJS.ProcessEnv {
   if (!excludePatterns || excludePatterns.length === 0) {
     return env;
@@ -136,14 +167,101 @@ function filterEnvByExclude(
 
   const filtered: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(env)) {
-    const shouldExclude = excludePatterns.some((pattern) =>
+    const matchesExclude = excludePatterns.some((pattern) =>
       globMatch(pattern, key)
     );
-    if (!shouldExclude) {
+    if (!matchesExclude) {
+      filtered[key] = value;
+    } else if (
+      passthroughPatterns.length > 0 &&
+      passthroughPatterns.some((pattern) => globMatch(pattern, key))
+    ) {
+      // Passthrough overrides exclusion
       filtered[key] = value;
     }
   }
   return filtered;
+}
+
+/**
+ * Report of environment variables detected as matching exclusion patterns.
+ */
+export interface EnvExclusionReport {
+  /** Variables that are blocked from reaching the agent process */
+  blocked: string[];
+  /** Variables that match exclusion patterns but are allowed via passthrough */
+  allowed: string[];
+}
+
+/**
+ * Detect environment variables matching default exclusion patterns and categorize them.
+ * Scans the current process.env for vars that would be blocked by default patterns,
+ * then splits them into blocked vs allowed (via passthrough).
+ *
+ * @param env Environment variables to scan (defaults to process.env)
+ * @param passthroughPatterns Patterns that override exclusions
+ * @param additionalExclude Extra exclusion patterns beyond defaults
+ * @returns Report with blocked and allowed variable names
+ */
+export function getEnvExclusionReport(
+  env: NodeJS.ProcessEnv = process.env,
+  passthroughPatterns: string[] = [],
+  additionalExclude: string[] = []
+): EnvExclusionReport {
+  const excludePatterns = [...DEFAULT_ENV_EXCLUDE_PATTERNS, ...additionalExclude];
+  const blocked: string[] = [];
+  const allowed: string[] = [];
+
+  for (const key of Object.keys(env)) {
+    const matchesExclude = excludePatterns.some((pattern) =>
+      globMatch(pattern, key)
+    );
+    if (!matchesExclude) {
+      continue;
+    }
+
+    const matchesPassthrough =
+      passthroughPatterns.length > 0 &&
+      passthroughPatterns.some((pattern) => globMatch(pattern, key));
+
+    if (matchesPassthrough) {
+      allowed.push(key);
+    } else {
+      blocked.push(key);
+    }
+  }
+
+  return { blocked: blocked.sort(), allowed: allowed.sort() };
+}
+
+/**
+ * Format an env exclusion report as human-readable lines for console output.
+ * Always returns output so users can see which patterns are active.
+ *
+ * @param report The exclusion report to format
+ * @returns Array of formatted lines
+ */
+export function formatEnvExclusionReport(report: EnvExclusionReport): string[] {
+  const lines: string[] = [];
+
+  if (report.blocked.length === 0 && report.allowed.length === 0) {
+    lines.push(
+      `Env filter: no vars matched exclusion patterns (${DEFAULT_ENV_EXCLUDE_PATTERNS.join(', ')})`
+    );
+    return lines;
+  }
+
+  lines.push('Env filter:');
+
+  if (report.blocked.length > 0) {
+    lines.push(`  Blocked:     ${report.blocked.join(', ')}`);
+  }
+
+  if (report.allowed.length > 0) {
+    lines.push(`  Passthrough: ${report.allowed.join(', ')}`);
+  }
+
+  return lines;
 }
 
 export abstract class BaseAgentPlugin implements AgentPlugin {
@@ -154,7 +272,8 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   protected commandPath?: string;
   protected defaultFlags: string[] = [];
   protected defaultTimeout = 0; // 0 = no timeout
-  protected envExclude: string[] = []; // Environment variables to exclude
+  protected envExclude: string[] = []; // User-configured environment variables to exclude
+  protected envPassthrough: string[] = []; // Vars to pass through despite matching defaults
 
   /** Map of running executions by ID */
   private executions: Map<string, RunningExecution> = new Map();
@@ -190,6 +309,12 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       );
     }
 
+    if (Array.isArray(config.envPassthrough)) {
+      this.envPassthrough = config.envPassthrough.filter(
+        (p): p is string => typeof p === 'string' && p.length > 0
+      );
+    }
+
     this.ready = true;
   }
 
@@ -202,6 +327,15 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   }
 
   /**
+   * Get a report of environment variables that are blocked vs allowed for this agent.
+   * Useful for diagnostics and informing users about which keys from .env files
+   * are being filtered.
+   */
+  getExclusionReport(): EnvExclusionReport {
+    return getEnvExclusionReport(process.env, this.envPassthrough, this.envExclude);
+  }
+
+  /**
    * Detect if the agent CLI is available.
    * Default implementation tries to run the command with --version.
    * Subclasses can override for custom detection logic.
@@ -210,7 +344,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     const command = this.commandPath ?? this.meta.defaultCommand;
 
     return new Promise((resolve) => {
-      const proc = spawn(command, ['--version'], {
+      const isWindows = platform() === 'win32';
+      const spawnCmd = isWindows ? quoteForWindowsShell(command) : command;
+      const proc = spawn(spawnCmd, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: true,
       });
@@ -316,8 +452,13 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     const startedAt = new Date();
     const timeout = options?.timeout ?? this.defaultTimeout;
 
-    // Merge environment, filtering out excluded variables
-    const baseEnv = filterEnvByExclude(process.env, this.envExclude);
+    // Merge environment: apply default + user exclusions, then re-include passthrough vars
+    const effectiveExclude = [...DEFAULT_ENV_EXCLUDE_PATTERNS, ...this.envExclude];
+    const baseEnv = filterEnvByExcludeWithPassthrough(
+      process.env,
+      effectiveExclude,
+      this.envPassthrough
+    );
     const env = {
       ...baseEnv,
       ...options?.env,
@@ -342,7 +483,8 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // On Unix, shell: false avoids shell interpretation of special characters in args
       // The prompt will be passed via stdin if getStdinInput returns content
       const isWindows = platform() === 'win32';
-      const proc = spawn(spawnCommand, spawnArgs, {
+      const quotedCommand = isWindows ? quoteForWindowsShell(spawnCommand) : spawnCommand;
+      const proc = spawn(quotedCommand, spawnArgs, {
         cwd: options?.cwd ?? process.cwd(),
         env,
         stdio: ['pipe', 'pipe', 'pipe'],

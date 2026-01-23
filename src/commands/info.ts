@@ -15,6 +15,7 @@ import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 import { getUserConfigDir } from '../templates/engine.js';
 import { listBundledSkills, resolveSkillsPath } from '../setup/skill-installer.js';
+import { getEnvExclusionReport, formatEnvExclusionReport, type EnvExclusionReport } from '../plugins/agents/base.js';
 
 /**
  * Compute the path to package.json based on the current module location.
@@ -147,6 +148,9 @@ export interface SystemInfo {
 
   /** Skills info */
   skills: SkillsInfo;
+
+  /** Environment variable exclusion info */
+  envExclusion: EnvExclusionReport;
 }
 
 /**
@@ -302,6 +306,20 @@ export async function collectSystemInfo(cwd: string = process.cwd()): Promise<Sy
   // Collect skills info
   const skills = await collectSkillsInfo(agentRegistry, config.skills_dir ?? null, cwd);
 
+  // Resolve agent-specific env settings (per-agent overrides take precedence over top-level)
+  const resolvedAgent = config.agents?.find(
+    (a) => a.name === agentName || a.plugin === agentName
+  );
+  const agentEnvPassthrough = resolvedAgent?.envPassthrough ?? config.envPassthrough;
+  const agentEnvExclude = resolvedAgent?.envExclude ?? config.envExclude;
+
+  // Collect env exclusion info using resolved agent config
+  const envExclusion = getEnvExclusionReport(
+    process.env,
+    agentEnvPassthrough,
+    agentEnvExclude
+  );
+
   // Determine runtime
   const isBun = typeof Bun !== 'undefined';
   const runtimeVersion = isBun ? Bun.version : process.version;
@@ -337,6 +355,7 @@ export async function collectSystemInfo(cwd: string = process.cwd()): Promise<Sy
       name: trackerName,
     },
     skills,
+    envExclusion,
   };
 }
 
@@ -409,6 +428,13 @@ export function formatSystemInfo(info: SystemInfo): string {
     lines.push(`  ${agent.name}${status}:`);
     lines.push(`    Path: ${agent.personalDir}`);
     lines.push(`    Installed: ${agent.personalSkills.length > 0 ? agent.personalSkills.join(', ') : '(none)'}`);
+  }
+
+  // Environment variable exclusion info
+  lines.push('');
+  const envLines = formatEnvExclusionReport(info.envExclusion);
+  for (const line of envLines) {
+    lines.push(line);
   }
 
   return lines.join('\n');

@@ -199,6 +199,10 @@ describe('formatSystemInfo', () => {
         },
       ],
     },
+    envExclusion: {
+      blocked: [],
+      allowed: [],
+    },
   };
 
   test('includes version info', () => {
@@ -301,6 +305,47 @@ describe('formatSystemInfo', () => {
     expect(output).toContain('Available: no');
     expect(output).toContain('Error: Command not found');
   });
+
+  test('shows env filter message even when no vars match', () => {
+    const output = formatSystemInfo(mockInfo);
+
+    expect(output).toContain('Env filter:');
+    expect(output).toContain('no vars matched exclusion patterns');
+  });
+
+  test('shows blocked env vars when present', () => {
+    const infoWithBlocked: SystemInfo = {
+      ...mockInfo,
+      envExclusion: {
+        blocked: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+        allowed: [],
+      },
+    };
+
+    const output = formatSystemInfo(infoWithBlocked);
+
+    expect(output).toContain('Env filter:');
+    expect(output).toContain('Blocked:');
+    expect(output).toContain('ANTHROPIC_API_KEY');
+  });
+
+  test('shows passthrough env vars when present', () => {
+    const infoWithPassthrough: SystemInfo = {
+      ...mockInfo,
+      envExclusion: {
+        blocked: ['OPENAI_API_KEY'],
+        allowed: ['ANTHROPIC_API_KEY'],
+      },
+    };
+
+    const output = formatSystemInfo(infoWithPassthrough);
+
+    expect(output).toContain('Env filter:');
+    expect(output).toContain('Passthrough:');
+    expect(output).toContain('ANTHROPIC_API_KEY');
+    expect(output).toContain('Blocked:');
+    expect(output).toContain('OPENAI_API_KEY');
+  });
 });
 
 describe('formatForBugReport', () => {
@@ -347,6 +392,10 @@ describe('formatForBugReport', () => {
           personalSkills: ['ralph-tui-prd'],
         },
       ],
+    },
+    envExclusion: {
+      blocked: [],
+      allowed: [],
     },
   };
 

@@ -820,3 +820,122 @@ default = true
     expect(config!.agent.command).toBe('my-custom-claude');
   });
 });
+
+describe('buildConfig - envPassthrough shorthand', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test('applies top-level envPassthrough to default agent', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+envPassthrough = ["ANTHROPIC_API_KEY"]
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.envPassthrough).toEqual(['ANTHROPIC_API_KEY']);
+  });
+
+  test('applies top-level envExclude to default agent', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+envExclude = ["*_TOKEN", "DATABASE_URL"]
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.envExclude).toEqual(['*_TOKEN', 'DATABASE_URL']);
+  });
+
+  test('agent-level envPassthrough takes precedence over top-level', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+envPassthrough = ["SHOULD_NOT_BE_USED"]
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude"
+plugin = "claude"
+default = true
+envPassthrough = ["AGENT_LEVEL_KEY"]
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.envPassthrough).toEqual(['AGENT_LEVEL_KEY']);
+  });
+
+  test('top-level envPassthrough not applied if agent already has it set', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+envPassthrough = ["TOP_LEVEL_KEY"]
+tracker = "beads-bv"
+
+[[agents]]
+name = "custom-claude"
+plugin = "claude"
+default = true
+envPassthrough = ["AGENT_SPECIFIC_KEY"]
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.envPassthrough).toEqual(['AGENT_SPECIFIC_KEY']);
+  });
+
+  test('applies both envExclude and envPassthrough shorthands', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+envExclude = ["*_TOKEN"]
+envPassthrough = ["MY_API_KEY"]
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.envExclude).toEqual(['*_TOKEN']);
+    expect(config!.agent.envPassthrough).toEqual(['MY_API_KEY']);
+  });
+});

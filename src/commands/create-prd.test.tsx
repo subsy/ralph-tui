@@ -47,7 +47,7 @@ mock.module('../plugins/agents/builtin/index.js', () => ({
 }));
 
 // Import after mocking
-import { parseCreatePrdArgs, printCreatePrdHelp } from './create-prd.js';
+import { parseCreatePrdArgs, parseTrackerLabels, printCreatePrdHelp } from './create-prd.js';
 
 // Helper to create temp directory
 async function createTempDir(): Promise<string> {
@@ -178,5 +178,73 @@ describe('create-prd config propagation', () => {
     const args = parseCreatePrdArgs(['--agent', 'claude']);
     expect(args.agent).toBe('claude');
     expect((args as Record<string, unknown>).envExclude).toBeUndefined();
+  });
+});
+
+describe('parseTrackerLabels', () => {
+  test('returns undefined when trackerOptions is undefined', () => {
+    expect(parseTrackerLabels(undefined)).toBeUndefined();
+  });
+
+  test('returns undefined when labels key is missing', () => {
+    expect(parseTrackerLabels({ epicId: 'test' })).toBeUndefined();
+  });
+
+  test('parses comma-separated string labels', () => {
+    expect(parseTrackerLabels({ labels: 'ralph,frontend' })).toEqual(['ralph', 'frontend']);
+  });
+
+  test('trims whitespace from string labels', () => {
+    expect(parseTrackerLabels({ labels: ' ralph , frontend , backend ' })).toEqual([
+      'ralph',
+      'frontend',
+      'backend',
+    ]);
+  });
+
+  test('filters empty entries from string labels', () => {
+    expect(parseTrackerLabels({ labels: 'ralph,,frontend,' })).toEqual(['ralph', 'frontend']);
+  });
+
+  test('returns undefined for empty string', () => {
+    expect(parseTrackerLabels({ labels: '' })).toBeUndefined();
+  });
+
+  test('returns undefined for whitespace-only string', () => {
+    expect(parseTrackerLabels({ labels: '  ,  , ' })).toBeUndefined();
+  });
+
+  test('parses array labels', () => {
+    expect(parseTrackerLabels({ labels: ['ralph', 'frontend'] })).toEqual(['ralph', 'frontend']);
+  });
+
+  test('trims whitespace from array labels', () => {
+    expect(parseTrackerLabels({ labels: [' ralph ', ' frontend '] })).toEqual([
+      'ralph',
+      'frontend',
+    ]);
+  });
+
+  test('filters non-string entries from array', () => {
+    expect(parseTrackerLabels({ labels: ['ralph', 42, null, 'backend', undefined] })).toEqual([
+      'ralph',
+      'backend',
+    ]);
+  });
+
+  test('returns undefined for empty array', () => {
+    expect(parseTrackerLabels({ labels: [] })).toBeUndefined();
+  });
+
+  test('returns undefined for array of only non-strings', () => {
+    expect(parseTrackerLabels({ labels: [42, null, true] })).toBeUndefined();
+  });
+
+  test('returns undefined when labels is a number', () => {
+    expect(parseTrackerLabels({ labels: 123 })).toBeUndefined();
+  });
+
+  test('returns undefined when labels is a boolean', () => {
+    expect(parseTrackerLabels({ labels: true })).toBeUndefined();
   });
 });

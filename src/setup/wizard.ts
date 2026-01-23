@@ -33,7 +33,7 @@ import {
   listBundledSkills,
   isSkillInstalledAt,
   resolveSkillsPath,
-  installSkillsForAgent,
+  installViaAddSkill,
 } from './skill-installer.js';
 import { CURRENT_CONFIG_VERSION } from './migration.js';
 
@@ -379,24 +379,16 @@ export async function runSetupWizard(
           );
 
           if (installThisSkill) {
-            const result = await installSkillsForAgent(
-              selectedAgent,
-              agentMeta?.name ?? selectedAgent,
-              skillsPaths,
-              { force: true, personal: true, repo: false, skillName: skill.name }
-            );
+            const result = await installViaAddSkill({
+              agentId: selectedAgent,
+              skillName: skill.name,
+              global: true,
+            });
 
-            // Report results from the agent-specific installation
-            const skillResults = result.skills.get(skill.name);
-            const personalResult = skillResults?.find(r => r.target === 'personal');
-            if (personalResult?.result.success) {
+            if (result.success) {
               printSuccess(`  ${alreadyInstalled ? 'Updated' : 'Installed'}: ${skill.name}`);
-              if (personalResult.result.path) {
-                printInfo(`    Location: ${personalResult.result.path}`);
-              }
             } else {
-              const error = personalResult?.result.error ?? 'Unknown error';
-              printError(`  Failed to ${actionLabel.toLowerCase()} ${skill.name}: ${error}`);
+              printError(`  Failed to ${actionLabel.toLowerCase()} ${skill.name}: ${result.output || 'Unknown error'}`);
             }
           } else if (alreadyInstalled) {
             printInfo(`  ${skill.name}: Keeping existing version`);

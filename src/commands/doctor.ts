@@ -8,6 +8,7 @@ import { loadStoredConfig } from '../config/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPlugin, AgentPreflightResult, AgentDetectResult } from '../plugins/agents/types.js';
+import { getEnvExclusionReport, formatEnvExclusionReport, type EnvExclusionReport } from '../plugins/agents/base.js';
 
 /**
  * Result of the doctor command diagnostics
@@ -27,6 +28,9 @@ export interface DoctorResult {
 
   /** Preflight result (only if detection passed) */
   preflight?: AgentPreflightResult;
+
+  /** Environment variable exclusion report */
+  envExclusion?: EnvExclusionReport;
 
   /** Summary message */
   message: string;
@@ -72,6 +76,7 @@ async function runDiagnostics(
       options: storedConfig.agentOptions ?? {},
       command: storedConfig.command,
       envExclude: storedConfig.envExclude,
+      envPassthrough: storedConfig.envPassthrough,
     });
   } catch (error) {
     return {
@@ -81,6 +86,13 @@ async function runDiagnostics(
       message: `Failed to initialize agent '${agentName}'`,
     };
   }
+
+  // Collect environment variable exclusion info (displayed in printHumanResult)
+  const envExclusion = getEnvExclusionReport(
+    process.env,
+    storedConfig.envPassthrough,
+    storedConfig.envExclude
+  );
 
   // Run detection
   log(`\n🔍 Checking ${agent.meta.name}...\n`);
@@ -126,6 +138,7 @@ async function runDiagnostics(
     agent: { name: agent.meta.name, plugin: agent.meta.id },
     detection,
     preflight,
+    envExclusion,
     message: 'Agent is healthy and ready to use',
   };
 }
@@ -185,6 +198,15 @@ function printHumanResult(result: DoctorResult): void {
           console.log(`    ${line}`);
         }
       }
+    }
+    console.log('');
+  }
+
+  // Environment variable exclusion info (always shown)
+  if (result.envExclusion) {
+    const envLines = formatEnvExclusionReport(result.envExclusion);
+    for (const line of envLines) {
+      console.log(`  ${line}`);
     }
     console.log('');
   }

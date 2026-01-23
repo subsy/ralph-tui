@@ -14,8 +14,8 @@ import {
 } from '../config/index.js';
 import type { StoredConfig } from '../config/types.js';
 import {
-  installSkillsForAgent,
-  resolveSkillsPath,
+  installViaAddSkill,
+  resolveAddSkillAgentId,
 } from './skill-installer.js';
 import { installBuiltinTemplates } from '../templates/engine.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
@@ -152,7 +152,7 @@ export async function migrateConfig(
     log('');
     log('📦 Upgrading ralph-tui configuration...');
 
-    // 1. Install/update bundled skills for all detected agents
+    // 1. Install/update bundled skills for all detected agents via add-skill
     log('   Installing bundled skills for detected agents...');
 
     // Register built-in agents and get those with skill support
@@ -183,34 +183,20 @@ export async function migrateConfig(
         continue;
       }
 
-      // Install skills for this agent
+      // Install all skills for this agent via add-skill
       log(`   Installing skills for ${meta.name}...`);
-      const agentResult = await installSkillsForAgent(
-        meta.id,
-        meta.name,
-        meta.skillsPaths,
-        {
-          force: options.forceSkills ?? true,
-          personal: true,
-          repo: false,
-        }
-      );
+      const addSkillResult = await installViaAddSkill({
+        agentId: meta.id,
+        global: true,
+      });
 
-      const skillPath = resolveSkillsPath(meta.skillsPaths.personal);
-      for (const [skillName, targetResults] of agentResult.skills) {
-        // Migration only installs to personal, so we check the first (and only) target result
-        for (const { result: skillResult } of targetResults) {
-          if (skillResult.success && !skillResult.skipped) {
-            result.skillsUpdated.push(`${meta.id}:${skillName}`);
-            log(`     ✓ ${skillName}`);
-          } else if (skillResult.skipped) {
-            log(`     · ${skillName} (already installed)`);
-          } else if (skillResult.error) {
-            result.warnings.push(`Failed to install ${skillName} for ${meta.name}: ${skillResult.error}`);
-          }
-        }
+      if (addSkillResult.success) {
+        result.skillsUpdated.push(`${meta.id}:all`);
+        log(`     ✓ Skills installed for ${meta.name} (${resolveAddSkillAgentId(meta.id)})`);
+      } else {
+        result.warnings.push(`Failed to install skills for ${meta.name}: ${addSkillResult.output}`);
+        log(`     ✗ Failed for ${meta.name}`);
       }
-      log(`     → ${skillPath}`);
     }
 
     // 2. Install builtin templates to global config directory

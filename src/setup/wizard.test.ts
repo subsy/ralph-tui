@@ -36,25 +36,22 @@ mock.module('./prompts.js', () => ({
   promptText: () => Promise.resolve(''),
   promptPath: () => Promise.resolve(''),
   promptQuestion: () => Promise.resolve(''),
-  printSection: () => {},
-  printSuccess: () => {},
-  printInfo: () => {},
-  printError: () => {},
+  printSection: (...args: unknown[]) => { console.log(...args); },
+  printSuccess: (...args: unknown[]) => { console.log(...args); },
+  printInfo: (...args: unknown[]) => { console.log(...args); },
+  printError: (...args: unknown[]) => { console.log(...args); },
   isInteractiveTerminal: () => mockIsInteractiveTerminal(),
 }));
 
 // Mock skill-installer to avoid file system operations during tests
+let mockBundledSkills: Array<{ name: string; description: string; path: string }> = [];
+let mockInstallViaAddSkillResult = { success: true, output: '' };
+
 mock.module('./skill-installer.js', () => ({
-  listBundledSkills: () => Promise.resolve([]),
+  listBundledSkills: () => Promise.resolve(mockBundledSkills),
   isSkillInstalledAt: () => Promise.resolve(false),
   resolveSkillsPath: (p: string) => p.replace(/^~/, '/home/test'),
-  installSkillsForAgent: () => Promise.resolve({
-    agentId: 'claude',
-    agentName: 'Claude Code',
-    skills: new Map(),
-    hasInstalls: true,
-    allSkipped: false,
-  }),
+  installViaAddSkill: () => Promise.resolve(mockInstallViaAddSkillResult),
 }));
 
 // Mock agent preflight to avoid timeouts in tests
@@ -399,6 +396,8 @@ describe('wizard output messages', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     capturedOutput = [];
+    mockBundledSkills = [];
+    mockInstallViaAddSkillResult = { success: true, output: '' };
 
     consoleLogSpy = spyOn(console, 'log').mockImplementation((...args) => {
       capturedOutput.push(args.join(' '));
@@ -439,5 +438,45 @@ describe('wizard output messages', () => {
 
     const output = capturedOutput.join('\n');
     expect(output).toContain('ralph-tui config show');
+  });
+
+  test('installs skills via installViaAddSkill on success', async () => {
+    mockBundledSkills = [
+      { name: 'ralph-tui-prd', description: 'PRD generator', path: '/skills/ralph-tui-prd' },
+    ];
+    mockInstallViaAddSkillResult = { success: true, output: '' };
+
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+    mockPromptBoolean = () => Promise.resolve(true);
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('Installed');
+    expect(output).toContain('ralph-tui-prd');
+  });
+
+  test('shows error when installViaAddSkill fails', async () => {
+    mockBundledSkills = [
+      { name: 'ralph-tui-prd', description: 'PRD generator', path: '/skills/ralph-tui-prd' },
+    ];
+    mockInstallViaAddSkillResult = { success: false, output: 'ENOENT: not found' };
+
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+    mockPromptBoolean = () => Promise.resolve(true);
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('Failed');
+    expect(output).toContain('ENOENT');
   });
 });
