@@ -54,6 +54,9 @@ export interface PrdChatAppProps {
 
   prdSkillSource?: string;
 
+  /** Labels to apply to created beads issues (from config trackerOptions) */
+  trackerLabels?: string[];
+
   /** Callback when PRD is successfully generated */
   onComplete: (result: PrdCreationResult) => void;
 
@@ -229,6 +232,7 @@ export function PrdChatApp({
   timeout = 0,
   prdSkill,
   prdSkillSource,
+  trackerLabels,
   onComplete,
   onCancel,
   onError,
@@ -402,11 +406,24 @@ Press a number key to select, or continue chatting.`,
       };
       setMessages((prev) => [...prev, userMsg]);
 
+      // Build labels instruction for beads format
+      let labelsInstruction = '';
+      if (format === 'beads' && trackerLabels && trackerLabels.length > 0) {
+        const allLabels = ['ralph', ...trackerLabels.filter((l) => l !== 'ralph')];
+        const labelsStr = allLabels.join(',');
+        labelsInstruction = `
+
+IMPORTANT: Apply these labels to EVERY issue created (epic and all child tasks):
+  --labels "${labelsStr}"
+
+Add the --labels flag to every bd create / br create command.`;
+      }
+
       const prompt = `${option.skillPrompt}
 
 The PRD file is at: ${prdPath}
 
-Read the PRD and create the appropriate tasks.`;
+Read the PRD and create the appropriate tasks.${labelsInstruction}`;
 
       try {
         const result = await taskEngineRef.current.sendMessage(prompt, {

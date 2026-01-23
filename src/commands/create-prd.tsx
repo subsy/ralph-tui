@@ -43,6 +43,9 @@ export interface CreatePrdArgs {
   prdSkill?: string;
 
   prdSkillSource?: string;
+
+  /** Labels to apply to created beads issues (from config trackerOptions) */
+  trackerLabels?: string[];
 }
 
 /**
@@ -386,6 +389,7 @@ async function runChatMode(parsedArgs: CreatePrdArgs): Promise<PrdCreationResult
         timeout={timeout}
         prdSkill={parsedArgs.prdSkill}
         prdSkillSource={parsedArgs.prdSkillSource}
+        trackerLabels={parsedArgs.trackerLabels}
         onComplete={handleComplete}
         onCancel={handleCancel}
         onError={handleError}
@@ -407,6 +411,17 @@ export async function executeCreatePrdCommand(args: string[]): Promise<void> {
   await requireSetup(cwd, 'ralph-tui prime');
 
   const storedConfig = await loadStoredConfig(cwd);
+
+  // Load tracker labels from config (trackerOptions.labels)
+  const configLabels = storedConfig.trackerOptions?.labels;
+  if (typeof configLabels === 'string') {
+    parsedArgs.trackerLabels = configLabels.split(',').map((l) => l.trim()).filter(Boolean);
+  } else if (Array.isArray(configLabels)) {
+    parsedArgs.trackerLabels = (configLabels as unknown[])
+      .filter((l): l is string => typeof l === 'string')
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }
 
   if (parsedArgs.prdSkill) {
     if (!storedConfig.skills_dir?.trim()) {
