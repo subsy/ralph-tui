@@ -54,6 +54,7 @@ export const docsNavigation: NavItem[] = [
       { title: 'Config File', href: '/docs/configuration/config-file' },
       { title: 'Options Reference', href: '/docs/configuration/options' },
       { title: 'Sandbox', href: '/docs/configuration/sandbox' },
+      { title: 'Themes', href: '/docs/configuration/themes', label: 'New' },
     ],
   },
   {

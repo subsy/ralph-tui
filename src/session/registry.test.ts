@@ -4,6 +4,9 @@
  */
 
 import { describe, expect, test, afterEach } from 'bun:test';
+import { open, unlink, rename, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   loadRegistry,
   saveRegistry,
@@ -632,6 +635,132 @@ describe('Session Registry', () => {
 
       // Clean up session1 from testSessionIds since we check it explicitly
       testSessionIds = testSessionIds.filter(id => id !== session2);
+    });
+  });
+});
+
+/**
+ * Tests for Windows-compatible file operations.
+ * These tests verify that the string-based file flags ('wx', 'w') used on Windows
+ * work correctly for lock acquisition and atomic writes.
+ */
+describe('Windows file flag compatibility', () => {
+  const testDir = tmpdir();
+
+  describe('exclusive write flag (wx)', () => {
+    test('wx flag creates file and fails if file exists', async () => {
+      const testFile = join(testDir, `test-wx-${Date.now()}.lock`);
+
+      try {
+        // First open should succeed with 'wx' (exclusive write)
+        const handle1 = await open(testFile, 'wx');
+        await handle1.write('test content\n');
+        await handle1.close();
+
+        // Second open should fail with EEXIST
+        let errorCode: string | undefined;
+        try {
+          await open(testFile, 'wx');
+        } catch (error) {
+          errorCode = (error as NodeJS.ErrnoException).code;
+        }
+        expect(errorCode).toBe('EEXIST');
+      } finally {
+        try {
+          await unlink(testFile);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    test('wx flag works for lock file pattern', async () => {
+      const lockFile = join(testDir, `test-lock-${Date.now()}.lock`);
+
+      try {
+        // Simulate lock acquisition with wx flag (Windows pattern)
+        const handle = await open(lockFile, 'wx');
+        await handle.write(`${process.pid}\n`);
+        await handle.sync();
+        await handle.close();
+
+        // Verify lock file was created with correct content
+        const content = await readFile(lockFile, 'utf-8');
+        expect(content).toBe(`${process.pid}\n`);
+      } finally {
+        try {
+          await unlink(lockFile);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+  });
+
+  describe('write flag (w)', () => {
+    test('w flag creates and truncates file', async () => {
+      const testFile = join(testDir, `test-w-${Date.now()}.json`);
+
+      try {
+        // First write
+        const handle1 = await open(testFile, 'w');
+        await handle1.write('{"first": "content"}');
+        await handle1.sync();
+        await handle1.close();
+
+        // Second write should truncate
+        const handle2 = await open(testFile, 'w');
+        await handle2.write('{"second": "value"}');
+        await handle2.sync();
+        await handle2.close();
+
+        // Verify only second content exists
+        const content = await readFile(testFile, 'utf-8');
+        expect(content).toBe('{"second": "value"}');
+      } finally {
+        try {
+          await unlink(testFile);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    test('w flag works for atomic write pattern', async () => {
+      const finalFile = join(testDir, `test-atomic-${Date.now()}.json`);
+      const tempFile = `${finalFile}.${process.pid}.tmp`;
+
+      try {
+        // Simulate atomic write pattern (Windows version)
+        const registry = { version: 1, sessions: { 'test-id': { status: 'running' } } };
+
+        // Write to temp file with 'w' flag
+        const handle = await open(tempFile, 'w');
+        const content = JSON.stringify(registry, null, 2);
+        await handle.write(content);
+        await handle.sync();
+        await handle.close();
+
+        // Atomic rename
+        await rename(tempFile, finalFile);
+
+        // Verify final file content
+        const readContent = await readFile(finalFile, 'utf-8');
+        const parsed = JSON.parse(readContent);
+        expect(parsed.version).toBe(1);
+        expect(parsed.sessions['test-id'].status).toBe('running');
+      } finally {
+        try {
+          await unlink(finalFile);
+        } catch {
+          // Ignore cleanup errors
+        }
+        try {
+          await unlink(tempFile);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     });
   });
 });

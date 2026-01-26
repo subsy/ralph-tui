@@ -468,4 +468,70 @@ describe('doctor config propagation', () => {
     const config = lastGetInstanceConfig as Record<string, unknown>;
     expect(config.envExclude).toBeUndefined();
   });
+
+  test('uses agent from [[agents]] array with default=true and custom command', async () => {
+    // Create project config with agents array containing a default agent with custom command
+    // This tests that getDefaultAgentConfig properly resolves agents from the array
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude-custom"
+plugin = "claude"
+default = true
+command = "claude-glm"
+envPassthrough = ["CUSTOM_VAR"]
+`,
+      'utf-8'
+    );
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    // Verify the full agent config from the array was passed to getInstance
+    expect(lastGetInstanceConfig).toBeDefined();
+    const config = lastGetInstanceConfig as Record<string, unknown>;
+    expect(config.name).toBe('claude-custom');
+    expect(config.plugin).toBe('claude');
+    expect(config.command).toBe('claude-glm');
+    expect(config.envPassthrough).toEqual(['CUSTOM_VAR']);
+  });
+
+  test('agent-level command in [[agents]] takes precedence over top-level command', async () => {
+    // Test that agent-specific command overrides top-level command shorthand
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+command = "top-level-command"
+tracker = "beads-bv"
+
+[[agents]]
+name = "custom-agent"
+plugin = "claude"
+command = "agent-level-command"
+default = true
+`,
+      'utf-8'
+    );
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    // Agent-level command should win
+    expect(lastGetInstanceConfig).toBeDefined();
+    const config = lastGetInstanceConfig as Record<string, unknown>;
+    expect(config.command).toBe('agent-level-command');
+  });
 });

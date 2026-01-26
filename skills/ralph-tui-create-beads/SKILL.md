@@ -47,22 +47,30 @@ Extract:
 
 ## Output Format
 
-Beads use `bd create` command:
+Beads use `bd create` command with **HEREDOC syntax** to safely handle special characters:
 
 ```bash
 # Create epic (link back to source PRD)
 bd create --type=epic \
   --title="[Feature Name]" \
-  --description="[Feature description from PRD]" \
+  --description="$(cat <<'EOF'
+[Feature description from PRD]
+EOF
+)" \
   --external-ref="prd:./tasks/feature-name-prd.md"
 
 # Create child bead (with quality gates in acceptance criteria)
 bd create \
   --parent=EPIC_ID \
   --title="[Story Title]" \
-  --description="[Story description with acceptance criteria INCLUDING quality gates]" \
+  --description="$(cat <<'EOF'
+[Story description with acceptance criteria INCLUDING quality gates]
+EOF
+)" \
   --priority=[1-4]
 ```
+
+> **CRITICAL:** Always use `<<'EOF'` (single-quoted) for the HEREDOC delimiter. This prevents shell interpretation of backticks, `$variables`, and `()` in descriptions.
 
 ---
 
@@ -233,25 +241,32 @@ For UI stories, also include:
 # Create epic (link back to source PRD)
 bd create --type=epic \
   --title="Friends Outreach Track" \
-  --description="Warm outreach for deck feedback" \
+  --description="$(cat <<'EOF'
+Warm outreach for deck feedback
+EOF
+)" \
   --external-ref="prd:./tasks/friends-outreach-prd.md"
 
 # US-001: No deps (first - creates schema)
 bd create --parent=ralph-tui-abc \
   --title="US-001: Add investorType field to investor table" \
-  --description="As a developer, I need to categorize investors as 'cold' or 'friend'.
+  --description="$(cat <<'EOF'
+As a developer, I need to categorize investors as 'cold' or 'friend'.
 
 ## Acceptance Criteria
 - [ ] Add investorType column: 'cold' | 'friend' (default 'cold')
 - [ ] Generate and run migration successfully
 - [ ] pnpm typecheck passes
-- [ ] pnpm lint passes" \
+- [ ] pnpm lint passes
+EOF
+)" \
   --priority=1
 
 # US-002: UI story (gets browser verification too)
 bd create --parent=ralph-tui-abc \
   --title="US-002: Add type toggle to investor list rows" \
-  --description="As Ryan, I want to toggle investor type directly from the list.
+  --description="$(cat <<'EOF'
+As Ryan, I want to toggle investor type directly from the list.
 
 ## Acceptance Criteria
 - [ ] Each row has Cold | Friend toggle
@@ -259,7 +274,9 @@ bd create --parent=ralph-tui-abc \
 - [ ] On confirm: updates type in database
 - [ ] pnpm typecheck passes
 - [ ] pnpm lint passes
-- [ ] Verify in browser using dev-browser skill" \
+- [ ] Verify in browser using dev-browser skill
+EOF
+)" \
   --priority=2
 
 # Add dependency: US-002 depends on US-001
@@ -268,14 +285,17 @@ bd dep add ralph-tui-002 ralph-tui-001
 # US-003: UI story
 bd create --parent=ralph-tui-abc \
   --title="US-003: Filter investors by type" \
-  --description="As Ryan, I want to filter the list to see just friends or cold.
+  --description="$(cat <<'EOF'
+As Ryan, I want to filter the list to see just friends or cold.
 
 ## Acceptance Criteria
 - [ ] Filter dropdown: All | Cold | Friend
 - [ ] Filter persists in URL params
 - [ ] pnpm typecheck passes
 - [ ] pnpm lint passes
-- [ ] Verify in browser using dev-browser skill" \
+- [ ] Verify in browser using dev-browser skill
+EOF
+)" \
   --priority=3
 
 # Add dependency: US-003 depends on US-002

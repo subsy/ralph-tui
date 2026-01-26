@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { access, constants, readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-import { loadStoredConfigWithSource, CONFIG_PATHS } from '../config/index.js';
+import { loadStoredConfigWithSource, getDefaultAgentConfig, CONFIG_PATHS } from '../config/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
@@ -132,6 +132,8 @@ export interface SystemInfo {
   agent: {
     /** Configured agent name */
     name: string;
+    /** Custom command path (if configured) */
+    command?: string;
     /** Agent detected/available */
     available: boolean;
     /** Agent version (if available) */
@@ -273,27 +275,30 @@ export async function collectSystemInfo(cwd: string = process.cwd()): Promise<Sy
     // Directory doesn't exist or can't read
   }
 
-  // Get agent info
+  // Get agent info using centralized logic
   registerBuiltinAgents();
   const agentRegistry = getAgentRegistry();
-  const agentName = config.agent ?? 'claude';
+
+  // Use centralized getDefaultAgentConfig to properly resolve agent from config
+  const agentConfig = getDefaultAgentConfig(config, {});
+  const agentName = agentConfig?.name ?? 'claude';
+  const agentCommand = agentConfig?.command;
   let agentAvailable = false;
   let agentVersion: string | undefined;
   let agentError: string | undefined;
 
   try {
-    if (agentRegistry.hasPlugin(agentName)) {
-      const agent = await agentRegistry.getInstance({
-        name: agentName,
-        plugin: agentName,
-        options: config.agentOptions ?? {},
-      });
+    if (agentConfig && agentRegistry.hasPlugin(agentConfig.plugin)) {
+      // Pass the full agent config (including command) to getInstance
+      const agent = await agentRegistry.getInstance(agentConfig);
       const detection = await agent.detect();
       agentAvailable = detection.available;
       agentVersion = detection.version;
       agentError = detection.error;
+    } else if (!agentConfig) {
+      agentError = 'No agent configured or available';
     } else {
-      agentError = `Unknown agent plugin: ${agentName}`;
+      agentError = `Unknown agent plugin: ${agentConfig.plugin}`;
     }
   } catch (error) {
     agentError = error instanceof Error ? error.message : String(error);
@@ -306,18 +311,12 @@ export async function collectSystemInfo(cwd: string = process.cwd()): Promise<Sy
   // Collect skills info
   const skills = await collectSkillsInfo(agentRegistry, config.skills_dir ?? null, cwd);
 
-  // Resolve agent-specific env settings (per-agent overrides take precedence over top-level)
-  const resolvedAgent = config.agents?.find(
-    (a) => a.name === agentName || a.plugin === agentName
-  );
-  const agentEnvPassthrough = resolvedAgent?.envPassthrough ?? config.envPassthrough;
-  const agentEnvExclude = resolvedAgent?.envExclude ?? config.envExclude;
-
   // Collect env exclusion info using resolved agent config
+  // agentConfig already has the resolved env settings (agent-level or fallback to top-level)
   const envExclusion = getEnvExclusionReport(
     process.env,
-    agentEnvPassthrough,
-    agentEnvExclude
+    agentConfig?.envPassthrough,
+    agentConfig?.envExclude
   );
 
   // Determine runtime
@@ -347,6 +346,7 @@ export async function collectSystemInfo(cwd: string = process.cwd()): Promise<Sy
     },
     agent: {
       name: agentName,
+      command: agentCommand,
       available: agentAvailable,
       version: agentVersion,
       error: agentError,
@@ -400,6 +400,9 @@ export function formatSystemInfo(info: SystemInfo): string {
   // Agent info
   lines.push('Agent:');
   lines.push(`  Configured: ${info.agent.name}`);
+  if (info.agent.command) {
+    lines.push(`  Command: ${info.agent.command}`);
+  }
   lines.push(`  Available: ${info.agent.available ? 'yes' : 'no'}`);
   if (info.agent.version) {
     lines.push(`  Version: ${info.agent.version}`);

@@ -1,0 +1,120 @@
+---
+title: Themes
+description: Customize Ralph TUI's appearance with custom color themes.
+---
+
+## Custom Themes
+
+Ralph TUI supports custom color themes via JSON files. Load a theme at runtime with the `--theme` option:
+
+```bash
+ralph-tui run --theme ./assets/themes/high-contrast-theme.json
+```
+
+## Bundled Themes
+
+Two themes are included in `assets/themes/`:
+
+| Theme | Description |
+|-------|-------------|
+| `bright-theme.json` | Vibrant colors with purple backgrounds |
+| `high-contrast-theme.json` | High contrast with near-black backgrounds |
+
+## Theme File Structure
+
+Theme files define colors for different UI elements. See [`assets/themes/high-contrast-theme.json`](https://github.com/subsy/ralph-tui/blob/main/assets/themes/high-contrast-theme.json) for a complete example.
+
+```json
+{
+  "bg": {
+    "primary": "#0a0a0f",
+    "secondary": "#12121a",
+    "tertiary": "#1a1a24",
+    "highlight": "#22222e"
+  },
+  "fg": {
+    "primary": "#ffffff",
+    "secondary": "#f0f0f0",
+    "muted": "#b0b0c0",
+    "dim": "#808090"
+  },
+  "status": {
+    "success": "#00ff66",
+    "warning": "#ffdd00",
+    "error": "#ff4477",
+    "info": "#44ddff"
+  },
+  "task": {
+    "done": "#00ff66",
+    "active": "#00ff66",
+    "actionable": "#66ff00",
+    "pending": "#9090a0",
+    "blocked": "#ff4477",
+    "error": "#ff2255",
+    "closed": "#606070"
+  },
+  "accent": {
+    "primary": "#44ddff",
+    "secondary": "#ff44dd",
+    "tertiary": "#ffff44"
+  },
+  "border": {
+    "normal": "#3a3a4a",
+    "active": "#44ddff",
+    "muted": "#2a2a3a"
+  }
+}
+```
+
+## Color Categories
+
+| Category | Purpose |
+|----------|---------|
+| `bg` | Background colors (primary, secondary, tertiary, highlight) |
+| `fg` | Foreground/text colors (primary, secondary, muted, dim) |
+| `status` | Status indicator colors (success, warning, error, info) |
+| `task` | Task state colors (done, active, actionable, pending, blocked, error, closed) |
+| `accent` | Accent colors for highlights and emphasis |
+| `border` | Border colors (normal, active, muted) |
+
+## Partial Themes
+
+You don't need to specify every color. Missing values fall back to the default Tokyo Night theme:
+
+```json
+{
+  "bg": { "primary": "#000000" },
+  "fg": { "primary": "#ffffff" }
+}
+```
+
+This creates a theme that only overrides the primary background and foreground colors.
+
+## Color Format
+
+All colors must be valid hex color codes:
+
+- 6-digit hex: `#ff0000` (red)
+- 3-digit hex: `#f00` (red, shorthand)
+
+<Callout type="warning">
+Invalid hex colors will cause the theme to fail validation. Ralph TUI validates all colors at load time and reports any errors.
+</Callout>
+
+## Creating a Custom Theme
+
+1. Copy an existing theme as a starting point:
+   ```bash
+   cp assets/themes/high-contrast-theme.json my-theme.json
+   ```
+
+2. Edit the colors to your preference
+
+3. Load your theme:
+   ```bash
+   ralph-tui run --theme ./my-theme.json
+   ```
+
+<Callout type="tip">
+Start with a partial theme if you only want to change a few colors. The default Tokyo Night theme provides sensible defaults for any colors you don't specify.
+</Callout>

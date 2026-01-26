@@ -139,6 +139,9 @@ export interface RuntimeOptions {
   notify?: boolean;
 
   sandbox?: SandboxConfig;
+
+  /** Path to custom JSON theme file (absolute or relative to cwd) */
+  themePath?: string;
 }
 
 /**

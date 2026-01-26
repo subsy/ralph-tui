@@ -4,7 +4,7 @@
  * Helps users identify and fix configuration issues before starting work.
  */
 
-import { loadStoredConfig } from '../config/index.js';
+import { loadStoredConfig, getDefaultAgentConfig } from '../config/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPlugin, AgentPreflightResult, AgentDetectResult } from '../plugins/agents/types.js';
@@ -54,44 +54,47 @@ async function runDiagnostics(
   // Get agent registry
   const registry = getAgentRegistry();
 
-  // Determine which agent to check
-  const agentName = agentOverride ?? storedConfig.agent ?? 'claude';
+  // Determine which agent to check using centralized logic
+  const agentConfig = getDefaultAgentConfig(storedConfig, { agent: agentOverride });
 
-  // Check if agent plugin exists
-  if (!registry.hasPlugin(agentName)) {
+  if (!agentConfig) {
     return {
       healthy: false,
-      agent: { name: agentName, plugin: agentName },
-      detection: { available: false, error: `Unknown agent plugin: ${agentName}` },
-      message: `Agent plugin '${agentName}' is not registered`,
+      agent: { name: agentOverride ?? 'unknown', plugin: agentOverride ?? 'unknown' },
+      detection: { available: false, error: 'No agent configured or available' },
+      message: 'No agent plugin configured or available',
     };
   }
 
-  // Get agent instance
+  // Check if agent plugin exists
+  if (!registry.hasPlugin(agentConfig.plugin)) {
+    return {
+      healthy: false,
+      agent: { name: agentConfig.name, plugin: agentConfig.plugin },
+      detection: { available: false, error: `Unknown agent plugin: ${agentConfig.plugin}` },
+      message: `Agent plugin '${agentConfig.plugin}' is not registered`,
+    };
+  }
+
+  // Get agent instance with full config (including command, envExclude, etc.)
   let agent: AgentPlugin;
   try {
-    agent = await registry.getInstance({
-      name: agentName,
-      plugin: agentName,
-      options: storedConfig.agentOptions ?? {},
-      command: storedConfig.command,
-      envExclude: storedConfig.envExclude,
-      envPassthrough: storedConfig.envPassthrough,
-    });
+    agent = await registry.getInstance(agentConfig);
   } catch (error) {
     return {
       healthy: false,
-      agent: { name: agentName, plugin: agentName },
+      agent: { name: agentConfig.name, plugin: agentConfig.plugin },
       detection: { available: false, error: error instanceof Error ? error.message : String(error) },
-      message: `Failed to initialize agent '${agentName}'`,
+      message: `Failed to initialize agent '${agentConfig.name}'`,
     };
   }
 
   // Collect environment variable exclusion info (displayed in printHumanResult)
+  // Use agent config's env settings (which already include top-level shorthands if not overridden)
   const envExclusion = getEnvExclusionReport(
     process.env,
-    storedConfig.envPassthrough,
-    storedConfig.envExclude
+    agentConfig.envPassthrough,
+    agentConfig.envExclude
   );
 
   // Run detection

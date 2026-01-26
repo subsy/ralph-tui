@@ -283,9 +283,20 @@ export function serializeConfig(config: StoredConfig): string {
 }
 
 /**
- * Get default agent configuration based on available plugins
+ * Get default agent configuration based on available plugins.
+ * This centralizes the logic for resolving which agent to use, checking (in order):
+ * 1. CLI override (options.agent)
+ * 2. Shorthand agent field (storedConfig.agent)
+ * 3. Stored defaultAgent setting
+ * 4. Agent with default: true in agents array
+ * 5. First agent in agents array
+ * 6. Built-in claude plugin
+ *
+ * @param storedConfig The loaded configuration from TOML files
+ * @param options Runtime options (can be empty object for non-CLI usage)
+ * @returns The resolved agent configuration with all shorthand options applied
  */
-function getDefaultAgentConfig(
+export function getDefaultAgentConfig(
   storedConfig: StoredConfig,
   options: RuntimeOptions
 ): AgentPluginConfig | undefined {

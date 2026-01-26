@@ -69,6 +69,7 @@ import {
   type RemoteServer,
   type InstanceTab,
 } from '../remote/index.js';
+import { initializeTheme } from '../tui/theme.js';
 import type { ConnectionToastMessage } from '../tui/components/Toast.js';
 import { spawnSync } from 'node:child_process';
 import { basename } from 'node:path';
@@ -322,6 +323,13 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--rotate-token':
         options.rotateToken = true;
         break;
+
+      case '--theme':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.themePath = nextArg;
+          i++;
+        }
+        break;
     }
   }
 
@@ -347,6 +355,7 @@ Options:
   --prompt <path>     Custom prompt file (default: based on tracker mode)
   --output-dir <path> Directory for iteration logs (default: .ralph-tui/iterations)
   --progress-file <path> Progress file for cross-iteration context (default: .ralph-tui/progress.md)
+  --theme <path>      Path to custom JSON theme file (absolute or relative to cwd)
   --iterations <n>    Maximum iterations (0 = unlimited)
   --delay <ms>        Delay between iterations in milliseconds
   --cwd <path>        Working directory
@@ -689,6 +698,8 @@ interface RunAppWrapperProps {
   trackerType?: string;
   /** Agent plugin name (from resolved config, includes CLI override) */
   agentPlugin?: string;
+  /** Custom command path for the agent (if configured) */
+  agentCommand?: string;
   /** Current epic ID for highlighting */
   currentEpicId?: string;
   /** Initial subagent panel visibility (from persisted session) */
@@ -720,6 +731,7 @@ function RunAppWrapper({
   cwd = process.cwd(),
   trackerType,
   agentPlugin,
+  agentCommand,
   currentEpicId: initialEpicId,
   initialSubagentPanelVisible = false,
   onUpdatePersistedState,
@@ -886,6 +898,7 @@ function RunAppWrapper({
       onFilePathSwitch={handleFilePathSwitch}
       trackerType={trackerType}
       agentPlugin={agentPlugin}
+      agentCommand={agentCommand}
       currentEpicId={currentEpicId}
       initialSubagentPanelVisible={initialSubagentPanelVisible}
       onSubagentPanelVisibilityChange={handleSubagentPanelVisibilityChange}
@@ -1123,6 +1136,7 @@ async function runWithTui(
       cwd={config.cwd}
       trackerType={config.tracker.plugin}
       agentPlugin={config.agent.plugin}
+      agentCommand={config.agent.command}
       currentEpicId={config.epicId}
       initialSubagentPanelVisible={persistedState.subagentPanelVisible ?? false}
       onUpdatePersistedState={handleUpdatePersistedState}
@@ -1516,6 +1530,18 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   }
 
   console.log('Initializing Ralph TUI...');
+
+  // Initialize theme before any TUI components render
+  // This must happen early to ensure colors are available when components load
+  if (options.themePath) {
+    try {
+      await initializeTheme(options.themePath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`\nTheme loading failed: ${message}`);
+      process.exit(1);
+    }
+  }
 
   // Initialize plugins
   await initializePlugins();

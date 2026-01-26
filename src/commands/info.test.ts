@@ -152,6 +152,60 @@ describe('collectSystemInfo', () => {
 
     expect(info.tracker.name).toBe('beads');
   });
+
+  test('uses agent from [[agents]] array with default=true', async () => {
+    // Create config with agents array instead of shorthand
+    const configDir = join(tempDir, '.ralph-tui');
+    await mkdir(configDir, { recursive: true });
+    await writeFile(
+      join(configDir, 'config.toml'),
+      `
+tracker = "beads"
+
+[[agents]]
+name = "custom-claude"
+plugin = "claude"
+default = true
+`,
+      'utf-8'
+    );
+
+    const info = await collectSystemInfo(tempDir);
+
+    expect(info.agent.name).toBe('custom-claude');
+  });
+
+  test('includes command from agent config when configured', async () => {
+    // Create config with agent that has a custom command
+    const configDir = join(tempDir, '.ralph-tui');
+    await mkdir(configDir, { recursive: true });
+    await writeFile(
+      join(configDir, 'config.toml'),
+      `
+tracker = "beads"
+
+[[agents]]
+name = "claude-glm"
+plugin = "claude"
+default = true
+command = "claude-glm"
+`,
+      'utf-8'
+    );
+
+    const info = await collectSystemInfo(tempDir);
+
+    expect(info.agent.name).toBe('claude-glm');
+    expect(info.agent.command).toBe('claude-glm');
+  });
+
+  test('command is undefined when not configured', async () => {
+    await writeConfig(tempDir, { agent: 'claude' });
+
+    const info = await collectSystemInfo(tempDir);
+
+    expect(info.agent.command).toBeUndefined();
+  });
 });
 
 describe('formatSystemInfo', () => {
@@ -304,6 +358,31 @@ describe('formatSystemInfo', () => {
 
     expect(output).toContain('Available: no');
     expect(output).toContain('Error: Command not found');
+  });
+
+  test('shows custom command when configured', () => {
+    const infoWithCommand: SystemInfo = {
+      ...mockInfo,
+      agent: {
+        name: 'claude-custom',
+        command: 'claude-glm',
+        available: true,
+        version: '2.1.0',
+      },
+    };
+
+    const output = formatSystemInfo(infoWithCommand);
+
+    expect(output).toContain('Configured: claude-custom');
+    expect(output).toContain('Command: claude-glm');
+    expect(output).toContain('Available: yes');
+  });
+
+  test('does not show command line when command is not configured', () => {
+    const output = formatSystemInfo(mockInfo);
+
+    // mockInfo doesn't have a command, so "Command:" should not appear
+    expect(output).not.toContain('Command:');
   });
 
   test('shows env filter message even when no vars match', () => {

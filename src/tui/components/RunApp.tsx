@@ -109,6 +109,8 @@ export interface RunAppProps {
   trackerType?: string;
   /** Current agent plugin name (from resolved config, includes CLI override) */
   agentPlugin?: string;
+  /** Custom command path for the agent (if configured, e.g., 'claude-glm' instead of default 'claude') */
+  agentCommand?: string;
   /** Current epic ID for highlighting in the loader */
   currentEpicId?: string;
   /** Initial subagent panel visibility state (from persisted session) */
@@ -363,6 +365,7 @@ export function RunApp({
   onFilePathSwitch,
   trackerType,
   agentPlugin,
+  agentCommand,
   currentEpicId,
   initialSubagentPanelVisible = false,
   onSubagentPanelVisibilityChange,
@@ -733,9 +736,13 @@ export function RunApp({
 
   // Compute display agent name - prefer active agent from engine state, fallback to config
   // For remote viewing, use remote active agent state, then remote config, then local config
-  const displayAgentName = isViewingRemote
+  // For local viewing, append custom command in brackets if configured (e.g., "claude (claude-glm)")
+  const baseAgentName = isViewingRemote
     ? (remoteActiveAgent?.plugin ?? remoteAgentName ?? agentName)
     : (activeAgentState?.plugin ?? agentName);
+  const displayAgentName = !isViewingRemote && agentCommand && agentCommand !== baseAgentName
+    ? `${baseAgentName} (${agentCommand})`
+    : baseAgentName;
 
   // Compute display tracker and model for local vs remote
   const displayTrackerName = isViewingRemote ? (remoteTrackerName ?? trackerName) : trackerName;

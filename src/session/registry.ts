@@ -42,6 +42,12 @@ const LOCK_TIMEOUT_MS = 30000; // 30 seconds
 const LOCK_RETRY_DELAY_MS = 50;
 
 /**
+ * Platform detection for Windows-specific file handling.
+ * Windows doesn't support Unix-style numeric file flags combined with permission modes.
+ */
+const IS_WINDOWS = process.platform === 'win32';
+
+/**
  * Entry in the session registry
  */
 export interface SessionRegistryEntry {
@@ -127,7 +133,10 @@ async function acquireLock(): Promise<FileHandle> {
   while (true) {
     try {
       // O_CREAT | O_EXCL ensures atomic creation - fails if file exists
-      const handle = await open(lockPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, FILE_MODE);
+      // Windows doesn't support numeric flags with Unix permissions, so use string flag 'wx'
+      const handle = IS_WINDOWS
+        ? await open(lockPath, 'wx', FILE_MODE)
+        : await open(lockPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, FILE_MODE);
       // Write our PID for debugging stale locks
       await handle.write(`${process.pid}\n`);
       await handle.sync();
@@ -214,7 +223,10 @@ async function saveRegistryInternal(registry: SessionRegistry): Promise<void> {
   let tempHandle: FileHandle | null = null;
   try {
     // Write to temp file with restrictive permissions
-    tempHandle = await open(tempPath, constants.O_CREAT | constants.O_WRONLY | constants.O_TRUNC, FILE_MODE);
+    // Windows doesn't support numeric flags with Unix permissions, so use string flag 'w'
+    tempHandle = IS_WINDOWS
+      ? await open(tempPath, 'w', FILE_MODE)
+      : await open(tempPath, constants.O_CREAT | constants.O_WRONLY | constants.O_TRUNC, FILE_MODE);
     const content = JSON.stringify(registry, null, 2);
     await tempHandle.write(content);
 

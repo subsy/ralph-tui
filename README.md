@@ -116,6 +116,9 @@ ralph-tui run --headless
 # Run agent in isolated sandbox (bwrap on Linux, sandbox-exec on macOS)
 # Requires bwrap to be installed and on PATH (Linux) or uses built-in sandbox-exec (macOS)
 ralph-tui run --sandbox
+
+# Use a custom color theme
+ralph-tui run --theme ./assets/themes/high-contrast-theme.json
 ```
 
 ### Create PRD Options
@@ -165,6 +168,20 @@ ralph-tui create-prd --output ./docs
 - Remote connection info (when viewing remote tabs)
 
 See the [full CLI reference](https://ralph-tui.com/docs/cli/overview) for all options.
+
+### Custom Themes
+
+Ralph TUI supports custom color themes via the `--theme` option:
+
+```bash
+ralph-tui run --theme ./assets/themes/high-contrast-theme.json
+```
+
+![Custom Theme Example](docs/images/theme-example.png)
+
+Bundled themes in `assets/themes/`: `bright-theme.json`, `high-contrast-theme.json`
+
+See the [Themes documentation](https://ralph-tui.com/docs/configuration/themes) for the full theme schema and creating custom themes.
 
 ### Using Skills Directly in Your Agent
 
