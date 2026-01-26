@@ -170,13 +170,11 @@ describe('BeadsRustTrackerPlugin', () => {
             { id: 'other.1', title: 'Other', status: 'open', priority: 0 },
           ]),
         },
-        // Second: br show epic --json (returns parent with children list)
+        // Second: br dep list epic --direction up --json (returns children)
         {
           exitCode: 0,
           stdout: JSON.stringify([
-            { id: 'epic', title: 'Parent', status: 'open', priority: 0, dependents: [
-              { id: 'epic.1', title: 'Child', status: 'open', dependency_type: 'parent-child' }
-            ] },
+            { issue_id: 'epic.1', depends_on_id: 'epic', type: 'parent-child', title: 'Child', status: 'open', priority: 0 }
           ]),
         },
       ];
@@ -187,13 +185,125 @@ describe('BeadsRustTrackerPlugin', () => {
 
       const tasks = await plugin.getTasks({ parentId: 'epic' });
 
-      // Should call list first, then show to get children
+      // Should call list first, then dep list to get children
       expect(mockSpawnArgs[0]?.args).toEqual(['list', '--json', '--all']);
-      expect(mockSpawnArgs[1]?.args).toEqual(['show', 'epic', '--json']);
+      expect(mockSpawnArgs[1]?.args).toEqual(['dep', 'list', 'epic', '--direction', 'up', '--json']);
 
       // Should only return child tasks
       expect(tasks.length).toBe(1);
       expect(tasks[0]?.id).toBe('epic.1');
+    });
+
+    test('returns empty array when br dep list fails for parent filtering', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        // First: br list --json --all (returns all tasks)
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'epic.1', title: 'Child', status: 'open', priority: 0 },
+          ]),
+        },
+        // Second: br dep list fails
+        { exitCode: 1, stderr: 'not found' },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks({ parentId: 'epic' });
+
+      expect(mockSpawnArgs[1]?.args).toEqual(['dep', 'list', 'epic', '--direction', 'up', '--json']);
+      // Empty because getChildIds returns empty Set on error
+      expect(tasks.length).toBe(0);
+    });
+
+    test('filters out non-parent-child dependencies when getting children', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        // First: br list --json --all (returns all tasks)
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'child1', title: 'Child 1', status: 'open', priority: 0 },
+            { id: 'blocker1', title: 'Blocker 1', status: 'open', priority: 0 },
+          ]),
+        },
+        // Second: br dep list returns mix of parent-child and blocks
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { issue_id: 'child1', depends_on_id: 'epic', type: 'parent-child', title: 'Child 1', status: 'open', priority: 0 },
+            { issue_id: 'blocker1', depends_on_id: 'epic', type: 'blocks', title: 'Blocker 1', status: 'open', priority: 0 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks({ parentId: 'epic' });
+
+      // Should only return parent-child tasks, not blocks
+      expect(tasks.length).toBe(1);
+      expect(tasks[0]?.id).toBe('child1');
+    });
+
+    test('returns empty array when br dep list returns invalid JSON', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        // First: br list --json --all (returns all tasks)
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'epic.1', title: 'Child', status: 'open', priority: 0 },
+          ]),
+        },
+        // Second: br dep list returns invalid JSON
+        { exitCode: 0, stdout: 'not valid json' },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks({ parentId: 'epic' });
+
+      // Empty because JSON parsing failed
+      expect(tasks.length).toBe(0);
+    });
+
+    test('uses epicId from config when no parentId filter is provided', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        // First: br list --json --all
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'child1', title: 'Child 1', status: 'open', priority: 0 },
+            { id: 'other1', title: 'Other 1', status: 'open', priority: 0 },
+          ]),
+        },
+        // Second: br dep list for configured epicId
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { issue_id: 'child1', depends_on_id: 'config-epic', type: 'parent-child', title: 'Child 1', status: 'open', priority: 0 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test', epicId: 'config-epic' });
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks();
+
+      expect(mockSpawnArgs[1]?.args).toEqual(['dep', 'list', 'config-epic', '--direction', 'up', '--json']);
+      expect(tasks.length).toBe(1);
+      expect(tasks[0]?.id).toBe('child1');
     });
 
     test('supports --label filtering', async () => {
@@ -424,13 +534,13 @@ describe('BeadsRustTrackerPlugin', () => {
                   id: 'dep1',
                   title: 'Dep 1',
                   status: 'open',
-                  dependency_type: 'blocks',
+                  type: 'blocks',
                 },
                 {
                   id: 'parent1',
                   title: 'Parent 1',
                   status: 'open',
-                  dependency_type: 'parent-child',
+                  type: 'parent-child',
                 },
               ],
               dependents: [
@@ -438,7 +548,7 @@ describe('BeadsRustTrackerPlugin', () => {
                   id: 'child1',
                   title: 'Child 1',
                   status: 'open',
-                  dependency_type: 'blocks',
+                  type: 'blocks',
                 },
               ],
             },
@@ -481,13 +591,11 @@ describe('BeadsRustTrackerPlugin', () => {
             { id: 't2', title: 'Other Task', status: 'open', priority: 1 },
           ]),
         },
-        // Second: br show epic to get children IDs (for filtering)
+        // Second: br dep list epic --direction up --json (for filtering children)
         {
           exitCode: 0,
           stdout: JSON.stringify([
-            { id: 'epic', title: 'Parent', status: 'open', priority: 0, dependents: [
-              { id: 't1', title: 'Task 1', status: 'open', dependency_type: 'parent-child' }
-            ] },
+            { issue_id: 't1', depends_on_id: 'epic', type: 'parent-child', title: 'Task 1', status: 'open', priority: 2 }
           ]),
         },
       ];
@@ -519,8 +627,8 @@ describe('BeadsRustTrackerPlugin', () => {
         '--assignee',
         'alice',
       ]);
-      // Second call: show epic to get children IDs (for in-memory filtering)
-      expect(mockSpawnArgs[1]?.args).toEqual(['show', 'epic', '--json']);
+      // Second call: dep list to get children IDs (for in-memory filtering)
+      expect(mockSpawnArgs[1]?.args).toEqual(['dep', 'list', 'epic', '--direction', 'up', '--json']);
       // Should only return child task
       expect(task?.id).toBe('t1');
     });
@@ -817,9 +925,9 @@ describe('BeadsRustTrackerPlugin', () => {
               priority: 0,
               external_ref: 'prd:./tasks/prd.md',
               dependents: [
-                { id: 'epic1.1', title: 'A', status: 'open', dependency_type: 'parent-child' },
-                { id: 'epic1.2', title: 'B', status: 'closed', dependency_type: 'parent-child' },
-                { id: 'epic1.3', title: 'C', status: 'cancelled', dependency_type: 'parent-child' },
+                { id: 'epic1.1', title: 'A', status: 'open', type: 'parent-child' },
+                { id: 'epic1.2', title: 'B', status: 'closed', type: 'parent-child' },
+                { id: 'epic1.3', title: 'C', status: 'cancelled', type: 'parent-child' },
               ],
             },
           ]),

@@ -56,14 +56,30 @@ interface BrTaskJson {
     id: string;
     title: string;
     status: string;
-    dependency_type: 'blocks' | 'parent-child';
+    /** br serializes dep_type as "type" via serde rename */
+    type: 'blocks' | 'parent-child';
   }>;
   dependents?: Array<{
     id: string;
     title: string;
     status: string;
-    dependency_type: 'blocks' | 'parent-child';
+    /** br serializes dep_type as "type" via serde rename */
+    type: 'blocks' | 'parent-child';
   }>;
+}
+
+/**
+ * Output structure from br dep list --json.
+ * Used to query parent-child relationships reliably.
+ */
+interface BrDepListItem {
+  issue_id: string;
+  depends_on_id: string;
+  /** br serializes dep_type as "type" via serde rename */
+  type: 'blocks' | 'parent-child';
+  title: string;
+  status: string;
+  priority: number;
 }
 
 /**
@@ -173,7 +189,7 @@ function brTaskToTask(task: BrTaskJson): TrackerTask {
 
   if (task.dependencies) {
     for (const dep of task.dependencies) {
-      if (dep.dependency_type === 'blocks') {
+      if (dep.type === 'blocks') {
         dependsOn.push(dep.id);
       }
     }
@@ -181,7 +197,7 @@ function brTaskToTask(task: BrTaskJson): TrackerTask {
 
   if (task.dependents) {
     for (const dep of task.dependents) {
-      if (dep.dependency_type === 'blocks') {
+      if (dep.type === 'blocks') {
         blocks.push(dep.id);
       }
     }
@@ -438,11 +454,12 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
    */
   /**
    * Get child IDs for a parent epic/task.
-   * Uses br show to get dependents with parent-child relationship.
+   * Uses br dep list --direction up to get issues that depend on the parent
+   * with a parent-child relationship (i.e., children of the epic).
    */
   private async getChildIds(parentId: string): Promise<Set<string>> {
     const { stdout, exitCode } = await execBr(
-      ['show', parentId, '--json'],
+      ['dep', 'list', parentId, '--direction', 'up', '--json'],
       this.workingDir
     );
 
@@ -451,20 +468,12 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
     }
 
     try {
-      const tasks = JSON.parse(stdout) as BrTaskJson[];
-      if (tasks.length === 0) {
-        return new Set();
-      }
-
-      const task = tasks[0]!;
+      const deps = JSON.parse(stdout) as BrDepListItem[];
       const childIds = new Set<string>();
 
-      // dependents with dep_type 'parent-child' are children
-      if (task.dependents) {
-        for (const dep of task.dependents) {
-          if (dep.dependency_type === 'parent-child') {
-            childIds.add(dep.id);
-          }
+      for (const dep of deps) {
+        if (dep.type === 'parent-child') {
+          childIds.add(dep.issue_id);
         }
       }
 
@@ -693,7 +702,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
 
       if (epic.dependents) {
         const children = epic.dependents.filter(
-          (d) => d.dependency_type === 'parent-child'
+          (d) => d.type === 'parent-child'
         );
         totalCount = children.length;
         completedCount = children.filter(
