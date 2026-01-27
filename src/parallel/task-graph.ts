@@ -142,13 +142,13 @@ function buildGraph(
 
     if (task.dependsOn) {
       for (const depId of task.dependsOn) {
-        // Only include edges to tasks in our set
-        if (taskMap.has(depId)) {
+        // Only include edges to tasks in our set, and avoid duplicates
+        if (taskMap.has(depId) && !node.dependencies.includes(depId)) {
           node.dependencies.push(depId);
 
           // Add reverse edge
           const depNode = nodes.get(depId);
-          if (depNode) {
+          if (depNode && !depNode.dependents.includes(task.id)) {
             depNode.dependents.push(task.id);
           }
         }
