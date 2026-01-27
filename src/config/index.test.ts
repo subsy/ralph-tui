@@ -89,6 +89,7 @@ describe('loadStoredConfig', () => {
       maxIterations: 15,
       agent: 'claude',
       iterationDelay: 1000,
+      preflightTimeoutMs: 30000,
     });
 
     // Write project config
@@ -97,6 +98,7 @@ describe('loadStoredConfig', () => {
     await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
       maxIterations: 30,  // Override
       tracker: 'json',    // New field
+      preflightTimeoutMs: 180000,
     });
 
     const config = await loadStoredConfig(tempDir, globalConfigPath);
@@ -104,6 +106,7 @@ describe('loadStoredConfig', () => {
     expect(config.agent).toBe('claude');          // From global
     expect(config.tracker).toBe('json');          // From project
     expect(config.iterationDelay).toBe(1000);     // From global
+    expect(config.preflightTimeoutMs).toBe(180000); // Project override
   });
 
   test('handles empty config files', async () => {
