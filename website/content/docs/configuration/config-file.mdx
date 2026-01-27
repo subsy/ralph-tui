@@ -128,6 +128,20 @@ enabled = true
 
 # Sound mode: "off", "system", or "ralph"
 sound = "off"
+
+# ─────────────────────────────────────────────
+# Parallel Execution
+# ─────────────────────────────────────────────
+
+[parallel]
+# Mode: "auto" (analyze dependencies), "always" (force parallel), "never" (disable)
+mode = "auto"
+
+# Maximum concurrent workers (git worktrees)
+maxWorkers = 3
+
+# Directory for worker worktrees (relative to project root)
+worktreeDir = ".ralph-tui/worktrees"
 ```
 
 ## Common Configurations

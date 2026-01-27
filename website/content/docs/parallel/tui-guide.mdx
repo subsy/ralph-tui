@@ -1,0 +1,132 @@
+---
+title: TUI Guide
+description: Visual guide to the parallel execution TUI — worker progress, detail drill-down, merge monitoring, and keyboard shortcuts.
+---
+
+# TUI Guide
+
+When parallel execution is active, ralph-tui adds new views and keyboard shortcuts for monitoring workers, merges, and conflicts.
+
+## Workers View
+
+Press `w` to toggle the parallel workers view. This shows all active workers with their status, progress, and task titles:
+
+```
+◆ Workers (3) Group 1/2
+▶ W1 [3/10] feat: Add login page          2m 15s
+✓ W2 [10/10] fix: Auth validation bug      1m 42s
+⏵ W3 [7/10] feat: Dashboard widgets       1m 58s
+─── Merge Queue ───
+⟳ W2 → main  merging...
+⋯ W1 → main  queued
+```
+
+### Status Indicators
+
+| Symbol | Meaning | Color |
+|--------|---------|-------|
+| `▶` | Running | Green |
+| `✓` | Completed | Green |
+| `✗` | Failed | Red |
+| `■` | Cancelled | Gray |
+| `○` | Idle | Dim |
+
+### Merge Queue Indicators
+
+| Symbol | Meaning | Color |
+|--------|---------|-------|
+| `⟳` | Merging in progress | Blue |
+| `⋯` | Queued for merge | Gray |
+| `✓` | Successfully merged | Green |
+| `⚡` | Conflict detected | Yellow |
+| `✗` | Merge failed | Red |
+| `↩` | Rolled back | Yellow |
+
+## Worker Detail View
+
+From the workers view, use `↑`/`↓` to select a worker, then press `Enter` to drill into its detail view:
+
+```
+◆ Worker W1 ▶ Running 2m 15s
+Task: task-123 — feat: Add login page
+Iteration 3/10
+────────────────────────────────────────────
+Creating login form component...
+Adding email validation...
+Writing test for LoginForm...
+```
+
+The detail view shows:
+- Worker header with status and elapsed time
+- Task ID and title
+- Current iteration progress
+- Live agent output stream (scrolled to latest)
+
+Press `Esc` to return to the workers overview.
+
+## Merge Progress View
+
+Press `m` to toggle the merge progress view. This shows the complete merge queue with detailed status:
+
+```
+⟳ Merge Queue (2/5 merged)
+Backup: ralph/session-start/abc123
+────────────────────────────────────────────
+✓ task-101 → main  Merged             12s
+  fix: Auth validation bug
+⟳ task-102 → main  Merging...          3s
+  feat: Add login page
+⋯ task-103 → main  Queued
+  feat: Dashboard widgets
+```
+
+Each entry shows:
+- Merge status indicator and label
+- Task ID and branch name
+- Elapsed time (for active/completed merges)
+- Task title
+- Conflict count (if applicable)
+
+## Conflict Resolution Panel
+
+When a merge conflict is detected, a modal overlay appears:
+
+```
+┌─── ⚡ Merge Conflict Resolution ────────────┐
+│ Task: task-102 — feat: Add login page        │
+│ Files: 3 conflicted, 1 resolved              │
+│ ⟳ AI conflict resolution in progress...      │
+│ ──────────────────────────────────────────── │
+│ ▸ ✓ src/auth/login.ts        Resolved (ai)   │
+│   ⚡ src/components/Form.tsx  Unresolved       │
+│   ⚡ src/styles/auth.css      Unresolved       │
+│ ──────────────────────────────────────────── │
+│ a Accept  r Reject  A Accept All  Esc Abort  │
+└──────────────────────────────────────────────┘
+```
+
+### Conflict Panel Keys
+
+| Key | Action |
+|-----|--------|
+| `a` | Accept resolution for selected file |
+| `r` | Reject resolution for selected file |
+| `A` | Accept all resolutions |
+| `Esc` | Abort merge and rollback |
+| `↑`/`↓` | Navigate between files |
+
+## Keyboard Reference
+
+All parallel-specific keyboard shortcuts:
+
+| Key | Context | Action |
+|-----|---------|--------|
+| `w` | Any view | Toggle parallel workers view |
+| `m` | Any view | Toggle merge progress view |
+| `↑`/`↓` | Workers view | Select worker |
+| `Enter` | Workers view | Drill into worker detail |
+| `Esc` | Detail/merge view | Return to previous view |
+
+<Callout type="tip">
+  Press `?` at any time to see the full keyboard shortcut reference, including parallel-specific shortcuts.
+</Callout>
