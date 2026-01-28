@@ -148,8 +148,8 @@ export async function promptText(
 
     const onData = (key: string) => {
       // Filter out mouse tracking codes in real-time
-      // Pattern: sequences like 35;106;28M
-      if (/^\d+(?:;\d+)*[Mm]/.test(key)) {
+      // Pattern: sequences like 35;106;28M (requires semicolon to avoid false positives like "10m")
+      if (/^\d+;\d+(?:;\d+)*[Mm]$/.test(key)) {
         return; // Ignore mouse tracking codes completely
       }
 
@@ -162,9 +162,15 @@ export async function promptText(
 
         // Validate pattern if provided
         if (options.pattern && value) {
-          const regex = new RegExp(options.pattern);
-          if (!regex.test(value)) {
-            console.log(`${colors.yellow}Invalid format. Please try again.${colors.reset}`);
+          try {
+            const regex = new RegExp(options.pattern);
+            if (!regex.test(value)) {
+              console.log(`${colors.yellow}Invalid format. Please try again.${colors.reset}`);
+              resolve(promptText(prompt, options));
+              return;
+            }
+          } catch {
+            console.log(`${colors.yellow}Invalid pattern configuration. Contact support.${colors.reset}`);
             resolve(promptText(prompt, options));
             return;
           }
