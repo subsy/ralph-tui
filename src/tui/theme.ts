@@ -136,6 +136,13 @@ export const statusIndicators = {
   complete: '✓',
   idle: '○',
   ready: '◉', // Ready to start - waiting for user action
+  // Parallel execution indicators
+  merging: '⟳', // Merge in progress
+  conflicted: '⚡', // Merge conflict detected
+  merged: '✓', // Successfully merged
+  rolledBack: '↩', // Merge rolled back
+  queued: '⋯', // Queued for merge
+  worker: '◆', // Worker indicator
 } as const;
 
 /**
@@ -157,6 +164,8 @@ export const keyboardShortcuts = [
   { key: '1-9', description: 'Switch Tab' },
   { key: '[]', description: 'Prev/Next Tab' },
   { key: '↑↓', description: 'Navigate' },
+  { key: 'w', description: 'Workers' },
+  { key: 'm', description: 'Merges' },
   { key: '?', description: 'Help' },
 ] as const;
 
@@ -191,6 +200,11 @@ export const fullKeyboardShortcuts = [
   { key: 'Ctrl+Shift+Tab', description: 'Previous tab (alternate)', category: 'Instances' },
   { key: 'Ctrl+C', description: 'Interrupt (with confirmation)', category: 'System' },
   { key: 'Ctrl+C ×2', description: 'Force quit immediately', category: 'System' },
+  { key: 'w', description: 'Toggle parallel workers view', category: 'Parallel' },
+  { key: 'm', description: 'Toggle merge progress view', category: 'Parallel' },
+  { key: 'x', description: 'Kill all workers (with confirmation)', category: 'Parallel' },
+  { key: 'Enter', description: 'Drill into worker detail', category: 'Parallel' },
+  { key: 'Esc', description: 'Back to previous view', category: 'Parallel' },
 ] as const;
 
 /**

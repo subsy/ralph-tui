@@ -38,6 +38,8 @@ Running `ralph-tui` without any command also starts the TUI interface, allowing 
 |--------|-------------|
 | `--iterations <n>` | Maximum iterations (0 = unlimited) |
 | `--delay <ms>` | Delay between iterations in milliseconds |
+| `--serial`, `--sequential` | Force sequential execution (disable parallel) |
+| `--parallel [N]` | Force parallel execution, optionally with N workers |
 
 ### Output & State
 
@@ -251,6 +253,28 @@ All remote actions are logged to `~/.config/ralph-tui/audit.log`:
 {"timestamp":"2026-01-19T15:30:00.000Z","clientId":"abc12345@192.168.1.100","action":"connection_connect","success":true}
 {"timestamp":"2026-01-19T15:30:05.000Z","clientId":"abc12345@192.168.1.100","action":"pause","success":true}
 ```
+
+## Parallel Execution
+
+By default, ralph-tui analyzes task dependencies and automatically runs independent tasks in parallel when beneficial. Each parallel worker runs in its own git worktree for full isolation.
+
+```bash
+# Auto-detect (default) — parallel when beneficial
+ralph-tui run --prd ./prd.json
+
+# Force parallel with 4 workers
+ralph-tui run --prd ./prd.json --parallel 4
+
+# Force sequential (disable parallel)
+ralph-tui run --prd ./prd.json --serial
+```
+
+When parallel mode is active, the TUI shows additional views:
+- Press `w` to toggle the workers view
+- Press `m` to toggle the merge progress view
+- Press `Enter` on a worker to see its detail output
+
+See the [Parallel Execution guide](/docs/parallel/overview) for full documentation.
 
 ## Related Commands
 

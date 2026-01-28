@@ -1,0 +1,174 @@
+---
+title: Troubleshooting
+description: Common issues with parallel execution — orphaned worktrees, merge failures, disk space, and recovery procedures.
+---
+
+# Troubleshooting
+
+Common issues and solutions for parallel execution.
+
+## Orphaned Worktrees
+
+**Symptom:** Directories remain in `.ralph-tui/worktrees/` after ralph exits.
+
+**Cause:** Ralph was force-killed (Ctrl+C ×2) or crashed before cleanup.
+
+**Fix:**
+
+```bash
+# List all git worktrees
+git worktree list
+
+# Remove orphaned worktrees
+git worktree remove --force .ralph-tui/worktrees/worker-1
+git worktree remove --force .ralph-tui/worktrees/worker-2
+
+# Clean stale references
+git worktree prune
+
+# Remove leftover branches
+git branch -D ralph-parallel/task-123
+git branch -D ralph-parallel/task-456
+```
+
+<Callout type="tip">
+  Ralph automatically detects and cleans up orphaned worktrees on the next run. Manual cleanup is only needed if you want to reclaim disk space immediately.
+</Callout>
+
+## Stale Branches
+
+**Symptom:** `git branch` shows `ralph-parallel/*` branches after execution.
+
+**Cause:** Branches weren't cleaned up after merge or failure.
+
+**Fix:**
+
+```bash
+# List all parallel branches
+git branch --list 'ralph-parallel/*'
+
+# Delete all parallel branches
+git branch -D $(git branch --list 'ralph-parallel/*' | tr -d ' ')
+```
+
+## Merge Failures
+
+**Symptom:** Merge fails with conflicts that AI cannot resolve.
+
+**Cause:** Tasks modified the same files in incompatible ways.
+
+**Fix:**
+
+1. Ralph automatically rolls back the failed merge
+2. The conflicting task is re-queued to run sequentially
+3. If re-queue also fails, the task is marked as failed
+
+**Prevention:**
+
+- Structure tasks to touch different files/directories
+- Use explicit `dependsOn` relationships for tasks that share files
+- Lower `maxWorkers` to reduce concurrent file changes
+
+## Disk Space Issues
+
+**Symptom:** Worktree creation fails with "insufficient disk space" error.
+
+**Cause:** Not enough free disk space for worktree checkouts.
+
+**Fix:**
+
+```bash
+# Check available disk space
+df -h .
+
+# Remove old worktrees
+rm -rf .ralph-tui/worktrees/
+
+# Clean git objects
+git gc --prune=now
+
+# Reduce worker count
+ralph-tui run --parallel 2
+```
+
+**Estimate:** Each worktree uses roughly the same disk space as your source files (excluding `.git/`, `node_modules/`). With 3 workers, expect ~3x your source directory size.
+
+## Lock Conflicts
+
+**Symptom:** "Lock file exists" error when starting parallel execution.
+
+**Cause:** A previous ralph session didn't clean up its lock file.
+
+**Fix:**
+
+```bash
+# Force start (removes stale lock)
+ralph-tui run --force
+
+# Or manually remove the lock
+rm .ralph-tui/session.lock
+```
+
+## Session Recovery
+
+**Symptom:** Ralph restarts and finds a previous parallel session.
+
+**Behavior:** Ralph checks for existing parallel session state:
+
+1. Detects orphaned worktrees and checks for uncommitted work
+2. Completed-but-unmerged worktrees resume merge
+3. In-progress worktrees are abandoned (tasks reset to open)
+4. Remaining tasks are re-analyzed for parallel groups
+
+Session state is stored in `.ralph-tui/parallel-session.json`.
+
+## Backup Tags
+
+Ralph creates backup tags for rollback safety. To clean them up:
+
+```bash
+# List all ralph backup tags
+git tag --list 'ralph/*'
+
+# Delete a specific tag
+git tag -d ralph/pre-merge/task-123/1706000000
+
+# Delete all ralph tags
+git tag --list 'ralph/*' | xargs git tag -d
+```
+
+## FAQ
+
+### Can I use parallel execution with all trackers?
+
+Yes. The tracker plugin runs in the main process only — workers don't directly access the tracker. This works with beads, beads-rust, JSON, and all other tracker plugins.
+
+### Does parallel execution work with sandboxing?
+
+Yes. Each worker inherits the sandbox configuration. Worktrees are added to the sandbox allow list automatically.
+
+### Can I mix parallel and sequential tasks?
+
+Yes. Tasks with cyclic dependencies run sequentially after all parallel groups complete. You can also use `--serial` to force sequential mode when needed.
+
+### How many workers should I use?
+
+Start with the default of 3. Increase if:
+- You have many independent tasks
+- Your machine has ample CPU and RAM
+- Tasks are I/O-bound (waiting for APIs)
+
+Decrease if:
+- Disk space is limited
+- Tasks are CPU-intensive
+- You're experiencing merge conflicts frequently
+
+### What happens if I Ctrl+C during parallel execution?
+
+First Ctrl+C initiates graceful shutdown:
+1. Stops all workers
+2. Waits for current agent calls to finish
+3. Merges any completed work
+4. Cleans up worktrees
+
+Second Ctrl+C force-kills immediately (may leave orphaned worktrees).

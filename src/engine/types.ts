@@ -214,7 +214,29 @@ export type EngineEventType =
   | 'agent:all-limited'
   | 'agent:recovery-attempted'
   | 'all:complete'
-  | 'tasks:refreshed';
+  | 'tasks:refreshed'
+  // Parallel execution events (see src/parallel/events.ts for full definitions)
+  | 'worker:created'
+  | 'worker:started'
+  | 'worker:progress'
+  | 'worker:completed'
+  | 'worker:failed'
+  | 'worker:output'
+  | 'merge:queued'
+  | 'merge:started'
+  | 'merge:completed'
+  | 'merge:failed'
+  | 'merge:rolled-back'
+  | 'conflict:detected'
+  | 'conflict:ai-resolving'
+  | 'conflict:ai-resolved'
+  | 'conflict:ai-failed'
+  | 'conflict:resolved'
+  | 'parallel:started'
+  | 'parallel:group-started'
+  | 'parallel:group-completed'
+  | 'parallel:completed'
+  | 'parallel:failed';
 
 /**
  * Base engine event

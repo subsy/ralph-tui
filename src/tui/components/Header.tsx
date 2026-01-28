@@ -42,7 +42,7 @@ function getStatusDisplay(status: RalphStatus): { indicator: string; color: stri
     case 'executing':
       return { indicator: statusIndicators.executing, color: colors.status.success, label: 'Executing' };
     case 'pausing':
-      return { indicator: statusIndicators.pausing, color: colors.status.warning, label: 'Pausing' };
+      return { indicator: statusIndicators.pausing, color: colors.status.warning, label: 'Pausing (completing in-flight)' };
     case 'paused':
       return { indicator: statusIndicators.paused, color: colors.status.warning, label: 'Paused' };
     case 'stopped':

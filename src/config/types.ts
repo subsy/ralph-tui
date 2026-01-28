@@ -81,6 +81,20 @@ export const DEFAULT_SANDBOX_CONFIG: Required<
 };
 
 /**
+ * Configuration for parallel execution behavior.
+ */
+export interface ParallelConfig {
+  /** Execution mode: 'auto' analyzes dependencies, 'always' forces parallel, 'never' disables */
+  mode?: 'auto' | 'always' | 'never';
+
+  /** Maximum concurrent workers (default: 3) */
+  maxWorkers?: number;
+
+  /** Directory for git worktrees relative to project root (default: '.ralph-tui/worktrees') */
+  worktreeDir?: string;
+}
+
+/**
  * Runtime options that can be passed via CLI flags
  */
 export interface RuntimeOptions {
@@ -142,6 +156,12 @@ export interface RuntimeOptions {
 
   /** Path to custom JSON theme file (absolute or relative to cwd) */
   themePath?: string;
+
+  /** Force sequential execution (--serial or --sequential) */
+  serial?: boolean;
+
+  /** Enable parallel execution, optionally with worker count (--parallel [N]) */
+  parallel?: number | boolean;
 }
 
 /**
@@ -247,6 +267,9 @@ export interface StoredConfig {
 
   /** Notifications configuration */
   notifications?: NotificationsConfig;
+
+  /** Parallel execution configuration */
+  parallel?: ParallelConfig;
 }
 
 /**
