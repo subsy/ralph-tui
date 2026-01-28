@@ -2093,10 +2093,15 @@ export function RunApp({
     if (!cwd || !effectiveTaskId) return;
 
     // Check if we should load historical data
-    // Don't load for running iterations or active tasks
+    // Don't load for currently running iterations
     const isRunning = selectedIteration?.status === 'running';
+    if (isRunning) return;
+
+    // For active tasks, only load historical if no current iteration yet (resume scenario)
+    // This allows showing previous output when resuming an in-progress task
     const isActiveTask = selectedTask?.status === 'active';
-    if (isRunning || isActiveTask) return;
+    const hasCurrentIteration = iterations.some(i => i.task.id === effectiveTaskId);
+    if (isActiveTask && hasCurrentIteration) return;
 
     // Check if already in cache
     const hasInCache = historicalOutputCache.has(effectiveTaskId);

@@ -40,9 +40,9 @@ export interface ParseOptions {
 }
 
 /**
- * Pattern to match user story headers: ### US-001: Title or ## US-001: Title
+ * Pattern to match user story headers: ### US-001: Title or ## US-001: Title or #### US-001: Title
  */
-const USER_STORY_HEADER_PATTERN = /^#{2,3}\s+(US-\d{3}|[A-Z]+-\d+):\s*(.+)$/;
+const USER_STORY_HEADER_PATTERN = /^#{2,4}\s+(US-\d{3}|[A-Z]+-\d+):\s*(.+)$/;
 
 /**
  * Pattern to match PRD title from first H1
