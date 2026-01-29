@@ -19,6 +19,7 @@ export const AGENT_ID_MAP: Record<string, string> = {
   codex: 'codex',
   gemini: 'gemini',
   kiro: 'kiro',
+  cursor: 'cursor',
 };
 
 /**
