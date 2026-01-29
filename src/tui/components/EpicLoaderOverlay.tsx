@@ -17,39 +17,61 @@ import { FileBrowser } from './FileBrowser.js';
 export type EpicLoaderMode = 'list' | 'file-prompt';
 
 /**
- * Props for the EpicLoaderOverlay component
+ * Base props shared by all EpicLoaderOverlay modes
  */
-export interface EpicLoaderOverlayProps {
+interface EpicLoaderOverlayBaseProps {
   /** Whether the overlay is visible */
   visible: boolean;
 
-  /** Mode: 'list' for beads-style selection, 'file-prompt' for json-style */
-  mode: EpicLoaderMode;
+  /** Tracker name for display */
+  trackerName: string;
 
-  /** Available epics (for list mode) */
+  /** Callback when user cancels (Escape) */
+  onCancel: () => void;
+
+  /** Error message if loading failed */
+  error?: string;
+
+  /** Current epic ID (for highlighting) */
+  currentEpicId?: string;
+}
+
+/**
+ * Props for list mode (beads-style epic selection)
+ */
+interface EpicLoaderOverlayListProps extends EpicLoaderOverlayBaseProps {
+  mode: 'list';
+
+  /** Available epics */
   epics: TrackerTask[];
 
   /** Whether epics are loading */
   loading: boolean;
 
-  /** Error message if loading failed */
-  error?: string;
-
-  /** Tracker name for display */
-  trackerName: string;
-
-  /** Current epic ID (for highlighting) */
-  currentEpicId?: string;
-
   /** Callback when an epic is selected */
   onSelect: (epic: TrackerTask) => void;
 
-  /** Callback when user cancels (Escape) */
-  onCancel: () => void;
-
-  /** Callback when file path is submitted (file-prompt mode) */
-  onFilePath?: (path: string) => void;
+  onFilePath?: never;
 }
+
+/**
+ * Props for file-prompt mode (json-style file selection)
+ */
+interface EpicLoaderOverlayFilePromptProps extends EpicLoaderOverlayBaseProps {
+  mode: 'file-prompt';
+
+  /** Callback when file path is submitted */
+  onFilePath: (path: string) => void;
+
+  epics?: never;
+  loading?: never;
+  onSelect?: never;
+}
+
+/**
+ * Props for the EpicLoaderOverlay component - discriminated union by mode
+ */
+export type EpicLoaderOverlayProps = EpicLoaderOverlayListProps | EpicLoaderOverlayFilePromptProps;
 
 /**
  * Truncate text to fit within a given width
@@ -109,14 +131,14 @@ export function EpicLoaderOverlay({
 }: EpicLoaderOverlayProps): ReactNode {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Reset state when overlay becomes visible
+  // Reset state when overlay becomes visible (list mode only)
   useEffect(() => {
-    if (visible) {
+    if (visible && mode === 'list' && epics) {
       // Find the currently selected epic in the list
       const currentIndex = epics.findIndex((e) => e.id === currentEpicId);
       setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
     }
-  }, [visible, epics, currentEpicId]);
+  }, [visible, mode, epics, currentEpicId]);
 
   // Handle keyboard input (only for list mode - file-prompt uses FileBrowser)
   const handleKeyboard = useCallback(
@@ -163,7 +185,7 @@ export function EpicLoaderOverlay({
         fileExtension=".json"
         filenamePrefix="prd"
         trackerLabel={trackerName}
-        onSelect={(path) => onFilePath?.(path)}
+        onSelect={(path) => onFilePath(path)}
         onCancel={onCancel}
       />
     );

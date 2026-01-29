@@ -2541,32 +2541,43 @@ export function RunApp({
       />
 
       {/* Epic Loader Overlay */}
-      <EpicLoaderOverlay
-        visible={showEpicLoader}
-        mode={epicLoaderMode}
-        epics={epicLoaderEpics}
-        loading={epicLoaderLoading}
-        error={epicLoaderError}
-        trackerName={trackerName}
-        currentEpicId={currentEpicId}
-        onSelect={async (epic) => {
-          if (onEpicSwitch) {
-            await onEpicSwitch(epic);
-          }
-          setShowEpicLoader(false);
-        }}
-        onCancel={() => setShowEpicLoader(false)}
-        onFilePath={async (path) => {
-          if (onFilePathSwitch) {
-            const success = await onFilePathSwitch(path);
-            if (success) {
-              setShowEpicLoader(false);
-            } else {
-              setEpicLoaderError(`Failed to load file: ${path}`);
+      {epicLoaderMode === 'file-prompt' ? (
+        <EpicLoaderOverlay
+          visible={showEpicLoader}
+          mode="file-prompt"
+          error={epicLoaderError}
+          trackerName={trackerName}
+          currentEpicId={currentEpicId}
+          onCancel={() => setShowEpicLoader(false)}
+          onFilePath={async (path: string) => {
+            if (onFilePathSwitch) {
+              const success = await onFilePathSwitch(path);
+              if (success) {
+                setShowEpicLoader(false);
+              } else {
+                setEpicLoaderError(`Failed to load file: ${path}`);
+              }
             }
-          }
-        }}
-      />
+          }}
+        />
+      ) : (
+        <EpicLoaderOverlay
+          visible={showEpicLoader}
+          mode="list"
+          epics={epicLoaderEpics}
+          loading={epicLoaderLoading}
+          error={epicLoaderError}
+          trackerName={trackerName}
+          currentEpicId={currentEpicId}
+          onCancel={() => setShowEpicLoader(false)}
+          onSelect={async (epic) => {
+            if (onEpicSwitch) {
+              await onEpicSwitch(epic);
+            }
+            setShowEpicLoader(false);
+          }}
+        />
+      )}
 
       {/* Remote Management Overlay (add/edit/delete) */}
       <RemoteManagementOverlay

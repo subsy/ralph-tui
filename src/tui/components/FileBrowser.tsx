@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useKeyboard } from '@opentui/react';
 import type { ScrollBoxRenderable } from '@opentui/core';
 import { homedir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { colors } from '../theme.js';
 import { listDirectory, isDirectory, type DirectoryEntry } from '../../utils/files.js';
 
@@ -31,6 +31,9 @@ export interface FileBrowserProps {
   /** Tracker label shown in header */
   trackerLabel?: string;
 
+  /** File pattern hint text (e.g., 'prd*.json') - derived from filenamePrefix and fileExtension if not provided */
+  filePatternHint?: string;
+
   /** Callback when a file is selected */
   onSelect: (path: string) => void;
 
@@ -43,7 +46,7 @@ export interface FileBrowserProps {
  */
 function formatPath(path: string): string {
   const home = homedir();
-  if (path.startsWith(home)) {
+  if (path === home || path.startsWith(home + sep)) {
     return '~' + path.slice(home.length);
   }
   return path;
@@ -69,6 +72,7 @@ export function FileBrowser({
   fileExtension,
   filenamePrefix,
   trackerLabel,
+  filePatternHint,
   onSelect,
   onCancel,
 }: FileBrowserProps): ReactNode {
@@ -222,7 +226,7 @@ export function FileBrowser({
             break;
 
           default:
-            if (key.sequence && key.name !== 'backspace') {
+            if (key.sequence && key.sequence.length === 1 && key.sequence >= ' ') {
               setEditedPath((prev) => prev + key.sequence);
             }
             break;
@@ -284,6 +288,7 @@ export function FileBrowser({
   }
 
   const displayExtension = fileExtension ? fileExtension.replace('.', '') : 'file';
+  const patternHint = filePatternHint ?? `${filenamePrefix ?? '*'}*${fileExtension ?? ''}`.replace('**', '*');
 
   return (
     <box
@@ -355,7 +360,7 @@ export function FileBrowser({
             paddingRight: 1,
           }}
         >
-          <text fg={colors.fg.dim}>Pattern: prd*.json | Hint: ./tasks/&lt;feature&gt;/</text>
+          <text fg={colors.fg.dim}>Pattern: {patternHint} | Hint: ./tasks/&lt;feature&gt;/</text>
         </box>
 
         {/* Content */}
