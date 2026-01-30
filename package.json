@@ -1,6 +1,6 @@
 {
   "name": "ralph-tui",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Ralph TUI - AI Agent Loop Orchestrator",
   "type": "module",
   "main": "./dist/index.js",
