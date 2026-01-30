@@ -1,6 +1,9 @@
 /**
  * ABOUTME: Tests for the config migration module.
  * Tests automatic upgrade functionality when users update to new versions.
+ *
+ * NOTE: This test file uses beforeAll mocks to avoid Bun's mock.module leakage issue.
+ * See progress.md "Bun Mock Module Pattern (CRITICAL)" for details.
  */
 
 import {
@@ -8,21 +11,24 @@ import {
   expect,
   test,
   beforeEach,
+  beforeAll,
   afterEach,
+  afterAll,
   spyOn,
+  mock,
 } from 'bun:test';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  needsMigration,
-  migrateConfig,
-  checkAndMigrate,
-  compareSemverStrings,
-  CURRENT_CONFIG_VERSION,
-} from './migration.js';
 import type { StoredConfig } from '../config/types.js';
+
+// Dynamic imports - populated in beforeAll after mocks are set up
+let needsMigration: typeof import('./migration.js').needsMigration;
+let migrateConfig: typeof import('./migration.js').migrateConfig;
+let checkAndMigrate: typeof import('./migration.js').checkAndMigrate;
+let compareSemverStrings: typeof import('./migration.js').compareSemverStrings;
+let CURRENT_CONFIG_VERSION: string;
 
 // Helper to create a temp directory for each test
 async function createTempDir(): Promise<string> {
@@ -61,6 +67,72 @@ async function readConfig(dir: string): Promise<Record<string, string>> {
 
   return result;
 }
+
+// Set up mocks and import module before all tests
+beforeAll(async () => {
+  // CRITICAL: Mock ../config/index.js with the REAL implementations.
+  // migration-install.test.ts mocks this at module level with hardcoded values,
+  // which pollutes the cache. We need to re-export the real functions.
+  // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+  const realConfig = await import('../config/index.js?test-reload') as typeof import('../config/index.js');
+  mock.module('../config/index.js', () => ({
+    loadProjectConfigOnly: realConfig.loadProjectConfigOnly,
+    saveProjectConfig: realConfig.saveProjectConfig,
+    getProjectConfigPath: realConfig.getProjectConfigPath,
+  }));
+
+  // Mock skill-installer to avoid actually spawning processes during migration
+  mock.module('./skill-installer.js', () => ({
+    installViaAddSkill: () => Promise.resolve({ success: true, output: '' }),
+    resolveAddSkillAgentId: (id: string) => (id === 'claude' ? 'claude-code' : id),
+  }));
+
+  // Mock template engine to avoid file system operations
+  mock.module('../templates/engine.js', () => ({
+    installBuiltinTemplates: () => ({
+      success: true,
+      templatesDir: '/mock/templates',
+      results: [],
+    }),
+    installGlobalTemplatesIfMissing: () => false,
+  }));
+
+  // Mock agent registry to provide controlled test environment
+  mock.module('../plugins/agents/builtin/index.js', () => ({
+    registerBuiltinAgents: () => {},
+  }));
+
+  mock.module('../plugins/agents/registry.js', () => ({
+    getAgentRegistry: () => ({
+      getRegisteredPlugins: () => [
+        {
+          id: 'claude',
+          name: 'Claude Code',
+          skillsPaths: { personal: '~/.claude/skills', repo: '.claude/skills' },
+        },
+      ],
+      createInstance: () => ({
+        detect: () => Promise.resolve({ available: true }),
+        dispose: () => Promise.resolve(),
+      }),
+    }),
+  }));
+
+  // Dynamic import after mocks are set up
+  // Use ?test-reload to force a fresh module instance, avoiding pollution from
+  // migration-install.test.ts which uses module-level mock.module()
+  // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+  const migrationModule = await import('./migration.js?test-reload') as typeof import('./migration.js');
+  needsMigration = migrationModule.needsMigration;
+  migrateConfig = migrationModule.migrateConfig;
+  checkAndMigrate = migrationModule.checkAndMigrate;
+  compareSemverStrings = migrationModule.compareSemverStrings;
+  CURRENT_CONFIG_VERSION = migrationModule.CURRENT_CONFIG_VERSION;
+});
+
+afterAll(() => {
+  mock.restore();
+});
 
 describe('needsMigration', () => {
   test('returns true when configVersion is missing', () => {

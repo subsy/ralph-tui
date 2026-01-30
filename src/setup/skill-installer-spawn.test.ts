@@ -1,9 +1,13 @@
 /**
  * ABOUTME: Tests for installViaAddSkill subprocess spawning.
  * Uses mock.module to mock node:child_process spawn for unit testing.
+ *
+ * IMPORTANT: The mock is set up in beforeAll (not at module level) to prevent
+ * polluting other test files. The module under test is dynamically imported
+ * after the mock is applied.
  */
 
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
 let mockSpawnArgs: Array<{ cmd: string; args: string[]; opts: unknown }> = [];
@@ -33,16 +37,31 @@ function createMockChildProcess() {
   return proc;
 }
 
-mock.module('node:child_process', () => ({
-  spawn: (cmd: string, args: string[], opts: unknown) => {
-    mockSpawnArgs.push({ cmd, args, opts });
-    return createMockChildProcess();
-  },
-}));
-
-const { installViaAddSkill } = await import('./skill-installer.js');
+// Declare the function type for the import
+let installViaAddSkill: typeof import('./skill-installer.js').installViaAddSkill;
 
 describe('installViaAddSkill', () => {
+  beforeAll(async () => {
+    // Apply mock BEFORE importing the module under test
+    mock.module('node:child_process', () => ({
+      spawn: (cmd: string, args: string[], opts: unknown) => {
+        mockSpawnArgs.push({ cmd, args, opts });
+        return createMockChildProcess();
+      },
+    }));
+
+    // Use ?test-reload query string to force a fresh module import after mock setup.
+    // Without this, Bun may return a cached module that was imported by other test files
+    // before our mock was applied, causing the mock to not work in full test suite runs.
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const module = await import('./skill-installer.js?test-reload') as typeof import('./skill-installer.js');
+    installViaAddSkill = module.installViaAddSkill;
+  });
+
+  afterAll(() => {
+    mock.restore();
+  });
+
   beforeEach(() => {
     mockSpawnArgs = [];
     mockSpawnExitCode = 0;

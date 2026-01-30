@@ -1,212 +1,22 @@
 /**
- * ABOUTME: Tests for the system info command.
- * Tests the collection and formatting of system diagnostic information.
+ * ABOUTME: Tests for the system info command formatting functions.
+ * Tests the formatting of system diagnostic information.
+ *
+ * NOTE: The collectSystemInfo tests are in tests/commands/info.test.ts because
+ * they require the real agent registry, and other test files in src/commands/
+ * (doctor.test.ts, create-prd.test.tsx) mock the registry at module level.
+ * Bun's mock.restore() doesn't properly restore module mocks, causing pollution.
  */
 
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, test } from 'bun:test';
 
 import {
-  collectSystemInfo,
   formatSystemInfo,
   formatForBugReport,
   parseCwdArg,
   computePackageJsonPath,
   type SystemInfo,
 } from './info.js';
-
-// Helper to create a temp directory for each test
-async function createTempDir(): Promise<string> {
-  return await mkdtemp(join(tmpdir(), 'ralph-tui-info-test-'));
-}
-
-// Helper to write a TOML config file
-async function writeConfig(dir: string, config: Record<string, unknown>): Promise<void> {
-  const configDir = join(dir, '.ralph-tui');
-  await mkdir(configDir, { recursive: true });
-
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(config)) {
-    if (typeof value === 'string') {
-      lines.push(`${key} = "${value}"`);
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
-      lines.push(`${key} = ${value}`);
-    }
-  }
-
-  await writeFile(join(configDir, 'config.toml'), lines.join('\n'), 'utf-8');
-}
-
-describe('collectSystemInfo', () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test('collects basic system info', async () => {
-    await writeConfig(tempDir, {
-      agent: 'claude',
-      tracker: 'beads',
-    });
-
-    const info = await collectSystemInfo(tempDir);
-
-    // Check structure
-    expect(info).toHaveProperty('version');
-    expect(info).toHaveProperty('runtime');
-    expect(info).toHaveProperty('os');
-    expect(info).toHaveProperty('config');
-    expect(info).toHaveProperty('templates');
-    expect(info).toHaveProperty('agent');
-    expect(info).toHaveProperty('tracker');
-    expect(info).toHaveProperty('skills');
-  });
-
-  test('collects skills info', async () => {
-    await writeConfig(tempDir, {
-      agent: 'claude',
-    });
-
-    const info = await collectSystemInfo(tempDir);
-
-    // Check skills structure
-    expect(info.skills).toHaveProperty('bundled');
-    expect(info.skills).toHaveProperty('customDir');
-    expect(info.skills).toHaveProperty('customSkills');
-    expect(info.skills).toHaveProperty('agents');
-    expect(Array.isArray(info.skills.bundled)).toBe(true);
-    expect(Array.isArray(info.skills.agents)).toBe(true);
-  });
-
-  test('detects runtime correctly', async () => {
-    await writeConfig(tempDir, { agent: 'claude' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    // We're running in Bun
-    expect(info.runtime.name).toBe('bun');
-    expect(info.runtime.version).toBeTruthy();
-  });
-
-  test('collects OS info', async () => {
-    await writeConfig(tempDir, { agent: 'claude' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.os.platform).toBeTruthy();
-    expect(info.os.release).toBeTruthy();
-    expect(info.os.arch).toBeTruthy();
-  });
-
-  test('detects project config', async () => {
-    await writeConfig(tempDir, { agent: 'claude' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.config.projectPath).toBe(join(tempDir, '.ralph-tui', 'config.toml'));
-    expect(info.config.projectExists).toBe(true);
-  });
-
-  test('handles missing project config', async () => {
-    // Don't create any config
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.config.projectExists).toBe(false);
-  });
-
-  test('uses configured agent name', async () => {
-    await writeConfig(tempDir, { agent: 'opencode' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.agent.name).toBe('opencode');
-  });
-
-  test('uses configured tracker name', async () => {
-    await writeConfig(tempDir, { tracker: 'json' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.tracker.name).toBe('json');
-  });
-
-  test('defaults to claude agent when not configured', async () => {
-    await writeConfig(tempDir, {});
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.agent.name).toBe('claude');
-  });
-
-  test('defaults to beads tracker when not configured', async () => {
-    await writeConfig(tempDir, {});
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.tracker.name).toBe('beads');
-  });
-
-  test('uses agent from [[agents]] array with default=true', async () => {
-    // Create config with agents array instead of shorthand
-    const configDir = join(tempDir, '.ralph-tui');
-    await mkdir(configDir, { recursive: true });
-    await writeFile(
-      join(configDir, 'config.toml'),
-      `
-tracker = "beads"
-
-[[agents]]
-name = "custom-claude"
-plugin = "claude"
-default = true
-`,
-      'utf-8'
-    );
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.agent.name).toBe('custom-claude');
-  });
-
-  test('includes command from agent config when configured', async () => {
-    // Create config with agent that has a custom command
-    const configDir = join(tempDir, '.ralph-tui');
-    await mkdir(configDir, { recursive: true });
-    await writeFile(
-      join(configDir, 'config.toml'),
-      `
-tracker = "beads"
-
-[[agents]]
-name = "claude-glm"
-plugin = "claude"
-default = true
-command = "claude-glm"
-`,
-      'utf-8'
-    );
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.agent.name).toBe('claude-glm');
-    expect(info.agent.command).toBe('claude-glm');
-  });
-
-  test('command is undefined when not configured', async () => {
-    await writeConfig(tempDir, { agent: 'claude' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.agent.command).toBeUndefined();
-  });
-});
 
 describe('formatSystemInfo', () => {
   const mockInfo: SystemInfo = {

@@ -573,6 +573,11 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
    * See: https://github.com/subsy/ralph-tui/issues/97
    */
   override async getNextTask(filter?: TaskFilter): Promise<TrackerTask | undefined> {
+    // Check if plugin is ready before making CLI calls
+    if (!(await this.isReady())) {
+      return undefined;
+    }
+
     // Build bd ready command args
     const args = ['ready', '--json'];
 

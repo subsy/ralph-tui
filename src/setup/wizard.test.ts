@@ -8,6 +8,7 @@ import {
   describe,
   expect,
   test,
+  beforeAll,
   beforeEach,
   afterEach,
   afterAll,
@@ -25,33 +26,15 @@ let mockPromptNumber: (prompt: string, options?: unknown) => Promise<number>;
 let mockPromptBoolean: (prompt: string, options?: unknown) => Promise<boolean>;
 let mockIsInteractiveTerminal: () => boolean;
 
-// Mock the prompts module before importing wizard
-mock.module('./prompts.js', () => ({
-  promptSelect: (...args: Parameters<typeof mockPromptSelect>) => mockPromptSelect(...args),
-  promptNumber: (...args: Parameters<typeof mockPromptNumber>) => mockPromptNumber(...args),
-  promptBoolean: (...args: Parameters<typeof mockPromptBoolean>) => mockPromptBoolean(...args),
-  promptText: () => Promise.resolve(''),
-  promptPath: () => Promise.resolve(''),
-  promptQuestion: () => Promise.resolve(''),
-  printSection: (...args: unknown[]) => { console.log(...args); },
-  printSuccess: (...args: unknown[]) => { console.log(...args); },
-  printInfo: (...args: unknown[]) => { console.log(...args); },
-  printError: (...args: unknown[]) => { console.log(...args); },
-  isInteractiveTerminal: () => mockIsInteractiveTerminal(),
-}));
-
 // Mock skill-installer to avoid file system operations during tests
 let mockBundledSkills: Array<{ name: string; description: string; path: string }> = [];
 let mockInstallViaAddSkillResult = { success: true, output: '' };
 
-mock.module('./skill-installer.js', () => ({
-  listBundledSkills: () => Promise.resolve(mockBundledSkills),
-  isSkillInstalledAt: () => Promise.resolve(false),
-  resolveSkillsPath: (p: string) => p.replace(/^~/, '/home/test'),
-  installViaAddSkill: () => Promise.resolve(mockInstallViaAddSkillResult),
-}));
+// Mock tracker plugin instances for deterministic detection results.
+// Beads-family trackers have detect() returning unavailable; json has no detect().
+// Override mockTrackerDetectOverride per-test to change detect() behavior.
+let mockTrackerDetectOverride: ((id: string) => Promise<{ available: boolean; error?: string }>) | null = null;
 
-// Mock agent preflight to avoid timeouts in tests
 // Create a function to generate mock agent instances
 const createMockAgentInstance = (id: string, name: string) => ({
   preflight: () => Promise.resolve({ success: true, durationMs: 100 }),
@@ -62,11 +45,6 @@ const createMockAgentInstance = (id: string, name: string) => ({
   isReady: () => Promise.resolve(true),
   getSetupQuestions: () => [],
 });
-
-// Mock tracker plugin instances for deterministic detection results.
-// Beads-family trackers have detect() returning unavailable; json has no detect().
-// Override mockTrackerDetectOverride per-test to change detect() behavior.
-let mockTrackerDetectOverride: ((id: string) => Promise<{ available: boolean; error?: string }>) | null = null;
 
 const createMockTrackerInstance = (id: string) => {
   const isBeadsFamily = id === 'beads' || id === 'beads-bv' || id === 'beads-rust';
@@ -99,73 +77,114 @@ const trackerPluginMeta = [
   { id: 'beads-rust', name: 'Beads Rust', description: 'Beads Rust tracker', version: '1.0.0' },
 ];
 
-mock.module('../plugins/trackers/registry.js', () => ({
-  getTrackerRegistry: () => ({
-    initialize: () => Promise.resolve(),
-    getRegisteredPlugins: () => trackerPluginMeta,
-    createInstance: (id: string) => createMockTrackerInstance(id),
-    hasPlugin: (name: string) => trackerPluginMeta.some((p) => p.id === name),
-    registerBuiltin: () => {},
-  }),
-}));
-
-// Mock registerBuiltinTrackers to no-op since registry is fully mocked
-mock.module('../plugins/trackers/builtin/index.js', () => ({
-  registerBuiltinTrackers: () => {},
-}));
-
-// Mock the agent registry to return our mock instance
-mock.module('../plugins/agents/registry.js', () => ({
-  getAgentRegistry: () => ({
-    getInstance: () => Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
-    initialize: () => Promise.resolve(),
-    getRegisteredPlugins: () => [
-      { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
-      { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
-      { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
-    ],
-    getPluginMeta: (id: string) => ({
-      id,
-      name: id === 'claude' ? 'Claude Code' : id,
-      description: `${id} AI`,
-      version: '1.0.0',
-      defaultCommand: id,
-      supportsStreaming: true,
-      supportsInterrupt: true,
-      supportsFileContext: true,
-      supportsSubagentTracing: true,
-      skillsPaths: {
-        personal: `~/.${id}/skills`,
-        repo: `.${id}/skills`,
-      },
-    }),
-    createInstance: (id: string) => createMockAgentInstance(id, id),
-    hasPlugin: (name: string) => ['claude', 'opencode', 'droid'].includes(name),
-    // Mock registerBuiltin to prevent errors when registerBuiltinAgents is called
-    registerBuiltin: () => {},
-  }),
-  registerAgentPlugin: () => {},
-}));
-
-// Import after mocking
-import {
-  projectConfigExists,
-  runSetupWizard,
-  checkAndRunSetup,
-  formatTrackerUnavailableReason,
-} from './wizard.js';
+// Declare wizard module exports to be populated after dynamic import
+let projectConfigExists: typeof import('./wizard.js').projectConfigExists;
+let runSetupWizard: typeof import('./wizard.js').runSetupWizard;
+let checkAndRunSetup: typeof import('./wizard.js').checkAndRunSetup;
+let formatTrackerUnavailableReason: typeof import('./wizard.js').formatTrackerUnavailableReason;
 
 // Helper to create a temp directory for each test
 async function createTempDir(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'ralph-tui-wizard-test-'));
 }
 
-// Restore mocks after all tests to prevent leakage to other test files
-afterAll(() => {
-  mock.restore();
-});
+describe('wizard', () => {
+  // Set up all mocks in beforeAll and dynamically import the module under test
+  // This follows the Bun Mock Module Pattern to prevent mock leakage to other test files
+  beforeAll(async () => {
+    // Mock the prompts module
+    mock.module('./prompts.js', () => ({
+      promptSelect: (...args: Parameters<typeof mockPromptSelect>) => mockPromptSelect(...args),
+      promptNumber: (...args: Parameters<typeof mockPromptNumber>) => mockPromptNumber(...args),
+      promptBoolean: (...args: Parameters<typeof mockPromptBoolean>) => mockPromptBoolean(...args),
+      promptText: () => Promise.resolve(''),
+      promptPath: () => Promise.resolve(''),
+      promptQuestion: () => Promise.resolve(''),
+      printSection: (...args: unknown[]) => { console.log(...args); },
+      printSuccess: (...args: unknown[]) => { console.log(...args); },
+      printInfo: (...args: unknown[]) => { console.log(...args); },
+      printError: (...args: unknown[]) => { console.log(...args); },
+      isInteractiveTerminal: () => mockIsInteractiveTerminal(),
+    }));
 
-describe('projectConfigExists', () => {
+    // Mock skill-installer with all exports that might be used by dependent modules
+    mock.module('./skill-installer.js', () => ({
+      listBundledSkills: () => Promise.resolve(mockBundledSkills),
+      isSkillInstalledAt: () => Promise.resolve(false),
+      resolveSkillsPath: (p: string) => p.replace(/^~/, '/home/test'),
+      installViaAddSkill: () => Promise.resolve(mockInstallViaAddSkillResult),
+      resolveAddSkillAgentId: (id: string) => (id === 'claude' ? 'claude-code' : id),
+      buildAddSkillInstallArgs: () => [],
+      expandTilde: (p: string) => p.replace(/^~/, '/home/test'),
+      computeSkillsPath: (dir: string) => `${dir}/skills`,
+      getBundledSkillsDir: () => '/mock/skills',
+      isEloopOnlyFailure: () => false,
+      getSkillStatusForAgent: () => Promise.resolve({ installed: [], available: [] }),
+      AGENT_ID_MAP: { claude: 'claude-code', opencode: 'opencode' },
+    }));
+
+    // Mock tracker registry
+    mock.module('../plugins/trackers/registry.js', () => ({
+      getTrackerRegistry: () => ({
+        initialize: () => Promise.resolve(),
+        getRegisteredPlugins: () => trackerPluginMeta,
+        createInstance: (id: string) => createMockTrackerInstance(id),
+        hasPlugin: (name: string) => trackerPluginMeta.some((p) => p.id === name),
+        registerBuiltin: () => {},
+      }),
+    }));
+
+    // Mock registerBuiltinTrackers to no-op since registry is fully mocked
+    mock.module('../plugins/trackers/builtin/index.js', () => ({
+      registerBuiltinTrackers: () => {},
+    }));
+
+    // Mock the agent registry to return our mock instance
+    mock.module('../plugins/agents/registry.js', () => ({
+      getAgentRegistry: () => ({
+        getInstance: () => Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
+        initialize: () => Promise.resolve(),
+        getRegisteredPlugins: () => [
+          { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
+          { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
+          { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
+        ],
+        getPluginMeta: (id: string) => ({
+          id,
+          name: id === 'claude' ? 'Claude Code' : id,
+          description: `${id} AI`,
+          version: '1.0.0',
+          defaultCommand: id,
+          supportsStreaming: true,
+          supportsInterrupt: true,
+          supportsFileContext: true,
+          supportsSubagentTracing: true,
+          skillsPaths: {
+            personal: `~/.${id}/skills`,
+            repo: `.${id}/skills`,
+          },
+        }),
+        createInstance: (id: string) => createMockAgentInstance(id, id),
+        hasPlugin: (name: string) => ['claude', 'opencode', 'droid'].includes(name),
+        registerBuiltin: () => {},
+      }),
+      registerAgentPlugin: () => {},
+    }));
+
+    // Dynamically import the module under test after mocks are set up
+    const wizardModule = await import('./wizard.js');
+    projectConfigExists = wizardModule.projectConfigExists;
+    runSetupWizard = wizardModule.runSetupWizard;
+    checkAndRunSetup = wizardModule.checkAndRunSetup;
+    formatTrackerUnavailableReason = wizardModule.formatTrackerUnavailableReason;
+  });
+
+  // Restore mocks after all tests to prevent leakage to other test files
+  afterAll(() => {
+    mock.restore();
+  });
+
+  describe('projectConfigExists', () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -814,3 +833,4 @@ describe('formatTrackerUnavailableReason', () => {
     expect(result).not.toContain('CLI not found');
   });
 });
+}); // end describe('wizard')

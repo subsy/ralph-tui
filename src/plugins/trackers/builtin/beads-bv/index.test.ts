@@ -2,53 +2,67 @@
  * ABOUTME: Tests for BeadsBvTrackerPlugin focusing on unit-testable behavior.
  * Complex integration scenarios with spawn mocking are difficult due to ES module
  * caching, so we focus on synchronous behavior and exported utilities.
+ *
+ * IMPORTANT: The mock is set up in beforeAll (not at module level) to prevent
+ * polluting other test files. The module under test is dynamically imported
+ * after the mock is applied.
  */
 
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect, mock, beforeAll, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
-// Minimal mocks to allow module to load
-mock.module('node:child_process', () => ({
-  spawn: () => {
-    const proc = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-    };
-    proc.stdout = new EventEmitter();
-    proc.stderr = new EventEmitter();
-    setTimeout(() => {
-      proc.emit('close', 0);
-    }, 0);
-    return proc;
-  },
-}));
-
-mock.module('node:fs', () => ({
-  access: (
-    _path: string,
-    _mode: number,
-    callback: (err: Error | null) => void
-  ) => {
-    callback(null);
-  },
-  constants: { R_OK: 4, W_OK: 2, X_OK: 1, F_OK: 0 },
-  readFileSync: (path: string) => {
-    if (path.endsWith('template.hbs')) {
-      return 'bd close {{taskId}}\nbd sync\n';
-    }
-    return '';
-  },
-}));
-
-mock.module('node:fs/promises', () => ({
-  access: async () => {},
-  readFile: async () => '',
-}));
-
-const { BeadsBvTrackerPlugin } = await import('./index.js');
-import type { TaskReasoning } from './index.js';
+// Declare the types for the imports
+let BeadsBvTrackerPlugin: typeof import('./index.js').BeadsBvTrackerPlugin;
+type TaskReasoning = import('./index.js').TaskReasoning;
 
 describe('BeadsBvTrackerPlugin', () => {
+  beforeAll(async () => {
+    // Minimal mocks to allow module to load
+    mock.module('node:child_process', () => ({
+      spawn: () => {
+        const proc = new EventEmitter() as EventEmitter & {
+          stdout: EventEmitter;
+          stderr: EventEmitter;
+        };
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        setTimeout(() => {
+          proc.emit('close', 0);
+        }, 0);
+        return proc;
+      },
+    }));
+
+    mock.module('node:fs', () => ({
+      access: (
+        _path: string,
+        _mode: number,
+        callback: (err: Error | null) => void
+      ) => {
+        callback(null);
+      },
+      constants: { R_OK: 4, W_OK: 2, X_OK: 1, F_OK: 0 },
+      readFileSync: (path: string) => {
+        if (path.endsWith('template.hbs')) {
+          return 'bd close {{taskId}}\nbd sync\n';
+        }
+        return '';
+      },
+    }));
+
+    mock.module('node:fs/promises', () => ({
+      access: async () => {},
+      readFile: async () => '',
+    }));
+
+    const module = await import('./index.js');
+    BeadsBvTrackerPlugin = module.BeadsBvTrackerPlugin;
+  });
+
+  afterAll(() => {
+    mock.restore();
+  });
+
   describe('meta', () => {
     test('has correct plugin metadata', () => {
       const plugin = new BeadsBvTrackerPlugin();

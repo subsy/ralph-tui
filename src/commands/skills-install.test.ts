@@ -2,9 +2,17 @@
  * ABOUTME: Tests for the skills install command subprocess integration.
  * Uses mock.module to mock node:child_process spawn for unit testing
  * the handleInstallSkills function via executeSkillsCommand.
+ *
+ * IMPORTANT: The mock is set up in beforeAll (not at module level) to prevent
+ * polluting other test files. The module under test is dynamically imported
+ * after the mock is applied.
+ *
+ * Uses the Fresh Import Pass-through Pattern to prevent mock pollution from
+ * other test files (migration-install.test.ts, wizard.test.ts) that mock
+ * skill-installer.js at module level.
  */
 
-import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, beforeAll, afterEach, afterAll, spyOn } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
 let mockSpawnArgs: Array<{ cmd: string; args: string[]; opts: unknown }> = [];
@@ -34,18 +42,52 @@ function createMockChildProcess() {
   return proc;
 }
 
-mock.module('node:child_process', () => ({
-  spawn: (cmd: string, args: string[], opts: unknown) => {
-    mockSpawnArgs.push({ cmd, args, opts });
-    return createMockChildProcess();
-  },
-}));
-
-const { executeSkillsCommand } = await import('./skills.js');
+// Declare the function type for the import
+let executeSkillsCommand: typeof import('./skills.js').executeSkillsCommand;
 
 describe('skills install command (spawn)', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
   let consoleErrorSpy: ReturnType<typeof spyOn>;
+
+  beforeAll(async () => {
+    // CRITICAL: Get the REAL skill-installer module first, bypassing any cached mock
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const realSkillInstaller = await import('../setup/skill-installer.js?test-reload-install') as typeof import('../setup/skill-installer.js');
+
+    // Mock skill-installer.js with pass-through to real functions
+    // This ensures our tests get real behavior even if other test files mock this module
+    mock.module('../setup/skill-installer.js', () => ({
+      listBundledSkills: realSkillInstaller.listBundledSkills,
+      isSkillInstalledAt: realSkillInstaller.isSkillInstalledAt,
+      resolveSkillsPath: realSkillInstaller.resolveSkillsPath,
+      installViaAddSkill: realSkillInstaller.installViaAddSkill,
+      resolveAddSkillAgentId: realSkillInstaller.resolveAddSkillAgentId,
+      buildAddSkillInstallArgs: realSkillInstaller.buildAddSkillInstallArgs,
+      expandTilde: realSkillInstaller.expandTilde,
+      computeSkillsPath: realSkillInstaller.computeSkillsPath,
+      getBundledSkillsDir: realSkillInstaller.getBundledSkillsDir,
+      isEloopOnlyFailure: realSkillInstaller.isEloopOnlyFailure,
+      getSkillStatusForAgent: realSkillInstaller.getSkillStatusForAgent,
+      AGENT_ID_MAP: realSkillInstaller.AGENT_ID_MAP,
+    }));
+
+    // Apply child_process mock BEFORE importing the module under test
+    mock.module('node:child_process', () => ({
+      spawn: (cmd: string, args: string[], opts: unknown) => {
+        mockSpawnArgs.push({ cmd, args, opts });
+        return createMockChildProcess();
+      },
+    }));
+
+    // Import the skills module so it uses both our mocks
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const module = await import('./skills.js?test-reload-install') as typeof import('./skills.js');
+    executeSkillsCommand = module.executeSkillsCommand;
+  });
+
+  afterAll(() => {
+    mock.restore();
+  });
 
   beforeEach(() => {
     mockSpawnArgs = [];
@@ -97,7 +139,6 @@ describe('skills install command (spawn)', () => {
 
   test('shows no-output error when exit is non-zero with empty output', async () => {
     mockSpawnExitCode = 1;
-    // No stdout or stderr set — output will be empty string
 
     await executeSkillsCommand(['install']);
 

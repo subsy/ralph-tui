@@ -38,3 +38,5 @@ export { TabBar } from './TabBar.js';
 export type { TabBarProps } from './TabBar.js';
 export { Toast, formatConnectionToast } from './Toast.js';
 export type { ToastProps, ToastVariant, ConnectionToastMessage } from './Toast.js';
+export { FileBrowser } from './FileBrowser.js';
+export type { FileBrowserProps } from './FileBrowser.js';

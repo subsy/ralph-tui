@@ -6,15 +6,56 @@
  * NOTE: These tests are designed to work both:
  * - In environments with real agents installed (full testing)
  * - In CI environments without agents (graceful degradation)
+ *
+ * IMPORTANT: Uses the Fresh Import Pass-through Pattern to prevent mock pollution
+ * from other test files (migration-install.test.ts, wizard.test.ts) that mock
+ * skill-installer.js at module level.
  */
 
-import { describe, expect, test, beforeEach, afterEach, spyOn, mock } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, beforeAll, afterAll, spyOn, mock } from 'bun:test';
 
-// Restore any mocks from other test files to prevent pollution
-mock.restore();
+// Declare module-level variables for dynamically imported functions
+let executeSkillsCommand: typeof import('./skills.js').executeSkillsCommand;
+let printSkillsHelp: typeof import('./skills.js').printSkillsHelp;
+let parseInstallArgs: typeof import('./skills.js').parseInstallArgs;
+let buildAddSkillArgs: typeof import('./skills.js').buildAddSkillArgs;
+let parseAddSkillOutput: typeof import('./skills.js').parseAddSkillOutput;
 
-// Import the command functions - these use the real agent registry
-import { executeSkillsCommand, printSkillsHelp, parseInstallArgs, buildAddSkillArgs, parseAddSkillOutput } from './skills.js';
+beforeAll(async () => {
+  // CRITICAL: Get the REAL skill-installer module first, bypassing any cached mock
+  // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+  const realSkillInstaller = await import('../setup/skill-installer.js?test-reload') as typeof import('../setup/skill-installer.js');
+
+  // Mock skill-installer.js with pass-through to real functions
+  // This ensures our tests get real behavior even if other test files mock this module
+  mock.module('../setup/skill-installer.js', () => ({
+    listBundledSkills: realSkillInstaller.listBundledSkills,
+    isSkillInstalledAt: realSkillInstaller.isSkillInstalledAt,
+    resolveSkillsPath: realSkillInstaller.resolveSkillsPath,
+    installViaAddSkill: realSkillInstaller.installViaAddSkill,
+    resolveAddSkillAgentId: realSkillInstaller.resolveAddSkillAgentId,
+    buildAddSkillInstallArgs: realSkillInstaller.buildAddSkillInstallArgs,
+    expandTilde: realSkillInstaller.expandTilde,
+    computeSkillsPath: realSkillInstaller.computeSkillsPath,
+    getBundledSkillsDir: realSkillInstaller.getBundledSkillsDir,
+    isEloopOnlyFailure: realSkillInstaller.isEloopOnlyFailure,
+    getSkillStatusForAgent: realSkillInstaller.getSkillStatusForAgent,
+    AGENT_ID_MAP: realSkillInstaller.AGENT_ID_MAP,
+  }));
+
+  // Import the skills module so it uses our mock (which uses real functions)
+  // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+  const skillsModule = await import('./skills.js?test-reload') as typeof import('./skills.js');
+  executeSkillsCommand = skillsModule.executeSkillsCommand;
+  printSkillsHelp = skillsModule.printSkillsHelp;
+  parseInstallArgs = skillsModule.parseInstallArgs;
+  buildAddSkillArgs = skillsModule.buildAddSkillArgs;
+  parseAddSkillOutput = skillsModule.parseAddSkillOutput;
+});
+
+afterAll(() => {
+  mock.restore();
+});
 
 describe('printSkillsHelp', () => {
   let consoleSpy: ReturnType<typeof spyOn>;

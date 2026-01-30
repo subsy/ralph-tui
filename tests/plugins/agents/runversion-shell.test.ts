@@ -2,9 +2,13 @@
  * ABOUTME: Tests for the runVersion method's conditional shell behavior.
  * Verifies that shell: true is only used on Windows (process.platform === 'win32'),
  * and that paths with spaces are properly quoted for Windows shell execution (issue #206).
+ *
+ * IMPORTANT: The mock is set up in beforeAll (not at module level) to prevent
+ * polluting other test files. The module under test is dynamically imported
+ * after the mock is applied.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, mock } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
 // Track all spawn calls for verification
@@ -47,26 +51,38 @@ function createMockChildProcess(callIndex: number) {
   return proc;
 }
 
-// Mock child_process.spawn to capture all calls
-import { mock } from 'bun:test';
-
-mock.module('node:child_process', () => ({
-  spawn: (cmd: string, args: string[], options?: { shell?: boolean }) => {
-    const callIndex = mockSpawnCallIndex++;
-    spawnCalls.push({ cmd, args, options });
-    return createMockChildProcess(callIndex);
-  },
-}));
-
-// Also need to mock os.platform for findCommandPath
-// The actual platform check is done in runVersion using process.platform
-
-// Dynamically import after mocking
-const { ClaudeAgentPlugin } = await import('../../../src/plugins/agents/builtin/claude.js');
-const { OpenCodeAgentPlugin } = await import('../../../src/plugins/agents/builtin/opencode.js');
+// Declare the types for the imports
+let ClaudeAgentPlugin: typeof import('../../../src/plugins/agents/builtin/claude.js').ClaudeAgentPlugin;
+let OpenCodeAgentPlugin: typeof import('../../../src/plugins/agents/builtin/opencode.js').OpenCodeAgentPlugin;
+let quoteForWindowsShell: typeof import('../../../src/plugins/agents/base.js').quoteForWindowsShell;
 
 describe('runVersion conditional shell behavior (PR #187)', () => {
   let originalPlatform: PropertyDescriptor | undefined;
+
+  beforeAll(async () => {
+    // Mock child_process.spawn to capture all calls
+    mock.module('node:child_process', () => ({
+      spawn: (cmd: string, args: string[], options?: { shell?: boolean }) => {
+        const callIndex = mockSpawnCallIndex++;
+        spawnCalls.push({ cmd, args, options });
+        return createMockChildProcess(callIndex);
+      },
+    }));
+
+    // Dynamically import after mocking
+    const claudeModule = await import('../../../src/plugins/agents/builtin/claude.js');
+    ClaudeAgentPlugin = claudeModule.ClaudeAgentPlugin;
+
+    const opencodeModule = await import('../../../src/plugins/agents/builtin/opencode.js');
+    OpenCodeAgentPlugin = opencodeModule.OpenCodeAgentPlugin;
+
+    const baseModule = await import('../../../src/plugins/agents/base.js');
+    quoteForWindowsShell = baseModule.quoteForWindowsShell;
+  });
+
+  afterAll(() => {
+    mock.restore();
+  });
 
   beforeEach(() => {
     // Reset state before each test
@@ -427,10 +443,15 @@ describe('runVersion conditional shell behavior (PR #187)', () => {
   });
 });
 
-// Import quoteForWindowsShell for unit testing (pure function, no mocking needed)
-const { quoteForWindowsShell } = await import('../../../src/plugins/agents/base.js');
-
 describe('quoteForWindowsShell (issue #206)', () => {
+  beforeAll(async () => {
+    // Make sure quoteForWindowsShell is available
+    if (!quoteForWindowsShell) {
+      const baseModule = await import('../../../src/plugins/agents/base.js');
+      quoteForWindowsShell = baseModule.quoteForWindowsShell;
+    }
+  });
+
   test('quotes paths containing spaces', () => {
     expect(quoteForWindowsShell('C:\\Program Files\\nodejs\\opencode.cmd')).toBe(
       '"C:\\Program Files\\nodejs\\opencode.cmd"'

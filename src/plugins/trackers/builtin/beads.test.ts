@@ -1,9 +1,13 @@
 /**
  * ABOUTME: Tests for the Beads tracker plugin, focusing on task completion and PRD context.
  * Uses Bun's mock.module to mock child_process.spawn and fs/promises.
+ *
+ * IMPORTANT: The mock is set up in beforeAll (not at module level) to prevent
+ * polluting other test files. The module under test is dynamically imported
+ * after the mock is applied.
  */
 
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
 // Create a mock spawn function that we can control
@@ -50,49 +54,59 @@ function createMockChildProcess() {
   return proc;
 }
 
-// Mock the child_process module before importing beads
-mock.module('node:child_process', () => ({
-  spawn: (_cmd: string, args: string[]) => {
-    mockSpawnArgs.push(args);
-    return createMockChildProcess();
-  },
-}));
-
-// Mock node:fs for access (used by detect)
-mock.module('node:fs', () => ({
-  access: (_path: string, _mode: number, callback: (err: Error | null) => void) => {
-    // Always succeed for test purposes
-    callback(null);
-  },
-  constants: {
-    R_OK: 4,
-    W_OK: 2,
-    X_OK: 1,
-    F_OK: 0,
-  },
-  readFileSync: (path: string) => {
-    // Return empty template for template loading
-    if (path.endsWith('template.hbs')) {
-      return '{{taskTitle}}';
-    }
-    return '';
-  },
-}));
-
-// Mock fs/promises for readFile
-mock.module('node:fs/promises', () => ({
-  readFile: async () => {
-    if (mockReadFileShouldFail) {
-      throw new Error('ENOENT: no such file or directory');
-    }
-    return mockReadFileContent;
-  },
-}));
-
-// Import after mocking
-const { BeadsTrackerPlugin } = await import('./beads/index.js');
+// Declare the class type for the import
+let BeadsTrackerPlugin: typeof import('./beads/index.js').BeadsTrackerPlugin;
 
 describe('BeadsTrackerPlugin', () => {
+  beforeAll(async () => {
+    // Mock the child_process module before importing beads
+    mock.module('node:child_process', () => ({
+      spawn: (_cmd: string, args: string[]) => {
+        mockSpawnArgs.push(args);
+        return createMockChildProcess();
+      },
+    }));
+
+    // Mock node:fs for access (used by detect)
+    mock.module('node:fs', () => ({
+      access: (_path: string, _mode: number, callback: (err: Error | null) => void) => {
+        // Always succeed for test purposes
+        callback(null);
+      },
+      constants: {
+        R_OK: 4,
+        W_OK: 2,
+        X_OK: 1,
+        F_OK: 0,
+      },
+      readFileSync: (path: string) => {
+        // Return empty template for template loading
+        if (path.endsWith('template.hbs')) {
+          return '{{taskTitle}}';
+        }
+        return '';
+      },
+    }));
+
+    // Mock fs/promises for readFile
+    mock.module('node:fs/promises', () => ({
+      readFile: async () => {
+        if (mockReadFileShouldFail) {
+          throw new Error('ENOENT: no such file or directory');
+        }
+        return mockReadFileContent;
+      },
+    }));
+
+    // Import after mocking
+    const module = await import('./beads/index.js');
+    BeadsTrackerPlugin = module.BeadsTrackerPlugin;
+  });
+
+  afterAll(() => {
+    mock.restore();
+  });
+
   beforeEach(() => {
     // Reset mock state before each test
     mockSpawnArgs = [];

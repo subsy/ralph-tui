@@ -2,6 +2,10 @@
  * ABOUTME: Tests for skill-installer utility functions.
  * Tests path resolution for bundled skills in both dev and production environments,
  * skill listing, installation, and related functionality.
+ *
+ * IMPORTANT: This file imports the real skill-installer module at file level using
+ * the ?test-reload query parameter to bypass any mocks from other test files.
+ * Bun's module mocking is global, so we need to ensure we get a fresh module instance.
  */
 
 import {
@@ -10,17 +14,16 @@ import {
   test,
   beforeEach,
   afterEach,
-  mock,
 } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
-// Restore any mocks before tests run to prevent mock leakage from other test files
-mock.restore();
-
-// Use dynamic import to get the real module after mock restoration
-const skillInstaller = await import('./skill-installer.js');
+// Import the real module with a unique query string to bypass any cached mocks from other test files
+// This is a Bun-specific workaround for module mock leakage between test files
+// TypeScript doesn't recognize query strings in imports, so we use @ts-expect-error
+// @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+const skillInstaller = await import('./skill-installer.js?test-reload') as typeof import('./skill-installer.js');
 const {
   getBundledSkillsDir,
   listBundledSkills,
@@ -34,7 +37,9 @@ const {
   isEloopOnlyFailure,
 } = skillInstaller;
 
-describe('computeSkillsPath', () => {
+describe('skill-installer', () => {
+
+  describe('computeSkillsPath', () => {
   test('returns bundled path when currentDir ends with dist', () => {
     const currentDir = '/home/user/project/dist';
     const result = computeSkillsPath(currentDir);
@@ -366,3 +371,4 @@ Error: ELOOP: too many levels of symbolic links, mkdir '/home/user/.claude/skill
     expect(isEloopOnlyFailure(output)).toBe(true);
   });
 });
+}); // end describe('skill-installer')
