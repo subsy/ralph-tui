@@ -22,6 +22,7 @@ import {
   executeInfoCommand,
   executeSkillsCommand,
   executeRemoteCommand,
+  executeCompletionCommand,
 } from './commands/index.js';
 
 /**
@@ -54,6 +55,7 @@ Commands:
   plugins trackers    List available tracker plugins
   docs [section]      Open documentation in browser
   info [options]      Display system information for bug reports
+  completion <shell>  Generate shell completion script
   help, --help, -h    Show this help message
   version, --version, -v  Show version number
 
@@ -127,6 +129,9 @@ Examples:
   ralph-tui remote add prod server:7890 --token abc  # Add remote
   ralph-tui remote list                  # List remotes with status
   ralph-tui remote test prod             # Test connectivity
+  ralph-tui completion bash              # Generate bash completion
+  ralph-tui completion zsh               # Generate zsh completion
+  ralph-tui completion fish              # Generate fish completion
 `);
 }
 
@@ -238,6 +243,12 @@ async function handleSubcommand(args: string[]): Promise<boolean> {
   // Remote command (manage remote configurations)
   if (command === 'remote') {
     await executeRemoteCommand(args.slice(1));
+    return true;
+  }
+
+  // Completion command
+  if (command === 'completion') {
+    await executeCompletionCommand(args.slice(1));
     return true;
   }
 
