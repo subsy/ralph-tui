@@ -6,6 +6,7 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
+import { processAgentEventsToSegments } from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -31,7 +32,7 @@ export class IflowAgentPlugin extends BaseAgentPlugin {
     supportsStreaming: true,
     supportsInterrupt: true,
     supportsFileContext: false,
-    supportsSubagentTracing: false,
+    supportsSubagentTracing: true,
     skillsPaths: {
       personal: '~/.iflow/skills',
       repo: '.iflow/skills',
@@ -178,15 +179,136 @@ export class IflowAgentPlugin extends BaseAgentPlugin {
     ];
   }
 
+  /**
+   * Parse iFlow output into standardized display events.
+   * Extracts tool calls from text output using pattern matching.
+   *
+   * Supported patterns:
+   * - Tool call: "I'll use read_file to read the file"
+   * - Tool call: "Using write_file to create..."
+   * - Execution info: <Execution Info> tags with tool details
+   */
+  private parseIflowOutputToEvents(data: string): import('../output-formatting.js').AgentDisplayEvent[] {
+    const events: import('../output-formatting.js').AgentDisplayEvent[] = [];
+    const lines = data.split('\n');
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      // Skip empty lines
+      if (!trimmed) continue;
+
+      // Try to detect tool calls from common patterns
+      const toolPatterns = [
+        /I'?ll use (\w+) to/i,
+        /Using (\w+) to/i,
+        /Now using (\w+)/i,
+        /Calling (\w+)/i,
+        /Execute (\w+)/i,
+        /Run (\w+)/i,
+      ];
+
+      let matched = false;
+      for (const pattern of toolPatterns) {
+        const match = trimmed.match(pattern);
+        if (match) {
+          const toolName = match[1];
+          // Common iFlow tools
+          const knownTools = [
+            'read_file', 'write_file', 'replace', 'glob', 'search_file_content',
+            'list_directory', 'run_shell_command', 'web_fetch', 'web_search',
+            'ask_user_question', 'image_read', 'take_snapshot', 'click',
+            'fill', 'navigate_page', 'evaluate_script',
+          ];
+
+          if (knownTools.includes(toolName)) {
+            // Extract tool input from the line
+            const input = this.extractToolInput(trimmed, toolName);
+            events.push({
+              type: 'tool_use',
+              name: toolName,
+              input,
+            });
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      // If not a tool call, treat as text
+      if (!matched) {
+        events.push({ type: 'text', content: line + '\n' });
+      }
+    }
+
+    return events;
+  }
+
+  /**
+   * Extract tool input from a line containing tool call description.
+   */
+  private extractToolInput(line: string, toolName: string): Record<string, unknown> {
+    const input: Record<string, unknown> = {};
+
+    // Extract file path patterns
+    const pathMatch = line.match(/['"`]([^'"`]+(?:\/[^'"`]*)*)['"`]/g);
+    if (pathMatch) {
+      const paths = pathMatch.map(p => p.replace(/['"`]/g, ''));
+      if (paths.length === 1) {
+        input.file_path = paths[0];
+        input.path = paths[0];
+      } else if (paths.length > 1) {
+        input.paths = paths;
+      }
+    }
+
+    // Extract command patterns (for run_shell_command)
+    if (toolName === 'run_shell_command') {
+      const cmdMatch = line.match(/command[:\s]+(['"`]?)([^'"`\n]+)\1/);
+      if (cmdMatch) {
+        input.command = cmdMatch[2];
+      }
+      const descMatch = line.match(/description[:\s]+(['"`]?)([^'"`\n]+)\1/);
+      if (descMatch) {
+        input.description = descMatch[2];
+      }
+    }
+
+    // Extract search patterns
+    if (toolName === 'search_file_content' || toolName === 'glob') {
+      const patternMatch = line.match(/pattern[:\s]+(['"`]?)([^'"`\n]+)\1/);
+      if (patternMatch) {
+        input.pattern = patternMatch[2];
+      }
+    }
+
+    // Extract query patterns
+    if (toolName === 'web_search') {
+      const queryMatch = line.match(/query[:\s]+(['"`]?)([^'"`\n]+)\1/);
+      if (queryMatch) {
+        input.query = queryMatch[2];
+      }
+    }
+
+    // Extract URL patterns
+    if (toolName === 'web_fetch' || toolName === 'navigate_page') {
+      const urlMatch = line.match(/url[:\s]+(['"`]?)(https?:\/\/[^'"`\s]+)\1/);
+      if (urlMatch) {
+        input.url = urlMatch[2];
+      }
+    }
+
+    return input;
+  }
+
   protected buildArgs(
-    prompt: string,
+    _prompt: string,
     _files?: AgentFileContext[],
     _options?: AgentExecuteOptions
   ): string[] {
     const args: string[] = [];
 
-    // Use -p/--prompt parameter to pass the prompt
-    args.push('-p', prompt);
+    // Prompt will be passed via stdin, not as command line argument
 
     // Model selection
     if (this.model) {
@@ -202,15 +324,49 @@ export class IflowAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
-   * Override execute to handle iFlow's plain text output.
-   * iFlow outputs plain text with JSON execution info wrapped in <Execution Info> tags.
+   * Override getStdinInput to pass the prompt via stdin.
+   */
+  protected override getStdinInput(
+    prompt: string,
+    _files?: AgentFileContext[],
+    _options?: AgentExecuteOptions
+  ): string {
+    return prompt;
+  }
+
+  /**
+   * Override execute to parse iFlow output for structured display.
+   * Wraps the onStdout/onStdoutSegments callbacks to format tool calls.
    */
   override execute(
     prompt: string,
     files?: AgentFileContext[],
     options?: AgentExecuteOptions
   ): AgentExecutionHandle {
-    return super.execute(prompt, files, options);
+    const parsedOptions: AgentExecuteOptions = {
+      ...options,
+      // Wrap onStdout to parse and emit structured events
+      onStdout: (data: string) => {
+        // Parse output into display events
+        const events = this.parseIflowOutputToEvents(data);
+
+        // Call TUI-native segments callback for colored output
+        if (options?.onStdoutSegments) {
+          const segments = processAgentEventsToSegments(events);
+          if (segments.length > 0) {
+            options.onStdoutSegments(segments);
+          }
+        }
+
+        // Also call legacy string callback for backward compatibility
+        if (options?.onStdout) {
+          // For legacy callback, pass original data to avoid double-parsing
+          options.onStdout(data);
+        }
+      },
+    };
+
+    return super.execute(prompt, files, parsedOptions);
   }
 
   override async validateSetup(answers: Record<string, unknown>): Promise<string | null> {
