@@ -624,4 +624,132 @@ Testing all 9 combinations: 3 header levels (H2, H3, H4) × 3 ID formats (US-XXX
       expect(result.userStories[2]!.id).toBe('FEAT-99-99');
     });
   });
+
+  describe('US-X.Y.Z version-style format', () => {
+    test('parses US version-style IDs (US-2.1.1)', () => {
+      const md = `# PRD: Version Style Test
+
+## Overview
+
+Testing US version-style IDs.
+
+## User Stories
+
+#### US-2.1.1: Numerikus formázás
+
+As a developer, I want f-string numeric formatting.
+
+**Acceptance Criteria:**
+- [ ] Precision support: f"{pi:.2f}"
+- [ ] Integer formatting: f"{num:d}"
+
+#### US-2.1.2: Width és Alignment
+
+As a developer, I want width/alignment formatting.
+
+**Acceptance Criteria:**
+- [ ] Minimum width
+- [ ] Right align
+
+### US-2.2.1: Match Statement
+
+As a developer, I want match/case statement support.
+
+**Acceptance Criteria:**
+- [ ] Literal patterns work
+`;
+
+      const result = parsePrdMarkdown(md);
+      expect(result.userStories).toHaveLength(3);
+
+      expect(result.userStories[0]!.id).toBe('US-2.1.1');
+      expect(result.userStories[0]!.title).toBe('Numerikus formázás');
+
+      expect(result.userStories[1]!.id).toBe('US-2.1.2');
+      expect(result.userStories[1]!.title).toBe('Width és Alignment');
+
+      expect(result.userStories[2]!.id).toBe('US-2.2.1');
+      expect(result.userStories[2]!.title).toBe('Match Statement');
+    });
+
+    test('parses mixed US-001 and US-X.Y.Z formats', () => {
+      const md = `# PRD: Mixed US Formats
+
+## User Stories
+
+### US-001: Standard Format
+
+**Acceptance Criteria:**
+- [ ] Works
+
+### US-1.2: Two-part version
+
+**Acceptance Criteria:**
+- [ ] Works
+
+### US-1.2.3: Three-part version
+
+**Acceptance Criteria:**
+- [ ] Works
+`;
+
+      const result = parsePrdMarkdown(md);
+      expect(result.userStories).toHaveLength(3);
+
+      expect(result.userStories[0]!.id).toBe('US-001');
+      expect(result.userStories[1]!.id).toBe('US-1.2');
+      expect(result.userStories[2]!.id).toBe('US-1.2.3');
+    });
+  });
+
+  describe('Fallback parser for non-standard formats', () => {
+    test('parses any header with colon in User Stories section', () => {
+      const md = `# PRD
+
+## User Stories
+
+### Epic 1: F-String Support
+
+**Acceptance Criteria:**
+- [ ] Works
+
+### Epic 2: Match Support
+
+**Acceptance Criteria:**
+- [ ] Works
+`;
+
+      const result = parsePrdMarkdown(md);
+      expect(result.userStories.length).toBeGreaterThanOrEqual(2);
+
+      // Auto-generated IDs
+      expect(result.userStories[0]!.id).toBe('STORY-001');
+      expect(result.userStories[0]!.title).toBe('F-String Support');
+
+      expect(result.userStories[1]!.id).toBe('STORY-002');
+      expect(result.userStories[1]!.title).toBe('Match Support');
+    });
+
+    test('strict patterns take precedence over fallback', () => {
+      const md = `# PRD
+
+## User Stories
+
+### US-001: Standard Story
+
+**Acceptance Criteria:**
+- [ ] Works
+
+### Epic 1: Non-Standard Story
+
+**Acceptance Criteria:**
+- [ ] Works
+`;
+
+      const result = parsePrdMarkdown(md);
+      // Should use strict parser because US-001 matches
+      expect(result.userStories).toHaveLength(1);
+      expect(result.userStories[0]!.id).toBe('US-001');
+    });
+  });
 });

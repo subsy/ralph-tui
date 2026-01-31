@@ -162,11 +162,32 @@ describe('stripEscapeCodes', () => {
       const result = stripEscapeCodes(input);
       expect(result).toBe('hello world');
     });
+  });
 
-    test('removes standalone semicolons from fragmented mouse codes', () => {
-      const input = 'test;;value';
+  describe('preserves legitimate semicolons', () => {
+    test('preserves semicolons in URLs', () => {
+      const input = 'http://example.com;param=value';
       const result = stripEscapeCodes(input);
-      expect(result).toBe('testvalue');
+      expect(result).toBe('http://example.com;param=value');
+    });
+
+    test('preserves semicolons in CSS-like content', () => {
+      const input = 'color: red; background: blue';
+      const result = stripEscapeCodes(input);
+      expect(result).toBe('color: red; background: blue');
+    });
+
+    test('preserves semicolons in code snippets', () => {
+      const input = 'for (let i = 0; i < 10; i++)';
+      const result = stripEscapeCodes(input);
+      expect(result).toBe('for (let i = 0; i < 10; i++)');
+    });
+
+    test('removes mouse codes but preserves legitimate semicolons', () => {
+      const input = 'URL: http://test.com;a=135;106;28Mb';
+      const result = stripEscapeCodes(input);
+      // Mouse code "35;106;28M" is removed, leaving "URL: http://test.com;a=1b"
+      expect(result).toBe('URL: http://test.com;a=b');
     });
   });
 });

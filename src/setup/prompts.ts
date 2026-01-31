@@ -53,10 +53,7 @@ export function stripEscapeCodes(input: string): string {
   // This catches: 35;106;28M, 100;200M, etc. but NOT "10m"
   let cleaned = input.replace(/\d+;\d+(?:;\d+)*[Mm]/g, '');
 
-  // Step 2: Remove any remaining standalone semicolons (fragments from mouse codes)
-  cleaned = cleaned.replace(/;+/g, '');
-
-  // Step 3: Remove escape sequences
+  // Step 2: Remove escape sequences
   // Use RegExp constructor to avoid Biome linter errors with control characters
   const csiPattern = new RegExp('\x1b\\[[0-9;?]*[a-zA-Z]', 'g');
   cleaned = cleaned.replace(csiPattern, '');
@@ -64,7 +61,7 @@ export function stripEscapeCodes(input: string): string {
   const oscPattern = new RegExp('\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)', 'g');
   cleaned = cleaned.replace(oscPattern, '');
 
-  // Step 4: Remove any control characters (except space, tab, newline)
+  // Step 3: Remove any control characters (except space, tab, newline)
   const controlCharsPattern = new RegExp('[\x00-\x1F\x7F]', 'g');
   cleaned = cleaned.replace(controlCharsPattern, (char) => {
     // Keep space (0x20 is already outside this range)
@@ -73,7 +70,7 @@ export function stripEscapeCodes(input: string): string {
     return '';
   });
 
-  // Step 5: Clean up any resulting multiple spaces
+  // Step 4: Clean up any resulting multiple spaces
   cleaned = cleaned.replace(/\s+/g, ' ');
 
   return cleaned;
