@@ -141,6 +141,10 @@ jobs:
           bun test src/chat/ --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/chat.lcov
 
+          echo "=== Running src/parallel/ ===" | tee -a coverage-output.txt
+          bun test src/parallel/ --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/parallel.lcov
+
           echo "=== All test batches completed ===" | tee -a coverage-output.txt
           ls -la coverage-parts/
 
@@ -178,7 +182,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           # Upload all batch coverage files - Codecov will merge them correctly
-          files: ./coverage-parts/tests.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/plugins.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov
+          files: ./coverage-parts/tests.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/plugins.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
           fail_ci_if_error: false
           verbose: true
         env:

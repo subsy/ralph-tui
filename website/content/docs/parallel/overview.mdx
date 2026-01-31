@@ -1,0 +1,70 @@
+---
+title: Parallel Execution
+description: Run independent tasks simultaneously using git worktree isolation for faster project completion.
+---
+
+# Parallel Execution
+
+Ralph TUI can execute independent tasks in parallel, using **git worktrees** to isolate each worker's changes. When tasks have no mutual dependencies, they run simultaneously — then merge back to your main branch sequentially.
+
+<Callout type="tip">
+  Parallel execution activates automatically when ralph-tui detects independent tasks. No configuration required for the default behavior.
+</Callout>
+
+## Why Parallel?
+
+In a typical project, many tasks are independent. A login page fix doesn't depend on a dashboard refactor. Running them one at a time wastes time waiting for agents to finish sequentially.
+
+With parallel execution:
+
+- **Independent tasks run simultaneously** across multiple workers
+- **Each worker gets its own git worktree** — full isolation, no conflicts during execution
+- **Results merge sequentially** with automatic conflict detection
+- **AI-assisted conflict resolution** handles merge conflicts when they arise
+- **Rollback safety** via backup tags before every merge
+
+## Quick Start
+
+```bash
+# Auto-detect parallelism (default behavior)
+ralph-tui run
+
+# Force parallel execution with 4 workers
+ralph-tui run --parallel 4
+
+# Force sequential execution (disable parallel)
+ralph-tui run --serial
+```
+
+When ralph-tui starts, it analyzes your task dependencies and determines whether parallel execution is beneficial. If it finds groups of independent tasks, it automatically switches to parallel mode.
+
+## How It Decides
+
+The auto-detection heuristic checks three conditions:
+
+1. **At least one parallel group** has 2+ tasks that can run simultaneously
+2. **At least 3 total tasks** (overhead isn't worth it for just 2)
+3. **Less than 50% cyclic dependencies** (heavily coupled tasks don't parallelize well)
+
+If all conditions are met, parallel mode activates. Otherwise, ralph-tui falls back to sequential execution.
+
+## What Happens
+
+```
+                    ┌─── Worker 1 (worktree) ──→ merge ─┐
+Task Graph ───→     ├─── Worker 2 (worktree) ──→ merge ─┤──→ Main Branch
+Analysis            └─── Worker 3 (worktree) ──→ merge ─┘
+```
+
+1. **Analyze** — Build a dependency graph and group tasks by depth level
+2. **Execute** — Each group runs its tasks in parallel across isolated worktrees
+3. **Merge** — Completed workers merge back to main one at a time
+4. **Resolve** — Conflicts get AI-assisted resolution or safe rollback
+5. **Repeat** — Next group starts after the previous group's merges complete
+
+## Next Steps
+
+- [How It Works](/docs/parallel/how-it-works) — Architecture deep-dive
+- [Task Dependencies](/docs/parallel/task-dependencies) — Structure tasks for parallelism
+- [Configuration](/docs/parallel/configuration) — Tune workers, modes, and directories
+- [TUI Guide](/docs/parallel/tui-guide) — Monitor parallel execution in the terminal

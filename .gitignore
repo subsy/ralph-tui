@@ -61,3 +61,6 @@ testing/.test-workspace-path
 
 # Personal context (not for upstream)
 .kiro/
+
+# Ralph TUI parallel execution worktrees
+.ralph-tui/worktrees/

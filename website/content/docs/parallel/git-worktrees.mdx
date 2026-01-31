@@ -1,0 +1,122 @@
+---
+title: Git Worktrees
+description: How ralph-tui uses git worktrees for parallel worker isolation — lifecycle, location, and disk considerations.
+---
+
+# Git Worktrees
+
+Each parallel worker operates in its own **git worktree** — a lightweight copy of your repository with its own working directory and branch. This provides full filesystem isolation without the overhead of cloning the entire repository.
+
+## What Are Git Worktrees?
+
+A git worktree is a linked working tree attached to your repository. It shares the same `.git` object store (commits, blobs, trees) but has its own:
+
+- Working directory (separate file tree)
+- Branch (checked out independently)
+- Index (staging area)
+
+This means worktrees are fast to create (no file copying beyond checkout) and disk-efficient (shared object store).
+
+## Worktree Lifecycle
+
+<Steps>
+  <Step title="Create">
+    When a parallel group starts, ralph creates worktrees at `.ralph-tui/worktrees/worker-N/` with a dedicated branch `ralph-parallel/{taskId}` branched from the current HEAD.
+
+    ```bash
+    # What ralph runs internally:
+    git worktree add .ralph-tui/worktrees/worker-1 -b ralph-parallel/task-123
+    ```
+  </Step>
+
+  <Step title="Use">
+    The worker's ExecutionEngine runs with `cwd` set to the worktree path. All file changes happen in the worktree — your main working directory is untouched during execution.
+  </Step>
+
+  <Step title="Merge">
+    After the worker completes, its branch is merged back to your main branch. The merge happens in your main working directory, not in the worktree.
+  </Step>
+
+  <Step title="Cleanup">
+    After merge (or on failure), the worktree is removed along with its branch:
+
+    ```bash
+    # What ralph runs internally:
+    git worktree remove --force .ralph-tui/worktrees/worker-1
+    git branch -D ralph-parallel/task-123
+    ```
+  </Step>
+</Steps>
+
+## Directory Layout
+
+```
+your-project/
+├── .ralph-tui/
+│   ├── worktrees/              # Parallel worker directories
+│   │   ├── worker-1/           # Full working copy for worker 1
+│   │   ├── worker-2/           # Full working copy for worker 2
+│   │   └── worker-3/           # Full working copy for worker 3
+│   ├── config.toml             # Ralph configuration
+│   └── parallel-session.json   # Session state for crash recovery
+├── src/                        # Your main working directory (unchanged)
+└── ...
+```
+
+<Callout type="info">
+  Ralph automatically adds `.ralph-tui/worktrees/` to your `.gitignore` file to prevent accidental commits of worktree directories.
+</Callout>
+
+## Disk Space
+
+Worktrees share your repository's object store, so they don't duplicate git history. However, each worktree contains a full checkout of your working tree files.
+
+**Estimate:** Each worktree uses roughly the same disk space as your project's source files (excluding `.git/`, `node_modules/`, etc.).
+
+Ralph checks available disk space before creating worktrees. If free space is below the threshold, worktree creation fails with a clear error message.
+
+### Reducing Disk Usage
+
+- **Lower `maxWorkers`** — fewer concurrent worktrees means less disk usage
+- **Clean build artifacts** — ensure `.gitignore` excludes `node_modules/`, `dist/`, etc.
+- **Worktrees share history** — worktrees are created at HEAD and share the repository's object store. They do not perform a shallow clone like `git clone --depth 1`
+
+## Configuration
+
+The worktree directory can be customized in your config file:
+
+```toml
+[parallel]
+worktreeDir = ".ralph-tui/worktrees"   # Default location
+maxWorkers = 3                          # Max concurrent worktrees
+```
+
+Or via CLI:
+
+```bash
+ralph-tui run --parallel 4    # Creates up to 4 worktrees
+```
+
+See [Configuration](/docs/parallel/configuration) for all options.
+
+## Crash Recovery
+
+If ralph crashes or is force-killed during parallel execution, worktrees may be left behind. On the next run, ralph:
+
+1. Detects orphaned worktrees in the worktree directory
+2. Checks for uncommitted changes in each
+3. Cleans up orphaned worktrees and branches
+4. Logs what was recovered or discarded
+
+You can also manually clean up:
+
+```bash
+# List all worktrees
+git worktree list
+
+# Remove a specific orphaned worktree
+git worktree remove --force .ralph-tui/worktrees/worker-1
+
+# Clean up stale worktree references
+git worktree prune
+```
