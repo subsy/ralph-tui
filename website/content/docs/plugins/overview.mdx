@@ -29,6 +29,10 @@ Agent plugins connect to AI coding assistants that execute tasks. They handle:
 - **[Claude Code](/docs/plugins/agents/claude)** - Anthropic's Claude CLI with subagent tracing
 - **[OpenCode](/docs/plugins/agents/opencode)** - Open-source multi-provider agent with subagent tracing
 - **[Factory Droid](/docs/plugins/agents/droid)** - Factory Droid CLI (no subagent tracing)
+- **[Gemini CLI](/docs/plugins/agents/gemini)** - Google's Gemini CLI
+- **[Codex CLI](/docs/plugins/agents/codex)** - OpenAI's Codex CLI
+- **[Kiro CLI](/docs/plugins/agents/kiro)** - AWS Kiro CLI
+- **[iFlow CLI](/docs/plugins/agents/iflow)** - iFlow CLI with multiple model support
 
 ### Tracker Plugins
 
@@ -78,14 +82,14 @@ The execution engine orchestrates plugins:
 
 ### Agents
 
-| Feature | Claude Code | OpenCode | Factory Droid |
-|---------|-------------|----------|--------------|
-| Provider | Anthropic | Multi-provider | Factory |
-| Models | sonnet, opus, haiku | Any via provider/model format | Factory model list |
-| Subagent Tracing | Yes (Task tool) | Yes (Task tool) | No |
-| File Context | Yes (--add-dir) | Yes (--file) | No (uses `--cwd`) |
-| Streaming | Yes | Yes | Yes |
-| Installation | `npm i -g @anthropic-ai/claude-code` | `curl -fsSL https://opencode.ai/install \| bash` | [Factory Droid CLI](https://docs.factory.ai/reference/cli-reference) |
+| Feature | Claude Code | OpenCode | Factory Droid | Gemini CLI | Codex CLI | Kiro CLI | iFlow CLI |
+|---------|-------------|----------|--------------|------------|-----------|----------|-----------|
+| Provider | Anthropic | Multi-provider | Factory | Google | OpenAI | AWS | iFlow |
+| Models | sonnet, opus, haiku | Any via provider/model format | Factory model list | gemini-2.5-pro, gemini-2.5-flash | gpt-4, gpt-4-turbo | Kiro models | glm-4.7, deepseek-v3.2, qwen3, kimi-k2, minimax-m2.1 |
+| Subagent Tracing | Yes (Task tool) | Yes (Task tool) | No | Yes (stream-json) | Yes (Task tool) | Yes (agent types) | No |
+| File Context | Yes (--add-dir) | Yes (--file) | No (uses `--cwd`) | No | Yes (--file) | Yes (--files) | Yes (--all-files) |
+| Streaming | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Installation | `npm i -g @anthropic-ai/claude-code` | `curl -fsSL https://opencode.ai/install \| bash` | [Factory Droid CLI](https://docs.factory.ai/reference/cli-reference) | `npm install -g @google/gemini-cli` | `npm install -g openai-codex` | `npm install -g @aws/kiro-cli` | `npm install -g iflow-cli` |
 
 ### Trackers
 
@@ -204,5 +208,5 @@ Key methods for trackers:
 
 Learn about specific plugins:
 
-- **Agents**: [Claude Code](/docs/plugins/agents/claude) | [OpenCode](/docs/plugins/agents/opencode) | [Factory Droid](/docs/plugins/agents/droid)
+- **Agents**: [Claude Code](/docs/plugins/agents/claude) | [OpenCode](/docs/plugins/agents/opencode) | [Factory Droid](/docs/plugins/agents/droid) | [Gemini CLI](/docs/plugins/agents/gemini) | [Codex CLI](/docs/plugins/agents/codex) | [Kiro CLI](/docs/plugins/agents/kiro) | [iFlow CLI](/docs/plugins/agents/iflow)
 - **Trackers**: [JSON](/docs/plugins/trackers/json) | [Beads](/docs/plugins/trackers/beads) | [Beads-BV](/docs/plugins/trackers/beads-bv)
