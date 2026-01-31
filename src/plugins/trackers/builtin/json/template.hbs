@@ -46,15 +46,18 @@ We are working in a project to implement the following Product Requirements Docu
 ## Workflow
 1. Study the PRD context above to understand the bigger picture
 2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
-3. Implement this single story following acceptance criteria
-4. Run quality checks: typecheck, lint, etc.
+3. **BEFORE implementing**: Review the relevant parts of the codebase to understand existing patterns and architecture
+4. **Check the original task list**: Verify if there are any related tasks or dependencies that affect this implementation
+5. **If something is missing**: If you discover that related functionality needs changes, implement those changes as part of this task
+6. Implement this single story following acceptance criteria
+7. Run quality checks: typecheck, lint, etc.
 {{#if config.autoCommit}}
-5. Do NOT create git commits. Changes will be committed automatically by the engine after task completion.
+8. Do NOT create git commits. Changes will be committed automatically by the engine after task completion.
 {{else}}
-5. Do NOT create git commits. Leave all changes uncommitted for manual review.
+8. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Document learnings (see below)
-7. Signal completion
+9. Document learnings (see below)
+10. Signal completion
 
 ## Before Completing
 APPEND to `.ralph-tui/progress.md`:

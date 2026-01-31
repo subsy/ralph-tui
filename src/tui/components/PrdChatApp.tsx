@@ -410,7 +410,12 @@ Press a number key to select, or continue chatting.`,
       const parsedPrd = parsePrdMarkdown(prdContent);
       if (parsedPrd.userStories.length === 0) {
         const errorMessage =
-          'PRD has no user stories. Add sections like "### US-001: Title" with acceptance criteria checklists.';
+          'PRD has no user stories. Add sections with one of these formats:\n' +
+          '  • "### US-001: Title" (standard 3-digit)\n' +
+          '  • "### US-2.1.1: Title" (version-style)\n' +
+          '  • "### EPIC-123: Title" (custom prefix)\n' +
+          '  • "### Feature 1.1: Title" (feature format)\n' +
+          'Each section must include acceptance criteria checklists.';
         setError(errorMessage);
         onError?.(errorMessage);
         return;

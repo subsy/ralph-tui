@@ -36,6 +36,38 @@ function AnimatedSpinner(): ReactNode {
 }
 
 /**
+ * Animated progress bar with fake percentage (asymptotically approaches 99%)
+ * Simulates progress for unknown-duration tasks like AI responses
+ */
+function AnimatedProgressBar({ width = 20 }: { width?: number }): ReactNode {
+  const [percentage, setPercentage] = useState(0);
+
+  useEffect(() => {
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000; // seconds
+      // Asymptotic function: quickly reaches 50%, slowly approaches 99%
+      // Formula: 99 * (1 - e^(-elapsed/10))
+      const newPercentage = Math.min(99, Math.floor(99 * (1 - Math.exp(-elapsed / 10))));
+      setPercentage(newPercentage);
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const filledWidth = Math.floor((percentage / 100) * width);
+  const emptyWidth = width - filledWidth;
+  const filled = '▓'.repeat(filledWidth);
+  const empty = '░'.repeat(emptyWidth);
+
+  return (
+    <text fg={colors.status.info}>
+      {filled}{empty} {percentage}%
+    </text>
+  );
+}
+
+/**
  * Props for the ChatView component
  */
 export interface ChatViewProps {
@@ -474,6 +506,7 @@ export function ChatView({
           {isLoading ? (
             <>
               <AnimatedSpinner />
+              <AnimatedProgressBar width={20} />
               <text fg={colors.status.info}>{loadingText}</text>
             </>
           ) : (
