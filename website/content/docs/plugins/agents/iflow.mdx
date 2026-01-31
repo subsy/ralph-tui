@@ -1,0 +1,227 @@
+---
+title: iFlow Agent
+description: Integrate iFlow CLI with Ralph TUI for AI-assisted coding.
+---
+
+## iFlow Agent
+
+The iFlow agent plugin integrates with the `iflow` CLI to execute AI coding tasks. It supports YOLO mode for autonomous operation and multiple model options including GLM-4.7, DeepSeek-V3.2, and more.
+
+## Prerequisites
+
+Install iFlow CLI:
+
+```bash
+npm install -g iflow-cli
+```
+
+Verify installation:
+
+```bash
+iflow --version
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with iFlow">
+    Use the `--agent iflow` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent iflow
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent iflow --model glm-4.7
+    ```
+  </Step>
+
+  <Step title="Enable YOLO Mode">
+    Configure auto-approve in config:
+
+    ```toml
+    [agentOptions]
+    yoloMode = true
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "iflow"
+
+[agentOptions]
+model = "glm-4.7"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-iflow"
+plugin = "iflow"
+default = true
+command = "iflow"
+timeout = 300000
+
+[agents.options]
+model = "glm-4.7"
+yoloMode = true
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | iFlow model: `glm-4.7`, `deepseek-v3.2`, etc. |
+| `yoloMode` | boolean | `true` | Skip approval prompts for autonomous operation |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"iflow"` | Path to iFlow CLI executable |
+
+## Models
+
+iFlow CLI supports these model variants:
+
+| Model | Description | Use Case |
+|-------|-------------|----------|
+| `glm-4.7` | Most capable (Recommended) | Complex tasks, architecture decisions |
+| `iflow-rome-30ba3b` | Preview version | Testing new capabilities |
+| `deepseek-v3.2` | DeepSeek model | Alternative model options |
+| `qwen3-coder-plus` | Qwen coding model | Coding-specific tasks |
+| `kimi-k2-thinking` | Kimi thinking model | Reasoning-heavy tasks |
+| `minimax-m2.1` | MiniMax model | General purpose tasks |
+| `kimi-k2-0905` | Kimi K2 0905 | Alternative Kimi version |
+
+Select via CLI or config:
+
+```bash
+# CLI
+ralph-tui run --prd ./prd.json --agent iflow --model glm-4.7
+
+# Config
+[agentOptions]
+model = "glm-4.7"
+```
+
+## YOLO Mode
+
+When `yoloMode` is enabled (default), iFlow will skip approval prompts and auto-approve all actions. This is required for Ralph TUI's autonomous operation since it cannot relay interactive prompts.
+
+```toml
+[agentOptions]
+yoloMode = true
+```
+
+<Callout type="info">
+YOLO mode is named after iFlow CLI's `--yolo` flag. Despite the name, it's essential for automated workflows.
+</Callout>
+
+## How It Works
+
+When Ralph TUI executes a task with iFlow:
+
+1. **Build command**: Constructs `iflow [options]`
+2. **Pass prompt via `-p`**: Uses the `-p` flag to pass the prompt
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Detect completion**: Watches for execution completion
+5. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+iflow \
+  -p "your prompt here" \         # Prompt via -p flag
+  -m glm-4.7 \                    # If model specified
+  --yolo \                        # When yoloMode enabled
+```
+
+## Model Validation
+
+iFlow agent validates that model names are from the supported list:
+
+```typescript
+// Valid models
+"glm-4.7"
+"iflow-rome-30ba3b"
+"deepseek-v3.2"
+"qwen3-coder-plus"
+"kimi-k2-thinking"
+"minimax-m2.1"
+"kimi-k2-0905"
+
+// Invalid - will show error
+"gpt-4"
+"claude-3"
+```
+
+## Troubleshooting
+
+### "iFlow CLI not found"
+
+Ensure iFlow is installed and in your PATH:
+
+```bash
+which iflow
+# Should output: /path/to/iflow
+
+# If not found, install:
+npm install -g iflow-cli
+```
+
+### "Invalid model"
+
+Ensure your model name is from the supported list:
+
+```toml
+[agentOptions]
+model = "glm-4.7"  # Correct
+# model = "gpt-4"   # Wrong - not an iFlow model
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "iflow"
+plugin = "iflow"
+timeout = 600000  # 10 minutes
+```
+
+## Skills
+
+iFlow supports skills from these directories:
+
+- `~/.iflow/skills` - Personal skills directory
+- `.iflow/skills` - Repository-specific skills directory
+
+Install ralph-tui skills to iFlow:
+
+```bash
+# Install all skills to iFlow
+ralph-tui skills install --agent iflow
+
+# Or use add-skill directly
+bunx add-skill subsy/ralph-tui -a iflow -g -y
+```
+
+## Next Steps
+
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Gemini Agent](/docs/plugins/agents/gemini)** - Google's Gemini CLI
+- **[Configuration](/docs/configuration/options)** - Full options reference
