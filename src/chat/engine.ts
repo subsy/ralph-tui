@@ -21,7 +21,28 @@ import type { AgentPlugin, AgentExecuteOptions } from '../plugins/agents/types.j
  */
 export const DEFAULT_PRD_SKILL = 'ralph-tui-prd';
 
-export function buildPrdSystemPrompt(skillName: string): string {
+/**
+ * Detect if the text contains Chinese characters.
+ */
+function containsChinese(text: string): boolean {
+  return /[\u4e00-\u9fa5]/.test(text);
+}
+
+export function buildPrdSystemPrompt(skillName: string, userLanguage: 'zh' | 'en' = 'en'): string {
+  if (userLanguage === 'zh') {
+    return `你正在帮助创建一个产品需求文档（PRD），使用 ${skillName} skill。
+
+遵循以下指导原则：
+1. 提出带有字母选项（A、B、C、D）的澄清问题，便于快速响应
+2. 一次提出一组问题，根据之前的答案进行调整
+3. 当你有足够的上下文时，生成完整的 PRD
+4. 重要：将最终的 PRD 用 [PRD]...[/PRD] 标记包裹
+
+用户可以使用简写形式快速响应，例如 "1A, 2C"。
+请用中文回复用户的问题和生成的 PRD。
+`;
+  }
+
   return `You are helping create a Product Requirements Document (PRD) using the ${skillName} skill.
 
 Follow these guidelines:
@@ -73,6 +94,7 @@ export class ChatEngine {
   private status: ChatStatus = 'idle';
   private listeners: Set<ChatEventListener> = new Set();
   private readonly config: Required<ChatEngineConfig>;
+  private baseSystemPrompt: string;
 
   constructor(config: ChatEngineConfig) {
     this.config = {
@@ -83,6 +105,7 @@ export class ChatEngine {
       cwd: config.cwd ?? process.cwd(),
       agentOptions: config.agentOptions ?? {},
     };
+    this.baseSystemPrompt = config.systemPrompt;
   }
 
   /**
@@ -144,9 +167,18 @@ export class ChatEngine {
   private buildPrompt(userMessage: string): string {
     const parts: string[] = [];
 
+    // Detect user language and add language-specific instruction
+    const userLanguage = containsChinese(userMessage) ? 'zh' : 'en';
+    let systemPrompt = this.baseSystemPrompt;
+
+    // Add language instruction to system prompt
+    if (userLanguage === 'zh') {
+      systemPrompt = `${systemPrompt}\n\nIMPORTANT: Respond in Chinese (中文) to match the user's language.`;
+    }
+
     // Add system instructions using markdown header
     parts.push('## Instructions\n');
-    parts.push(this.config.systemPrompt);
+    parts.push(systemPrompt);
     parts.push('');
 
     // Add conversation history (limited by maxHistoryMessages)
@@ -211,11 +243,15 @@ export class ChatEngine {
       // Collect streaming output
       let fullOutput = '';
 
+      // Enable subagentTracing if agent supports it and segments callback is provided
+      const enableSubagentTracing = this.config.agent.meta.supportsSubagentTracing && !!options.onSegments;
+
       // Execute the agent
       const agentOptions: AgentExecuteOptions = {
         ...this.config.agentOptions,
         cwd: this.config.cwd,
         timeout: this.config.timeout,
+        subagentTracing: enableSubagentTracing,
         onStdout: (data: string) => {
           fullOutput += data;
           options.onChunk?.(data);
