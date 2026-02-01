@@ -247,6 +247,39 @@ export class IflowAgentPlugin extends BaseAgentPlugin {
   }
 
   /**
+   * Override execute to parse iFlow output for structured display.
+   * Wraps the onStdout/onStdoutSegments callbacks to format tool calls.
+   */
+  override execute(
+    prompt: string,
+    files?: AgentFileContext[],
+    options?: AgentExecuteOptions
+  ): AgentExecutionHandle {
+    const isStructuredOutput = options?.subagentTracing;
+
+    const parsedOptions: AgentExecuteOptions = {
+      ...options,
+      // When subagentTracing is enabled, parse output for structured display
+      onStdout: isStructuredOutput
+        ? (data: string) => {
+            // Parse output into display events
+            const events = this.parseIflowOutputToEvents(data);
+
+            // Call TUI-native segments callback for colored output
+            if (options?.onStdoutSegments) {
+              const segments = processAgentEventsToSegments(events);
+              if (segments.length > 0) {
+                options.onStdoutSegments(segments);
+              }
+            }
+          }
+        : options?.onStdout,
+    };
+
+    return super.execute(prompt, files, parsedOptions);
+  }
+
+  /**
    * Extract tool input from a line containing tool call description.
    */
   private extractToolInput(line: string, toolName: string): Record<string, unknown> {
@@ -334,41 +367,6 @@ export class IflowAgentPlugin extends BaseAgentPlugin {
     _options?: AgentExecuteOptions
   ): string {
     return prompt;
-  }
-
-  /**
-   * Override execute to parse iFlow output for structured display.
-   * Wraps the onStdout/onStdoutSegments callbacks to format tool calls.
-   */
-  override execute(
-    prompt: string,
-    files?: AgentFileContext[],
-    options?: AgentExecuteOptions
-  ): AgentExecutionHandle {
-    const parsedOptions: AgentExecuteOptions = {
-      ...options,
-      // Wrap onStdout to parse and emit structured events
-      onStdout: (data: string) => {
-        // Parse output into display events
-        const events = this.parseIflowOutputToEvents(data);
-
-        // Call TUI-native segments callback for colored output
-        if (options?.onStdoutSegments) {
-          const segments = processAgentEventsToSegments(events);
-          if (segments.length > 0) {
-            options.onStdoutSegments(segments);
-          }
-        }
-
-        // Also call legacy string callback for backward compatibility
-        if (options?.onStdout) {
-          // For legacy callback, pass original data to avoid double-parsing
-          options.onStdout(data);
-        }
-      },
-    };
-
-    return super.execute(prompt, files, parsedOptions);
   }
 
   override async validateSetup(answers: Record<string, unknown>): Promise<string | null> {
