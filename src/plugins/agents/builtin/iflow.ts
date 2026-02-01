@@ -265,6 +265,24 @@ export class IflowAgentPlugin extends BaseAgentPlugin {
             // Parse output into display events
             const events = this.parseIflowOutputToEvents(data);
 
+            // For subagent tracing, also construct ClaudeJsonlMessage format messages
+            // and pass them to onJsonlMessage callback
+            if (options?.onJsonlMessage) {
+              for (const event of events) {
+                if (event.type === 'tool_use') {
+                  const jsonlMessage: Record<string, unknown> = {
+                    type: 'tool_use',
+                    tool: {
+                      name: event.name,
+                      input: event.input,
+                    },
+                    timestamp: Date.now(),
+                  };
+                  options.onJsonlMessage(jsonlMessage);
+                }
+              }
+            }
+
             // Call TUI-native segments callback for colored output
             if (options?.onStdoutSegments) {
               const segments = processAgentEventsToSegments(events);
