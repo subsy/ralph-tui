@@ -45,9 +45,9 @@ export interface ParseOptions {
  * - US-001: Standard 3-digit format
  * - US-2.1.1: Version-style format (X.Y or X.Y.Z)
  * - EPIC-123: Custom prefix format
- * - Feature 1.1: Feature version format
+ * - Feature 1.1: Feature version format (case-insensitive)
  */
-const USER_STORY_HEADER_PATTERN = /^#{2,4}\s+(US-\d{3}|US-\d+(?:\.\d+)+|(?!US-)[A-Z]+-\d+|Feature\s+\d+\.\d+):\s*(.+)$/;
+const USER_STORY_HEADER_PATTERN = /^#{2,4}\s+(US-\d{3}|US-\d+(?:\.\d+)+|(?!US-)[A-Z]+-\d+|Feature\s+\d+\.\d+):\s*(.+)$/i;
 
 /**
  * Fallback pattern to match ANY header with a colon in the User Stories section.
@@ -104,8 +104,8 @@ function normalizeStoryId(rawId: string): string {
     return rawId;
   }
 
-  // Convert "Feature X.Y" to "FEAT-X-Y"
-  const featureMatch = rawId.match(/^Feature\s+(\d+)\.(\d+)$/);
+  // Convert "Feature X.Y" to "FEAT-X-Y" (case-insensitive)
+  const featureMatch = rawId.match(/^Feature\s+(\d+)\.(\d+)$/i);
   if (featureMatch) {
     const majorVersion = featureMatch[1];
     const minorVersion = featureMatch[2];
