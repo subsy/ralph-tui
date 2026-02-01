@@ -41,7 +41,9 @@ export class IflowAgentPlugin extends BaseAgentPlugin {
 
   private model?: string;
   private yoloMode = true;
-  protected override defaultTimeout = 0;
+  // Default timeout: 30 minutes (1,800,000 ms)
+  // This prevents infinite hangs if iFlow process doesn't exit
+  protected override defaultTimeout = 1800000;
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
     await super.initialize(config);

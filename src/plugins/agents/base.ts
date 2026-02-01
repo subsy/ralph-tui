@@ -494,8 +494,27 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // Write to stdin if subclass provides input (e.g., prompt content)
       const stdinInput = this.getStdinInput(prompt, files, options);
       if (stdinInput !== undefined && proc.stdin) {
-        proc.stdin.write(stdinInput);
-        proc.stdin.end();
+        // Write stdin in a flow-controlled manner to prevent blocking
+        // Handle backpressure from the child process
+        const writeChunk = (offset: number): void => {
+          if (offset >= stdinInput.length) {
+            // All data written, close stdin
+            proc.stdin.end();
+            return;
+          }
+
+          const chunk = stdinInput.slice(offset, offset + 65536); // 64KB chunks
+          if (!proc.stdin.write(chunk)) {
+            // Backpressure: wait for 'drain' event
+            proc.stdin.once('drain', () => writeChunk(offset + chunk.length));
+          } else {
+            // Continue writing
+            writeChunk(offset + chunk.length);
+          }
+        };
+
+        // Start writing
+        writeChunk(0);
       } else if (proc.stdin) {
         // Close stdin if no input to prevent hanging
         proc.stdin.end();
