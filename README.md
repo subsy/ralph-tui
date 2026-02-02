@@ -519,3 +519,11 @@ Thanks to Geoffrey Huntley for the [original Ralph Wiggum loop concept](https://
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Compatible Agents
+
+Ralph TUI works with AI coding agents including:
+
+- [Claude Code](https://claude.ai/code) - Anthropic's official CLI
+- [AdaL](https://sylph.ai/adal) - Self-evolving AI coding agent with MCP support
+
