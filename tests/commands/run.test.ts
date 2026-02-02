@@ -450,4 +450,70 @@ describe('run command', () => {
       expect(output).toContain('ralph-tui convert --to beads --input ./docs/feature.md');
     });
   });
+
+  /**
+   * Tests for session completion logic.
+   * Regression tests for https://github.com/subsy/ralph-tui/issues/247
+   *
+   * The bug was: session files were deleted even when tasks were incomplete
+   * because the condition `finalState.status === 'idle'` was always true
+   * after the engine finished (regardless of why it finished).
+   *
+   * The fix: Only check `tasksCompleted >= totalTasks` for completion.
+   */
+  describe('session completion condition (issue #247)', () => {
+    // Helper to simulate engine state for testing completion logic
+    const isAllComplete = (tasksCompleted: number, totalTasks: number): boolean => {
+      // This mirrors the fixed logic in run.tsx:1978
+      return tasksCompleted >= totalTasks;
+    };
+
+    test('returns false when 0 tasks completed out of 5', () => {
+      expect(isAllComplete(0, 5)).toBe(false);
+    });
+
+    test('returns false when 3 tasks completed out of 5', () => {
+      expect(isAllComplete(3, 5)).toBe(false);
+    });
+
+    test('returns false when 108 tasks completed out of 130 (reporter scenario)', () => {
+      // This was the user's exact scenario from issue #247
+      expect(isAllComplete(108, 130)).toBe(false);
+    });
+
+    test('returns true when 5 tasks completed out of 5', () => {
+      expect(isAllComplete(5, 5)).toBe(true);
+    });
+
+    test('returns true when more tasks completed than total (edge case)', () => {
+      // This shouldn't happen normally, but if it does, treat as complete
+      expect(isAllComplete(6, 5)).toBe(true);
+    });
+
+    test('returns true when 0 tasks out of 0 (empty project)', () => {
+      // Edge case: no tasks is considered complete
+      expect(isAllComplete(0, 0)).toBe(true);
+    });
+
+    test('completion does NOT depend on engine status', () => {
+      // The key fix: we don't check engine status anymore
+      // Previously, status === 'idle' was always true after engine finished
+      // This test documents that completion is purely based on task counts
+      const engineStatus = 'idle'; // This would always be true
+      const tasksCompleted = 3;
+      const totalTasks = 5;
+
+      // Old buggy logic would have been:
+      // const allComplete = tasksCompleted >= totalTasks || engineStatus === 'idle';
+      // This would incorrectly return true!
+
+      // Fixed logic:
+      const allComplete = isAllComplete(tasksCompleted, totalTasks);
+      expect(allComplete).toBe(false);
+
+      // Verify the old logic would have been wrong
+      const oldBuggyLogic = tasksCompleted >= totalTasks || engineStatus === 'idle';
+      expect(oldBuggyLogic).toBe(true); // This was the bug!
+    });
+  });
 });

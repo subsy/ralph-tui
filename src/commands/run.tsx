@@ -1971,9 +1971,11 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   }
 
   // Check if all tasks completed successfully
+  // Note: We only check task counts, not engine status. The engine status is always
+  // 'idle' after runLoop exits (set in finally block), regardless of WHY it exited.
+  // See: https://github.com/subsy/ralph-tui/issues/247
   const finalState = engine.getState();
-  const allComplete = finalState.tasksCompleted >= finalState.totalTasks ||
-    finalState.status === 'idle';
+  const allComplete = finalState.tasksCompleted >= finalState.totalTasks;
 
   if (allComplete) {
     // Mark as completed and clean up session file

@@ -603,6 +603,25 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Validate tracker state matches session expectations
+  // See: https://github.com/subsy/ralph-tui/issues/247
+  const engineState = engine.getState();
+  const sessionTotalTasks = resumedState.trackerState.totalTasks;
+  if (engineState.totalTasks === 0 && sessionTotalTasks > 0) {
+    console.warn('\nWarning: Session has task history but tracker returned no tasks.');
+    console.warn('This may happen if:');
+    if (resumedState.trackerState.epicId) {
+      console.warn(`  - The epic ID "${resumedState.trackerState.epicId}" no longer exists`);
+    }
+    if (resumedState.trackerState.prdPath) {
+      console.warn(`  - The PRD file "${resumedState.trackerState.prdPath}" is missing or empty`);
+    }
+    console.warn('\nTo fix, provide the tracker source explicitly:');
+    console.warn('  ralph-tui run --prd <path-to-prd.json>');
+    console.warn('  ralph-tui run --epic <epic-id>');
+    console.warn('');
+  }
+
   // Restore engine state from persisted session
   // The engine will start fresh but the session tracks what was already done
   // Task statuses are read from the tracker which should be in sync
