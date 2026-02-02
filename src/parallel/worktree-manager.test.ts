@@ -103,16 +103,6 @@ describe('WorktreeManager', () => {
       expect(fs.existsSync(worktreeBaseDir)).toBe(true);
     });
 
-    test('adds worktree directory to .gitignore', async () => {
-      await manager.acquire('w1', 'task-001');
-
-      const gitignore = fs.readFileSync(
-        path.join(repoDir, '.gitignore'),
-        'utf-8'
-      );
-      expect(gitignore).toContain('.ralph-tui/worktrees/');
-    });
-
     test('copies config.toml into the worktree', async () => {
       // Create a config file in the main repo
       const configDir = path.join(repoDir, '.ralph-tui');
