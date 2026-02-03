@@ -138,7 +138,7 @@ function buildTimeline(result: IterationResult): TimelineEvent[] {
       timestamp: result.endedAt,
       type: 'task_completed',
       description: result.promiseComplete
-        ? 'Task marked complete (<promise>COMPLETE</promise> detected)'
+        ? 'Task marked complete (completion signal detected)'
         : 'Task marked complete',
     });
   }
@@ -728,6 +728,39 @@ export function IterationDetailView({
                 label="Promise Detected"
                 value="Yes"
                 valueColor={colors.status.success}
+              />
+            )}
+            {iteration.reviewEnabled && (
+              <MetadataRow
+                label="Review"
+                value={
+                  iteration.reviewPassed === true
+                    ? 'Passed'
+                    : iteration.reviewPassed === false
+                      ? 'Failed'
+                      : 'Pending'
+                }
+                valueColor={
+                  iteration.reviewPassed === true
+                    ? colors.status.success
+                    : iteration.reviewPassed === false
+                      ? colors.status.error
+                      : colors.status.warning
+                }
+              />
+            )}
+            {iteration.reviewAgent && (
+              <MetadataRow
+                label="Reviewer"
+                value={iteration.reviewAgent}
+                valueColor={colors.accent.tertiary}
+              />
+            )}
+            {iteration.taskBlocked && (
+              <MetadataRow
+                label="Task Blocked"
+                value="Yes"
+                valueColor={colors.status.error}
               />
             )}
             {iteration.error && (

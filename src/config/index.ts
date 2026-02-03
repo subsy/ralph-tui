@@ -196,6 +196,9 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
   if (project.notifications !== undefined) {
     merged.notifications = { ...merged.notifications, ...project.notifications };
   }
+  if (project.review !== undefined) {
+    merged.review = { ...merged.review, ...project.review };
+  }
 
   return merged;
 }
@@ -433,6 +436,32 @@ export function getDefaultAgentConfig(
 }
 
 /**
+ * Resolve a specific agent configuration by name or plugin id.
+ * Unlike getDefaultAgentConfig, this does not apply shorthand agentOptions.
+ */
+export function getAgentConfigByName(
+  storedConfig: StoredConfig,
+  agentName: string
+): AgentPluginConfig | undefined {
+  const registry = getAgentRegistry();
+
+  const found = storedConfig.agents?.find(
+    (a) => a.name === agentName || a.plugin === agentName
+  );
+  if (found) return found;
+
+  if (registry.hasPlugin(agentName)) {
+    return {
+      name: `review-${agentName}`,
+      plugin: agentName,
+      options: {},
+    };
+  }
+
+  return undefined;
+}
+
+/**
  * Get default tracker configuration based on available plugins
  */
 function getDefaultTrackerConfig(
@@ -584,6 +613,18 @@ export async function buildConfig(
     ...(options.sandbox ?? {}),
   };
 
+  const reviewEnabled =
+    options.review ?? storedConfig.review?.enabled ?? false;
+  const reviewAgentName = options.reviewAgent ?? storedConfig.review?.agent;
+  const reviewPromptTemplate =
+    options.reviewPromptPath ?? storedConfig.review?.prompt_template;
+  const reviewModel = options.reviewModel ?? storedConfig.review?.model;
+  const reviewAgentConfig = reviewEnabled
+    ? (reviewAgentName
+        ? getAgentConfigByName(storedConfig, reviewAgentName)
+        : agentConfig)
+    : undefined;
+
   return {
     agent: agentConfig,
     tracker: trackerConfig,
@@ -607,6 +648,12 @@ export async function buildConfig(
     // CLI --prompt takes precedence over config file prompt_template
     promptTemplate: options.promptPath ?? storedConfig.prompt_template,
     autoCommit: storedConfig.autoCommit ?? false,
+    review: {
+      enabled: reviewEnabled,
+      agent: reviewAgentConfig,
+      model: reviewModel,
+      promptTemplate: reviewPromptTemplate,
+    },
   };
 }
 
@@ -639,6 +686,15 @@ export async function validateConfig(
   const trackerRegistry = getTrackerRegistry();
   if (!trackerRegistry.hasPlugin(config.tracker.plugin)) {
     errors.push(`Tracker plugin '${config.tracker.plugin}' not found`);
+  }
+
+  // Validate review agent if enabled
+  if (config.review?.enabled) {
+    if (!config.review.agent) {
+      errors.push('Review enabled but reviewer agent not configured or found');
+    } else if (!agentRegistry.hasPlugin(config.review.agent.plugin)) {
+      errors.push(`Review agent plugin '${config.review.agent.plugin}' not found`);
+    }
   }
 
   // Validate tracker-specific requirements

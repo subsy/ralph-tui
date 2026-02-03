@@ -75,9 +75,9 @@ function buildSettingDefinitions(
     },
     {
       key: 'agent',
-      label: 'Agent',
+      label: 'Worker',
       type: 'select',
-      description: 'AI agent plugin to use',
+      description: 'AI agent plugin to execute tasks',
       options: agents.map((a) => a.id),
       getValue: (config) => config.agent ?? config.defaultAgent,
       setValue: (config, value) => ({
@@ -85,6 +85,41 @@ function buildSettingDefinitions(
         agent: value as string,
         defaultAgent: value as string,
       }),
+      requiresRestart: true,
+    },
+    {
+      key: 'reviewer',
+      label: 'Reviewer',
+      type: 'select',
+      description: 'Optional reviewer agent (choose none to disable)',
+      options: ['none', ...agents.map((a) => a.id)],
+      getValue: (config) =>
+        config.review?.enabled
+          ? (config.review.agent ??
+            config.agent ??
+            config.defaultAgent ??
+            'none')
+          : 'none',
+      setValue: (config, value) => {
+        if (value === 'none') {
+          return {
+            ...config,
+            review: {
+              ...config.review,
+              enabled: false,
+              agent: undefined,
+            },
+          };
+        }
+        return {
+          ...config,
+          review: {
+            ...config.review,
+            enabled: true,
+            agent: value as string,
+          },
+        };
+      },
       requiresRestart: true,
     },
     {
