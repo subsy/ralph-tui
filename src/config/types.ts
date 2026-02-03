@@ -81,6 +81,28 @@ export const DEFAULT_SANDBOX_CONFIG: Required<
 };
 
 /**
+ * Configuration for parallel execution behavior.
+ */
+export interface ParallelConfig {
+  /** Execution mode: 'auto' analyzes dependencies, 'always' forces parallel, 'never' disables */
+  mode?: 'auto' | 'always' | 'never';
+
+  /** Maximum concurrent workers (default: 3) */
+  maxWorkers?: number;
+
+  /** Directory for git worktrees relative to project root (default: '.ralph-tui/worktrees') */
+  worktreeDir?: string;
+
+  /**
+   * Merge directly to the current branch instead of creating a session branch.
+   * When false (default), a session branch `ralph-session/{shortId}` is created
+   * and all worker changes are merged there. When true, uses the legacy behavior
+   * of merging directly to the current branch.
+   */
+  directMerge?: boolean;
+}
+
+/**
  * Runtime options that can be passed via CLI flags
  */
 export interface RuntimeOptions {
@@ -142,6 +164,12 @@ export interface RuntimeOptions {
 
   /** Path to custom JSON theme file (absolute or relative to cwd) */
   themePath?: string;
+
+  /** Force sequential execution (--serial or --sequential) */
+  serial?: boolean;
+
+  /** Enable parallel execution, optionally with worker count (--parallel [N]) */
+  parallel?: number | boolean;
 }
 
 /**
@@ -247,6 +275,9 @@ export interface StoredConfig {
 
   /** Notifications configuration */
   notifications?: NotificationsConfig;
+
+  /** Parallel execution configuration */
+  parallel?: ParallelConfig;
 }
 
 /**

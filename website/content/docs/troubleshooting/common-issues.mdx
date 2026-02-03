@@ -362,6 +362,39 @@ ralph-tui config show
 
 ---
 
+## Parallel Execution Issues
+
+### Orphaned Worktrees
+
+If ralph was force-killed during parallel execution, worktrees may be left behind:
+
+```bash
+# List worktrees
+git worktree list
+
+# Remove orphaned worktrees (path is outside project)
+git worktree remove --force ../.ralph-worktrees/your-project/worker-1
+git worktree prune
+
+# Remove stale branches (cross-platform)
+branches=$(git for-each-ref --format='%(refname:short)' refs/heads/ralph-parallel/)
+[ -n "$branches" ] && echo "$branches" | xargs git branch -D
+```
+
+Ralph automatically cleans up orphaned worktrees on the next run.
+
+### Merge Conflicts During Parallel Execution
+
+When parallel workers modify the same files, merge conflicts may occur. Ralph attempts AI-assisted resolution automatically. If AI resolution fails:
+
+1. The merge is rolled back to a backup tag
+2. The conflicting task is re-queued to run sequentially
+3. If it fails again, the task is marked as failed
+
+To prevent frequent conflicts, structure tasks to touch different directories and set explicit `dependsOn` relationships for tasks that share files.
+
+See the [Parallel Execution Troubleshooting](/docs/parallel/troubleshooting) guide for more details.
+
 ## Getting More Help
 
 If your issue isn't covered here:

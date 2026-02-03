@@ -197,6 +197,9 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
       personal: '~/.config/opencode/skills',
       repo: '.opencode/skills',
     },
+    // NOTE: OpenCode's 'run' command does not have a --dir flag.
+    // It accepts a positional [project] path for TUI mode, but run mode
+    // relies on the spawn working directory.
   };
 
   /** AI provider (any string, validated by OpenCode CLI) */

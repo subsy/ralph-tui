@@ -1,0 +1,120 @@
+---
+title: Configuration
+description: All parallel execution configuration options — config file settings, CLI flags, and default values.
+---
+
+# Parallel Configuration
+
+Parallel execution can be configured through the config file, CLI flags, or both. CLI flags take precedence over config file settings.
+
+## Config File
+
+Add a `[parallel]` section to your `.ralph-tui/config.toml`:
+
+```toml
+[parallel]
+mode = "auto"                           # auto | always | never
+maxWorkers = 3                          # Maximum concurrent workers
+directMerge = false                     # Merge directly to current branch (vs session branch)
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `mode` | string | `"auto"` | Execution mode: `auto` analyzes dependencies, `always` forces parallel, `never` disables |
+| `maxWorkers` | number | `3` | Maximum concurrent workers (worktrees) |
+| `directMerge` | boolean | `false` | If true, merge directly to current branch; if false (default), create a session branch |
+| `worktreeDir` | string | `"../.ralph-worktrees/<project>"` | Directory for git worktrees (as sibling of project) |
+
+### Mode Behavior
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Analyze task dependencies; use parallel when beneficial, fall back to sequential otherwise |
+| `always` | Force parallel execution regardless of dependency analysis (may cause more merge conflicts) |
+| `never` | Disable parallel execution entirely; always run sequentially |
+
+## CLI Flags
+
+Override configuration with command-line flags:
+
+```bash
+# Force sequential execution
+ralph-tui run --serial
+ralph-tui run --sequential
+
+# Force parallel execution (auto worker count)
+ralph-tui run --parallel
+
+# Force parallel with specific worker count
+ralph-tui run --parallel 4
+```
+
+### Flag Reference
+
+| Flag | Description |
+|------|-------------|
+| `--serial`, `--sequential` | Force sequential execution (overrides config) |
+| `--parallel` | Force parallel execution with default worker count |
+| `--parallel N` | Force parallel execution with N workers |
+| `--direct-merge` | Merge directly to current branch instead of creating a session branch |
+
+<Callout type="info">
+  When both `--serial` and `--parallel` are specified, `--serial` takes precedence.
+</Callout>
+
+## Precedence
+
+Configuration is resolved in this order (highest priority first):
+
+1. **CLI flags** — `--serial` or `--parallel N`
+2. **Config file** — `[parallel]` section in `.ralph-tui/config.toml`
+3. **Auto-detection** — analyze task graph and decide automatically
+
+## Examples
+
+### Minimal Config
+
+Most projects can rely on auto-detection with no configuration:
+
+```bash
+# Just run — parallel activates when beneficial
+ralph-tui run
+```
+
+### High-Parallelism Setup
+
+For large projects with many independent tasks:
+
+```toml
+[parallel]
+mode = "always"
+maxWorkers = 6
+```
+
+### CI/Headless Mode
+
+For CI pipelines where you want deterministic behavior:
+
+```bash
+# Force sequential for reproducible builds
+ralph-tui run --serial --headless
+
+# Or force parallel with fixed worker count
+ralph-tui run --parallel 2 --headless
+```
+
+### Conservative Mode
+
+If you want to opt in to parallel execution only via CLI:
+
+```toml
+[parallel]
+mode = "never"    # Disable auto-detection
+```
+
+```bash
+# Override config to run parallel when you choose
+ralph-tui run --parallel 3
+```

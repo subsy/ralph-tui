@@ -50,6 +50,10 @@ export interface ProgressDashboardProps {
   autoCommit?: boolean;
   /** Git repository information */
   gitInfo?: GitInfo;
+  /** Number of currently active (running) parallel workers */
+  activeWorkerCount?: number;
+  /** Total number of parallel workers */
+  totalWorkerCount?: number;
 }
 
 /**
@@ -103,7 +107,7 @@ function getStatusDisplay(
       return { label: `Agent running${taskLabel}`, color: colors.status.success, indicator: statusIndicators.executing };
     }
     case 'pausing':
-      return { label: 'Pausing after current iteration...', color: colors.status.warning, indicator: statusIndicators.pausing };
+      return { label: 'Pausing (completing in-flight tasks)', color: colors.status.warning, indicator: statusIndicators.pausing };
     case 'paused':
       return { label: 'Paused - Press p to resume', color: colors.status.warning, indicator: statusIndicators.paused };
     case 'stopped':
@@ -134,6 +138,8 @@ export function ProgressDashboard({
   remoteInfo,
   autoCommit,
   gitInfo,
+  activeWorkerCount,
+  totalWorkerCount,
 }: ProgressDashboardProps): ReactNode {
   const statusDisplay = getStatusDisplay(status, currentTaskId);
   const sandboxDisplay = getSandboxDisplay(sandboxConfig, resolvedSandboxMode);
@@ -203,6 +209,15 @@ export function ProgressDashboard({
             <text fg={colors.accent.tertiary}>{currentTaskId}</text>
             <text fg={colors.fg.dim}>-</text>
             <text fg={colors.fg.primary}>{taskDisplay}</text>
+          </box>
+        )}
+
+        {/* Parallel worker count - shown when workers are active */}
+        {activeWorkerCount != null && activeWorkerCount > 0 && totalWorkerCount != null && (
+          <box style={{ flexDirection: 'row' }}>
+            <text fg={colors.status.info}>Workers: </text>
+            <text fg={colors.status.success}>{activeWorkerCount} active</text>
+            <text fg={colors.fg.muted}> / {totalWorkerCount}</text>
           </box>
         )}
       </box>

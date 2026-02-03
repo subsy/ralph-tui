@@ -209,12 +209,36 @@ export type EngineEventType =
   | 'task:completed'
   | 'task:auto-committed'
   | 'task:auto-commit-failed'
+  | 'task:auto-commit-skipped'
   | 'agent:output'
   | 'agent:switched'
   | 'agent:all-limited'
   | 'agent:recovery-attempted'
   | 'all:complete'
-  | 'tasks:refreshed';
+  | 'tasks:refreshed'
+  // Parallel execution events (see src/parallel/events.ts for full definitions)
+  | 'worker:created'
+  | 'worker:started'
+  | 'worker:progress'
+  | 'worker:completed'
+  | 'worker:failed'
+  | 'worker:output'
+  | 'merge:queued'
+  | 'merge:started'
+  | 'merge:completed'
+  | 'merge:failed'
+  | 'merge:rolled-back'
+  | 'conflict:detected'
+  | 'conflict:ai-resolving'
+  | 'conflict:ai-resolved'
+  | 'conflict:ai-failed'
+  | 'conflict:resolved'
+  | 'parallel:started'
+  | 'parallel:session-branch-created'
+  | 'parallel:group-started'
+  | 'parallel:group-completed'
+  | 'parallel:completed'
+  | 'parallel:failed';
 
 /**
  * Base engine event
@@ -465,6 +489,20 @@ export interface TaskAutoCommitFailedEvent extends EngineEventBase {
 }
 
 /**
+ * Task auto-commit skipped event - emitted when auto-commit has nothing to commit.
+ * Common causes: files are gitignored, agent made no file changes, or changes were already committed.
+ */
+export interface TaskAutoCommitSkippedEvent extends EngineEventBase {
+  type: 'task:auto-commit-skipped';
+  /** Task that had no changes to commit */
+  task: TrackerTask;
+  /** Iteration number */
+  iteration: number;
+  /** Reason the commit was skipped (e.g., "no uncommitted changes") */
+  reason: string;
+}
+
+/**
  * Agent output event (streaming)
  */
 export interface AgentOutputEvent extends EngineEventBase {
@@ -566,6 +604,7 @@ export type EngineEvent =
   | TaskCompletedEvent
   | TaskAutoCommittedEvent
   | TaskAutoCommitFailedEvent
+  | TaskAutoCommitSkippedEvent
   | AgentOutputEvent
   | AgentSwitchedEvent
   | AllAgentsLimitedEvent

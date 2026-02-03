@@ -1,0 +1,114 @@
+---
+title: Task Dependencies
+description: How dependsOn and blocks fields drive parallelism detection, with examples of task graphs and parallel groups.
+---
+
+# Task Dependencies
+
+Parallel execution is driven by the dependency relationships between your tasks. Ralph analyzes the `dependsOn` and `blocks` fields on each task to build a directed acyclic graph (DAG), then groups tasks that can safely run simultaneously.
+
+## Dependency Fields
+
+Every tracker task has two dependency fields:
+
+| Field | Direction | Meaning |
+|-------|-----------|---------|
+| `dependsOn` | Incoming | This task cannot start until the listed tasks complete |
+| `blocks` | Outgoing | The listed tasks cannot start until this task completes |
+
+These are inverses of each other. If task B `dependsOn` task A, then task A `blocks` task B.
+
+## Graph Analysis
+
+Ralph uses **Kahn's algorithm** (topological sort) to:
+
+1. Build an adjacency list from task dependencies
+2. Detect cycles (tasks that depend on each other, directly or indirectly)
+3. Compute depth levels (distance from root tasks with no dependencies)
+4. Group tasks by depth — same-depth tasks with no mutual dependencies form a **parallel group**
+
+### Example
+
+Given these tasks:
+
+```
+A: "Set up database schema"         (no dependencies)
+B: "Create API endpoints"           (depends on A)
+C: "Write unit tests for API"       (depends on B)
+D: "Design landing page"            (no dependencies)
+E: "Build authentication flow"      (depends on A)
+F: "Write integration tests"        (depends on B, E)
+```
+
+The dependency graph looks like:
+
+```
+Depth 0:  A ─────────── D
+          │
+Depth 1:  B ──── E
+          │     │
+Depth 2:  C     F
+```
+
+This produces three parallel groups:
+
+| Group | Tasks | Why Parallel |
+|-------|-------|-------------|
+| 0 | A, D | No dependencies, no mutual conflicts |
+| 1 | B, E | Both depend only on A (completed in group 0) |
+| 2 | C, F | Both depend on group 1 tasks |
+
+With `maxWorkers: 3`, groups 0 and 1 run 2 workers each. Group 2 also runs 2 workers.
+
+## Structuring Tasks for Parallelism
+
+To maximize parallel execution:
+
+<Callout type="tip">
+  Keep tasks focused and independent. Split large features into small tasks that touch different parts of the codebase.
+</Callout>
+
+### Good: Independent Tasks
+
+```yaml
+# These can all run in parallel (no shared dependencies)
+- "Add user profile page"         # Touches: src/pages/profile/
+- "Fix search pagination bug"     # Touches: src/search/
+- "Update email templates"        # Touches: templates/email/
+```
+
+### Bad: Overly Coupled Tasks
+
+```yaml
+# These must run sequentially (each depends on the previous)
+- "Create base component library"
+- "Build form components using base library"
+- "Build page layouts using form components"
+```
+
+### Tips
+
+- **Separate concerns by directory** — tasks touching different directories rarely conflict
+- **Avoid circular dependencies** — cyclic tasks cannot be parallelized and run sequentially
+- **Use explicit dependencies** — set `dependsOn`/`blocks` in your tracker to guide the graph
+- **Batch related changes** — one task for "add + test authentication" is better than separate tasks that both touch `auth/`
+
+## Auto-Detection Heuristic
+
+Ralph automatically determines whether parallel execution is beneficial:
+
+| Condition | Required | Reason |
+|-----------|----------|--------|
+| ≥2 tasks in at least one group | Yes | Need concurrent work to justify overhead |
+| ≥3 total tasks | Yes | Worktree setup cost not worth it for 2 tasks |
+| ≤50% cyclic tasks | Yes | Too many cycles means too little parallelism |
+
+If any condition fails, ralph falls back to sequential execution automatically.
+
+## Cycle Handling
+
+Tasks involved in dependency cycles are **excluded from parallel groups** and run sequentially after all parallel groups complete. Ralph logs a warning when cycles are detected:
+
+```
+⚠ Detected 2 tasks in dependency cycles — these will run sequentially
+```

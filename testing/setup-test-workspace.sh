@@ -99,14 +99,11 @@ git reset --hard test-start && git clean -fd
 EOF
 
 # Create a .gitignore
+# Note: We do NOT gitignore output-*.txt, merged-*.txt, summary.txt because
+# parallel execution requires these files to be committed for merges to work.
 cat > .gitignore << 'EOF'
 # Ralph-TUI session state (reset between tests)
 .ralph-tui/
-
-# Test outputs (generated during test runs)
-output-*.txt
-merged-*.txt
-summary.txt
 EOF
 
 # Create .ralph-tui directory structure

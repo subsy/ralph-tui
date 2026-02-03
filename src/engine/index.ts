@@ -127,6 +127,18 @@ async function buildPrompt(
 }
 
 /**
+ * Options for initializing the engine in worker mode.
+ * Used by parallel workers to inject a pre-initialized tracker
+ * and force the engine to work on a specific task.
+ */
+export interface WorkerModeOptions {
+  /** Pre-initialized tracker plugin (avoids re-initializing in worktree) */
+  tracker: TrackerPlugin;
+  /** The specific task this engine should work on */
+  forcedTask: TrackerTask;
+}
+
+/**
  * Execution engine for the agent loop
  */
 export class ExecutionEngine {
@@ -155,6 +167,10 @@ export class ExecutionEngine {
   private primaryAgentInstance: AgentPlugin | null = null;
   /** Track agent switches during the current iteration for logging */
   private currentIterationAgentSwitches: AgentSwitchEntry[] = [];
+  /** Forced task for worker mode — engine only works on this one task */
+  private forcedTask: TrackerTask | null = null;
+  /** Track if the forced task has been processed (prevents infinite loop on skip/fail) */
+  private forcedTaskProcessed = false;
 
   constructor(config: RalphConfig) {
     this.config = config;
@@ -191,9 +207,13 @@ export class ExecutionEngine {
   }
 
   /**
-   * Initialize the engine with plugins
+   * Initialize the engine with plugins.
+   *
+   * @param workerMode - Optional worker mode options for parallel execution.
+   *   When provided, the engine uses the injected tracker and works only on
+   *   the forced task, skipping tracker initialization and sync.
    */
-  async initialize(): Promise<void> {
+  async initialize(workerMode?: WorkerModeOptions): Promise<void> {
     // Get agent instance
     const agentRegistry = getAgentRegistry();
     this.agent = await agentRegistry.getInstance(this.config.agent);
@@ -230,16 +250,25 @@ export class ExecutionEngine {
       primaryAgent: this.config.agent.plugin,
     };
 
-    // Get tracker instance
-    const trackerRegistry = getTrackerRegistry();
-    this.tracker = await trackerRegistry.getInstance(this.config.tracker);
+    if (workerMode) {
+      // Worker mode: use injected tracker and forced task.
+      // This avoids re-initializing the tracker in a worktree directory
+      // where the beads/tracker data may not be accessible.
+      this.tracker = workerMode.tracker;
+      this.forcedTask = workerMode.forcedTask;
+      this.state.totalTasks = 1;
+    } else {
+      // Normal mode: initialize tracker from config
+      const trackerRegistry = getTrackerRegistry();
+      this.tracker = await trackerRegistry.getInstance(this.config.tracker);
 
-    // Sync tracker
-    await this.tracker.sync();
+      // Sync tracker
+      await this.tracker.sync();
 
-    // Get initial task count
-    const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress'] });
-    this.state.totalTasks = tasks.length;
+      // Get initial task count
+      const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress'] });
+      this.state.totalTasks = tasks.length;
+    }
   }
 
   /**
@@ -467,8 +496,11 @@ export class ExecutionEngine {
         break;
       }
 
-      // Check if all tasks complete
-      const isComplete = await this.tracker!.isComplete();
+      // Check if all tasks complete.
+      // In worker mode, check only the forced task (not the global tracker).
+      const isComplete = this.forcedTask
+        ? this.state.tasksCompleted >= 1
+        : await this.tracker!.isComplete();
       if (isComplete) {
         this.emit({
           type: 'all:complete',
@@ -532,8 +564,19 @@ export class ExecutionEngine {
    * Get the next available task, excluding skipped ones.
    * Delegates to the tracker's getNextTask() for proper dependency-aware ordering.
    * See: https://github.com/subsy/ralph-tui/issues/97
+   *
+   * In worker mode (forcedTask set), returns the forced task until it's completed,
+   * then returns null to stop the engine.
    */
   private async getNextAvailableTask(): Promise<TrackerTask | null> {
+    // Worker mode: return the forced task until it's been processed (completed, skipped, or failed)
+    if (this.forcedTask) {
+      if (this.state.tasksCompleted >= 1 || this.forcedTaskProcessed) {
+        return null; // Task was processed, stop the engine
+      }
+      return this.forcedTask;
+    }
+
     // Convert skipped tasks Set to array for the filter
     const excludeIds = Array.from(this.skippedTasks);
 
@@ -621,6 +664,10 @@ export class ExecutionEngine {
           this.emitSkipEvent(task, skipReason);
           this.skippedTasks.add(task.id);
           this.retryCountMap.delete(task.id);
+          // Mark forced task as processed to prevent infinite loop
+          if (this.forcedTask?.id === task.id) {
+            this.forcedTaskProcessed = true;
+          }
         }
         break;
       }
@@ -637,6 +684,10 @@ export class ExecutionEngine {
         });
         this.emitSkipEvent(task, errorMessage);
         this.skippedTasks.add(task.id);
+        // Mark forced task as processed to prevent infinite loop
+        if (this.forcedTask?.id === task.id) {
+          this.forcedTaskProcessed = true;
+        }
         break;
       }
 
@@ -650,6 +701,10 @@ export class ExecutionEngine {
           task,
           action: 'abort',
         });
+        // Mark forced task as processed to prevent infinite loop
+        if (this.forcedTask?.id === task.id) {
+          this.forcedTaskProcessed = true;
+        }
         break;
       }
     }
@@ -1888,6 +1943,14 @@ export class ExecutionEngine {
           task,
           iteration,
           error: result.error,
+        });
+      } else if (result.skipReason) {
+        this.emit({
+          type: 'task:auto-commit-skipped',
+          timestamp: new Date().toISOString(),
+          task,
+          iteration,
+          reason: result.skipReason,
         });
       }
     } catch (err) {

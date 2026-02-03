@@ -335,6 +335,7 @@ export interface AgentPluginMeta {
    * If undefined, the agent does not support skill installation.
    */
   skillsPaths?: AgentSkillsPaths;
+
 }
 
 /**

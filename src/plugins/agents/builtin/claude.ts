@@ -83,6 +83,9 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       personal: '~/.claude/skills',
       repo: '.claude/skills',
     },
+    // NOTE: Claude CLI does not have a --cwd flag. It detects the project
+    // based on where .claude/ directories exist and respects spawn's cwd
+    // when there's no conflicting project detection.
   };
 
   /** Print mode: text, json, or stream-json */

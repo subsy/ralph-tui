@@ -1,0 +1,120 @@
+---
+title: Merge & Conflicts
+description: Sequential merge strategy, backup tags for rollback, AI conflict resolution, and re-queue behavior.
+---
+
+# Merge & Conflicts
+
+After parallel workers complete, their changes merge back to your main branch **one at a time**. This sequential merge strategy ensures deterministic ordering and safe rollback at every step.
+
+## Merge Strategy
+
+Each completed worker enters a merge queue, processed in priority order (P0 tasks first):
+
+<Steps>
+  <Step title="Pre-flight Check">
+    Verify the worker's branch has commits ahead of the main branch. If no changes were made, skip the merge.
+  </Step>
+
+  <Step title="Create Backup Tag">
+    Before every merge, ralph creates a git tag at the current HEAD:
+
+    ```
+    ralph/pre-merge/{taskId}/{timestamp}
+    ```
+
+    This tag enables rollback if the merge fails.
+  </Step>
+
+  <Step title="Fast-Forward Attempt">
+    Try `git merge --ff-only` first. This succeeds when no other merge has changed HEAD since the worker started — the cleanest possible merge with no merge commit.
+  </Step>
+
+  <Step title="Merge Commit Fallback">
+    If fast-forward fails (HEAD has moved), fall back to a regular merge:
+
+    ```
+    git merge --no-edit ralph-parallel/{taskId}
+    ```
+
+    This creates a merge commit: `feat({taskId}): {taskTitle}`.
+  </Step>
+
+  <Step title="Conflict Detection">
+    If the merge produces conflicts, ralph parses `git status --porcelain` for `UU` (both modified), `AA` (both added), and `DD` (both deleted) entries.
+  </Step>
+</Steps>
+
+## Conflict Resolution
+
+When a merge conflict is detected, ralph attempts AI-assisted resolution:
+
+### Three-Way Merge Extraction
+
+For each conflicting file, ralph extracts:
+
+| Stage | Git Command | Meaning |
+|-------|-------------|---------|
+| Base | `git show :1:{file}` | Common ancestor content |
+| Ours | `git show :2:{file}` | Content from current branch (main) |
+| Theirs | `git show :3:{file}` | Content from worker's branch |
+
+### AI Resolution
+
+The extracted content is sent to an AI agent with context about both tasks (what each side was trying to accomplish). The AI produces resolved content that incorporates both sets of changes.
+
+If AI resolution succeeds:
+1. Resolved content is written to the file
+2. `git add {file}` stages the resolution
+3. Merge completes with a commit
+
+### Resolution Failure
+
+If AI resolution fails for any file:
+1. The merge is aborted (`git merge --abort`)
+2. HEAD is rolled back to the backup tag (`git reset --hard {backup-tag}`)
+3. The failed task is **re-queued** to run sequentially after the conflicting changes are on main
+
+<Callout type="warning">
+  Each task can be re-queued at most once to prevent infinite loops. If a re-queued task conflicts again, it is marked as failed.
+</Callout>
+
+## Rollback
+
+Ralph provides two levels of rollback:
+
+### Individual Merge Rollback
+
+Each merge has a backup tag. Rolling back a single merge:
+
+```bash
+git reset --hard ralph/pre-merge/{taskId}/{timestamp}
+```
+
+### Session-Level Rollback
+
+Before any merges begin, ralph creates a session-level backup tag:
+
+```
+ralph/session-start/{sessionId}
+```
+
+Rolling back the entire parallel session restores your branch to the exact state before parallel execution started:
+
+```bash
+git reset --hard ralph/session-start/{sessionId}
+```
+
+<Callout type="info">
+  Manual rollback can be performed using the git commands above. Use `git reset --hard {tag}` to restore to a backup point.
+</Callout>
+
+## Merge Ordering
+
+Within a parallel group, merges happen in **priority order**:
+
+1. P0 (Critical) tasks merge first
+2. P1 (High) tasks merge second
+3. And so on...
+
+This ensures that the most important changes land on main first, reducing the chance that lower-priority changes conflict with critical work.

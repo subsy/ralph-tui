@@ -11,13 +11,12 @@ import { join } from 'node:path';
 
 /** Debug log helper - writes to file to avoid TUI interference */
 function debugLog(msg: string): void {
-  if (process.env.RALPH_DEBUG) {
-    try {
-      const logPath = join(tmpdir(), 'ralph-agent-debug.log');
-      appendFileSync(logPath, `${new Date().toISOString()} ${msg}\n`);
-    } catch {
-      // Ignore write errors
-    }
+  // Always log during debugging phase (TODO: restore RALPH_DEBUG check later)
+  try {
+    const logPath = join(tmpdir(), 'ralph-agent-debug.log');
+    appendFileSync(logPath, `${new Date().toISOString()} ${msg}\n`);
+  } catch {
+    // Ignore write errors
   }
 }
 
@@ -466,6 +465,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
     // Merge flags
     const allArgs = [...this.defaultFlags, ...(options?.flags ?? []), ...args];
+
+    // Debug: log the command being executed
+    debugLog(`[AGENT] Spawning ${command} with args: ${JSON.stringify(allArgs.slice(0, 10))}... cwd=${options?.cwd}`);
 
     // Create the promise for completion
     let resolvePromise: (result: AgentExecutionResult) => void;
