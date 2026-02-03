@@ -1410,6 +1410,22 @@ export class RemoteServer {
       });
 
       // Store session
+      //
+      // Design note: The orchestrationSession intentionally persists after execution
+      // completes (status changes to 'completed' or 'failed'). This is because:
+      //
+      // 1. The executor subscription above (executor.on -> unsubscribe) only forwards
+      //    events via broadcastParallelEvent and updates orchestrationSession.status.
+      //    It does NOT clean up the session on completion.
+      //
+      // 2. Keeping the session object allows clients to call "orchestrate:get_state"
+      //    to inspect the final state (completed/failed status, worker states, etc.)
+      //    after execution finishes.
+      //
+      // 3. Actual cleanup happens in the close() handler when the originating client
+      //    disconnects - that handler stops the executor and clears orchestrationSession.
+      //    Clients can also explicitly stop via "orchestrate:stop".
+      //
       this.orchestrationSession = {
         id: orchestrationId,
         executor,
