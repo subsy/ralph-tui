@@ -228,6 +228,35 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         }
         break;
 
+      case '--review':
+        options.review = true;
+        break;
+
+      case '--no-review':
+        options.review = false;
+        break;
+
+      case '--review-agent':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.reviewAgent = nextArg;
+          i++;
+        }
+        break;
+
+      case '--review-prompt':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.reviewPromptPath = nextArg;
+          i++;
+        }
+        break;
+
+      case '--review-model':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.reviewModel = nextArg;
+          i++;
+        }
+        break;
+
       case '--model':
         if (nextArg && !nextArg.startsWith('-')) {
           options.model = nextArg;
@@ -456,6 +485,11 @@ Options:
   --epic <id>         Epic ID for beads tracker (if omitted, shows epic selection)
   --prd <path>        PRD file path (auto-switches to json tracker)
   --agent <name>      Override agent plugin (e.g., claude, opencode)
+  --review            Enable reviewer stage before completing tasks
+  --no-review         Disable reviewer stage
+  --review-agent <name> Reviewer agent plugin/name (e.g., claude, codex)
+  --review-prompt <path> Custom review prompt template path
+  --review-model <name> Override reviewer model (agent-specific)
   --model <name>      Override model (e.g., opus, sonnet)
   --variant <level>   Model variant/reasoning effort (minimal, high, max)
   --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json)
@@ -1314,7 +1348,7 @@ async function runWithTui(
     if (event.type === 'iteration:completed') {
       currentState = updateSessionAfterIteration(currentState, event.result);
       // If task was completed, remove it from active tasks
-      if (event.result.taskCompleted) {
+      if (event.result.taskCompleted || event.result.taskBlocked) {
         currentState = removeActiveTask(currentState, event.result.task.id);
       }
       savePersistedSession(currentState).catch(() => {
@@ -2043,6 +2077,9 @@ async function runHeadless(
         if (event.result.taskCompleted) {
           logger.taskCompleted(event.result.task.id, event.result.iteration);
           // Remove from active tasks
+          currentState = removeActiveTask(currentState, event.result.task.id);
+        } else if (event.result.taskBlocked) {
+          // Remove from active tasks when review blocks progress
           currentState = removeActiveTask(currentState, event.result.task.id);
         }
 

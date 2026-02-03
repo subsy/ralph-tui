@@ -47,6 +47,12 @@ export interface SetupAnswers {
   /** Agent-specific options */
   agentOptions: Record<string, unknown>;
 
+  /** Whether reviewer stage is enabled */
+  reviewEnabled: boolean;
+
+  /** Reviewer agent plugin ID (optional) */
+  reviewAgent?: string;
+
   /** Maximum iterations per run (0 = unlimited) */
   maxIterations: number;
 
