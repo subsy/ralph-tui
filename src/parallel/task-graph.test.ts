@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { analyzeTaskGraph, shouldRunParallel } from './task-graph.js';
+import { analyzeTaskGraph, shouldRunParallel, recommendParallelism } from './task-graph.js';
 import type { TrackerTask } from '../plugins/trackers/types.js';
 
 /**
@@ -392,5 +392,193 @@ describe('shouldRunParallel', () => {
     ];
     const analysis = analyzeTaskGraph(tasks);
     expect(shouldRunParallel(analysis)).toBe(false);
+  });
+});
+
+describe('recommendParallelism', () => {
+  /**
+   * Helper to create a task with optional labels and title patterns.
+   */
+  function taskWithLabels(
+    id: string,
+    title: string,
+    labels?: string[],
+    metadata?: { affects?: string[] }
+  ): TrackerTask {
+    return {
+      id,
+      title,
+      status: 'open',
+      priority: 2,
+      labels,
+      metadata,
+    };
+  }
+
+  test('returns low confidence with no specific patterns detected', () => {
+    const tasks = [
+      taskWithLabels('1', 'Implement feature A'),
+      taskWithLabels('2', 'Implement feature B'),
+      taskWithLabels('3', 'Implement feature C'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    expect(result.recommendedWorkers).toBe(4);
+    expect(result.confidence).toBe('low');
+    expect(result.reason).toBe('No specific patterns detected');
+  });
+
+  test('returns high confidence for mostly test tasks (by title)', () => {
+    const tasks = [
+      taskWithLabels('1', 'Write unit tests for auth'),
+      taskWithLabels('2', 'Add integration test for API'),
+      taskWithLabels('3', 'Test edge cases in parser'),
+      taskWithLabels('4', 'Implement feature X'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    expect(result.recommendedWorkers).toBe(4);
+    expect(result.confidence).toBe('high');
+    expect(result.reason).toContain('test tasks');
+  });
+
+  test('returns high confidence for mostly test tasks (by label)', () => {
+    const tasks = [
+      taskWithLabels('1', 'Add coverage for module A', ['test', 'unit']),
+      taskWithLabels('2', 'Coverage for module B', ['test']),
+      taskWithLabels('3', 'Module C coverage', ['testing']),
+      taskWithLabels('4', 'Feature implementation'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    expect(result.recommendedWorkers).toBe(4);
+    expect(result.confidence).toBe('high');
+  });
+
+  test('returns high confidence with reduced workers for mostly refactor tasks (by title)', () => {
+    const tasks = [
+      taskWithLabels('1', 'Refactor authentication module'),
+      taskWithLabels('2', 'Refactor database layer'),
+      taskWithLabels('3', 'Refactor API handlers'),
+      taskWithLabels('4', 'Fix bug in parser'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    expect(result.recommendedWorkers).toBe(2);
+    expect(result.confidence).toBe('high');
+    expect(result.reason).toContain('refactor');
+  });
+
+  test('returns high confidence with reduced workers for refactor tasks (by label)', () => {
+    const tasks = [
+      taskWithLabels('1', 'Clean up code', ['refactor']),
+      taskWithLabels('2', 'Improve structure', ['refactoring']),
+      taskWithLabels('3', 'Reorganize modules', ['refactor']),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    expect(result.recommendedWorkers).toBe(2);
+    expect(result.confidence).toBe('high');
+  });
+
+  test('returns medium confidence for moderate refactor presence (>25% but ≤50%)', () => {
+    const tasks = [
+      taskWithLabels('1', 'Refactor module A'),
+      taskWithLabels('2', 'Refactor module B'),
+      taskWithLabels('3', 'Implement feature C'),
+      taskWithLabels('4', 'Implement feature D'),
+      taskWithLabels('5', 'Implement feature E'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    // 40% refactor ratio (2/5) → moderate reduction
+    expect(result.recommendedWorkers).toBe(3); // floor(4 * 0.75) = 3
+    expect(result.confidence).toBe('medium');
+    expect(result.reason).toContain('Some refactor');
+  });
+
+  test('returns medium confidence for significant file overlap', () => {
+    const tasks = [
+      taskWithLabels('1', 'Task A', [], { affects: ['src/auth.ts', 'src/db.ts'] }),
+      taskWithLabels('2', 'Task B', [], { affects: ['src/auth.ts', 'src/api.ts'] }),
+      taskWithLabels('3', 'Task C', [], { affects: ['src/db.ts', 'src/models.ts'] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    // 2 overlaps (auth.ts, db.ts) out of 3 tasks = 66% overlap
+    expect(result.recommendedWorkers).toBe(2); // floor(4 * 0.5) = 2
+    expect(result.confidence).toBe('medium');
+    expect(result.reason).toContain('file overlap');
+  });
+
+  test('returns low confidence for empty task list', () => {
+    const tasks: TrackerTask[] = [];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    expect(result.recommendedWorkers).toBe(4);
+    expect(result.confidence).toBe('low');
+    expect(result.reason).toBe('No tasks to analyze');
+  });
+
+  test('respects defaultMax ceiling for refactor reduction', () => {
+    const tasks = [
+      taskWithLabels('1', 'Refactor A'),
+      taskWithLabels('2', 'Refactor B'),
+      taskWithLabels('3', 'Refactor C'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+
+    // With defaultMax of 1, should not exceed 1
+    const result = recommendParallelism(tasks, analysis, 1);
+    expect(result.recommendedWorkers).toBe(1);
+  });
+
+  test('respects defaultMax ceiling for overlap reduction', () => {
+    const tasks = [
+      taskWithLabels('1', 'Task A', [], { affects: ['file.ts'] }),
+      taskWithLabels('2', 'Task B', [], { affects: ['file.ts'] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+
+    // With defaultMax of 1, should not exceed 1
+    const result = recommendParallelism(tasks, analysis, 1);
+    expect(result.recommendedWorkers).toBeLessThanOrEqual(1);
+  });
+
+  test('prioritizes refactor detection over test detection', () => {
+    // If >50% refactor, even with some test tasks, reduce parallelism
+    const tasks = [
+      taskWithLabels('1', 'Refactor auth module'),
+      taskWithLabels('2', 'Refactor db module'),
+      taskWithLabels('3', 'Write tests for new features'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    // 66% refactor → should reduce
+    expect(result.recommendedWorkers).toBe(2);
+    expect(result.confidence).toBe('high');
+    expect(result.reason).toContain('refactor');
+  });
+
+  test('case insensitive matching for test/refactor keywords', () => {
+    const tasks = [
+      taskWithLabels('1', 'TEST module A'),
+      taskWithLabels('2', 'Testing module B'),
+      taskWithLabels('3', 'TESTING module C'),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+
+    expect(result.confidence).toBe('high');
+    expect(result.reason).toContain('test');
   });
 });

@@ -40,6 +40,16 @@ import type {
   CheckConfigResponseMessage,
   PushConfigMessage,
   PushConfigResponseMessage,
+  // Orchestration types
+  OrchestrateStartMessage,
+  OrchestrateStartResponseMessage,
+  OrchestratePauseMessage,
+  OrchestrateResumeMessage,
+  OrchestrateStopMessage,
+  OrchestrateGetStateMessage,
+  OrchestrateStateResponseMessage,
+  ParallelEventMessage,
+  RemoteOrchestrationState,
 } from './types.js';
 import {
   validateServerToken,
@@ -53,6 +63,9 @@ import {
 import { createAuditLogger, type AuditLogger } from './audit.js';
 import type { ExecutionEngine, EngineEvent } from '../engine/index.js';
 import type { TrackerPlugin } from '../plugins/trackers/types.js';
+import type { RalphConfig } from '../config/types.js';
+import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel } from '../parallel/index.js';
+import type { ParallelEvent } from '../parallel/events.js';
 
 /**
  * WebSocket data attached to each connection
@@ -88,6 +101,29 @@ interface ClientState {
 
   /** US-6: When the connection token expires (ISO 8601) */
   connectionTokenExpiresAt?: string;
+
+  /** Whether the client is subscribed to parallel events */
+  subscribedToParallel?: boolean;
+}
+
+/**
+ * Orchestration session state for tracking active parallel execution.
+ */
+interface OrchestrationSession {
+  /** Unique session ID */
+  id: string;
+  /** ParallelExecutor instance */
+  executor: ParallelExecutor;
+  /** Client ID that started the orchestration */
+  clientId: string;
+  /** Unsubscribe function for parallel events */
+  unsubscribe: () => void;
+  /** When the orchestration started */
+  startedAt: string;
+  /** Base config used to create the executor */
+  baseConfig: RalphConfig;
+  /** Status of the orchestration */
+  status: 'running' | 'paused' | 'completed' | 'failed';
 }
 
 /**
@@ -153,6 +189,9 @@ export interface RemoteServerOptions {
 
   /** Current working directory */
   cwd?: string;
+
+  /** Base config for parallel orchestration (required for orchestrate:start) */
+  baseConfig?: RalphConfig;
 }
 
 /**
@@ -198,6 +237,10 @@ export class RemoteServer {
   private tokenCleanupInterval: ReturnType<typeof setInterval> | null = null;
   /** The actual port the server bound to (may differ from requested if port was in use) */
   private _actualPort: number | null = null;
+  /** Active parallel orchestration session (only one at a time) */
+  private orchestrationSession: OrchestrationSession | null = null;
+  /** Guard flag to prevent race conditions during orchestration startup */
+  private orchestrationStarting: boolean = false;
 
   constructor(options: RemoteServerOptions) {
     this.options = options;
@@ -227,6 +270,15 @@ export class RemoteServer {
    */
   setTracker(tracker: TrackerPlugin): void {
     this.options.tracker = tracker;
+  }
+
+  /**
+   * Set the parallel config for orchestration.
+   * Must be called before orchestrate:start can be used.
+   */
+  setParallelConfig(config: { baseConfig: RalphConfig; tracker: TrackerPlugin }): void {
+    this.options.baseConfig = config.baseConfig;
+    this.options.tracker = config.tracker;
   }
 
   /**
@@ -317,12 +369,23 @@ export class RemoteServer {
         self.handleMessage(ws, clientState, message.toString());
       },
 
-      close(ws: ServerWebSocket<WebSocketData>) {
+      async close(ws: ServerWebSocket<WebSocketData>) {
         const clientState = self.clients.get(ws);
         if (clientState) {
           // Revoke any connection tokens for this client
           const clientId = `${clientState.id}@${clientState.ip}`;
           revokeClientTokens(clientId);
+
+          // Stop orchestration if this client started it (prevent resource leak)
+          if (self.orchestrationSession?.clientId === clientId) {
+            // Await stop() to ensure cleanup completes before unsubscribing
+            // (matches the handleOrchestrateStop pattern)
+            await self.orchestrationSession.executor.stop().catch(() => {
+              // Ignore errors during cleanup
+            });
+            self.orchestrationSession.unsubscribe();
+            self.orchestrationSession = null;
+          }
 
           self.auditLogger.logConnection(clientId, 'disconnect');
           self.options.onDisconnect?.(clientState.id);
@@ -583,6 +646,23 @@ export class RemoteServer {
         break;
       case 'push_config':
         await this.handlePushConfig(ws, clientState, message as PushConfigMessage);
+        break;
+
+      // Parallel orchestration operations
+      case 'orchestrate:start':
+        await this.handleOrchestrateStart(ws, clientState, message as OrchestrateStartMessage);
+        break;
+      case 'orchestrate:pause':
+        this.handleOrchestratePause(ws, message as OrchestratePauseMessage);
+        break;
+      case 'orchestrate:resume':
+        this.handleOrchestrateResume(ws, message as OrchestrateResumeMessage);
+        break;
+      case 'orchestrate:stop':
+        await this.handleOrchestrateStop(ws, message as OrchestrateStopMessage);
+        break;
+      case 'orchestrate:get_state':
+        this.handleOrchestrateGetState(ws, message as OrchestrateGetStateMessage);
         break;
 
       default:
@@ -1219,6 +1299,344 @@ export class RemoteServer {
     this.send(ws, response);
   }
 
+  // ============================================================================
+  // Parallel Orchestration Handlers
+  // ============================================================================
+
+  /**
+   * Handle orchestrate:start request - start parallel execution.
+   */
+  private async handleOrchestrateStart(
+    ws: ServerWebSocket<WebSocketData>,
+    clientState: ClientState,
+    message: OrchestrateStartMessage
+  ): Promise<void> {
+    const clientId = `${clientState.id}@${clientState.ip}`;
+
+    // Check if orchestration is already running or starting (prevents race conditions)
+    if (this.orchestrationSession || this.orchestrationStarting) {
+      const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+        success: false,
+        error: 'Orchestration already in progress',
+      });
+      response.id = message.id;
+      this.send(ws, response);
+      return;
+    }
+
+    // Set the starting guard before any async operations to prevent concurrent starts
+    this.orchestrationStarting = true;
+
+    // Check if we have the required config
+    if (!this.options.baseConfig || !this.options.tracker) {
+      this.orchestrationStarting = false;
+      const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+        success: false,
+        error: 'Parallel config not set. Call setParallelConfig() first.',
+      });
+      response.id = message.id;
+      this.send(ws, response);
+      return;
+    }
+
+    try {
+      // Check if filteredTaskIds is explicitly an empty array (no tasks match filter)
+      const filteredTaskIds = this.options.baseConfig.filteredTaskIds;
+      if (filteredTaskIds !== undefined && filteredTaskIds.length === 0) {
+        this.orchestrationStarting = false;
+        const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+          success: false,
+          error: 'No tasks match the specified filter',
+        });
+        response.id = message.id;
+        this.send(ws, response);
+        return;
+      }
+
+      // Fetch tasks from tracker
+      let tasks = await this.options.tracker.getTasks({ status: ['open', 'in_progress'] });
+
+      // Apply filteredTaskIds filter if specified in baseConfig (non-empty array)
+      if (filteredTaskIds && filteredTaskIds.length > 0) {
+        const allowedIds = new Set(filteredTaskIds);
+        tasks = tasks.filter((t) => allowedIds.has(t.id));
+      }
+
+      if (tasks.length === 0) {
+        this.orchestrationStarting = false;
+        const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+          success: false,
+          error: filteredTaskIds?.length ? 'No tasks match the specified filter' : 'No actionable tasks found',
+        });
+        response.id = message.id;
+        this.send(ws, response);
+        return;
+      }
+
+      // Analyze task graph (using filtered tasks)
+      const analysis = analyzeTaskGraph(tasks);
+
+      if (!shouldRunParallel(analysis)) {
+        this.orchestrationStarting = false;
+        const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+          success: false,
+          error: 'Tasks not suitable for parallel execution (too few tasks or too many dependencies)',
+        });
+        response.id = message.id;
+        this.send(ws, response);
+        return;
+      }
+
+      // Create orchestration ID
+      const orchestrationId = `orch-${Date.now().toString(36)}`;
+
+      // Validate and determine maxWorkers (must be a positive integer)
+      let maxWorkers = message.maxWorkers ?? 3;
+      if (typeof maxWorkers !== 'number' || !Number.isInteger(maxWorkers) || maxWorkers < 1) {
+        this.orchestrationStarting = false;
+        const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+          success: false,
+          error: `Invalid maxWorkers value: ${message.maxWorkers}. Must be a positive integer.`,
+        });
+        response.id = message.id;
+        this.send(ws, response);
+        return;
+      }
+
+      // Create ParallelExecutor with validated options
+      // Pass filteredTaskIds so executor only schedules those tasks
+      const executor = new ParallelExecutor(
+        this.options.baseConfig,
+        this.options.tracker,
+        {
+          maxWorkers,
+          directMerge: message.directMerge ?? false,
+          maxIterationsPerWorker: message.maxIterations ?? this.options.baseConfig.maxIterations,
+          filteredTaskIds: filteredTaskIds?.length ? filteredTaskIds : undefined,
+        }
+      );
+
+      // Subscribe to parallel events and forward to clients
+      const unsubscribe = executor.on((event: ParallelEvent) => {
+        this.broadcastParallelEvent(orchestrationId, event);
+
+        // Update session status based on event type
+        if (this.orchestrationSession) {
+          if (event.type === 'parallel:completed') {
+            this.orchestrationSession.status = 'completed';
+          } else if (event.type === 'parallel:failed') {
+            this.orchestrationSession.status = 'failed';
+          }
+        }
+      });
+
+      // Store session
+      //
+      // Design note: The orchestrationSession intentionally persists after execution
+      // completes (status changes to 'completed' or 'failed'). This is because:
+      //
+      // 1. The executor subscription above (executor.on -> unsubscribe) only forwards
+      //    events via broadcastParallelEvent and updates orchestrationSession.status.
+      //    It does NOT clean up the session on completion.
+      //
+      // 2. Keeping the session object allows clients to call "orchestrate:get_state"
+      //    to inspect the final state (completed/failed status, worker states, etc.)
+      //    after execution finishes.
+      //
+      // 3. Actual cleanup happens in the close() handler when the originating client
+      //    disconnects - that handler stops the executor and clears orchestrationSession.
+      //    Clients can also explicitly stop via "orchestrate:stop".
+      //
+      this.orchestrationSession = {
+        id: orchestrationId,
+        executor,
+        clientId,
+        unsubscribe,
+        startedAt: new Date().toISOString(),
+        baseConfig: this.options.baseConfig,
+        status: 'running',
+      };
+
+      // Clear the starting guard now that session is established
+      this.orchestrationStarting = false;
+
+      // Mark requesting client as subscribed to parallel events
+      clientState.subscribedToParallel = true;
+
+      // Send success response before starting execution
+      const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+        success: true,
+        orchestrationId,
+        totalTasks: analysis.actionableTaskCount,
+        totalGroups: analysis.groups.length,
+        maxParallelism: analysis.maxParallelism,
+      });
+      response.id = message.id;
+      this.send(ws, response);
+
+      // Log the action
+      await this.auditLogger.logAction(clientId, 'orchestrate:start', true, undefined, {
+        orchestrationId,
+        totalTasks: analysis.actionableTaskCount,
+        maxWorkers,
+      });
+
+      // Start execution asynchronously (don't await - it runs in background)
+      executor.execute().catch(async (error) => {
+        if (this.orchestrationSession?.id === orchestrationId) {
+          this.orchestrationSession.status = 'failed';
+        }
+        await this.auditLogger.logFailure(clientId, 'orchestrate:execute', error.message);
+      });
+
+    } catch (error) {
+      this.orchestrationStarting = false;
+      const response = createMessage<OrchestrateStartResponseMessage>('orchestrate:start_response', {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to start orchestration',
+      });
+      response.id = message.id;
+      this.send(ws, response);
+      await this.auditLogger.logFailure(clientId, 'orchestrate:start', error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  /**
+   * Handle orchestrate:pause request - pause parallel execution.
+   */
+  private handleOrchestratePause(
+    ws: ServerWebSocket<WebSocketData>,
+    message: OrchestratePauseMessage
+  ): void {
+    if (!this.orchestrationSession || this.orchestrationSession.id !== message.orchestrationId) {
+      this.sendOperationError(ws, message.id, 'orchestrate:pause', 'No matching orchestration session');
+      return;
+    }
+
+    this.orchestrationSession.executor.pause();
+    this.orchestrationSession.status = 'paused';
+
+    const response = createMessage<OperationResultMessage>('operation_result', {
+      operation: 'orchestrate:pause',
+      success: true,
+    });
+    response.id = message.id;
+    this.send(ws, response);
+  }
+
+  /**
+   * Handle orchestrate:resume request - resume paused parallel execution.
+   */
+  private handleOrchestrateResume(
+    ws: ServerWebSocket<WebSocketData>,
+    message: OrchestrateResumeMessage
+  ): void {
+    if (!this.orchestrationSession || this.orchestrationSession.id !== message.orchestrationId) {
+      this.sendOperationError(ws, message.id, 'orchestrate:resume', 'No matching orchestration session');
+      return;
+    }
+
+    this.orchestrationSession.executor.resume();
+    this.orchestrationSession.status = 'running';
+
+    const response = createMessage<OperationResultMessage>('operation_result', {
+      operation: 'orchestrate:resume',
+      success: true,
+    });
+    response.id = message.id;
+    this.send(ws, response);
+  }
+
+  /**
+   * Handle orchestrate:stop request - stop parallel execution.
+   */
+  private async handleOrchestrateStop(
+    ws: ServerWebSocket<WebSocketData>,
+    message: OrchestrateStopMessage
+  ): Promise<void> {
+    if (!this.orchestrationSession || this.orchestrationSession.id !== message.orchestrationId) {
+      this.sendOperationError(ws, message.id, 'orchestrate:stop', 'No matching orchestration session');
+      return;
+    }
+
+    try {
+      await this.orchestrationSession.executor.stop();
+      this.orchestrationSession.unsubscribe();
+      this.orchestrationSession = null;
+
+      const response = createMessage<OperationResultMessage>('operation_result', {
+        operation: 'orchestrate:stop',
+        success: true,
+      });
+      response.id = message.id;
+      this.send(ws, response);
+    } catch (error) {
+      this.sendOperationError(
+        ws,
+        message.id,
+        'orchestrate:stop',
+        error instanceof Error ? error.message : 'Failed to stop orchestration'
+      );
+    }
+  }
+
+  /**
+   * Handle orchestrate:get_state request - get current orchestration state.
+   */
+  private handleOrchestrateGetState(
+    ws: ServerWebSocket<WebSocketData>,
+    message: OrchestrateGetStateMessage
+  ): void {
+    if (!this.orchestrationSession || this.orchestrationSession.id !== message.orchestrationId) {
+      const response = createMessage<OrchestrateStateResponseMessage>('orchestrate:state_response', {
+        success: false,
+        error: 'No matching orchestration session',
+      });
+      response.id = message.id;
+      this.send(ws, response);
+      return;
+    }
+
+    const executorState = this.orchestrationSession.executor.getState();
+
+    const state: RemoteOrchestrationState = {
+      orchestrationId: this.orchestrationSession.id,
+      status: this.orchestrationSession.status,
+      currentGroupIndex: executorState.currentGroupIndex,
+      totalGroups: executorState.totalGroups,
+      workers: executorState.workers,
+      mergeQueue: executorState.mergeQueue,
+      totalTasksCompleted: executorState.totalTasksCompleted,
+      totalTasks: executorState.totalTasks,
+      startedAt: executorState.startedAt,
+      elapsedMs: executorState.elapsedMs,
+      sessionBranch: this.orchestrationSession.executor.getSessionBranch() ?? undefined,
+      originalBranch: this.orchestrationSession.executor.getOriginalBranch() ?? undefined,
+    };
+
+    const response = createMessage<OrchestrateStateResponseMessage>('orchestrate:state_response', {
+      success: true,
+      state,
+    });
+    response.id = message.id;
+    this.send(ws, response);
+  }
+
+  /**
+   * Broadcast a parallel event to all clients subscribed to parallel events.
+   */
+  private broadcastParallelEvent(orchestrationId: string, event: ParallelEvent): void {
+    for (const [ws, clientState] of this.clients) {
+      if (!clientState.authenticated || !clientState.subscribedToParallel) continue;
+
+      const message = createMessage<ParallelEventMessage>('parallel_event', {
+        orchestrationId,
+        event,
+      });
+      this.send(ws, message);
+    }
+  }
+
   /**
    * Handle authentication request.
    * Supports both server token (initial auth) and connection token (re-auth).
@@ -1420,6 +1838,7 @@ export async function createRemoteServer(
     resolvedSandboxMode: options.resolvedSandboxMode,
     gitInfo: options.gitInfo,
     cwd: options.cwd,
+    baseConfig: options.baseConfig,
   };
 
   return new RemoteServer(serverOptions);

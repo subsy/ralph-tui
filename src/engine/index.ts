@@ -577,17 +577,41 @@ export class ExecutionEngine {
       return this.forcedTask;
     }
 
+    // If filteredTaskIds is defined but empty, no tasks are allowed
+    if (this.config.filteredTaskIds && this.config.filteredTaskIds.length === 0) {
+      return null;
+    }
+
     // Convert skipped tasks Set to array for the filter
-    const excludeIds = Array.from(this.skippedTasks);
+    const excludeIds = new Set(this.skippedTasks);
 
-    // Delegate to tracker's getNextTask for dependency-aware ordering
-    // The tracker (e.g., beads) uses bd ready which properly handles dependencies
-    const task = await this.tracker!.getNextTask({
-      status: ['open', 'in_progress'],
-      excludeIds: excludeIds.length > 0 ? excludeIds : undefined,
-    });
+    // Loop to find an allowed task (respecting filteredTaskIds if set)
+    // Keep trying until we find a task in the allowed list or run out
+    while (true) {
+      // Delegate to tracker's getNextTask for dependency-aware ordering
+      // The tracker (e.g., beads) uses bd ready which properly handles dependencies
+      const task = await this.tracker!.getNextTask({
+        status: ['open', 'in_progress'],
+        excludeIds: excludeIds.size > 0 ? Array.from(excludeIds) : undefined,
+      });
 
-    return task ?? null;
+      // No more tasks available
+      if (!task) {
+        return null;
+      }
+
+      // Check if task is in the allowed list (if filtering is enabled)
+      if (this.config.filteredTaskIds && this.config.filteredTaskIds.length > 0) {
+        if (!this.config.filteredTaskIds.includes(task.id)) {
+          // Task is outside the allowed range, skip it and try again
+          excludeIds.add(task.id);
+          continue;
+        }
+      }
+
+      // Task is allowed
+      return task;
+    }
   }
 
   /**

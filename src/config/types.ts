@@ -330,6 +330,13 @@ export interface RalphConfig {
 
   /** Whether to auto-commit after successful task completion (default: false) */
   autoCommit?: boolean;
+
+  /**
+   * Optional list of task IDs to execute. When provided, only tasks with these
+   * IDs will be executed, filtering out any others returned by the tracker.
+   * Used for --task-range filtering.
+   */
+  filteredTaskIds?: string[];
 }
 
 /**

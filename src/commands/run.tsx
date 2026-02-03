@@ -42,7 +42,7 @@ import {
   type PersistedSessionState,
 } from '../session/index.js';
 import { ExecutionEngine } from '../engine/index.js';
-import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel } from '../parallel/index.js';
+import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel, recommendParallelism } from '../parallel/index.js';
 import type {
   WorkerDisplayState,
   MergeOperation,
@@ -132,6 +132,17 @@ function getGitInfo(cwd: string): {
 }
 
 /**
+ * Task range filter for --task-range flag.
+ * Allows filtering tasks by 1-indexed position (e.g., 1-5, 3-, -10).
+ */
+export interface TaskRangeFilter {
+  /** Starting task number (1-indexed, inclusive). Undefined means from beginning. */
+  start?: number;
+  /** Ending task number (1-indexed, inclusive). Undefined means to the end. */
+  end?: number;
+}
+
+/**
  * Extended runtime options with noSetup, verify, and listen flags
  */
 interface ExtendedRuntimeOptions extends RuntimeOptions {
@@ -145,6 +156,8 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   rotateToken?: boolean;
   /** Merge directly to current branch instead of creating session branch (parallel mode) */
   directMerge?: boolean;
+  /** Filter tasks by index range (e.g., 1-5, 3-, -10) */
+  taskRange?: TaskRangeFilter;
 }
 
 /**
@@ -364,6 +377,42 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--direct-merge':
         options.directMerge = true;
         break;
+
+      case '--task-range':
+        // Allow nextArg if it exists and either doesn't start with '-' OR matches a negative-integer pattern (e.g., "-10")
+        if (nextArg && (!nextArg.startsWith('-') || /^-\d+$/.test(nextArg))) {
+          const range = nextArg;
+          // Parse range formats: "1-5", "3-", "-10", "5"
+          if (range.includes('-')) {
+            const dashIndex = range.indexOf('-');
+            const startPart = range.substring(0, dashIndex);
+            const endPart = range.substring(dashIndex + 1);
+
+            // Parse and validate start/end values
+            const parsedStart = startPart ? parseInt(startPart, 10) : undefined;
+            const parsedEnd = endPart ? parseInt(endPart, 10) : undefined;
+
+            // Only set taskRange if at least one value is valid
+            if (
+              (parsedStart === undefined || !isNaN(parsedStart)) &&
+              (parsedEnd === undefined || !isNaN(parsedEnd)) &&
+              (parsedStart !== undefined || parsedEnd !== undefined)
+            ) {
+              options.taskRange = {
+                start: parsedStart,
+                end: parsedEnd,
+              };
+            }
+          } else {
+            // Single number means just that task
+            const num = parseInt(range, 10);
+            if (!isNaN(num)) {
+              options.taskRange = { start: num, end: num };
+            }
+          }
+          i++;
+        }
+        break;
     }
   }
 
@@ -410,6 +459,7 @@ Options:
   --sequential        Alias for --serial
   --parallel [N]      Force parallel execution with optional max workers (default: 3)
   --direct-merge      Merge directly to current branch (skip session branch creation)
+  --task-range <range> Filter tasks by index (e.g., 1-5, 3-, -10)
   --listen            Enable remote listener (implies --headless)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
@@ -455,6 +505,52 @@ function resolveParallelMode(
 
   // Fall back to stored config
   return storedConfig?.parallel?.mode ?? 'auto';
+}
+
+/**
+ * Filter tasks by index range.
+ * Task indices are 1-indexed for user friendliness (e.g., --task-range 1-5).
+ *
+ * @param tasks - Full list of tasks to filter
+ * @param taskRange - Range filter (start/end are 1-indexed, inclusive)
+ * @returns Filtered tasks and a message describing the filter applied
+ */
+export function filterTasksByRange(
+  tasks: TrackerTask[],
+  taskRange: TaskRangeFilter
+): { filteredTasks: TrackerTask[]; message: string } {
+  const start = taskRange.start ?? 1;
+  const end = taskRange.end ?? tasks.length;
+
+  // Validate range
+  if (start < 1 || (taskRange.end !== undefined && end < start)) {
+    return {
+      filteredTasks: tasks,
+      message: 'Invalid task range, using all tasks',
+    };
+  }
+
+  // Filter tasks (convert to 0-indexed)
+  const filteredTasks = tasks.filter((_, idx) => {
+    const taskNum = idx + 1; // 1-indexed for users
+    return taskNum >= start && taskNum <= end;
+  });
+
+  // Build message describing the filter
+  let rangeStr: string;
+  if (taskRange.start !== undefined && taskRange.end !== undefined) {
+    rangeStr = `${taskRange.start}-${taskRange.end}`;
+  } else if (taskRange.start !== undefined) {
+    rangeStr = `${taskRange.start}-`;
+  } else if (taskRange.end !== undefined) {
+    rangeStr = `-${taskRange.end}`;
+  } else {
+    rangeStr = 'all';
+  }
+
+  const message = `Task range ${rangeStr}: ${filteredTasks.length} of ${tasks.length} tasks selected`;
+
+  return { filteredTasks, message };
 }
 
 /**
@@ -2331,6 +2427,17 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     await detectAndHandleStaleTasks(config.cwd, tracker, options.headless ?? false);
 
     tasks = await tracker.getTasks({ status: ['open', 'in_progress', 'completed'] });
+
+    // Apply task range filter if specified
+    if (options.taskRange) {
+      const { filteredTasks, message } = filterTasksByRange(tasks, options.taskRange);
+      tasks = filteredTasks;
+      console.log(`📊 ${message}`);
+
+      // Set filtered task IDs on config so ExecutionEngine respects the filter
+      // This is needed because ExecutionEngine calls tracker.getNextTask() directly
+      config.filteredTaskIds = filteredTasks.map((t) => t.id);
+    }
   } catch (error) {
     console.error(
       'Failed to initialize engine:',
@@ -2393,6 +2500,12 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         gitInfo,
         cwd,
       });
+      // Enable remote orchestration by setting parallel config
+      remoteServer.setParallelConfig({
+        baseConfig: config,
+        tracker,
+      });
+
       const serverState = await remoteServer.start();
       const actualPort = serverState.port;
 
@@ -2487,27 +2600,28 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Determine parallel vs sequential execution mode
   const parallelMode = resolveParallelMode(options, storedConfig);
 
+  // Get actionable tasks for parallel analysis (used by both analysis and heuristics)
+  const actionableTasks = tasks.filter(
+    (t) => t.status === 'open' || t.status === 'in_progress'
+  );
+
   // Check if parallel execution should be used
   let useParallel = false;
-  if (parallelMode !== 'never') {
-    const actionableTasks = tasks.filter(
-      (t) => t.status === 'open' || t.status === 'in_progress'
-    );
+  let taskGraphAnalysis: ReturnType<typeof analyzeTaskGraph> | null = null;
 
-    if (actionableTasks.length >= 2) {
-      const analysis = analyzeTaskGraph(actionableTasks);
+  if (parallelMode !== 'never' && actionableTasks.length >= 2) {
+    taskGraphAnalysis = analyzeTaskGraph(actionableTasks);
 
-      if (parallelMode === 'always') {
-        useParallel = analysis.maxParallelism >= 2;
-      } else {
-        // 'auto' mode
-        useParallel = shouldRunParallel(analysis);
-      }
+    if (parallelMode === 'always') {
+      useParallel = taskGraphAnalysis.maxParallelism >= 2;
+    } else {
+      // 'auto' mode
+      useParallel = shouldRunParallel(taskGraphAnalysis);
+    }
 
-      if (useParallel && !config.showTui) {
-        // Only log to console in headless mode — TUI mode shows this in the header
-        console.log(`Parallel execution enabled: ${analysis.groups.length} group(s), max parallelism ${analysis.maxParallelism}`);
-      }
+    if (useParallel && !config.showTui) {
+      // Only log to console in headless mode — TUI mode shows this in the header
+      console.log(`Parallel execution enabled: ${taskGraphAnalysis.groups.length} group(s), max parallelism ${taskGraphAnalysis.maxParallelism}`);
     }
   }
 
@@ -2547,17 +2661,36 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
     if (useParallel) {
       // Parallel execution path
-      const maxWorkers = typeof options.parallel === 'number'
+      let maxWorkers = typeof options.parallel === 'number'
         ? options.parallel
         : storedConfig?.parallel?.maxWorkers ?? 3;
 
+      // Apply smart parallelism heuristics to adjust worker count
+      if (taskGraphAnalysis) {
+        const heuristics = recommendParallelism(actionableTasks, taskGraphAnalysis, maxWorkers);
+
+        if (heuristics.recommendedWorkers < maxWorkers && heuristics.confidence !== 'low') {
+          if (!config.showTui) {
+            console.log(`📊 Smart heuristics: ${heuristics.reason}`);
+            console.log(`   Adjusting workers: ${maxWorkers} → ${heuristics.recommendedWorkers}`);
+          }
+          maxWorkers = heuristics.recommendedWorkers;
+        }
+      }
+
       // Resolve directMerge: CLI flag takes precedence over config
       const directMerge = options.directMerge ?? storedConfig?.parallel?.directMerge ?? false;
+
+      // Get filtered task IDs for ParallelExecutor (if --task-range was used)
+      const filteredTaskIds = options.taskRange
+        ? actionableTasks.map((t) => t.id)
+        : undefined;
 
       const parallelExecutor = new ParallelExecutor(config, tracker, {
         maxWorkers,
         worktreeDir: storedConfig?.parallel?.worktreeDir,
         directMerge,
+        filteredTaskIds,
       });
 
       // Track session branch info for completion guidance

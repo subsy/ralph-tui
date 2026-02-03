@@ -36,10 +36,21 @@ import type {
   CheckConfigResponseMessage,
   PushConfigMessage,
   PushConfigResponseMessage,
+  // Orchestration types
+  OrchestrateStartMessage,
+  OrchestrateStartResponseMessage,
+  OrchestratePauseMessage,
+  OrchestrateResumeMessage,
+  OrchestrateStopMessage,
+  OrchestrateGetStateMessage,
+  OrchestrateStateResponseMessage,
+  ParallelEventMessage,
+  RemoteOrchestrationState,
 } from './types.js';
 import { TOKEN_LIFETIMES } from './types.js';
 import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { EngineEvent } from '../engine/types.js';
+import type { ParallelEvent } from '../parallel/events.js';
 
 /**
  * Connection status for a remote instance.
@@ -140,7 +151,8 @@ export type RemoteClientEvent =
   | { type: 'metrics_updated'; metrics: ConnectionMetrics }
   | { type: 'message'; message: WSMessage }
   | { type: 'engine_event'; event: EngineEvent }
-  | { type: 'token_refreshed'; expiresAt: string };
+  | { type: 'token_refreshed'; expiresAt: string }
+  | { type: 'parallel_event'; orchestrationId: string; event: ParallelEvent };
 
 /**
  * Callback for remote client events
@@ -432,6 +444,17 @@ export class RemoteClient {
         // Forward engine events to the event handler
         const engineEventMsg = message as EngineEventMessage;
         this.eventHandler({ type: 'engine_event', event: engineEventMsg.event });
+        break;
+      }
+
+      case 'parallel_event': {
+        // Forward parallel events to the event handler
+        const parallelEventMsg = message as ParallelEventMessage;
+        this.eventHandler({
+          type: 'parallel_event',
+          orchestrationId: parallelEventMsg.orchestrationId,
+          event: parallelEventMsg.event,
+        });
         break;
       }
 
@@ -771,6 +794,116 @@ export class RemoteClient {
     };
   }
 
+  // ============================================================================
+  // Remote Orchestration Methods
+  // ============================================================================
+
+  /**
+   * Start parallel orchestration on the remote instance.
+   * Returns orchestration session info on success.
+   */
+  async startOrchestration(options: {
+    prdPath?: string;
+    epicId?: string;
+    maxWorkers?: number;
+    maxIterations?: number;
+    directMerge?: boolean;
+  } = {}): Promise<{
+    success: boolean;
+    error?: string;
+    orchestrationId?: string;
+    totalTasks?: number;
+    totalGroups?: number;
+    maxParallelism?: number;
+  }> {
+    const message: Omit<OrchestrateStartMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:start',
+      ...options,
+    };
+    const response = await this.request<OrchestrateStartMessage>(message);
+    if (response.type !== 'orchestrate:start_response') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    const startResponse = response as OrchestrateStartResponseMessage;
+    return {
+      success: startResponse.success,
+      error: startResponse.error,
+      orchestrationId: startResponse.orchestrationId,
+      totalTasks: startResponse.totalTasks,
+      totalGroups: startResponse.totalGroups,
+      maxParallelism: startResponse.maxParallelism,
+    };
+  }
+
+  /**
+   * Pause orchestration on the remote instance.
+   */
+  async pauseOrchestration(orchestrationId: string): Promise<boolean> {
+    const message: Omit<OrchestratePauseMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:pause',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestratePauseMessage>(message);
+    if (response.type !== 'operation_result') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    return (response as OperationResultMessage).success;
+  }
+
+  /**
+   * Resume paused orchestration on the remote instance.
+   */
+  async resumeOrchestration(orchestrationId: string): Promise<boolean> {
+    const message: Omit<OrchestrateResumeMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:resume',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestrateResumeMessage>(message);
+    if (response.type !== 'operation_result') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    return (response as OperationResultMessage).success;
+  }
+
+  /**
+   * Stop orchestration on the remote instance.
+   */
+  async stopOrchestration(orchestrationId: string): Promise<boolean> {
+    const message: Omit<OrchestrateStopMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:stop',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestrateStopMessage>(message);
+    if (response.type !== 'operation_result') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    return (response as OperationResultMessage).success;
+  }
+
+  /**
+   * Get current orchestration state from the remote instance.
+   */
+  async getOrchestrationState(orchestrationId: string): Promise<{
+    success: boolean;
+    error?: string;
+    state?: RemoteOrchestrationState;
+  }> {
+    const message: Omit<OrchestrateGetStateMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:get_state',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestrateGetStateMessage>(message);
+    if (response.type !== 'orchestrate:state_response') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    const stateResponse = response as OrchestrateStateResponseMessage;
+    return {
+      success: stateResponse.success,
+      error: stateResponse.error,
+      state: stateResponse.state,
+    };
+  }
+
   /**
    * Whether currently subscribed to engine events.
    */
@@ -996,6 +1129,14 @@ export class RemoteClient {
           } else if (message.type === 'engine_event') {
             const engineEventMsg = message as EngineEventMessage;
             this.eventHandler({ type: 'engine_event', event: engineEventMsg.event });
+          } else if (message.type === 'parallel_event') {
+            // Forward parallel events during reconnect (same as primary handler)
+            const parallelEventMsg = message as ParallelEventMessage;
+            this.eventHandler({
+              type: 'parallel_event',
+              orchestrationId: parallelEventMsg.orchestrationId,
+              event: parallelEventMsg.event,
+            });
           } else {
             // Check for pending request responses
             const pending = this.pendingRequests.get(message.id);

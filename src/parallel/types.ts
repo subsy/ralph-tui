@@ -323,6 +323,13 @@ export interface ParallelExecutorConfig {
    * of merging directly to the current branch.
    */
   directMerge?: boolean;
+
+  /**
+   * Optional list of task IDs to execute. When provided, only tasks with these
+   * IDs will be executed, filtering out any others returned by the tracker.
+   * Used for --task-range filtering.
+   */
+  filteredTaskIds?: string[];
 }
 
 /**
@@ -495,4 +502,29 @@ export interface TaskGraphAnalysis {
 
   /** Whether parallel execution is recommended (based on heuristics) */
   recommendParallel: boolean;
+}
+
+// ─── Smart Parallelism Heuristics ──────────────────────────────────────────────
+
+/**
+ * Confidence level for parallelism recommendations.
+ * - 'high': Strong signal from task characteristics (e.g., 50%+ test tasks or refactors)
+ * - 'medium': Moderate signal (e.g., significant file overlap detected)
+ * - 'low': No strong patterns detected, recommendation is default
+ */
+export type ParallelismConfidence = 'high' | 'medium' | 'low';
+
+/**
+ * Recommendation for parallel worker count based on task characteristics.
+ * Used by smart heuristics to adjust workers before execution.
+ */
+export interface ParallelismRecommendation {
+  /** Recommended number of workers */
+  recommendedWorkers: number;
+
+  /** Confidence level of the recommendation */
+  confidence: ParallelismConfidence;
+
+  /** Human-readable reason for the recommendation */
+  reason: string;
 }

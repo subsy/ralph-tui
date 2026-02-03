@@ -327,4 +327,53 @@ describe('ParallelExecutor class', () => {
       expect(branch).toBeNull();
     });
   });
+
+  describe('filteredTaskIds config', () => {
+    test('accepts filteredTaskIds in partial config', () => {
+      const config = createMockConfig();
+      const tracker = createMockTracker();
+
+      const executor = new ParallelExecutor(config, tracker, {
+        filteredTaskIds: ['task-1', 'task-2', 'task-3'],
+      });
+
+      expect(executor).toBeInstanceOf(ParallelExecutor);
+    });
+
+    test('accepts empty filteredTaskIds array', () => {
+      const config = createMockConfig();
+      const tracker = createMockTracker();
+
+      const executor = new ParallelExecutor(config, tracker, {
+        filteredTaskIds: [],
+      });
+
+      expect(executor).toBeInstanceOf(ParallelExecutor);
+    });
+
+    test('accepts undefined filteredTaskIds', () => {
+      const config = createMockConfig();
+      const tracker = createMockTracker();
+
+      const executor = new ParallelExecutor(config, tracker, {
+        filteredTaskIds: undefined,
+      });
+
+      expect(executor).toBeInstanceOf(ParallelExecutor);
+    });
+
+    test('preserves filteredTaskIds through getState', () => {
+      const config = createMockConfig();
+      const tracker = createMockTracker();
+
+      const executor = new ParallelExecutor(config, tracker, {
+        filteredTaskIds: ['task-a', 'task-b'],
+      });
+
+      // State should still be valid with filteredTaskIds configured
+      const state = executor.getState();
+      expect(state.status).toBe('idle');
+      expect(state.workers).toEqual([]);
+    });
+  });
 });

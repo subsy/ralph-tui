@@ -9,6 +9,7 @@ import type {
   TaskGraphNode,
   ParallelGroup,
   TaskGraphAnalysis,
+  ParallelismRecommendation,
 } from './types.js';
 
 /**
@@ -83,6 +84,111 @@ export function analyzeTaskGraph(tasks: TrackerTask[]): TaskGraphAnalysis {
  */
 export function shouldRunParallel(analysis: TaskGraphAnalysis): boolean {
   return analysis.recommendParallel;
+}
+
+/**
+ * Recommend optimal worker count based on task characteristics.
+ *
+ * Analyzes tasks to identify patterns that affect parallel safety:
+ * - Test tasks (title/labels contain "test") → safe for high parallelism
+ * - Refactor tasks (title/labels contain "refactor") → reduce parallelism
+ * - File overlap (from `affects` field) → reduce parallelism
+ *
+ * @param tasks - All actionable tasks being considered for parallel execution
+ * @param analysis - Task graph analysis result
+ * @param defaultMax - Default maximum workers (used as ceiling)
+ * @returns Recommendation with worker count, confidence, and reason
+ */
+export function recommendParallelism(
+  tasks: TrackerTask[],
+  _analysis: TaskGraphAnalysis,
+  defaultMax: number
+): ParallelismRecommendation {
+  if (tasks.length === 0) {
+    return {
+      recommendedWorkers: defaultMax,
+      confidence: 'low',
+      reason: 'No tasks to analyze',
+    };
+  }
+
+  // Analyze task characteristics
+  const testTaskCount = tasks.filter((t) =>
+    t.title.toLowerCase().includes('test') ||
+    t.labels?.some((l) => l.toLowerCase().includes('test'))
+  ).length;
+
+  const refactorCount = tasks.filter((t) =>
+    t.title.toLowerCase().includes('refactor') ||
+    t.labels?.some((l) => l.toLowerCase().includes('refactor'))
+  ).length;
+
+  const totalTasks = tasks.length;
+  const testRatio = testTaskCount / totalTasks;
+  const refactorRatio = refactorCount / totalTasks;
+
+  // Check for high refactor ratio → reduce parallelism significantly
+  if (refactorRatio > 0.5) {
+    return {
+      recommendedWorkers: Math.min(2, defaultMax),
+      confidence: 'high',
+      reason: 'Many refactor tasks - reducing parallelism to avoid conflicts',
+    };
+  }
+
+  // Check for high test ratio → safe for full parallelism
+  if (testRatio > 0.5) {
+    return {
+      recommendedWorkers: defaultMax,
+      confidence: 'high',
+      reason: 'Mostly test tasks - high parallelism safe',
+    };
+  }
+
+  // Check file overlap potential from metadata.affects field (if present)
+  // The affects field is tracker-specific and may not always be available
+  const affectedFiles = new Set<string>();
+  let overlapCount = 0;
+
+  for (const task of tasks) {
+    // Check for affects in metadata (e.g., from json tracker's prd.json format)
+    const affects = task.metadata?.affects as string[] | undefined;
+    if (affects && Array.isArray(affects)) {
+      for (const file of affects) {
+        if (affectedFiles.has(file)) {
+          overlapCount++;
+        }
+        affectedFiles.add(file);
+      }
+    }
+  }
+
+  // Significant overlap: more than 30% of tasks share files
+  if (overlapCount > tasks.length * 0.3) {
+    const reducedWorkers = Math.min(defaultMax, Math.max(2, Math.floor(defaultMax * 0.5)));
+    return {
+      recommendedWorkers: reducedWorkers,
+      confidence: 'medium',
+      reason: 'Significant file overlap detected - reducing parallelism',
+    };
+  }
+
+  // Moderate refactoring presence (25-50%) → mild reduction
+  if (refactorRatio > 0.25) {
+    const reducedWorkers = Math.min(defaultMax, Math.max(2, Math.floor(defaultMax * 0.75)));
+    return {
+      recommendedWorkers: reducedWorkers,
+      confidence: 'medium',
+      reason: 'Some refactor tasks - moderate parallelism reduction',
+    };
+  }
+
+  // No specific patterns detected → use default
+  return {
+    recommendedWorkers: defaultMax,
+    confidence: 'low',
+    reason: 'No specific patterns detected',
+  };
 }
 
 /**
