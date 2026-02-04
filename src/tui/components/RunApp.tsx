@@ -2708,6 +2708,7 @@ export function RunApp({
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}
               currentModel={displayAgentInfo.model}
+              reviewerAgent={storedConfig?.review?.enabled && storedConfig?.review?.agent ? storedConfig.review.agent : undefined}
               promptPreview={promptPreview}
               templateSource={templateSource}
               isViewingRemote={isViewingRemote}
@@ -2748,6 +2749,7 @@ export function RunApp({
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}
               currentModel={displayAgentInfo.model}
+              reviewerAgent={storedConfig?.review?.enabled && storedConfig?.review?.agent ? storedConfig.review.agent : undefined}
               promptPreview={promptPreview}
               templateSource={templateSource}
               isViewingRemote={isViewingRemote}

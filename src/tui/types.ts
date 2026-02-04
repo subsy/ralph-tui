@@ -178,6 +178,8 @@ export interface RightPanelProps {
   iterationTiming?: IterationTimingInfo;
   /** Name of the agent being used */
   agentName?: string;
+  /** Name of the reviewer agent (when review is enabled) */
+  reviewerAgent?: string;
   /** Model being used (provider/model format) */
   currentModel?: string;
   /** Rendered prompt content for preview (when viewMode is 'prompt') */
