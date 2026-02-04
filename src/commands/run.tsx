@@ -980,6 +980,8 @@ interface RunAppWrapperProps {
   parallelAiResolving?: boolean;
   /** The file currently being resolved by AI */
   parallelCurrentlyResolvingFile?: string;
+  /** Whether to show the conflict panel (true during Phase 2 conflict resolution) */
+  parallelShowConflicts?: boolean;
   /** Maps task IDs to worker IDs for output routing in parallel mode */
   parallelTaskIdToWorkerId?: Map<string, string>;
   /** Task IDs that completed locally but merge failed (shows ⚠ in TUI) */
@@ -1042,6 +1044,7 @@ function RunAppWrapper({
   parallelConflictTaskTitle,
   parallelAiResolving,
   parallelCurrentlyResolvingFile,
+  parallelShowConflicts,
   parallelTaskIdToWorkerId,
   parallelCompletedLocallyTaskIds,
   parallelAutoCommitSkippedTaskIds,
@@ -1243,6 +1246,7 @@ function RunAppWrapper({
       parallelConflictTaskTitle={parallelConflictTaskTitle}
       parallelAiResolving={parallelAiResolving}
       parallelCurrentlyResolvingFile={parallelCurrentlyResolvingFile}
+      parallelShowConflicts={parallelShowConflicts}
       parallelTaskIdToWorkerId={parallelTaskIdToWorkerId}
       parallelCompletedLocallyTaskIds={parallelCompletedLocallyTaskIds}
       parallelAutoCommitSkippedTaskIds={parallelAutoCommitSkippedTaskIds}
@@ -1563,6 +1567,8 @@ async function runParallelWithTui(
     aiResolving: false,
     /** The file currently being resolved by AI */
     currentlyResolvingFile: '' as string,
+    /** Whether to show the conflict panel (set true at Phase 2 start, false when resolved) */
+    showConflicts: false,
     /** Maps task IDs to their assigned worker IDs for output routing */
     taskIdToWorkerId: new Map<string, string>(),
     /** Task IDs that completed locally but merge failed (shows ⚠ in TUI) */
@@ -1715,6 +1721,8 @@ async function runParallelWithTui(
       case 'conflict:ai-resolving':
         parallelState.aiResolving = true;
         parallelState.currentlyResolvingFile = event.filePath;
+        // Show the conflict panel now that Phase 2 (resolution) has started
+        parallelState.showConflicts = true;
         break;
 
       case 'conflict:ai-resolved':
@@ -1735,6 +1743,8 @@ async function runParallelWithTui(
         parallelState.conflictTaskTitle = '';
         parallelState.aiResolving = false;
         parallelState.currentlyResolvingFile = '';
+        // Hide the conflict panel now that resolution is complete
+        parallelState.showConflicts = false;
         break;
 
       case 'parallel:completed':
@@ -1863,6 +1873,7 @@ async function runParallelWithTui(
         parallelConflictTaskTitle={parallelState.conflictTaskTitle}
         parallelAiResolving={parallelState.aiResolving}
         parallelCurrentlyResolvingFile={parallelState.currentlyResolvingFile}
+        parallelShowConflicts={parallelState.showConflicts}
         parallelTaskIdToWorkerId={parallelState.taskIdToWorkerId}
         parallelCompletedLocallyTaskIds={parallelState.completedLocallyTaskIds}
         parallelAutoCommitSkippedTaskIds={parallelState.autoCommitSkippedTaskIds}

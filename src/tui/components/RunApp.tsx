@@ -178,6 +178,8 @@ export interface RunAppProps {
   parallelAiResolving?: boolean;
   /** The file currently being resolved by AI */
   parallelCurrentlyResolvingFile?: string;
+  /** Whether to show the conflict panel (true during Phase 2 conflict resolution) */
+  parallelShowConflicts?: boolean;
   /** Maps task IDs to worker IDs for output routing in parallel mode */
   parallelTaskIdToWorkerId?: Map<string, string>;
   /** Task IDs that completed locally but merge failed (shows ⚠ in TUI) */
@@ -452,6 +454,7 @@ export function RunApp({
   parallelConflictTaskTitle = '',
   parallelAiResolving = false,
   parallelCurrentlyResolvingFile = '',
+  parallelShowConflicts = false,
   parallelTaskIdToWorkerId,
   parallelCompletedLocallyTaskIds,
   parallelAutoCommitSkippedTaskIds: _parallelAutoCommitSkippedTaskIds, // Reserved for future status bar warning
@@ -1347,13 +1350,17 @@ export function RunApp({
     }
   }, [currentTaskId]);
 
-  // Auto-show conflict panel when conflicts are detected in parallel mode
+  // Auto-show conflict panel when Phase 2 conflict resolution starts
+  // Only show when parallelShowConflicts is true (set by conflict:ai-resolving event),
+  // not when conflicts are merely detected during Phase 1 merge attempts
   useEffect(() => {
-    if (isParallelMode && parallelConflicts.length > 0) {
+    if (isParallelMode && parallelShowConflicts && parallelConflicts.length > 0) {
       setShowConflictPanel(true);
       setConflictSelectedIndex(0);
+    } else if (!parallelShowConflicts) {
+      setShowConflictPanel(false);
     }
-  }, [isParallelMode, parallelConflicts]);
+  }, [isParallelMode, parallelShowConflicts, parallelConflicts]);
 
   // Calculate the number of items in iteration history (iterations + pending)
   const iterationHistoryLength = Math.max(iterations.length, totalIterations);
