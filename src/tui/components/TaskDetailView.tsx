@@ -6,6 +6,7 @@
 
 import type { ReactNode } from 'react';
 import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
+import { stripAnsiCodes } from '../../plugins/agents/output-formatting.js';
 import type { TaskDetailViewProps, TaskPriority } from '../types.js';
 
 /**
@@ -148,10 +149,10 @@ function MetadataRow({
   valueColor?: string;
 }): ReactNode {
   return (
-    <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-      <text fg={colors.fg.muted}>{label}: </text>
+    <box style={{ flexDirection: 'row', marginBottom: 0, width: '100%', backgroundColor: colors.bg.secondary }}>
+      <text fg={colors.fg.muted}>{label}:</text>
       {typeof value === 'string' ? (
-        <text fg={valueColor || colors.fg.secondary}>{value}</text>
+        <text fg={valueColor || colors.fg.secondary}>{` ${value}`}</text>
       ) : (
         value
       )}
@@ -167,6 +168,30 @@ function MetadataRow({
 export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): ReactNode {
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
+  const sanitizeMetadataValue = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    const cleaned = stripAnsiCodes(value)
+      .replace(/\p{C}/gu, '')
+      .replace(/\x1b./g, '')
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      .trim();
+    return cleaned.length > 0 ? cleaned : undefined;
+  };
+  const formatTimestamp = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  };
+  const displayType = sanitizeMetadataValue(task.type);
+  const displayAssignee = sanitizeMetadataValue(task.assignee);
+  const displayLabels = task.labels
+    ? task.labels
+      .map((label) => sanitizeMetadataValue(label))
+      .filter((label): label is string => Boolean(label))
+    : [];
+  const displayCreatedAt = formatTimestamp(task.createdAt);
+  const displayUpdatedAt = formatTimestamp(task.updatedAt);
   // Check metadata for acceptance criteria (JSON tracker stores it there)
   const metadataCriteria = task.metadata?.acceptanceCriteria;
   const criteria = parseAcceptanceCriteria(task.description, undefined, metadataCriteria);
@@ -221,19 +246,20 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
               />
             )}
 
-            {task.type && <MetadataRow label="Type" value={task.type} />}
+            {displayType && <MetadataRow label="Type" value={displayType} />}
 
-            {task.assignee && <MetadataRow label="Assignee" value={task.assignee} />}
+            {displayAssignee && <MetadataRow label="Assignee" value={displayAssignee} />}
 
-            {task.labels && task.labels.length > 0 && (
+            {displayLabels.length > 0 && (
               <MetadataRow
                 label="Labels"
                 value={
                   <text>
-                    {task.labels.map((label, i) => (
+                    {' '}
+                    {displayLabels.map((label, i) => (
                       <span key={label}>
                         <span fg={colors.accent.secondary}>{label}</span>
-                        {i < task.labels!.length - 1 ? ', ' : ''}
+                        {i < displayLabels.length - 1 ? ', ' : ''}
                       </span>
                     ))}
                   </text>
@@ -248,6 +274,9 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
                 valueColor={colors.accent.primary}
               />
             )}
+
+            {displayCreatedAt && <MetadataRow label="Created" value={displayCreatedAt} valueColor={colors.fg.dim} />}
+            {displayUpdatedAt && <MetadataRow label="Updated" value={displayUpdatedAt} valueColor={colors.fg.dim} />}
           </box>
         </box>
 
@@ -370,22 +399,6 @@ export function TaskDetailView({ task, onBack: _onBack }: TaskDetailViewProps): 
           </box>
         )}
 
-        {/* Timestamps */}
-        {(task.createdAt || task.updatedAt) && (
-          <box style={{ marginTop: 1 }}>
-            {task.createdAt && (
-              <text fg={colors.fg.dim}>
-                Created: {new Date(task.createdAt).toLocaleString()}
-              </text>
-            )}
-            {task.updatedAt && (
-              <text fg={colors.fg.dim}>
-                {' '}
-                | Updated: {new Date(task.updatedAt).toLocaleString()}
-              </text>
-            )}
-          </box>
-        )}
       </scrollbox>
     </box>
   );

@@ -278,6 +278,36 @@ function TaskMetadataView({
   const { width } = useTerminalDimensions();
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
+  const sanitizeMetadataValue = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    const cleaned = stripAnsiCodes(value)
+      .replace(/\p{C}/gu, '')
+      .replace(/\x1b./g, '')
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      .trim();
+    return cleaned.length > 0 ? cleaned : undefined;
+  };
+  const formatTimestamp = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  };
+  const displayType = sanitizeMetadataValue(task.type);
+  const displayAssignee = sanitizeMetadataValue(task.assignee);
+  const displayLabels = task.labels
+    ? task.labels
+      .map((label) => sanitizeMetadataValue(label))
+      .filter((label): label is string => Boolean(label))
+    : [];
+  const displayCreatedAt = formatTimestamp(task.createdAt);
+  const displayUpdatedAt = formatTimestamp(task.updatedAt);
+  const metadataRowStyle = {
+    flexDirection: 'row',
+    marginBottom: 0,
+    width: '100%',
+    backgroundColor: colors.bg.secondary,
+  } as const;
   // Check metadata for acceptance criteria (JSON tracker stores it there)
   const metadataCriteria = task.metadata?.acceptanceCriteria;
   const criteria = parseAcceptanceCriteria(task.description, undefined, metadataCriteria);
@@ -313,44 +343,45 @@ function TaskMetadataView({
         }}
       >
           {/* Status row */}
-          <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-            <text fg={colors.fg.muted}>Status: </text>
-            <text fg={statusColor}>{task.status}</text>
+          <box style={metadataRowStyle}>
+            <text fg={colors.fg.muted}>Status:</text>
+            <text fg={statusColor}>{` ${task.status}`}</text>
           </box>
 
           {/* Priority row */}
           {task.priority !== undefined && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Priority: </text>
-              <text fg={getPriorityColor(task.priority)}>{priorityLabels[task.priority]}</text>
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Priority:</text>
+              <text fg={getPriorityColor(task.priority)}>{` ${priorityLabels[task.priority]}`}</text>
             </box>
           )}
 
           {/* Type row */}
-          {task.type && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Type: </text>
-              <text fg={colors.fg.secondary}>{task.type}</text>
+          {displayType && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Type:</text>
+              <text fg={colors.fg.secondary}>{` ${displayType}`}</text>
             </box>
           )}
 
           {/* Assignee row */}
-          {task.assignee && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Assignee: </text>
-              <text fg={colors.fg.secondary}>{task.assignee}</text>
+          {displayAssignee && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Assignee:</text>
+              <text fg={colors.fg.secondary}>{` ${displayAssignee}`}</text>
             </box>
           )}
 
           {/* Labels row */}
-          {task.labels && task.labels.length > 0 && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Labels: </text>
+          {displayLabels.length > 0 && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Labels:</text>
               <text>
-                {task.labels.map((label, i) => (
+                {' '}
+                {displayLabels.map((label, i) => (
                   <span key={label}>
                     <span fg={colors.accent.secondary}>{label}</span>
-                    {i < task.labels!.length - 1 ? ', ' : ''}
+                    {i < displayLabels.length - 1 ? ', ' : ''}
                   </span>
                 ))}
               </text>
@@ -359,9 +390,23 @@ function TaskMetadataView({
 
           {/* Iteration row */}
           {task.iteration !== undefined && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Iteration: </text>
-              <text fg={colors.accent.primary}>{task.iteration}</text>
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Iteration:</text>
+              <text fg={colors.accent.primary}>{` ${task.iteration}`}</text>
+            </box>
+          )}
+
+          {/* Timestamp rows */}
+          {displayCreatedAt && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Created:</text>
+              <text fg={colors.fg.dim}>{` ${displayCreatedAt}`}</text>
+            </box>
+          )}
+          {displayUpdatedAt && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Updated:</text>
+              <text fg={colors.fg.dim}>{` ${displayUpdatedAt}`}</text>
             </box>
           )}
         </box>
@@ -505,21 +550,6 @@ function TaskMetadataView({
           </box>
         )}
 
-      {/* Timestamps */}
-      {(task.createdAt || task.updatedAt) && (
-        <box style={{ marginTop: 1 }}>
-          {task.createdAt && (
-            <text fg={colors.fg.dim}>
-              Created: {new Date(task.createdAt).toLocaleString()}
-            </text>
-          )}
-          {task.updatedAt && (
-            <text fg={colors.fg.dim}>
-              {' '}| Updated: {new Date(task.updatedAt).toLocaleString()}
-            </text>
-          )}
-        </box>
-      )}
     </box>
   );
 }

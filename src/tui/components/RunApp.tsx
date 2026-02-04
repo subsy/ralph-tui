@@ -1422,26 +1422,51 @@ export function RunApp({
   // Check if current output contains review divider (for Tab cycling logic)
   // This needs to be computed before handleKeyboard to avoid stale closures
   const hasReviewDividerInOutput = useMemo(() => {
-    // Check current task output
-    if (currentOutput) {
+    const effectiveTaskId = viewMode === 'iterations' && iterations.length > 0
+      ? iterations[iterationSelectedIndex]?.task?.id
+      : displayedTasks[selectedIndex]?.id;
+    if (!effectiveTaskId) return false;
+
+    if (isViewingRemote) {
+      if (effectiveTaskId === remoteCurrentTaskId && remoteOutput) {
+        return remoteOutput.includes(REVIEW_OUTPUT_DIVIDER);
+      }
+      const cached = remoteIterationCache.get(effectiveTaskId);
+      if (cached?.output) {
+        return cached.output.includes(REVIEW_OUTPUT_DIVIDER);
+      }
+      return false;
+    }
+
+    const isViewingCurrentTask = effectiveTaskId === currentTaskId;
+    if (isViewingCurrentTask && currentOutput) {
       return currentOutput.includes(REVIEW_OUTPUT_DIVIDER);
     }
-    // Get current task ID from displayedTasks and selectedIndex
-    const currentTaskId = displayedTasks[selectedIndex]?.id;
-    if (!currentTaskId) return false;
 
-    // Check completed iterations
-    const taskIteration = iterations.find((iter) => iter.task.id === currentTaskId);
+    const taskIteration = iterations.find((iter) => iter.task.id === effectiveTaskId);
     if (taskIteration?.agentResult?.stdout) {
       return taskIteration.agentResult.stdout.includes(REVIEW_OUTPUT_DIVIDER);
     }
-    // Check historical output
-    const historicalData = historicalOutputCache.get(currentTaskId);
+
+    const historicalData = historicalOutputCache.get(effectiveTaskId);
     if (historicalData?.output) {
       return historicalData.output.includes(REVIEW_OUTPUT_DIVIDER);
     }
     return false;
-  }, [currentOutput, iterations, displayedTasks, selectedIndex, historicalOutputCache]);
+  }, [
+    viewMode,
+    iterations,
+    iterationSelectedIndex,
+    displayedTasks,
+    selectedIndex,
+    isViewingRemote,
+    remoteCurrentTaskId,
+    remoteOutput,
+    remoteIterationCache,
+    currentTaskId,
+    currentOutput,
+    historicalOutputCache,
+  ]);
 
   // Handle keyboard navigation
   const handleKeyboard = useCallback(
@@ -2205,7 +2230,7 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus, hasReviewDividerInOutput]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, onConflictAbort, onConflictAccept, onConflictAcceptAll, parallelDerivedStatus, hasReviewDividerInOutput]
   );
 
   useKeyboard(handleKeyboard);
@@ -2383,8 +2408,8 @@ export function RunApp({
   // When review is enabled but review.agent is not set, the engine uses the primary agent
   const reviewerAgentName = useMemo(() => {
     if (!storedConfig?.review?.enabled) return undefined;
-    return storedConfig.review.agent?.trim() || storedConfig?.agent || agentPlugin;
-  }, [storedConfig, agentPlugin]);
+    return storedConfig.review.agent?.trim() || agentName || storedConfig?.agent || agentPlugin;
+  }, [storedConfig, agentName, agentPlugin]);
 
   // Compute the actual output to display based on selectedSubagentId
   // When a subagent is selected (not task root), try to get its specific output
