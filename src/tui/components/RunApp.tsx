@@ -1419,6 +1419,30 @@ export function RunApp({
     setSelectedSubagentId(flatList[newIdx]!);
   }, [subagentTree, remoteSubagentTree, isViewingRemote, selectedSubagentId, displayCurrentTaskId]);
 
+  // Check if current output contains review divider (for Tab cycling logic)
+  // This needs to be computed before handleKeyboard to avoid stale closures
+  const hasReviewDividerInOutput = useMemo(() => {
+    // Check current task output
+    if (currentOutput) {
+      return currentOutput.includes(REVIEW_OUTPUT_DIVIDER);
+    }
+    // Get current task ID from displayedTasks and selectedIndex
+    const currentTaskId = displayedTasks[selectedIndex]?.id;
+    if (!currentTaskId) return false;
+
+    // Check completed iterations
+    const taskIteration = iterations.find((iter) => iter.task.id === currentTaskId);
+    if (taskIteration?.agentResult?.stdout) {
+      return taskIteration.agentResult.stdout.includes(REVIEW_OUTPUT_DIVIDER);
+    }
+    // Check historical output
+    const historicalData = historicalOutputCache.get(currentTaskId);
+    if (historicalData?.output) {
+      return historicalData.output.includes(REVIEW_OUTPUT_DIVIDER);
+    }
+    return false;
+  }, [currentOutput, iterations, displayedTasks, selectedIndex, historicalOutputCache]);
+
   // Handle keyboard navigation
   const handleKeyboard = useCallback(
     (key: KeyEvent) => {
@@ -1588,8 +1612,7 @@ export function RunApp({
             // Output view: cycle through worker/reviewer/subagentTree
             // Check if reviewer pane is present: either review enabled OR output contains divider (historical)
             const reviewerEnabled = !!storedConfig?.review?.enabled;
-            const hasReviewerOutput = displayIterationOutput?.includes(REVIEW_OUTPUT_DIVIDER) ?? false;
-            const reviewerPresent = reviewerEnabled || hasReviewerOutput;
+            const reviewerPresent = reviewerEnabled || hasReviewDividerInOutput;
 
             setFocusedPane((prev) => {
               // Cycle: none (tasks) -> worker -> reviewer (if present) -> subagentTree (if visible) -> none
@@ -2182,7 +2205,7 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus, hasReviewDividerInOutput]
   );
 
   useKeyboard(handleKeyboard);
