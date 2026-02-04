@@ -89,6 +89,8 @@ export interface HeaderProps {
   totalTasks?: number;
   /** Selected agent plugin name (e.g., "claude", "opencode") */
   agentName?: string;
+  /** Reviewer agent plugin name (when review is enabled) */
+  reviewerAgent?: string;
   /** Selected tracker plugin name (e.g., "beads", "beads-bv", "json") */
   trackerName?: string;
   /** Active agent state from engine (tracks which agent is running and why) */

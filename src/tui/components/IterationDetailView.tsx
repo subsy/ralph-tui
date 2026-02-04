@@ -2,14 +2,21 @@
  * ABOUTME: IterationDetailView component for the Ralph TUI.
  * Displays detailed information about a single iteration including
  * status, timing, events timeline, subagent tree, and scrollable agent output with syntax highlighting.
+ * Supports split worker/reviewer output sections with Tab key navigation.
  */
 
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useKeyboard } from '@opentui/react';
 import { colors, formatElapsedTime } from '../theme.js';
 import type { IterationResult, IterationStatus, EngineSubagentStatus } from '../../engine/types.js';
 import type { SubagentHierarchyNode, SubagentTraceStats } from '../../logs/types.js';
 import type { SandboxConfig, SandboxMode } from '../../config/types.js';
+
+/**
+ * Divider to separate reviewer output in logs (matches engine constant).
+ */
+const REVIEW_OUTPUT_DIVIDER = '\n\n===== REVIEW OUTPUT =====\n';
 
 /**
  * Event in the iteration timeline
@@ -42,6 +49,11 @@ export interface HistoricExecutionContext {
 }
 
 /**
+ * Focus mode for output sections when split into worker/reviewer
+ */
+type OutputFocus = 'worker' | 'reviewer';
+
+/**
  * Props for the IterationDetailView component
  */
 export interface IterationDetailViewProps {
@@ -67,6 +79,8 @@ export interface IterationDetailViewProps {
   resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>;
   /** Historic execution context from persisted logs - used for completed iterations */
   historicContext?: HistoricExecutionContext;
+  /** Worker agent name for split output display */
+  workerAgent?: string;
 }
 
 /**
@@ -606,14 +620,39 @@ export function IterationDetailView({
   sandboxConfig,
   resolvedSandboxMode,
   historicContext,
+  workerAgent,
 }: IterationDetailViewProps): ReactNode {
   const statusColor = statusColors[iteration.status];
   const statusIndicator = statusIndicators[iteration.status];
   const timeline = buildTimeline(iteration);
   const durationSeconds = Math.floor(iteration.durationMs / 1000);
 
-  // Get agent output
-  const agentOutput = iteration.agentResult?.stdout ?? '';
+  // Split worker and reviewer outputs
+  const fullOutput = iteration.agentResult?.stdout ?? '';
+  const hasReviewOutput = iteration.reviewEnabled && fullOutput.includes(REVIEW_OUTPUT_DIVIDER);
+  const [workerOutput, reviewerOutput] = hasReviewOutput
+    ? fullOutput.split(REVIEW_OUTPUT_DIVIDER)
+    : [fullOutput, ''];
+
+  // Track which output section has focus for Tab navigation
+  const [outputFocus, setOutputFocus] = useState<OutputFocus>('worker');
+
+  // Handle Tab key to switch between worker and reviewer outputs
+  const handleKeyboard = useCallback(
+    (key: { name: string }) => {
+      if (hasReviewOutput && key.name === 'tab') {
+        setOutputFocus((prev) => (prev === 'worker' ? 'reviewer' : 'worker'));
+      }
+    },
+    [hasReviewOutput]
+  );
+
+  useKeyboard(handleKeyboard);
+
+  // Reset focus when iteration changes
+  useEffect(() => {
+    setOutputFocus('worker');
+  }, [iteration.iteration]);
 
   // Generate output file path
   const outputFilePath = getOutputFilePath(
@@ -635,21 +674,27 @@ export function IterationDetailView({
       }}
     >
       <scrollbox style={{ flexGrow: 1, padding: 1 }}>
-        {/* Iteration header */}
+        {/* Task title */}
         <box style={{ marginBottom: 1 }}>
           <text>
             <span fg={statusColor}>{statusIndicator}</span>
-            <span fg={colors.fg.primary}>
-              {' '}Iteration {iteration.iteration} of {totalIterations}
-            </span>
+            <span fg={colors.fg.primary}> {iteration.task.title} </span>
+            <span fg={colors.fg.muted}>({iteration.task.id})</span>
           </text>
         </box>
 
-        {/* Task info */}
+        {/* Timing info with iteration number */}
         <box style={{ marginBottom: 2 }}>
-          <text fg={colors.fg.muted}>Task: </text>
-          <text fg={colors.accent.primary}>{iteration.task.id}</text>
-          <text fg={colors.fg.secondary}> - {iteration.task.title}</text>
+          <text>
+            <span fg={colors.fg.muted}>Started: </span>
+            <span fg={colors.fg.secondary}>{formatTimestamp(iteration.startedAt)}</span>
+            <span fg={colors.fg.muted}>   Ended: </span>
+            <span fg={colors.fg.secondary}>{formatTimestamp(iteration.endedAt)}</span>
+            <span fg={colors.fg.muted}>   Duration: </span>
+            <span fg={colors.accent.primary}>{formatElapsedTime(durationSeconds)}</span>
+            <span fg={colors.fg.muted}>   Iteration: </span>
+            <span fg={colors.fg.secondary}>{iteration.iteration}/{totalIterations}</span>
+          </text>
         </box>
 
         {/* Dependencies section - shows blocking relationships */}
@@ -700,21 +745,6 @@ export function IterationDetailView({
               label="Status"
               value={statusLabels[iteration.status]}
               valueColor={statusColor}
-            />
-            <MetadataRow
-              label="Start Time"
-              value={formatTimestamp(iteration.startedAt)}
-              valueColor={colors.fg.secondary}
-            />
-            <MetadataRow
-              label="End Time"
-              value={formatTimestamp(iteration.endedAt)}
-              valueColor={colors.fg.secondary}
-            />
-            <MetadataRow
-              label="Duration"
-              value={formatElapsedTime(durationSeconds)}
-              valueColor={colors.accent.primary}
             />
             {iteration.taskCompleted && (
               <MetadataRow
@@ -925,22 +955,75 @@ export function IterationDetailView({
           </box>
         </box>
 
-        {/* Agent output section */}
-        {agentOutput && (
-          <box style={{ marginBottom: 2 }}>
-            <SectionHeader title="Agent Output" />
-            <box
-              style={{
-                padding: 1,
-                backgroundColor: colors.bg.tertiary,
-                border: true,
-                borderColor: colors.border.muted,
-                flexDirection: 'column',
-              }}
-            >
-              {renderOutputWithHighlighting(agentOutput)}
+        {/* Agent output section(s) - split into worker and reviewer if review enabled */}
+        {hasReviewOutput ? (
+          <>
+            {/* Worker output section */}
+            {workerOutput && (
+              <box style={{ marginBottom: 2 }}>
+                <SectionHeader title={`Worker: ${workerAgent || historicContext?.agentPlugin || 'agent'}`} />
+                <scrollbox
+                  style={{
+                    padding: 1,
+                    backgroundColor: outputFocus === 'worker' ? colors.bg.tertiary : colors.bg.secondary,
+                    border: true,
+                    borderColor: outputFocus === 'worker' ? colors.accent.primary : colors.border.muted,
+                    flexDirection: 'column',
+                    maxHeight: 20,
+                  }}
+                >
+                  {renderOutputWithHighlighting(workerOutput)}
+                </scrollbox>
+                <box style={{ marginTop: 0 }}>
+                  <text fg={colors.fg.dim}>
+                    {outputFocus === 'worker' ? '[Focused - Tab to switch]' : '[Tab to focus]'}
+                  </text>
+                </box>
+              </box>
+            )}
+
+            {/* Reviewer output section */}
+            {reviewerOutput && (
+              <box style={{ marginBottom: 2 }}>
+                <SectionHeader title={`Reviewer: ${iteration.reviewAgent || 'reviewer'}`} />
+                <scrollbox
+                  style={{
+                    padding: 1,
+                    backgroundColor: outputFocus === 'reviewer' ? colors.bg.tertiary : colors.bg.secondary,
+                    border: true,
+                    borderColor: outputFocus === 'reviewer' ? colors.accent.primary : colors.border.muted,
+                    flexDirection: 'column',
+                    maxHeight: 20,
+                  }}
+                >
+                  {renderOutputWithHighlighting(reviewerOutput)}
+                </scrollbox>
+                <box style={{ marginTop: 0 }}>
+                  <text fg={colors.fg.dim}>
+                    {outputFocus === 'reviewer' ? '[Focused - Tab to switch]' : '[Tab to focus]'}
+                  </text>
+                </box>
+              </box>
+            )}
+          </>
+        ) : (
+          /* Single output section when no review */
+          workerOutput && (
+            <box style={{ marginBottom: 2 }}>
+              <SectionHeader title="Agent Output" />
+              <box
+                style={{
+                  padding: 1,
+                  backgroundColor: colors.bg.tertiary,
+                  border: true,
+                  borderColor: colors.border.muted,
+                  flexDirection: 'column',
+                }}
+              >
+                {renderOutputWithHighlighting(workerOutput)}
+              </box>
             </box>
-          </box>
+          )
         )}
 
         {/* Hint about returning */}
