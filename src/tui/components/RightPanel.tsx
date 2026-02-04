@@ -6,7 +6,8 @@
  */
 
 import type { ReactNode } from 'react';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useKeyboard } from '@opentui/react';
 import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
 import type { RightPanelProps, DetailsViewMode, IterationTimingInfo, TaskPriority } from '../types.js';
 import { stripAnsiCodes, type FormattedSegment } from '../../plugins/agents/output-formatting.js';
@@ -716,6 +717,11 @@ function PromptPreviewView({
  * Task output view - shows full-height scrollable iteration output
  * with optional collapsible subagent sections
  */
+/**
+ * Focus mode for output sections when split into worker/reviewer
+ */
+type OutputFocus = 'worker' | 'reviewer';
+
 function TaskOutputView({
   task,
   currentIteration,
@@ -738,11 +744,35 @@ function TaskOutputView({
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
 
+  // Track which output section has focus for Tab navigation
+  const [outputFocus, setOutputFocus] = useState<OutputFocus>('worker');
+
   // Check if we're live streaming
   const isLiveStreaming = iterationTiming?.isRunning === true;
 
-  // Check if output has reviewer section
+  // Check if review is configured (not just if output contains divider)
+  // This ensures we show split sections even when reviewer hasn't started yet
+  const isReviewEnabled = reviewerAgent !== undefined && reviewerAgent !== '';
+
+  // Check if output actually has reviewer section
   const hasReviewOutput = iterationOutput?.includes(REVIEW_OUTPUT_DIVIDER) ?? false;
+
+  // Handle Tab key to switch between worker and reviewer outputs
+  const handleKeyboard = useCallback(
+    (key: { name: string }) => {
+      if (isReviewEnabled && key.name === 'tab') {
+        setOutputFocus((prev) => (prev === 'worker' ? 'reviewer' : 'worker'));
+      }
+    },
+    [isReviewEnabled]
+  );
+
+  useKeyboard(handleKeyboard);
+
+  // Reset focus when iteration changes
+  useEffect(() => {
+    setOutputFocus('worker');
+  }, [currentIteration]);
 
   // For live streaming, prefer segments for TUI-native colors
   // For historical/completed output, parse the string to extract readable content
@@ -832,8 +862,8 @@ function TaskOutputView({
       {/* Timing summary - shows start/end/duration */}
       <TimingSummary timing={iterationTiming} />
 
-      {/* Split output sections when review is present */}
-      {hasReviewOutput ? (
+      {/* Split output sections when review is enabled */}
+      {isReviewEnabled ? (
         <box style={{ flexDirection: 'column', flexGrow: 1, gap: 1 }}>
           {/* Worker output section */}
           <box
@@ -841,7 +871,7 @@ function TaskOutputView({
             style={{
               flexGrow: 1,
               border: true,
-              borderColor: colors.border.normal,
+              borderColor: outputFocus === 'worker' ? colors.accent.primary : colors.border.normal,
               backgroundColor: colors.bg.secondary,
             }}
           >
@@ -849,7 +879,7 @@ function TaskOutputView({
               {workerOutput !== undefined && workerOutput.length > 0 ? (
                 renderOutputLines(workerOutput)
               ) : (
-                <text fg={colors.fg.muted}>No worker output captured</text>
+                <text fg={colors.fg.muted}>No worker output yet...</text>
               )}
             </scrollbox>
           </box>
@@ -860,7 +890,7 @@ function TaskOutputView({
             style={{
               flexGrow: 1,
               border: true,
-              borderColor: colors.border.normal,
+              borderColor: outputFocus === 'reviewer' ? colors.accent.primary : colors.border.normal,
               backgroundColor: colors.bg.secondary,
             }}
           >
@@ -868,9 +898,18 @@ function TaskOutputView({
               {reviewerOutput !== undefined && reviewerOutput.length > 0 ? (
                 renderOutputLines(reviewerOutput)
               ) : (
-                <text fg={colors.fg.muted}>No reviewer output captured</text>
+                <text fg={colors.fg.muted}>
+                  {isLiveStreaming ? 'Waiting for reviewer...' : 'No reviewer output captured'}
+                </text>
               )}
             </scrollbox>
+          </box>
+
+          {/* Tab hint */}
+          <box style={{ marginTop: 0 }}>
+            <text fg={colors.fg.dim}>
+              {outputFocus === 'worker' ? '[Worker focused - Tab to switch]' : '[Reviewer focused - Tab to switch]'}
+            </text>
           </box>
         </box>
       ) : (
