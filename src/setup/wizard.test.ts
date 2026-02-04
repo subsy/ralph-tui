@@ -233,7 +233,12 @@ describe('runSetupWizard', () => {
     });
 
     // Set default mock implementations
-    mockPromptSelect = () => Promise.resolve('json');
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('none');
+    };
     mockPromptNumber = () => Promise.resolve(10);
     mockPromptBoolean = () => Promise.resolve(false);
     mockIsInteractiveTerminal = () => true;
@@ -259,8 +264,9 @@ describe('runSetupWizard', () => {
   test('creates config file in .ralph-tui directory', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     const result = await runSetupWizard({ cwd: tempDir });
@@ -276,8 +282,9 @@ describe('runSetupWizard', () => {
   test('saves correct tracker and agent in config', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('beads');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
     mockPromptNumber = () => Promise.resolve(20);
     mockPromptBoolean = () => Promise.resolve(true);
@@ -302,8 +309,9 @@ describe('runSetupWizard', () => {
   test('shows PRD-specific instructions for json tracker', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -317,8 +325,9 @@ describe('runSetupWizard', () => {
   test('shows epic-specific instructions for beads tracker', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('beads');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -335,8 +344,9 @@ describe('runSetupWizard', () => {
   test('shows epic-specific instructions for beads-bv tracker', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('beads-bv');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -352,8 +362,9 @@ describe('runSetupWizard', () => {
   test('shows epic-specific instructions for beads-rust tracker', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('beads-rust');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -387,8 +398,9 @@ describe('runSetupWizard', () => {
 
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     const result = await runSetupWizard({ cwd: tempDir, force: true });
@@ -404,8 +416,9 @@ describe('runSetupWizard', () => {
   test('config file has header comment', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     const result = await runSetupWizard({ cwd: tempDir });
@@ -424,7 +437,12 @@ describe('checkAndRunSetup', () => {
     tempDir = await createTempDir();
 
     // Set default mock implementations
-    mockPromptSelect = () => Promise.resolve('json');
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('none');
+    };
     mockPromptNumber = () => Promise.resolve(10);
     mockPromptBoolean = () => Promise.resolve(false);
     mockIsInteractiveTerminal = () => true;
@@ -458,8 +476,9 @@ describe('checkAndRunSetup', () => {
   test('runs wizard when no config exists', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     const result = await checkAndRunSetup({ cwd: tempDir });
@@ -488,7 +507,12 @@ describe('wizard output messages', () => {
       capturedOutput.push(args.join(' '));
     });
 
-    mockPromptSelect = () => Promise.resolve('json');
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('none');
+    };
     mockPromptNumber = () => Promise.resolve(10);
     mockPromptBoolean = () => Promise.resolve(false);
     mockIsInteractiveTerminal = () => true;
@@ -502,8 +526,9 @@ describe('wizard output messages', () => {
   test('prints welcome banner', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -515,8 +540,9 @@ describe('wizard output messages', () => {
   test('mentions config show command', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -533,8 +559,9 @@ describe('wizard output messages', () => {
 
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
     mockPromptBoolean = () => Promise.resolve(true);
 
@@ -553,8 +580,9 @@ describe('wizard output messages', () => {
 
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
     mockPromptBoolean = () => Promise.resolve(true);
 
@@ -599,8 +627,9 @@ describe('tracker detection and unavailability', () => {
         capturedTrackerChoices = choices as typeof capturedTrackerChoices;
         return Promise.resolve('json');
       }
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -625,8 +654,9 @@ describe('tracker detection and unavailability', () => {
         capturedTrackerChoices = choices as typeof capturedTrackerChoices;
         return Promise.resolve('json');
       }
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -642,8 +672,9 @@ describe('tracker detection and unavailability', () => {
         capturedTrackerChoices = choices as typeof capturedTrackerChoices;
         return Promise.resolve('json');
       }
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -667,8 +698,9 @@ describe('tracker detection and unavailability', () => {
         capturedTrackerChoices = choices as typeof capturedTrackerChoices;
         return Promise.resolve('json');
       }
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -698,8 +730,9 @@ describe('tracker detection and unavailability', () => {
         capturedTrackerChoices = choices as typeof capturedTrackerChoices;
         return Promise.resolve('json');
       }
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });
@@ -725,8 +758,9 @@ describe('tracker detection and unavailability', () => {
         trackerDefault = (options as { default?: string })?.default;
         return Promise.resolve('json');
       }
+      if (prompt.includes('reviewer')) return Promise.resolve('none');
       if (prompt.includes('agent')) return Promise.resolve('claude');
-      return Promise.resolve('');
+      return Promise.resolve('none');
     };
 
     await runSetupWizard({ cwd: tempDir });

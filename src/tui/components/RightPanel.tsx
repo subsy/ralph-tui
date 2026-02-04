@@ -14,6 +14,11 @@ import { formatElapsedTime } from '../theme.js';
 import { parseAgentOutput } from '../output-parser.js';
 
 /**
+ * Divider to separate reviewer output in logs (matches engine constant).
+ */
+const REVIEW_OUTPUT_DIVIDER = '\n\n===== REVIEW OUTPUT =====\n';
+
+/**
  * Priority label mapping for display
  */
 const priorityLabels: Record<TaskPriority, string> = {
@@ -719,6 +724,8 @@ function TaskOutputView({
   iterationTiming,
   agentName,
   currentModel,
+  reviewerAgent,
+  outputFocus,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
@@ -727,6 +734,8 @@ function TaskOutputView({
   iterationTiming?: IterationTimingInfo;
   agentName?: string;
   currentModel?: string;
+  reviewerAgent?: string;
+  outputFocus?: 'worker' | 'reviewer';
 }): ReactNode {
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
@@ -734,19 +743,39 @@ function TaskOutputView({
   // Check if we're live streaming
   const isLiveStreaming = iterationTiming?.isRunning === true;
 
+  // Check if review is configured (not just if output contains divider)
+  // This ensures we show split sections even when reviewer hasn't started yet
+  const isReviewEnabled = reviewerAgent !== undefined && reviewerAgent !== '';
+
+  // Check if output actually has reviewer section
+  const hasReviewOutput = iterationOutput?.includes(REVIEW_OUTPUT_DIVIDER) ?? false;
+
   // For live streaming, prefer segments for TUI-native colors
   // For historical/completed output, parse the string to extract readable content
   // ALWAYS strip ANSI codes - they cause black background artifacts in OpenTUI
-  const displayOutput = useMemo(() => {
-    if (!iterationOutput) return undefined;
+  const { workerOutput, reviewerOutput } = useMemo(() => {
+    if (!iterationOutput) return { workerOutput: undefined, reviewerOutput: undefined };
+
+    // Split worker and reviewer if divider exists
+    const [worker, reviewer] = hasReviewOutput
+      ? iterationOutput.split(REVIEW_OUTPUT_DIVIDER)
+      : [iterationOutput, undefined];
+
     // For live output during execution, strip ANSI but keep raw content
     if (isLiveStreaming) {
-      return stripAnsiCodes(iterationOutput);
+      return {
+        workerOutput: stripAnsiCodes(worker),
+        reviewerOutput: reviewer ? stripAnsiCodes(reviewer) : undefined,
+      };
     }
+
     // For completed output (historical or from current session), parse to extract readable content
     // parseAgentOutput already strips ANSI codes
-    return parseAgentOutput(iterationOutput, agentName);
-  }, [iterationOutput, isLiveStreaming, agentName]);
+    return {
+      workerOutput: parseAgentOutput(worker, agentName),
+      reviewerOutput: reviewer ? parseAgentOutput(reviewer, reviewerAgent) : undefined,
+    };
+  }, [iterationOutput, isLiveStreaming, agentName, reviewerAgent, hasReviewOutput]);
 
   // Note: Full segment-based coloring (FormattedText) disabled due to OpenTUI
   // span rendering issues causing black backgrounds and character loss.
@@ -761,9 +790,37 @@ function TaskOutputView({
       })()
     : null;
 
+  // Helper to render output lines with tool name highlighting
+  const renderOutputLines = (output: string | undefined) => {
+    if (!output || output.length === 0) return null;
+
+    return (
+      <box style={{ flexDirection: 'column' }}>
+        {output.split('\n').map((line, i) => {
+          // Check if line starts with [toolname] pattern
+          const toolMatch = line.match(/^(\[[\w-]+\])(.*)/);
+          if (toolMatch) {
+            const [, toolName, rest] = toolMatch;
+            return (
+              <box key={i} style={{ flexDirection: 'row' }}>
+                <text fg={colors.status.success}>{toolName}</text>
+                <text fg={colors.fg.secondary}>{rest}</text>
+              </box>
+            );
+          }
+          return (
+            <text key={i} fg={colors.fg.secondary}>
+              {line}
+            </text>
+          );
+        })}
+      </box>
+    );
+  };
+
   return (
     <box style={{ flexDirection: 'column', padding: 1, flexGrow: 1 }}>
-      {/* Compact task header with agent/model info */}
+      {/* Compact task header - only show task title and status */}
       <box style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1 }}>
         <box>
           <text>
@@ -772,68 +829,113 @@ function TaskOutputView({
             <span fg={colors.fg.muted}> ({task.id})</span>
           </text>
         </box>
-        {(agentName || modelDisplay) && (
-          <box style={{ flexDirection: 'row', gap: 1 }}>
-            {agentName && <text fg={colors.accent.secondary}>{agentName}</text>}
-            {agentName && modelDisplay && <text fg={colors.fg.muted}>|</text>}
-            {modelDisplay && (
-              <text fg={colors.accent.primary}>{modelDisplay.display}</text>
-            )}
-          </box>
+        {/* Show model info on the right */}
+        {modelDisplay && (
+          <text fg={colors.accent.primary}>{modelDisplay.display}</text>
         )}
       </box>
 
       {/* Timing summary - shows start/end/duration */}
       <TimingSummary timing={iterationTiming} />
 
-      {/* Full-height iteration output */}
-      <box
-        title={
-          currentIteration === -1
-            ? 'Historical Output'
-            : currentIteration > 0
-              ? `Iteration ${currentIteration}`
-              : 'Output'
-        }
-        style={{
-          flexGrow: 1,
-          border: true,
-          borderColor: colors.border.normal,
-          backgroundColor: colors.bg.secondary,
-        }}
-      >
-        <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={true} stickyStart="bottom">
-          {/* Line-based coloring with tool names in green */}
-          {displayOutput !== undefined && displayOutput.length > 0 ? (
-            <box style={{ flexDirection: 'column' }}>
-              {displayOutput.split('\n').map((line, i) => {
-                // Check if line starts with [toolname] pattern
-                const toolMatch = line.match(/^(\[[\w-]+\])(.*)/);
-                if (toolMatch) {
-                  const [, toolName, rest] = toolMatch;
-                  return (
-                    <box key={i} style={{ flexDirection: 'row' }}>
-                      <text fg={colors.status.success}>{toolName}</text>
-                      <text fg={colors.fg.secondary}>{rest}</text>
-                    </box>
-                  );
-                }
-                return (
-                  <text key={i} fg={colors.fg.secondary}>
-                    {line}
-                  </text>
-                );
-              })}
+      {/* Split output sections when review is enabled */}
+      {isReviewEnabled ? (
+        <box style={{ flexDirection: 'column', flexGrow: 1, gap: 1 }}>
+          {/* Worker output section */}
+          <box
+            style={{
+              flexGrow: 1,
+              flexDirection: 'column',
+              border: true,
+              borderColor: outputFocus === 'worker' ? colors.accent.primary : colors.border.muted,
+              backgroundColor: colors.bg.secondary,
+            }}
+          >
+            <box style={{ paddingLeft: 1, paddingRight: 1, paddingBottom: 0 }}>
+              <text>
+                <span fg={colors.fg.secondary}>Worker: </span>
+                <span fg={colors.fg.primary}>{agentName || 'agent'}</span>
+                {currentIteration > 0 && (
+                  <span fg={colors.fg.muted}> (Iteration {currentIteration})</span>
+                )}
+              </text>
             </box>
-          ) : displayOutput === '' ? (
-            <text fg={colors.fg.muted}>No output captured</text>
-          ) : currentIteration === 0 ? (
-            <text fg={colors.fg.muted}>Task not yet executed</text>
-          ) : (
-            <text fg={colors.fg.muted}>Waiting for output...</text>
-          )}
-        </scrollbox>
-      </box>
+            <scrollbox
+              style={{ flexGrow: 1, padding: 1 }}
+              stickyScroll={isLiveStreaming}
+              stickyStart="bottom"
+              focused={outputFocus === 'worker'}
+            >
+              {workerOutput !== undefined && workerOutput.length > 0 ? (
+                renderOutputLines(workerOutput)
+              ) : (
+                <text fg={colors.fg.muted}>No worker output yet...</text>
+              )}
+            </scrollbox>
+          </box>
+
+          {/* Reviewer output section */}
+          <box
+            style={{
+              flexGrow: 1,
+              flexDirection: 'column',
+              border: true,
+              borderColor: outputFocus === 'reviewer' ? colors.accent.primary : colors.border.muted,
+              backgroundColor: colors.bg.secondary,
+            }}
+          >
+            <box style={{ paddingLeft: 1, paddingRight: 1, paddingBottom: 0 }}>
+              <text>
+                <span fg={colors.fg.secondary}>Reviewer: </span>
+                <span fg={colors.fg.primary}>{reviewerAgent || 'reviewer'}</span>
+              </text>
+            </box>
+            <scrollbox
+              style={{ flexGrow: 1, padding: 1 }}
+              stickyScroll={isLiveStreaming}
+              stickyStart="bottom"
+              focused={outputFocus === 'reviewer'}
+            >
+              {reviewerOutput !== undefined && reviewerOutput.length > 0 ? (
+                renderOutputLines(reviewerOutput)
+              ) : (
+                <text fg={colors.fg.muted}>
+                  {isLiveStreaming ? 'Waiting for reviewer...' : 'No reviewer output captured'}
+                </text>
+              )}
+            </scrollbox>
+          </box>
+        </box>
+      ) : (
+        /* Single output section when no review */
+        <box
+          title={
+            currentIteration === -1
+              ? 'Output'
+              : currentIteration > 0
+                ? `Iteration ${currentIteration}`
+                : 'Output'
+          }
+          style={{
+            flexGrow: 1,
+            border: true,
+            borderColor: colors.border.normal,
+            backgroundColor: colors.bg.secondary,
+          }}
+        >
+          <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={isLiveStreaming} stickyStart="bottom">
+            {workerOutput !== undefined && workerOutput.length > 0 ? (
+              renderOutputLines(workerOutput)
+            ) : workerOutput === '' ? (
+              <text fg={colors.fg.muted}>No output captured</text>
+            ) : currentIteration === 0 ? (
+              <text fg={colors.fg.muted}>Task not yet executed</text>
+            ) : (
+              <text fg={colors.fg.muted}>Waiting for output...</text>
+            )}
+          </scrollbox>
+        </box>
+      )}
     </box>
   );
 }
@@ -850,8 +952,10 @@ function TaskDetails({
   iterationTiming,
   agentName,
   currentModel,
+  reviewerAgent,
   promptPreview,
   templateSource,
+  outputFocus,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
@@ -861,8 +965,10 @@ function TaskDetails({
   iterationTiming?: IterationTimingInfo;
   agentName?: string;
   currentModel?: string;
+  reviewerAgent?: string;
   promptPreview?: string;
   templateSource?: string;
+  outputFocus?: 'worker' | 'reviewer';
 }): ReactNode {
   if (viewMode === 'output') {
     return (
@@ -874,6 +980,8 @@ function TaskDetails({
         iterationTiming={iterationTiming}
         agentName={agentName}
         currentModel={currentModel}
+        reviewerAgent={reviewerAgent}
+        outputFocus={outputFocus}
       />
     );
   }
@@ -903,11 +1011,13 @@ export function RightPanel({
   iterationTiming,
   agentName,
   currentModel,
+  reviewerAgent,
   promptPreview,
   templateSource,
   isViewingRemote = false,
   remoteConnectionStatus,
   remoteAlias,
+  outputFocus,
 }: RightPanelProps): ReactNode {
   // Build title with view mode indicator
   const modeIndicators: Record<typeof viewMode, string> = {
@@ -941,8 +1051,10 @@ export function RightPanel({
           iterationTiming={iterationTiming}
           agentName={agentName}
           currentModel={currentModel}
+          reviewerAgent={reviewerAgent}
           promptPreview={promptPreview}
           templateSource={templateSource}
+          outputFocus={outputFocus}
         />
       ) : (
         <NoSelection
