@@ -125,7 +125,6 @@ export class CodexAgentPlugin extends BaseAgentPlugin {
   private model?: string;
   private fullAuto = true;
   private sandbox: 'read-only' | 'workspace-write' | 'danger-full-access' = 'workspace-write';
-  private skipGitRepoCheck = true;
   protected override defaultTimeout = 0;
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
@@ -142,10 +141,6 @@ export class CodexAgentPlugin extends BaseAgentPlugin {
     if (typeof config.sandbox === 'string' &&
         ['read-only', 'workspace-write', 'danger-full-access'].includes(config.sandbox)) {
       this.sandbox = config.sandbox as typeof this.sandbox;
-    }
-
-    if (typeof config.skipGitRepoCheck === 'boolean') {
-      this.skipGitRepoCheck = config.skipGitRepoCheck;
     }
 
     if (typeof config.timeout === 'number' && config.timeout > 0) {
@@ -286,14 +281,6 @@ export class CodexAgentPlugin extends BaseAgentPlugin {
         required: false,
         help: 'Sandbox restrictions for file access',
       },
-      {
-        id: 'skipGitRepoCheck',
-        prompt: 'Skip git repository check?',
-        type: 'boolean',
-        default: true,
-        required: false,
-        help: 'Allow running outside git repositories',
-      },
     ];
   }
 
@@ -330,11 +317,6 @@ export class CodexAgentPlugin extends BaseAgentPlugin {
 
     // Sandbox mode
     args.push('--sandbox', this.sandbox);
-
-    // Skip git repo check if enabled (allows running in non-git directories)
-    if (this.skipGitRepoCheck) {
-      args.push('--skip-git-repo-check');
-    }
 
     // Use '-' to tell Codex to read prompt from stdin (per CLI reference docs)
     args.push('-');

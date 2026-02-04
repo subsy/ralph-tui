@@ -82,11 +82,6 @@ describe('CodexAgentPlugin', () => {
       await plugin.initialize({ timeout: 300000 });
       expect(await plugin.isReady()).toBe(true);
     });
-
-    test('accepts skipGitRepoCheck configuration', async () => {
-      await plugin.initialize({ skipGitRepoCheck: false });
-      expect(await plugin.isReady()).toBe(true);
-    });
   });
 
   describe('getSandboxRequirements', () => {
@@ -131,14 +126,6 @@ describe('CodexAgentPlugin', () => {
       expect(sandboxQuestion).toBeDefined();
       expect(sandboxQuestion?.type).toBe('select');
       expect(sandboxQuestion?.choices?.length).toBeGreaterThan(0);
-    });
-
-    test('includes skipGitRepoCheck question', () => {
-      const questions = plugin.getSetupQuestions();
-      const skipGitQuestion = questions.find((q) => q.id === 'skipGitRepoCheck');
-      expect(skipGitQuestion).toBeDefined();
-      expect(skipGitQuestion?.type).toBe('boolean');
-      expect(skipGitQuestion?.default).toBe(true);
     });
 
     test('includes base questions (command, timeout)', () => {
@@ -259,18 +246,6 @@ describe('CodexAgentPlugin buildArgs', () => {
     const args = (plugin as TestableCodexPlugin).testBuildArgs('test prompt');
     expect(args).toContain('--sandbox');
     expect(args).toContain('workspace-write');
-  });
-
-  test('includes --skip-git-repo-check by default', async () => {
-    await plugin.initialize({});
-    const args = (plugin as TestableCodexPlugin).testBuildArgs('test prompt');
-    expect(args).toContain('--skip-git-repo-check');
-  });
-
-  test('omits --skip-git-repo-check when disabled', async () => {
-    await plugin.initialize({ skipGitRepoCheck: false });
-    const args = (plugin as TestableCodexPlugin).testBuildArgs('test prompt');
-    expect(args).not.toContain('--skip-git-repo-check');
   });
 
   test('includes - for stdin input', async () => {
