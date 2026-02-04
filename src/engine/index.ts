@@ -45,7 +45,7 @@ import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations
 import { saveIterationLog, buildSubagentTrace, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
 import { performAutoCommit } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
-import { renderPrompt } from '../templates/index.js';
+import { renderPrompt, renderReviewPrompt } from '../templates/index.js';
 
 /**
  * Pattern to detect completion signal in agent output.
@@ -144,29 +144,8 @@ export interface WorkerModeOptions {
 }
 
 /**
- * Format acceptance criteria from task metadata.
- */
-function formatAcceptanceCriteria(
-  value: unknown
-): string | undefined {
-  if (!value) return undefined;
-  if (Array.isArray(value)) {
-    const lines = value
-      .map((item) => String(item).trim())
-      .filter((item) => item.length > 0)
-      .map((item) => `- ${item}`);
-    return lines.length > 0 ? lines.join('\n') : undefined;
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
-}
-
-/**
  * Build review prompt for the reviewer agent.
- * Uses custom review template if provided, otherwise falls back to a default prompt.
+ * Uses the unified template resolution hierarchy for review templates.
  */
 async function buildReviewPrompt(
   task: TrackerTask,
@@ -189,80 +168,15 @@ async function buildReviewPrompt(
     prd: prdContext ?? undefined,
   };
 
-  if (reviewPromptTemplate) {
-    const reviewConfig: RalphConfig = {
-      ...config,
-      promptTemplate: reviewPromptTemplate,
-    };
-    const result = renderPrompt(task, reviewConfig, undefined, extendedContext);
-    if (result.success && result.prompt) {
-      return result.prompt;
-    }
-    console.error(`Review template rendering failed: ${result.error}`);
+  // Use the unified review template resolution system
+  const result = renderReviewPrompt(task, config, reviewPromptTemplate, undefined, extendedContext);
+
+  if (result.success && result.prompt) {
+    return result.prompt;
   }
 
-  const acceptanceCriteria = formatAcceptanceCriteria(
-    task.metadata?.acceptanceCriteria
-  );
-
-  const lines: string[] = [];
-  lines.push('## Review Task');
-  lines.push(`**ID**: ${task.id}`);
-  lines.push(`**Title**: ${task.title}`);
-
-  if (task.description) {
-    lines.push('');
-    lines.push('## Description');
-    lines.push(task.description);
-  }
-
-  if (acceptanceCriteria) {
-    lines.push('');
-    lines.push('## Acceptance Criteria');
-    lines.push(acceptanceCriteria);
-  }
-
-  if (task.dependsOn && task.dependsOn.length > 0) {
-    lines.push('');
-    lines.push(`**Dependencies**: ${task.dependsOn.join(', ')}`);
-  }
-
-  if (prdContext) {
-    lines.push('');
-    lines.push(`## PRD: ${prdContext.name}`);
-    if (prdContext.description) {
-      lines.push(prdContext.description);
-    }
-    lines.push('');
-    lines.push('### Progress');
-    lines.push(
-      `${prdContext.completedCount}/${prdContext.totalCount} tasks complete`
-    );
-  }
-
-  if (codebasePatterns) {
-    lines.push('');
-    lines.push('## Codebase Patterns (Study These First)');
-    lines.push(codebasePatterns);
-  }
-
-  if (recentProgress) {
-    lines.push('');
-    lines.push('## Recent Progress');
-    lines.push(recentProgress);
-  }
-
-  lines.push('');
-  lines.push('## Review Instructions');
-  lines.push('Review the changes for correctness, tests, and style.');
-  lines.push(
-    'If everything is acceptable, respond with: <promise>COMPLETE</promise>'
-  );
-  lines.push(
-    'If issues remain, explain them clearly and do NOT output the completion token.'
-  );
-
-  return lines.join('\n');
+  // This should not happen since renderReviewPrompt always falls back to built-in
+  throw new Error(`Review template rendering failed: ${result.error}`);
 }
 
 /**
@@ -1255,7 +1169,7 @@ export class ExecutionEngine {
           task,
           this.config,
           this.tracker ?? null,
-          this.config.review?.promptTemplate
+          this.config.reviewPromptPath
         );
 
         const reviewFlags: string[] = [];

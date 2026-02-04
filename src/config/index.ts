@@ -616,8 +616,6 @@ export async function buildConfig(
   const reviewEnabled =
     options.review ?? storedConfig.review?.enabled ?? false;
   const reviewAgentName = options.reviewAgent ?? storedConfig.review?.agent;
-  const reviewPromptTemplate =
-    options.reviewPromptPath ?? storedConfig.review?.prompt_template;
   const reviewModel = options.reviewModel ?? storedConfig.review?.model;
   const reviewAgentConfig = reviewEnabled
     ? (reviewAgentName
@@ -649,12 +647,13 @@ export async function buildConfig(
     sandbox,
     // CLI --prompt takes precedence over config file prompt_template
     promptTemplate: options.promptPath ?? storedConfig.prompt_template,
+    // CLI --review-prompt (no config file option - uses project/global template dirs)
+    reviewPromptPath: options.reviewPromptPath,
     autoCommit: storedConfig.autoCommit ?? false,
     review: {
       enabled: reviewEnabled,
       agent: reviewAgentConfig,
       model: reviewModel,
-      promptTemplate: reviewPromptTemplate,
     },
   };
 }

@@ -400,3 +400,51 @@ If you discovered a **reusable pattern**, also add it to the \`## Codebase Patte
 When finished (or if already complete), signal completion with:
 <promise>COMPLETE</promise>
 `;
+
+/**
+ * Review template - used by the reviewer agent to evaluate worker output.
+ * Context-first structure: PRD → Patterns → Progress → Task → Review Instructions
+ */
+export const REVIEW_TEMPLATE = `## Review Task
+**ID**: {{taskId}}
+**Title**: {{taskTitle}}
+
+{{#if taskDescription}}
+## Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+## Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+{{#if dependsOn}}
+**Dependencies**: {{dependsOn}}
+{{/if}}
+
+{{#if prdContent}}
+## PRD: {{prdName}}
+{{#if prdDescription}}
+{{prdDescription}}
+{{/if}}
+
+### Progress
+{{prdCompletedCount}}/{{prdTotalCount}} tasks complete
+{{/if}}
+
+{{#if codebasePatterns}}
+## Codebase Patterns (Study These First)
+{{codebasePatterns}}
+{{/if}}
+
+{{#if recentProgress}}
+## Recent Progress
+{{recentProgress}}
+{{/if}}
+
+## Review Instructions
+Review the changes for correctness, tests, and style.
+If everything is acceptable, respond with: <promise>COMPLETE</promise>
+If issues remain, explain them clearly and do NOT output the completion token.
+`;

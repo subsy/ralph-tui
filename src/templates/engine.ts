@@ -22,6 +22,7 @@ import {
   BEADS_RUST_TEMPLATE,
   BEADS_BV_TEMPLATE,
   JSON_TEMPLATE,
+  REVIEW_TEMPLATE,
 } from './builtin.js';
 
 /**
@@ -108,6 +109,91 @@ export function getGlobalTemplatePath(trackerType: BuiltinTemplateType): string 
   return path.join(getUserConfigDir(), 'templates', getTemplateFilename(trackerType));
 }
 
+
+/**
+ * Load a review template from a custom path or fall back through the resolution hierarchy.
+ *
+ * Resolution order:
+ * 1. customPath (explicit --review-prompt argument or config file review.prompt_template)
+ * 2. Project: ./.ralph-tui/templates/review.hbs (project-level customization)
+ * 3. Global: ~/.config/ralph-tui/templates/review.hbs (user-level customization)
+ * 4. Built-in review template (bundled default - final fallback)
+ *
+ * @param customPath Optional path to custom review template
+ * @param cwd Working directory for relative path resolution
+ * @returns The template load result
+ */
+export function loadReviewTemplate(
+  customPath: string | undefined,
+  cwd: string
+): TemplateLoadResult {
+  // 1. Try explicit custom template first (from --review-prompt or config)
+  if (customPath) {
+    const resolvedPath = path.isAbsolute(customPath)
+      ? customPath
+      : path.resolve(cwd, customPath);
+
+    try {
+      if (fs.existsSync(resolvedPath)) {
+        const content = fs.readFileSync(resolvedPath, 'utf-8');
+        return {
+          success: true,
+          content,
+          source: resolvedPath,
+        };
+      } else {
+        return {
+          success: false,
+          source: resolvedPath,
+          error: `Review template file not found: ${resolvedPath}`,
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        source: resolvedPath,
+        error: `Failed to read review template: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  // 2. Try project-level template: ./.ralph-tui/templates/review.hbs
+  const projectTemplatePath = path.join(cwd, '.ralph-tui', 'templates', 'review.hbs');
+  try {
+    if (fs.existsSync(projectTemplatePath)) {
+      const content = fs.readFileSync(projectTemplatePath, 'utf-8');
+      return {
+        success: true,
+        content,
+        source: `project:${projectTemplatePath}`,
+      };
+    }
+  } catch {
+    // Silently fall through to next level
+  }
+
+  // 3. Try global template: ~/.config/ralph-tui/templates/review.hbs
+  const globalTemplatePath = path.join(getUserConfigDir(), 'templates', 'review.hbs');
+  try {
+    if (fs.existsSync(globalTemplatePath)) {
+      const content = fs.readFileSync(globalTemplatePath, 'utf-8');
+      return {
+        success: true,
+        content,
+        source: `global:${globalTemplatePath}`,
+      };
+    }
+  } catch {
+    // Silently fall through to built-in
+  }
+
+  // 4. Fallback to built-in review template (final fallback)
+  return {
+    success: true,
+    content: REVIEW_TEMPLATE,
+    source: 'builtin:review',
+  };
+}
 
 /**
  * Load a template from a custom path or fall back through the resolution hierarchy.
@@ -496,6 +582,63 @@ export function renderPrompt(
     return {
       success: false,
       error: `Template rendering failed: ${error instanceof Error ? error.message : String(error)}`,
+      source: loadResult.source,
+    };
+  }
+}
+
+/**
+ * Render a review prompt from a template and task context.
+ * Uses the review template resolution hierarchy instead of worker templates.
+ * @param task The current task
+ * @param config The ralph configuration
+ * @param reviewPromptPath Optional custom review template path (from CLI or config)
+ * @param epic Optional epic information
+ * @param extended Extended context with progress, patterns, PRD data
+ * @returns The render result with the prompt or error
+ */
+export function renderReviewPrompt(
+  task: TrackerTask,
+  config: RalphConfig,
+  reviewPromptPath: string | undefined,
+  epic?: { id: string; title: string; description?: string },
+  extended?: string | ExtendedTemplateContext
+): TemplateRenderResult {
+  // Load the review template using the unified resolution hierarchy
+  const loadResult = loadReviewTemplate(reviewPromptPath, config.cwd);
+  if (!loadResult.success || !loadResult.content) {
+    return {
+      success: false,
+      error: loadResult.error ?? 'Failed to load review template',
+      source: loadResult.source,
+    };
+  }
+
+  // Build context
+  const context = buildTemplateContext(task, config, epic, extended);
+
+  // Create a flat context for Handlebars (variables at top level)
+  const flatContext = {
+    ...context.vars,
+    task: context.task,
+    config: context.config,
+    epic: context.epic,
+  };
+
+  try {
+    // Compile and render
+    const template = compileTemplate(loadResult.content, loadResult.source);
+    const prompt = template(flatContext);
+
+    return {
+      success: true,
+      prompt: prompt.trim(),
+      source: loadResult.source,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Review template rendering failed: ${error instanceof Error ? error.message : String(error)}`,
       source: loadResult.source,
     };
   }

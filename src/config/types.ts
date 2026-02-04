@@ -72,8 +72,6 @@ export interface ReviewConfig {
   agent?: string;
   /** Model override for the reviewer agent */
   model?: string;
-  /** Custom review prompt template path */
-  prompt_template?: string;
 }
 
 /**
@@ -86,8 +84,6 @@ export interface ReviewRuntimeConfig {
   agent?: AgentPluginConfig;
   /** Model override for the reviewer agent */
   model?: string;
-  /** Custom review prompt template path */
-  promptTemplate?: string;
 }
 
 export type SandboxMode = 'auto' | 'bwrap' | 'sandbox-exec' | 'off';
@@ -384,6 +380,9 @@ export interface RalphConfig {
 
   /** Custom prompt template path (resolved) */
   promptTemplate?: string;
+
+  /** Custom review prompt template path (from CLI --review-prompt flag only) */
+  reviewPromptPath?: string;
 
   /** Session ID for log file naming and tracking */
   sessionId?: string;
