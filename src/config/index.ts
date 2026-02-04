@@ -621,7 +621,9 @@ export async function buildConfig(
   const reviewModel = options.reviewModel ?? storedConfig.review?.model;
   const reviewAgentConfig = reviewEnabled
     ? (reviewAgentName
-        ? getAgentConfigByName(storedConfig, reviewAgentName)
+        ? (reviewAgentName === agentConfig.name || reviewAgentName === agentConfig.plugin
+            ? agentConfig
+            : getAgentConfigByName(storedConfig, reviewAgentName))
         : agentConfig)
     : undefined;
 

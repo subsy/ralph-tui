@@ -1267,6 +1267,17 @@ export class ExecutionEngine {
           message: `Review stage starting (agent: ${reviewAgentId})`,
         });
 
+        // Insert divider into live output stream so UI can split worker and reviewer
+        this.state.currentOutput += REVIEW_OUTPUT_DIVIDER;
+        reviewStdout += REVIEW_OUTPUT_DIVIDER;
+        this.emit({
+          type: 'agent:output',
+          timestamp: new Date().toISOString(),
+          stream: 'stdout',
+          data: REVIEW_OUTPUT_DIVIDER,
+          iteration,
+        });
+
         try {
           const reviewHandle = reviewer.execute(reviewPrompt, [], {
             cwd: this.config.cwd,
@@ -1374,6 +1385,9 @@ export class ExecutionEngine {
           taskBlocked = true;
           this.skippedTasks.add(task.id);
           await this.tracker!.updateTaskStatus(task.id, 'blocked');
+          if (this.forcedTask?.id === task.id) {
+            this.forcedTaskProcessed = true;
+          }
           this.emit({
             type: 'engine:warning',
             timestamp: new Date().toISOString(),

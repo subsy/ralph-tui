@@ -629,10 +629,15 @@ export function IterationDetailView({
 
   // Split worker and reviewer outputs
   const fullOutput = iteration.agentResult?.stdout ?? '';
-  const hasReviewOutput = iteration.reviewEnabled && fullOutput.includes(REVIEW_OUTPUT_DIVIDER);
-  const [workerOutput, reviewerOutput] = hasReviewOutput
-    ? fullOutput.split(REVIEW_OUTPUT_DIVIDER)
-    : [fullOutput, ''];
+  const dividerIndex =
+    iteration.reviewEnabled ? fullOutput.indexOf(REVIEW_OUTPUT_DIVIDER) : -1;
+  const hasReviewOutput = dividerIndex !== -1;
+  const workerOutput = hasReviewOutput
+    ? fullOutput.slice(0, dividerIndex)
+    : fullOutput;
+  const reviewerOutput = hasReviewOutput
+    ? fullOutput.slice(dividerIndex + REVIEW_OUTPUT_DIVIDER.length)
+    : '';
 
   // Track which output section has focus for Tab navigation
   const [outputFocus, setOutputFocus] = useState<OutputFocus>('worker');

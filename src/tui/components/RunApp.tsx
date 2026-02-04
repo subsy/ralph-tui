@@ -1561,7 +1561,7 @@ export function RunApp({
           // Tab cycles through output sections when in output view
           // Tasks remain always highlighted, Tab only switches focus for worker/reviewer
           if (detailsViewMode === 'output') {
-            const reviewerConfigured = storedConfig?.review?.agent && storedConfig.review.agent.trim() !== '';
+            const reviewerConfigured = storedConfig?.review?.enabled && storedConfig?.review?.agent && storedConfig.review.agent.trim() !== '';
 
             setFocusedPane((prev) => {
               // Cycle: none (tasks) -> worker -> reviewer (if configured) -> subagentTree (if visible) -> none

@@ -95,10 +95,7 @@ function buildSettingDefinitions(
       options: ['none', ...agents.map((a) => a.id)],
       getValue: (config) =>
         config.review?.enabled
-          ? (config.review.agent ??
-            config.agent ??
-            config.defaultAgent ??
-            'none')
+          ? (config.review.agent ?? 'none')
           : 'none',
       setValue: (config, value) => {
         if (value === 'none') {

@@ -744,7 +744,7 @@ function TaskOutputView({
   const isLiveStreaming = iterationTiming?.isRunning === true;
 
   // Check if review is configured (not just if output contains divider)
-  // This ensures we show split sections even when reviewer hasn't started yet
+  // Keeps the split layout visible when reviewer output is empty
   const isReviewEnabled = reviewerAgent !== undefined && reviewerAgent !== '';
 
   // Check if output actually has reviewer section
@@ -756,10 +756,16 @@ function TaskOutputView({
   const { workerOutput, reviewerOutput } = useMemo(() => {
     if (!iterationOutput) return { workerOutput: undefined, reviewerOutput: undefined };
 
-    // Split worker and reviewer if divider exists
-    const [worker, reviewer] = hasReviewOutput
-      ? iterationOutput.split(REVIEW_OUTPUT_DIVIDER)
-      : [iterationOutput, undefined];
+    // Split worker and reviewer on first divider only to avoid content loss
+    const dividerIndex = hasReviewOutput
+      ? iterationOutput.indexOf(REVIEW_OUTPUT_DIVIDER)
+      : -1;
+    const worker = dividerIndex >= 0
+      ? iterationOutput.slice(0, dividerIndex)
+      : iterationOutput;
+    const reviewer = dividerIndex >= 0
+      ? iterationOutput.slice(dividerIndex + REVIEW_OUTPUT_DIVIDER.length)
+      : undefined;
 
     // For live output during execution, strip ANSI but keep raw content
     if (isLiveStreaming) {
