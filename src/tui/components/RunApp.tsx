@@ -1586,10 +1586,10 @@ export function RunApp({
           // Tasks remain always highlighted, Tab only switches focus for content sections
           if (detailsViewMode === 'output') {
             // Output view: cycle through worker/reviewer/subagentTree
-            // Check if reviewer pane is present: either configured OR output contains divider (historical)
-            const reviewerConfigured = storedConfig?.review?.enabled && storedConfig?.review?.agent && storedConfig.review.agent.trim() !== '';
+            // Check if reviewer pane is present: either review enabled OR output contains divider (historical)
+            const reviewerEnabled = !!storedConfig?.review?.enabled;
             const hasReviewerOutput = displayIterationOutput?.includes(REVIEW_OUTPUT_DIVIDER) ?? false;
-            const reviewerPresent = reviewerConfigured || hasReviewerOutput;
+            const reviewerPresent = reviewerEnabled || hasReviewerOutput;
 
             setFocusedPane((prev) => {
               // Cycle: none (tasks) -> worker -> reviewer (if present) -> subagentTree (if visible) -> none
@@ -1632,16 +1632,18 @@ export function RunApp({
             });
           } else if (detailsViewMode === 'prompt') {
             // Prompt view: cycle through worker/reviewer (if review enabled)
-            const reviewerConfigured = storedConfig?.review?.enabled && storedConfig?.review?.agent && storedConfig.review.agent.trim() !== '';
+            // Note: reviewerConfigured only checks if review is enabled, not if review.agent is set
+            // because when review.agent is unset, the engine falls back to using the primary agent
+            const reviewerConfigured = !!storedConfig?.review?.enabled;
 
             setFocusedPane((prev) => {
-              // Cycle: none (tasks) -> worker -> reviewer (if configured) -> subagentTree (if visible) -> none
+              // Cycle: none (tasks) -> worker -> reviewer (if enabled) -> subagentTree (if visible) -> none
               if (prev === 'tasks') {
                 // First Tab press: focus worker
                 return 'worker';
               }
               if (prev === 'worker') {
-                // From worker: go to reviewer if configured, else subagentTree if visible, else back to tasks
+                // From worker: go to reviewer if enabled, else subagentTree if visible, else back to tasks
                 if (reviewerConfigured) return 'reviewer';
                 if (subagentPanelVisible) return 'subagentTree';
                 return 'tasks';
