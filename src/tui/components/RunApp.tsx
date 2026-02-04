@@ -2354,6 +2354,13 @@ export function RunApp({
     return { iteration: 0, output: undefined, segments: undefined, timing: undefined };
   }, [effectiveTaskId, selectedTask, selectedIteration, viewMode, currentTaskId, currentIteration, currentOutput, currentSegments, iterations, historicalOutputCache, currentIterationStartedAt, isViewingRemote, remoteStatus, remoteCurrentIteration, remoteOutput, remoteIterationCache, remoteCurrentTaskId, isParallelMode, parallelTaskIdToWorkerId, parallelWorkerOutputs]);
 
+  // Compute reviewer agent name with fallback to primary agent
+  // When review is enabled but review.agent is not set, the engine uses the primary agent
+  const reviewerAgentName = useMemo(() => {
+    if (!storedConfig?.review?.enabled) return undefined;
+    return storedConfig.review.agent?.trim() || storedConfig?.agent || agentPlugin;
+  }, [storedConfig, agentPlugin]);
+
   // Compute the actual output to display based on selectedSubagentId
   // When a subagent is selected (not task root), try to get its specific output
   // NOTE: Only use selectedSubagentId when viewing the current task - subagent tree
@@ -2734,7 +2741,7 @@ export function RunApp({
         completedTasks={completedTasks}
         totalTasks={totalTasks}
         agentName={displayAgentName}
-        reviewerAgent={storedConfig?.review?.enabled && storedConfig?.review?.agent ? storedConfig.review.agent : undefined}
+        reviewerAgent={reviewerAgentName}
         trackerName={displayTrackerName}
         activeAgentState={isViewingRemote ? remoteActiveAgent : activeAgentState}
         rateLimitState={isViewingRemote ? remoteRateLimitState : rateLimitState}
@@ -2853,7 +2860,7 @@ export function RunApp({
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}
               currentModel={displayAgentInfo.model}
-              reviewerAgent={storedConfig?.review?.enabled && storedConfig?.review?.agent ? storedConfig.review.agent : undefined}
+              reviewerAgent={reviewerAgentName}
               promptPreview={promptPreview}
               templateSource={templateSource}
               reviewPromptPreview={reviewPromptPreview}
@@ -2897,7 +2904,7 @@ export function RunApp({
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}
               currentModel={displayAgentInfo.model}
-              reviewerAgent={storedConfig?.review?.enabled && storedConfig?.review?.agent ? storedConfig.review.agent : undefined}
+              reviewerAgent={reviewerAgentName}
               promptPreview={promptPreview}
               templateSource={templateSource}
               reviewPromptPreview={reviewPromptPreview}
