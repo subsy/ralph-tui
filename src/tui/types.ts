@@ -192,6 +192,8 @@ export interface RightPanelProps {
   remoteConnectionStatus?: ConnectionStatus;
   /** Alias of the remote being viewed */
   remoteAlias?: string;
+  /** Which output section has focus ('worker' or 'reviewer') for keyboard navigation */
+  outputFocus?: 'worker' | 'reviewer';
 }
 
 /**

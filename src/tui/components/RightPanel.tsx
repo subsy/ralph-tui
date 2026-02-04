@@ -6,8 +6,7 @@
  */
 
 import type { ReactNode } from 'react';
-import { useMemo, useState, useEffect, useCallback } from 'react';
-import { useKeyboard } from '@opentui/react';
+import { useMemo, useState, useEffect } from 'react';
 import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
 import type { RightPanelProps, DetailsViewMode, IterationTimingInfo, TaskPriority } from '../types.js';
 import { stripAnsiCodes, type FormattedSegment } from '../../plugins/agents/output-formatting.js';
@@ -717,11 +716,6 @@ function PromptPreviewView({
  * Task output view - shows full-height scrollable iteration output
  * with optional collapsible subagent sections
  */
-/**
- * Focus mode for output sections when split into worker/reviewer
- */
-type OutputFocus = 'worker' | 'reviewer';
-
 function TaskOutputView({
   task,
   currentIteration,
@@ -731,6 +725,7 @@ function TaskOutputView({
   agentName,
   currentModel,
   reviewerAgent,
+  outputFocus,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
@@ -740,12 +735,10 @@ function TaskOutputView({
   agentName?: string;
   currentModel?: string;
   reviewerAgent?: string;
+  outputFocus?: 'worker' | 'reviewer';
 }): ReactNode {
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
-
-  // Track which output section has focus for Tab navigation
-  const [outputFocus, setOutputFocus] = useState<OutputFocus>('worker');
 
   // Check if we're live streaming
   const isLiveStreaming = iterationTiming?.isRunning === true;
@@ -756,23 +749,6 @@ function TaskOutputView({
 
   // Check if output actually has reviewer section
   const hasReviewOutput = iterationOutput?.includes(REVIEW_OUTPUT_DIVIDER) ?? false;
-
-  // Handle Tab key to switch between worker and reviewer outputs
-  const handleKeyboard = useCallback(
-    (key: { name: string }) => {
-      if (isReviewEnabled && key.name === 'tab') {
-        setOutputFocus((prev) => (prev === 'worker' ? 'reviewer' : 'worker'));
-      }
-    },
-    [isReviewEnabled]
-  );
-
-  useKeyboard(handleKeyboard);
-
-  // Reset focus when iteration changes
-  useEffect(() => {
-    setOutputFocus('worker');
-  }, [currentIteration]);
 
   // For live streaming, prefer segments for TUI-native colors
   // For historical/completed output, parse the string to extract readable content
@@ -867,15 +843,29 @@ function TaskOutputView({
         <box style={{ flexDirection: 'column', flexGrow: 1, gap: 1 }}>
           {/* Worker output section */}
           <box
-            title={`Worker: ${agentName || 'agent'}`}
             style={{
               flexGrow: 1,
+              flexDirection: 'column',
               border: true,
-              borderColor: outputFocus === 'worker' ? colors.accent.primary : colors.border.normal,
+              borderColor: outputFocus === 'worker' ? colors.accent.primary : colors.border.muted,
               backgroundColor: colors.bg.secondary,
             }}
           >
-            <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={true} stickyStart="bottom">
+            <box style={{ paddingLeft: 1, paddingRight: 1, paddingBottom: 0 }}>
+              <text>
+                <span fg={colors.fg.secondary}>Worker: </span>
+                <span fg={colors.fg.primary}>{agentName || 'agent'}</span>
+                {currentIteration > 0 && (
+                  <span fg={colors.fg.muted}> (Iteration {currentIteration})</span>
+                )}
+              </text>
+            </box>
+            <scrollbox
+              style={{ flexGrow: 1, padding: 1 }}
+              stickyScroll={isLiveStreaming}
+              stickyStart="bottom"
+              focused={outputFocus === 'worker'}
+            >
               {workerOutput !== undefined && workerOutput.length > 0 ? (
                 renderOutputLines(workerOutput)
               ) : (
@@ -886,15 +876,26 @@ function TaskOutputView({
 
           {/* Reviewer output section */}
           <box
-            title={`Reviewer: ${reviewerAgent || 'reviewer'}`}
             style={{
               flexGrow: 1,
+              flexDirection: 'column',
               border: true,
-              borderColor: outputFocus === 'reviewer' ? colors.accent.primary : colors.border.normal,
+              borderColor: outputFocus === 'reviewer' ? colors.accent.primary : colors.border.muted,
               backgroundColor: colors.bg.secondary,
             }}
           >
-            <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={true} stickyStart="bottom">
+            <box style={{ paddingLeft: 1, paddingRight: 1, paddingBottom: 0 }}>
+              <text>
+                <span fg={colors.fg.secondary}>Reviewer: </span>
+                <span fg={colors.fg.primary}>{reviewerAgent || 'reviewer'}</span>
+              </text>
+            </box>
+            <scrollbox
+              style={{ flexGrow: 1, padding: 1 }}
+              stickyScroll={isLiveStreaming}
+              stickyStart="bottom"
+              focused={outputFocus === 'reviewer'}
+            >
               {reviewerOutput !== undefined && reviewerOutput.length > 0 ? (
                 renderOutputLines(reviewerOutput)
               ) : (
@@ -903,13 +904,6 @@ function TaskOutputView({
                 </text>
               )}
             </scrollbox>
-          </box>
-
-          {/* Tab hint */}
-          <box style={{ marginTop: 0 }}>
-            <text fg={colors.fg.dim}>
-              {outputFocus === 'worker' ? '[Worker focused - Tab to switch]' : '[Reviewer focused - Tab to switch]'}
-            </text>
           </box>
         </box>
       ) : (
@@ -929,7 +923,7 @@ function TaskOutputView({
             backgroundColor: colors.bg.secondary,
           }}
         >
-          <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={true} stickyStart="bottom">
+          <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={isLiveStreaming} stickyStart="bottom">
             {workerOutput !== undefined && workerOutput.length > 0 ? (
               renderOutputLines(workerOutput)
             ) : workerOutput === '' ? (
@@ -961,6 +955,7 @@ function TaskDetails({
   reviewerAgent,
   promptPreview,
   templateSource,
+  outputFocus,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
@@ -973,6 +968,7 @@ function TaskDetails({
   reviewerAgent?: string;
   promptPreview?: string;
   templateSource?: string;
+  outputFocus?: 'worker' | 'reviewer';
 }): ReactNode {
   if (viewMode === 'output') {
     return (
@@ -985,6 +981,7 @@ function TaskDetails({
         agentName={agentName}
         currentModel={currentModel}
         reviewerAgent={reviewerAgent}
+        outputFocus={outputFocus}
       />
     );
   }
@@ -1020,6 +1017,7 @@ export function RightPanel({
   isViewingRemote = false,
   remoteConnectionStatus,
   remoteAlias,
+  outputFocus,
 }: RightPanelProps): ReactNode {
   // Build title with view mode indicator
   const modeIndicators: Record<typeof viewMode, string> = {
@@ -1056,6 +1054,7 @@ export function RightPanel({
           reviewerAgent={reviewerAgent}
           promptPreview={promptPreview}
           templateSource={templateSource}
+          outputFocus={outputFocus}
         />
       ) : (
         <NoSelection
