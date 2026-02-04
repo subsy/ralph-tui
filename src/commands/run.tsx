@@ -106,6 +106,80 @@ export function isSessionComplete(
 }
 
 /**
+ * Check if the current directory is a git repository.
+ * Returns true if git repository, false otherwise.
+ */
+function isGitRepository(cwd: string): boolean {
+  try {
+    const result = spawnSync('git', ['rev-parse', '--git-dir'], {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Initialize git repository in the given directory.
+ * Returns true on success, false on failure.
+ */
+function initGitRepository(cwd: string): boolean {
+  try {
+    const result = spawnSync('git', ['init'], {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 10000,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prompt user about git repository initialization.
+ * Returns 'init' to initialize, 'continue' to proceed anyway, 'abort' to exit.
+ */
+async function promptGitInit(): Promise<'init' | 'continue' | 'abort'> {
+  console.log('');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('                 No Git Repository Detected                    ');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('');
+  console.log('  ⚠️   An autonomous coding agent should work under version control.');
+  console.log('');
+  console.log('  Without git:');
+  console.log('    • Changes cannot be reverted if something goes wrong');
+  console.log('    • No audit trail of modifications');
+  console.log('    • Some agent tools may not work correctly');
+  console.log('');
+  console.log('  Options:');
+  console.log('    [Y] Initialize git repository (recommended)');
+  console.log('    [N] Exit and initialize manually');
+  console.log('    [C] Continue without git (not recommended)');
+  console.log('');
+
+  const { createInterface } = await import('node:readline');
+  return new Promise<'init' | 'continue' | 'abort'>((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('  Your choice [Y/n/c]: ', (answer) => {
+      rl.close();
+      const choice = answer.trim().toLowerCase();
+      if (choice === '' || choice === 'y' || choice === 'yes') {
+        resolve('init');
+      } else if (choice === 'c' || choice === 'continue') {
+        resolve('continue');
+      } else {
+        resolve('abort');
+      }
+    });
+  });
+}
+
+/**
  * Get git repository information for the current working directory.
  * Returns undefined values if not a git repository or git command fails.
  */
@@ -2285,6 +2359,42 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Show warnings
   for (const warning of validation.warnings) {
     console.warn(`Warning: ${warning}`);
+  }
+
+  // Check for git repository (only in interactive TUI mode, skip for headless/CI)
+  if (!options.headless && process.stdin.isTTY) {
+    if (!isGitRepository(cwd)) {
+      const choice = await promptGitInit();
+
+      if (choice === 'init') {
+        console.log('');
+        console.log('Initializing git repository...');
+        if (initGitRepository(cwd)) {
+          console.log('✓ Git repository initialized successfully');
+          console.log('');
+          console.log('Consider creating an initial commit:');
+          console.log('  git add .');
+          console.log('  git commit -m "Initial commit"');
+        } else {
+          console.error('✗ Failed to initialize git repository');
+          console.error('  Please initialize git manually before continuing');
+          process.exit(1);
+        }
+      } else if (choice === 'abort') {
+        console.log('');
+        console.log('Please initialize git repository manually:');
+        console.log('  git init');
+        console.log('  git add .');
+        console.log('  git commit -m "Initial commit"');
+        console.log('');
+        process.exit(0);
+      } else {
+        // Continue without git - show warning
+        console.log('');
+        console.log('⚠️  Continuing without git repository (not recommended)');
+        console.log('');
+      }
+    }
   }
 
   // Show environment variable exclusion report upfront (using resolved agent config)
