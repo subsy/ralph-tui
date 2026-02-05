@@ -205,6 +205,9 @@ export interface StoredConfig {
   /** Default iteration delay in milliseconds */
   iterationDelay?: number;
 
+  /** Default preflight timeout in milliseconds (0 = no timeout) */
+  preflightTimeoutMs?: number;
+
   /** Configured agent plugins */
   agents?: AgentPluginConfig[];
 
