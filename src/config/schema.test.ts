@@ -534,6 +534,10 @@ describe('StoredConfigSchema', () => {
     expect(() => StoredConfigSchema.parse({ parallel: { maxWorkers: 33 } })).toThrow();
   });
 
+  test('validates parallel.maxWorkers is integer', () => {
+    expect(() => StoredConfigSchema.parse({ parallel: { maxWorkers: 2.5 } })).toThrow();
+  });
+
   test('validates parallel.mode values', () => {
     expect(() => StoredConfigSchema.parse({ parallel: { mode: 'invalid' } })).toThrow();
   });

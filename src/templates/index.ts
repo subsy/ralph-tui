@@ -14,7 +14,9 @@ export type {
 
 export {
   renderPrompt,
+  renderReviewPrompt,
   loadTemplate,
+  loadReviewTemplate,
   buildTemplateVariables,
   buildTemplateContext,
   getBuiltinTemplate,
@@ -34,4 +36,5 @@ export {
   BEADS_TEMPLATE,
   BEADS_BV_TEMPLATE,
   JSON_TEMPLATE,
+  REVIEW_TEMPLATE,
 } from './builtin.js';

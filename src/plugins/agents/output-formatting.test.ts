@@ -14,6 +14,7 @@ import {
   formatUrl,
   formatToolCall,
   processAgentEvents,
+  stripAnsiCodes,
 } from './output-formatting.js';
 
 describe('COLORS', () => {
@@ -364,5 +365,32 @@ describe('processAgentEvents', () => {
     const result = processAgentEvents(events);
     // Non-empty text gets trailing newline
     expect(result).toBe('visible\n');
+  });
+});
+
+describe('stripAnsiCodes', () => {
+  test('removes valid ANSI escape sequences', () => {
+    const input = '\x1b[94mHello\x1b[0m World';
+    expect(stripAnsiCodes(input)).toBe('Hello World');
+  });
+
+  test('removes corrupted ANSI escape sequences (replacement character)', () => {
+    // ESC byte (\x1b) gets corrupted to U+FFFD (�) during encoding
+    const input = '\ufffd[?2027hHello\ufffd[0m World';
+    expect(stripAnsiCodes(input)).toBe('Hello World');
+  });
+
+  test('handles mixed valid and corrupted ANSI codes', () => {
+    const input = '\x1b[94mValid\x1b[0m \ufffd[?2027hCorrupted\ufffd[0m Text';
+    expect(stripAnsiCodes(input)).toBe('Valid Corrupted Text');
+  });
+
+  test('returns unchanged string when no ANSI codes present', () => {
+    const input = 'Plain text with [brackets] but no ANSI';
+    expect(stripAnsiCodes(input)).toBe(input);
+  });
+
+  test('handles empty string', () => {
+    expect(stripAnsiCodes('')).toBe('');
   });
 });

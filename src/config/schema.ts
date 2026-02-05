@@ -97,6 +97,16 @@ export const ConflictResolutionConfigSchema = z.object({
 });
 
 /**
+ * Review configuration schema
+ */
+export const ReviewConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  agent: z.string().optional(),
+  model: z.string().optional(),
+  prompt_template: z.string().optional(),
+});
+
+/**
  * Agent plugin configuration schema
  */
 export const AgentPluginConfigSchema = z.object({
@@ -218,6 +228,9 @@ export const StoredConfigSchema = z
 
     // Conflict resolution configuration for parallel execution
     conflictResolution: ConflictResolutionConfigSchema.optional(),
+
+    // Review configuration
+    review: ReviewConfigSchema.optional(),
   })
   .strict();
 

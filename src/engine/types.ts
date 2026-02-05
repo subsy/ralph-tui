@@ -171,8 +171,20 @@ export interface IterationResult {
   /** Whether the task was completed */
   taskCompleted: boolean;
 
+  /** Whether the task was blocked by review */
+  taskBlocked?: boolean;
+
   /** Whether <promise>COMPLETE</promise> was detected */
   promiseComplete: boolean;
+
+  /** Whether review stage was enabled for this iteration */
+  reviewEnabled?: boolean;
+
+  /** Whether reviewer approved the task */
+  reviewPassed?: boolean;
+
+  /** Reviewer agent plugin id */
+  reviewAgent?: string;
 
   /** Duration of the iteration in milliseconds */
   durationMs: number;
@@ -301,7 +313,7 @@ export interface EngineResumedEvent extends EngineEventBase {
 export interface EngineWarningEvent extends EngineEventBase {
   type: 'engine:warning';
   /** Warning code for programmatic handling */
-  code: 'sandbox-network-conflict';
+  code: 'sandbox-network-conflict' | 'review-start' | 'review-blocked';
   /** Human-readable warning message */
   message: string;
 }

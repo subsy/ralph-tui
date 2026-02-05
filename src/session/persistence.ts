@@ -138,6 +138,9 @@ export interface PersistedIterationResult {
   /** Whether the task was completed */
   taskCompleted: boolean;
 
+  /** Whether the task was blocked by review */
+  taskBlocked?: boolean;
+
   /** Duration in milliseconds */
   durationMs: number;
 
@@ -357,6 +360,7 @@ export function updateSessionAfterIteration(
     taskId: result.task.id,
     taskTitle: result.task.title,
     taskCompleted: result.taskCompleted,
+    taskBlocked: result.taskBlocked,
     durationMs: result.durationMs,
     error: result.error,
     startedAt: result.startedAt,

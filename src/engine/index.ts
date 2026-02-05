@@ -45,12 +45,17 @@ import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations
 import { saveIterationLog, buildSubagentTrace, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
 import { performAutoCommit } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
-import { renderPrompt } from '../templates/index.js';
+import { renderPrompt, renderReviewPrompt } from '../templates/index.js';
 
 /**
- * Pattern to detect completion signal in agent output
+ * Pattern to detect completion signal in agent output.
  */
 const PROMISE_COMPLETE_PATTERN = /<promise>\s*COMPLETE\s*<\/promise>/i;
+
+/**
+ * Divider to separate reviewer output in logs.
+ */
+const REVIEW_OUTPUT_DIVIDER = '\n\n===== REVIEW OUTPUT =====\n';
 
 /**
  * Timeout for primary agent recovery test (5 seconds).
@@ -76,7 +81,7 @@ async function buildPrompt(
   config: RalphConfig,
   tracker?: TrackerPlugin
 ): Promise<string> {
-  // Load recent progress for context (last 5 iterations)
+  // Load progress summary limited to 5 iterations for context
   const recentProgress = await getRecentProgressSummary(config.cwd, 5);
 
   // Load codebase patterns from progress.md (if any exist)
@@ -139,6 +144,42 @@ export interface WorkerModeOptions {
 }
 
 /**
+ * Build review prompt for the reviewer agent.
+ * Uses the unified template resolution hierarchy for review templates.
+ */
+async function buildReviewPrompt(
+  task: TrackerTask,
+  config: RalphConfig,
+  tracker: TrackerPlugin | null,
+  reviewPromptTemplate?: string
+): Promise<string> {
+  // Load progress summary limited to 5 iterations for context
+  const recentProgress = await getRecentProgressSummary(config.cwd, 5);
+
+  // Load codebase patterns from progress.md (if any exist)
+  const codebasePatterns = await getCodebasePatternsForPrompt(config.cwd);
+
+  // Get PRD context if the tracker supports it
+  const prdContext = await tracker?.getPrdContext?.();
+
+  const extendedContext = {
+    recentProgress,
+    codebasePatterns,
+    prd: prdContext ?? undefined,
+  };
+
+  // Use the unified review template resolution system
+  const result = renderReviewPrompt(task, config, reviewPromptTemplate, undefined, extendedContext);
+
+  if (result.success && result.prompt) {
+    return result.prompt;
+  }
+
+  // This should not happen since renderReviewPrompt always falls back to built-in
+  throw new Error(`Review template rendering failed: ${result.error}`);
+}
+
+/**
  * Execution engine for the agent loop
  */
 export class ExecutionEngine {
@@ -165,6 +206,8 @@ export class ExecutionEngine {
   private rateLimitedAgents: Set<string> = new Set();
   /** Primary agent instance - preserved when switching to fallback for recovery attempts */
   private primaryAgentInstance: AgentPlugin | null = null;
+  /** Reviewer agent instance (optional) */
+  private reviewAgent: AgentPlugin | null = null;
   /** Track agent switches during the current iteration for logging */
   private currentIterationAgentSwitches: AgentSwitchEntry[] = [];
   /** Forced task for worker mode — engine only works on this one task */
@@ -236,6 +279,29 @@ export class ExecutionEngine {
 
     // Store reference to primary agent for recovery attempts
     this.primaryAgentInstance = this.agent;
+
+    // Initialize reviewer agent if configured
+    if (this.config.review?.enabled) {
+      const reviewConfig = this.config.review.agent ?? this.config.agent;
+      const reviewInstance = await agentRegistry.getInstance(reviewConfig);
+      const reviewDetect = await reviewInstance.detect();
+      if (!reviewDetect.available) {
+        throw new Error(
+          `Review agent '${reviewConfig.plugin}' not available: ${reviewDetect.error}`
+        );
+      }
+
+      // Validate review model if specified
+      const reviewModel = this.config.review.model ?? this.config.model;
+      if (reviewModel) {
+        const modelError = reviewInstance.validateModel(reviewModel);
+        if (modelError) {
+          throw new Error(`Review model validation failed: ${modelError}`);
+        }
+      }
+
+      this.reviewAgent = reviewInstance;
+    }
 
     // Initialize active agent state
     const now = new Date().toISOString();
@@ -383,6 +449,54 @@ export class ExecutionEngine {
 
     if (!result.success || !result.prompt) {
       return { success: false, error: result.error ?? 'Unknown error generating prompt' };
+    }
+
+    return {
+      success: true,
+      prompt: result.prompt,
+      source: result.source ?? 'unknown',
+    };
+  }
+
+  /**
+   * Generate a preview of the review prompt that would be used for a task.
+   * Used by the TUI to show users what prompt will be sent to the reviewer agent.
+   */
+  async generateReviewPromptPreview(
+    taskId: string
+  ): Promise<{ success: true; prompt: string; source: string } | { success: false; error: string }> {
+    if (!this.tracker) {
+      return { success: false, error: 'No tracker configured' };
+    }
+
+    // Get the task (include completed tasks so we can review prompts after execution)
+    const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress', 'completed'] });
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) {
+      return { success: false, error: `Task not found: ${taskId}` };
+    }
+
+    // Get recent progress summary for context
+    const recentProgress = await getRecentProgressSummary(this.config.cwd, 5);
+
+    // Get codebase patterns from progress.md (if any exist)
+    const codebasePatterns = await getCodebasePatternsForPrompt(this.config.cwd);
+
+    // Get PRD context if the tracker supports it
+    const prdContext = await this.tracker.getPrdContext?.();
+
+    // Build extended template context with PRD data and patterns
+    const extendedContext = {
+      recentProgress,
+      codebasePatterns,
+      prd: prdContext ?? undefined,
+    };
+
+    // Generate the review prompt using unified template resolution
+    const result = renderReviewPrompt(task, this.config, this.config.reviewPromptPath, undefined, extendedContext);
+
+    if (!result.success || !result.prompt) {
+      return { success: false, error: result.error ?? 'Unknown error generating review prompt' };
     }
 
     return {
@@ -1080,12 +1194,188 @@ export class ExecutionEngine {
       // Check for completion signal
       const promiseComplete = PROMISE_COMPLETE_PATTERN.test(agentResult.stdout);
 
-      // Determine if task was completed
+      // Determine if worker completed (for review stage)
       // IMPORTANT: Only use the explicit <promise>COMPLETE</promise> signal.
       // Exit code 0 alone does NOT indicate task completion - an agent may exit
       // cleanly after asking clarification questions or hitting a blocker.
       // See: https://github.com/subsy/ralph-tui/issues/259
-      const taskCompleted = promiseComplete;
+      const workerCompleted = promiseComplete;
+
+      let reviewEnabled = false;
+      let reviewPassed: boolean | undefined;
+      let reviewAgentId: string | undefined;
+      let taskBlocked = false;
+      let reviewStdout = '';
+      let reviewStderr = '';
+
+      if (workerCompleted && this.config.review?.enabled) {
+        reviewEnabled = true;
+        const reviewer = this.reviewAgent ?? this.agent!;
+        reviewAgentId = reviewer.meta.id;
+
+        const reviewPrompt = await buildReviewPrompt(
+          task,
+          this.config,
+          this.tracker ?? null,
+          this.config.reviewPromptPath
+        );
+
+        const reviewFlags: string[] = [];
+        const reviewModel =
+          this.config.review?.model ??
+          (reviewer.meta.id === this.agent?.meta.id ? this.config.model : undefined);
+        if (reviewModel) {
+          reviewFlags.push('--model', reviewModel);
+        }
+
+        const supportsReviewTracing = reviewer.meta.supportsSubagentTracing;
+        const isReviewDroid = reviewer.meta.id === 'droid';
+        const reviewJsonlParser = isReviewDroid ? createDroidStreamingJsonlParser() : null;
+
+        this.emit({
+          type: 'engine:warning',
+          timestamp: new Date().toISOString(),
+          code: 'review-start',
+          message: `Review stage starting (agent: ${reviewAgentId})`,
+        });
+
+        // Emit divider to live output stream so UI can split worker and reviewer in real-time
+        // Note: Don't add to this.state.currentOutput to avoid duplication in final combined log
+        this.emit({
+          type: 'agent:output',
+          timestamp: new Date().toISOString(),
+          stream: 'stdout',
+          data: REVIEW_OUTPUT_DIVIDER,
+          iteration,
+        });
+
+        try {
+          const reviewHandle = reviewer.execute(reviewPrompt, [], {
+            cwd: this.config.cwd,
+            flags: reviewFlags,
+            sandbox: this.config.sandbox,
+            subagentTracing: supportsReviewTracing,
+            onJsonlMessage: (message: Record<string, unknown>) => {
+              const part = message.part as Record<string, unknown> | undefined;
+              if (message.type === 'tool_use' && part?.tool) {
+                const openCodeMessage = {
+                  source: 'opencode' as const,
+                  type: message.type as string,
+                  timestamp: message.timestamp as number | undefined,
+                  sessionID: message.sessionID as string | undefined,
+                  part: part as import('../plugins/agents/opencode/outputParser.js').OpenCodePart,
+                  raw: message,
+                };
+                if (isOpenCodeTaskTool(openCodeMessage)) {
+                  for (const claudeMessage of openCodeTaskToClaudeMessages(openCodeMessage)) {
+                    this.subagentParser.processMessage(claudeMessage);
+                  }
+                }
+                return;
+              }
+
+              const claudeMessage: ClaudeJsonlMessage = {
+                type: message.type as string | undefined,
+                message: message.message as string | undefined,
+                tool: message.tool as { name?: string; input?: Record<string, unknown> } | undefined,
+                result: message.result,
+                cost: message.cost as { inputTokens?: number; outputTokens?: number; totalUSD?: number } | undefined,
+                sessionId: message.sessionId as string | undefined,
+                raw: message,
+              };
+              this.subagentParser.processMessage(claudeMessage);
+            },
+            onStdout: (data) => {
+              this.state.currentOutput += data;
+              reviewStdout += data;
+              this.emit({
+                type: 'agent:output',
+                timestamp: new Date().toISOString(),
+                stream: 'stdout',
+                data,
+                iteration,
+              });
+
+              if (reviewJsonlParser && isReviewDroid) {
+                const results = reviewJsonlParser.push(data);
+                for (const result of results) {
+                  if (result.success) {
+                    if (isDroidJsonlMessage(result.message)) {
+                      for (const normalized of toClaudeJsonlMessages(result.message)) {
+                        this.subagentParser.processMessage(normalized);
+                      }
+                    } else {
+                      this.subagentParser.processMessage(result.message);
+                    }
+                  }
+                }
+              }
+            },
+            onStderr: (data) => {
+              this.state.currentStderr += data;
+              reviewStderr += data;
+              this.emit({
+                type: 'agent:output',
+                timestamp: new Date().toISOString(),
+                stream: 'stderr',
+                data,
+                iteration,
+              });
+            },
+          });
+
+          this.currentExecution = reviewHandle;
+          const reviewResult = await reviewHandle.promise;
+          this.currentExecution = null;
+
+          if (reviewJsonlParser && isReviewDroid) {
+            const remaining = reviewJsonlParser.flush();
+            for (const result of remaining) {
+              if (result.success) {
+                if (isDroidJsonlMessage(result.message)) {
+                  for (const normalized of toClaudeJsonlMessages(result.message)) {
+                    this.subagentParser.processMessage(normalized);
+                  }
+                } else {
+                  this.subagentParser.processMessage(result.message);
+                }
+              }
+            }
+          }
+
+          reviewStdout = reviewResult.stdout;
+          reviewStderr = reviewResult.stderr;
+          reviewPassed = PROMISE_COMPLETE_PATTERN.test(reviewResult.stdout);
+        } catch (error) {
+          reviewPassed = false;
+          reviewStderr =
+            error instanceof Error ? error.message : String(error);
+        }
+
+        if (!reviewPassed) {
+          taskBlocked = true;
+          this.skippedTasks.add(task.id);
+          await this.tracker!.updateTaskStatus(task.id, 'blocked');
+          if (this.forcedTask?.id === task.id) {
+            this.forcedTaskProcessed = true;
+          }
+          this.emit({
+            type: 'engine:warning',
+            timestamp: new Date().toISOString(),
+            code: 'review-blocked',
+            message: `Review failed; task ${task.id} blocked`,
+          });
+        }
+      }
+
+      // Determine if task was completed (requires review if enabled)
+      const taskCompleted =
+        workerCompleted && (!reviewEnabled || reviewPassed === true);
+
+      // Clear rate-limited agents tracking on worker completion
+      if (workerCompleted) {
+        this.clearRateLimitedAgents();
+      }
 
       // Update tracker if task completed
       // In worker mode (forcedTask set), skip tracker update — the ParallelExecutor
@@ -1102,10 +1392,6 @@ export class ExecutionEngine {
           task,
           iteration,
         });
-
-        // Clear rate-limited agents tracking on task completion
-        // This allows agents to be retried for the next task
-        this.clearRateLimitedAgents();
       }
 
       // Auto-commit after task completion (before iteration log is saved)
@@ -1129,7 +1415,11 @@ export class ExecutionEngine {
         task,
         agentResult,
         taskCompleted,
+        taskBlocked: taskBlocked ? true : undefined,
         promiseComplete,
+        reviewEnabled: reviewEnabled ? true : undefined,
+        reviewPassed,
+        reviewAgent: reviewAgentId,
         durationMs,
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
@@ -1143,9 +1433,31 @@ export class ExecutionEngine {
         events.length > 0 ? buildSubagentTrace(events, states) : undefined;
 
       // Build completion summary if agent switches occurred
-      const completionSummary = this.buildCompletionSummary(result);
+      let completionSummary = this.buildCompletionSummary(result);
+      if (reviewEnabled) {
+        const reviewSummary = reviewPassed
+          ? 'Review passed'
+          : 'Review failed (task blocked)';
+        completionSummary = completionSummary
+          ? `${completionSummary}. ${reviewSummary}`
+          : reviewSummary;
+      }
 
-      await saveIterationLog(this.config.cwd, result, agentResult.stdout, agentResult.stderr ?? this.state.currentStderr, {
+      // Combine worker and reviewer output with divider (always include divider when review enabled)
+      // This ensures saved logs match the live stream and clearly indicate review ran
+      const combinedStdout = reviewEnabled
+        ? `${agentResult.stdout}${REVIEW_OUTPUT_DIVIDER}${reviewStdout}`
+        : agentResult.stdout;
+      const combinedStderr = reviewStderr
+        ? [agentResult.stderr, reviewStderr].filter((text) => text.trim().length > 0).join('\n\n')
+        : agentResult.stderr;
+      result.agentResult = {
+        ...agentResult,
+        stdout: combinedStdout,
+        stderr: combinedStderr,
+      };
+
+      await saveIterationLog(this.config.cwd, result, combinedStdout, combinedStderr ?? this.state.currentStderr, {
         config: this.config,
         sessionId: this.config.sessionId,
         subagentTrace,

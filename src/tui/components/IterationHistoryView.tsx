@@ -47,9 +47,13 @@ function getOutcomeText(result: IterationResult, isRunning: boolean): string {
   if (result.status === 'skipped') return 'Skipped';
   if (result.status === 'interrupted') return 'Interrupted';
   if (result.status === 'failed') return result.error || 'Failed';
+  if (result.reviewEnabled) {
+    if (result.reviewPassed === true) return 'Review passed';
+    if (result.reviewPassed === false) return 'Review failed';
+    return 'Review pending';
+  }
   // Completed - show if task was completed or just iteration
-  if (result.promiseComplete) return 'Task completed';
-  if (result.taskCompleted) return 'Success';
+  if (result.taskCompleted) return result.promiseComplete ? 'Task completed' : 'Success';
   return 'Completed';
 }
 

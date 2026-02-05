@@ -89,6 +89,8 @@ export interface HeaderProps {
   totalTasks?: number;
   /** Selected agent plugin name (e.g., "claude", "opencode") */
   agentName?: string;
+  /** Reviewer agent plugin name (when review is enabled) */
+  reviewerAgent?: string;
   /** Selected tracker plugin name (e.g., "beads", "beads-bv", "json") */
   trackerName?: string;
   /** Active agent state from engine (tracks which agent is running and why) */
@@ -176,18 +178,26 @@ export interface RightPanelProps {
   iterationTiming?: IterationTimingInfo;
   /** Name of the agent being used */
   agentName?: string;
+  /** Name of the reviewer agent (when review is enabled) */
+  reviewerAgent?: string;
   /** Model being used (provider/model format) */
   currentModel?: string;
   /** Rendered prompt content for preview (when viewMode is 'prompt') */
   promptPreview?: string;
   /** Source of the template used for the prompt (e.g., 'tracker:beads', 'builtin:json') */
   templateSource?: string;
+  /** Rendered review prompt content for preview (when viewMode is 'prompt' and review is enabled) */
+  reviewPromptPreview?: string;
+  /** Source of the template used for the review prompt (e.g., 'global:review.hbs', 'builtin') */
+  reviewTemplateSource?: string;
   /** Whether currently viewing a remote instance */
   isViewingRemote?: boolean;
   /** Connection status when viewing remote */
   remoteConnectionStatus?: ConnectionStatus;
   /** Alias of the remote being viewed */
   remoteAlias?: string;
+  /** Which section has focus for keyboard navigation: 'worker'/'reviewer' in output view, 'content' in details/prompt view */
+  outputFocus?: 'worker' | 'reviewer' | 'content';
 }
 
 /**

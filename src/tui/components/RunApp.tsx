@@ -63,6 +63,9 @@ import type {
   ConflictResolutionResult,
 } from '../../parallel/types.js';
 
+// Divider used to separate worker and reviewer output
+const REVIEW_OUTPUT_DIVIDER = '\n\n===== REVIEW OUTPUT =====\n';
+
 /**
  * View modes for the RunApp component
  * - 'tasks': Show the task list (default)
@@ -74,10 +77,12 @@ type ViewMode = 'tasks' | 'iterations' | 'iteration-detail' | 'parallel-overview
 
 /**
  * Focused pane for TAB-based navigation between panels.
- * - 'output': RightPanel output view has keyboard focus (j/k scroll output)
+ * - 'tasks': Task list has keyboard focus (up/down navigate tasks)
+ * - 'worker': Worker output has keyboard focus (up/down scroll)
+ * - 'reviewer': Reviewer output has keyboard focus (up/down scroll)
  * - 'subagentTree': SubagentTreePanel has keyboard focus (j/k select nodes)
  */
-type FocusedPane = 'output' | 'subagentTree';
+type FocusedPane = 'tasks' | 'worker' | 'reviewer' | 'subagentTree' | 'content';
 
 /**
  * Props for the RunApp component
@@ -176,10 +181,6 @@ export interface RunAppProps {
   parallelConflictTaskTitle?: string;
   /** Whether AI conflict resolution is running */
   parallelAiResolving?: boolean;
-  /** The file currently being resolved by AI */
-  parallelCurrentlyResolvingFile?: string;
-  /** Whether to show the conflict panel (true during Phase 2 conflict resolution) */
-  parallelShowConflicts?: boolean;
   /** Maps task IDs to worker IDs for output routing in parallel mode */
   parallelTaskIdToWorkerId?: Map<string, string>;
   /** Task IDs that completed locally but merge failed (shows ⚠ in TUI) */
@@ -200,10 +201,12 @@ export interface RunAppProps {
   onParallelKill?: () => Promise<void>;
   /** Callback to restart parallel execution after stop/complete */
   onParallelStart?: () => void;
-  /** Callback when user requests conflict resolution retry (r key in failure state) */
-  onConflictRetry?: () => void;
-  /** Callback when user requests to skip a failed merge (s key in failure state) */
-  onConflictSkip?: () => void;
+  /** Callback to abort conflict resolution and rollback the merge */
+  onConflictAbort?: () => Promise<void>;
+  /** Callback to accept AI resolution for a specific file */
+  onConflictAccept?: (filePath: string) => void;
+  /** Callback to accept all AI resolutions */
+  onConflictAcceptAll?: () => void;
 }
 
 /**
@@ -453,8 +456,6 @@ export function RunApp({
   parallelConflictTaskId = '',
   parallelConflictTaskTitle = '',
   parallelAiResolving = false,
-  parallelCurrentlyResolvingFile = '',
-  parallelShowConflicts = false,
   parallelTaskIdToWorkerId,
   parallelCompletedLocallyTaskIds,
   parallelAutoCommitSkippedTaskIds: _parallelAutoCommitSkippedTaskIds, // Reserved for future status bar warning
@@ -465,8 +466,9 @@ export function RunApp({
   onParallelResume,
   onParallelKill,
   onParallelStart,
-  onConflictRetry,
-  onConflictSkip,
+  onConflictAbort,
+  onConflictAccept,
+  onConflictAcceptAll,
 }: RunAppProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
@@ -563,6 +565,8 @@ export function RunApp({
   // Prompt preview content and template source (for prompt view mode)
   const [promptPreview, setPromptPreview] = useState<string | undefined>(undefined);
   const [templateSource, setTemplateSource] = useState<string | undefined>(undefined);
+  const [reviewPromptPreview, setReviewPromptPreview] = useState<string | undefined>(undefined);
+  const [reviewTemplateSource, setReviewTemplateSource] = useState<string | undefined>(undefined);
   // Subagent tracing detail level - initialized from config, can be cycled with 't' key
   // Default to 'moderate' to show inline subagent sections by default
   const [subagentDetailLevel, setSubagentDetailLevel] = useState<SubagentDetailLevel>(
@@ -597,10 +601,15 @@ export function RunApp({
   // When true, auto-show will not override user's explicit hide action
   const [userManuallyHidPanel, setUserManuallyHidPanel] = useState(false);
 
-  // Focused pane for TAB-based navigation between output and subagent tree
-  // - 'output': j/k scroll output content (default)
-  // - 'subagentTree': j/k select nodes in the tree
-  const [focusedPane, setFocusedPane] = useState<FocusedPane>('output');
+  // Focused pane for TAB-based navigation between panels
+  // Note: Selected task row always stays highlighted regardless of focus state
+  // Panel borders use accent color when focused, normal color when not focused
+  // - 'tasks': Default state, task panel border highlighted, arrows navigate task list
+  // - 'worker': Worker output section border highlighted, arrows scroll output
+  // - 'reviewer': Reviewer output section border highlighted, arrows scroll output
+  // - 'content': Details/Prompt section border highlighted, arrows scroll content
+  // - 'subagentTree': Subagent tree panel border highlighted, arrows navigate tree
+  const [focusedPane, setFocusedPane] = useState<FocusedPane>('tasks');
 
   // Selected node in subagent tree for keyboard navigation
   // - currentTaskId (or 'main' if no task): Task root node is selected
@@ -992,6 +1001,8 @@ export function RunApp({
     if (!promptPreviewTaskId) {
       setPromptPreview('No task selected');
       setTemplateSource(undefined);
+      setReviewPromptPreview(undefined);
+      setReviewTemplateSource(undefined);
       return;
     }
 
@@ -1000,6 +1011,8 @@ export function RunApp({
 
     setPromptPreview('Generating prompt preview...');
     setTemplateSource(undefined);
+    setReviewPromptPreview(undefined);
+    setReviewTemplateSource(undefined);
 
     void (async () => {
       // Use remote API when viewing remote, local engine otherwise
@@ -1017,6 +1030,11 @@ export function RunApp({
           setPromptPreview(`Error: ${result.error}`);
           setTemplateSource(undefined);
         }
+
+        if (storedConfig?.review?.enabled) {
+          setReviewPromptPreview('Review prompt preview is unavailable for remote instances.');
+          setReviewTemplateSource(undefined);
+        }
       } else if (engine) {
         const result = await engine.generatePromptPreview(promptPreviewTaskId);
         // Don't update state if this effect was cancelled (user changed task again)
@@ -1029,6 +1047,20 @@ export function RunApp({
           setPromptPreview(`Error: ${result.error}`);
           setTemplateSource(undefined);
         }
+
+        // If review is enabled, also generate review prompt preview
+        if (storedConfig?.review?.enabled) {
+          const reviewResult = await engine.generateReviewPromptPreview(promptPreviewTaskId);
+          if (cancelled) return;
+
+          if (reviewResult.success) {
+            setReviewPromptPreview(reviewResult.prompt);
+            setReviewTemplateSource(reviewResult.source);
+          } else {
+            setReviewPromptPreview(`Error: ${reviewResult.error}`);
+            setReviewTemplateSource(undefined);
+          }
+        }
       }
     })();
 
@@ -1036,7 +1068,7 @@ export function RunApp({
     return () => {
       cancelled = true;
     };
-  }, [detailsViewMode, promptPreviewTaskId, engine, isViewingRemote, instanceManager]);
+  }, [detailsViewMode, promptPreviewTaskId, engine, isViewingRemote, instanceManager, storedConfig?.review?.enabled]);
 
   // Fetch remote iteration output when selecting a different task (for remote viewing)
   // This fills the remoteIterationCache so the useMemo can use it synchronously
@@ -1350,17 +1382,13 @@ export function RunApp({
     }
   }, [currentTaskId]);
 
-  // Auto-show conflict panel when Phase 2 conflict resolution starts
-  // Only show when parallelShowConflicts is true (set by conflict:ai-resolving event),
-  // not when conflicts are merely detected during Phase 1 merge attempts
+  // Auto-show conflict panel when conflicts are detected in parallel mode
   useEffect(() => {
-    if (isParallelMode && parallelShowConflicts && parallelConflicts.length > 0) {
+    if (isParallelMode && parallelConflicts.length > 0) {
       setShowConflictPanel(true);
       setConflictSelectedIndex(0);
-    } else if (!parallelShowConflicts) {
-      setShowConflictPanel(false);
     }
-  }, [isParallelMode, parallelShowConflicts, parallelConflicts]);
+  }, [isParallelMode, parallelConflicts]);
 
   // Calculate the number of items in iteration history (iterations + pending)
   const iterationHistoryLength = Math.max(iterations.length, totalIterations);
@@ -1388,6 +1416,56 @@ export function RunApp({
     const newIdx = Math.max(0, Math.min(flatList.length - 1, currentIdx + direction));
     setSelectedSubagentId(flatList[newIdx]!);
   }, [subagentTree, remoteSubagentTree, isViewingRemote, selectedSubagentId, displayCurrentTaskId]);
+
+  // Check if current output contains review divider (for Tab cycling logic)
+  // This needs to be computed before handleKeyboard to avoid stale closures
+  const hasReviewDividerInOutput = useMemo(() => {
+    const taskIdFromIterations = viewMode === 'iterations'
+      ? iterations[iterationSelectedIndex]?.task?.id
+      : undefined;
+    const effectiveTaskId = taskIdFromIterations ?? displayedTasks[selectedIndex]?.id;
+    if (!effectiveTaskId) return false;
+
+    if (isViewingRemote) {
+      if (effectiveTaskId === remoteCurrentTaskId && remoteOutput) {
+        return remoteOutput.includes(REVIEW_OUTPUT_DIVIDER);
+      }
+      const cached = remoteIterationCache.get(effectiveTaskId);
+      if (cached && typeof cached.output === 'string') {
+        return cached.output.includes(REVIEW_OUTPUT_DIVIDER);
+      }
+      return false;
+    }
+
+    const isViewingCurrentTask = effectiveTaskId === currentTaskId;
+    if (isViewingCurrentTask && currentOutput) {
+      return currentOutput.includes(REVIEW_OUTPUT_DIVIDER);
+    }
+
+    const taskIteration = iterations.find((iter) => iter.task.id === effectiveTaskId);
+    if (taskIteration?.agentResult?.stdout) {
+      return taskIteration.agentResult.stdout.includes(REVIEW_OUTPUT_DIVIDER);
+    }
+
+    const historicalData = historicalOutputCache.get(effectiveTaskId);
+    if (historicalData && typeof historicalData.output === 'string') {
+      return historicalData.output.includes(REVIEW_OUTPUT_DIVIDER);
+    }
+    return false;
+  }, [
+    viewMode,
+    iterations,
+    iterationSelectedIndex,
+    displayedTasks,
+    selectedIndex,
+    isViewingRemote,
+    remoteCurrentTaskId,
+    remoteOutput,
+    remoteIterationCache,
+    currentTaskId,
+    currentOutput,
+    historicalOutputCache,
+  ]);
 
   // Handle keyboard navigation
   const handleKeyboard = useCallback(
@@ -1496,13 +1574,19 @@ export function RunApp({
 
       // When conflict resolution panel is showing, handle conflict-specific keys
       if (showConflictPanel) {
-        // Check if we're in failure state (has failed resolutions and not currently resolving)
-        const hasFailures = !parallelAiResolving &&
-          parallelConflictResolutions.some((r) => !r.success);
-
+        if (key.sequence === 'A') {
+          if (onConflictAcceptAll) {
+            onConflictAcceptAll();
+          }
+          setShowConflictPanel(false);
+          return;
+        }
         switch (key.name) {
           case 'escape':
-            // Close conflict panel (AI resolution continues in background)
+            // Abort conflict resolution and rollback
+            if (onConflictAbort) {
+              onConflictAbort().catch(() => {});
+            }
             setShowConflictPanel(false);
             break;
           case 'j':
@@ -1513,18 +1597,18 @@ export function RunApp({
           case 'up':
             setConflictSelectedIndex((prev) => Math.max(prev - 1, 0));
             break;
-          case 'r':
-            // Retry AI resolution (only in failure state)
-            if (hasFailures && onConflictRetry) {
-              onConflictRetry();
+          case 'a':
+            // Accept AI resolution for the selected file
+            if (onConflictAccept && parallelConflicts[conflictSelectedIndex]) {
+              onConflictAccept(parallelConflicts[conflictSelectedIndex].filePath);
             }
             break;
-          case 's':
-            // Skip this task's merge (only in failure state)
-            if (hasFailures && onConflictSkip) {
-              onConflictSkip();
-              setShowConflictPanel(false);
+          case 'r':
+            // Reject - abort conflict resolution for this merge
+            if (onConflictAbort) {
+              onConflictAbort().catch(() => {});
             }
+            setShowConflictPanel(false);
             break;
         }
         return;
@@ -1552,18 +1636,93 @@ export function RunApp({
           break;
 
         case 'tab':
-          // Toggle focus between output and subagent tree panels
-          // Only works when subagent panel is visible and in output view mode
-          if (subagentPanelVisible && detailsViewMode === 'output') {
-            setFocusedPane((prev) => prev === 'output' ? 'subagentTree' : 'output');
+          // Tab cycles through sections based on view mode
+          // Tasks remain always highlighted, Tab only switches focus for content sections
+          if (detailsViewMode === 'output') {
+            // Output view: cycle through worker/reviewer/subagentTree
+            // Check if reviewer pane is present: either review enabled OR output contains divider (historical)
+            const reviewerEnabled = !!storedConfig?.review?.enabled;
+            const reviewerPresent = reviewerEnabled || hasReviewDividerInOutput;
+
+            setFocusedPane((prev) => {
+              // Cycle: none (tasks) -> worker -> reviewer (if present) -> subagentTree (if visible) -> none
+              if (prev === 'tasks') {
+                // First Tab press: focus worker
+                return 'worker';
+              }
+              if (prev === 'worker') {
+                // From worker: go to reviewer if present, else subagentTree if visible, else back to tasks
+                if (reviewerPresent) return 'reviewer';
+                if (subagentPanelVisible) return 'subagentTree';
+                return 'tasks';
+              }
+              if (prev === 'reviewer') {
+                // From reviewer: go to subagentTree if visible, else back to tasks
+                return subagentPanelVisible ? 'subagentTree' : 'tasks';
+              }
+              if (prev === 'subagentTree') {
+                // From subagentTree: back to tasks
+                return 'tasks';
+              }
+              return 'tasks';
+            });
+          } else if (detailsViewMode === 'details') {
+            // Details view: simple toggle between tasks and content
+            setFocusedPane((prev) => {
+              if (prev === 'tasks') {
+                // First Tab press: focus content pane
+                return 'content';
+              }
+              if (prev === 'content') {
+                // From content: go to subagentTree if visible, else back to tasks
+                return subagentPanelVisible ? 'subagentTree' : 'tasks';
+              }
+              if (prev === 'subagentTree') {
+                // From subagentTree: back to tasks
+                return 'tasks';
+              }
+              return 'tasks';
+            });
+          } else if (detailsViewMode === 'prompt') {
+            // Prompt view: cycle through worker/reviewer (if review enabled)
+            // Note: reviewerConfigured only checks if review is enabled, not if review.agent is set
+            // because when review.agent is unset, the engine falls back to using the primary agent
+            const reviewerConfigured = !!storedConfig?.review?.enabled;
+
+            setFocusedPane((prev) => {
+              // Cycle: none (tasks) -> worker -> reviewer (if enabled) -> subagentTree (if visible) -> none
+              if (prev === 'tasks') {
+                // First Tab press: focus worker
+                return 'worker';
+              }
+              if (prev === 'worker') {
+                // From worker: go to reviewer if enabled, else subagentTree if visible, else back to tasks
+                if (reviewerConfigured) return 'reviewer';
+                if (subagentPanelVisible) return 'subagentTree';
+                return 'tasks';
+              }
+              if (prev === 'reviewer') {
+                // From reviewer: go to subagentTree if visible, else back to tasks
+                return subagentPanelVisible ? 'subagentTree' : 'tasks';
+              }
+              if (prev === 'subagentTree') {
+                // From subagentTree: back to tasks
+                return 'tasks';
+              }
+              return 'tasks';
+            });
           }
           break;
 
         case 'up':
         case 'k':
-          // Focus-aware navigation: when subagent panel is visible and focused, navigate tree
-          if (detailsViewMode === 'output' && subagentPanelVisible && focusedPane === 'subagentTree') {
+          // Focus-aware navigation
+          if (focusedPane === 'subagentTree') {
+            // Subagent tree navigation
             navigateSubagentTree(-1);
+            break;
+          } else if (focusedPane === 'worker' || focusedPane === 'reviewer' || focusedPane === 'content') {
+            // Content panes handle scrolling internally - don't navigate tasks
             break;
           }
           // Default: navigate task/iteration/parallel lists
@@ -1578,9 +1737,13 @@ export function RunApp({
 
         case 'down':
         case 'j':
-          // Focus-aware navigation: when subagent panel is visible and focused, navigate tree
-          if (detailsViewMode === 'output' && subagentPanelVisible && focusedPane === 'subagentTree') {
+          // Focus-aware navigation
+          if (focusedPane === 'subagentTree') {
+            // Subagent tree navigation
             navigateSubagentTree(1);
+            break;
+          } else if (focusedPane === 'worker' || focusedPane === 'reviewer' || focusedPane === 'content') {
+            // Content panes handle scrolling internally - don't navigate tasks
             break;
           }
           // Default: navigate task/iteration/parallel lists
@@ -1919,6 +2082,8 @@ export function RunApp({
               return modes[nextIdx]!;
             });
           }
+          // Reset focus to tasks when changing view mode
+          setFocusedPane('tasks');
           break;
 
         case 't':
@@ -2070,7 +2235,7 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, onConflictAbort, onConflictAccept, onConflictAcceptAll, parallelDerivedStatus, hasReviewDividerInOutput]
   );
 
   useKeyboard(handleKeyboard);
@@ -2243,6 +2408,13 @@ export function RunApp({
     // Task hasn't been run yet (or historical log not yet loaded)
     return { iteration: 0, output: undefined, segments: undefined, timing: undefined };
   }, [effectiveTaskId, selectedTask, selectedIteration, viewMode, currentTaskId, currentIteration, currentOutput, currentSegments, iterations, historicalOutputCache, currentIterationStartedAt, isViewingRemote, remoteStatus, remoteCurrentIteration, remoteOutput, remoteIterationCache, remoteCurrentTaskId, isParallelMode, parallelTaskIdToWorkerId, parallelWorkerOutputs]);
+
+  // Compute reviewer agent name with fallback to primary agent
+  // When review is enabled but review.agent is not set, the engine uses the primary agent
+  const reviewerAgentName = useMemo(() => {
+    if (!storedConfig?.review?.enabled) return undefined;
+    return storedConfig.review.agent?.trim() || agentName || storedConfig?.agent || agentPlugin;
+  }, [storedConfig, agentName, agentPlugin]);
 
   // Compute the actual output to display based on selectedSubagentId
   // When a subagent is selected (not task root), try to get its specific output
@@ -2624,6 +2796,7 @@ export function RunApp({
         completedTasks={completedTasks}
         totalTasks={totalTasks}
         agentName={displayAgentName}
+        reviewerAgent={reviewerAgentName}
         trackerName={displayTrackerName}
         activeAgentState={isViewingRemote ? remoteActiveAgent : activeAgentState}
         rateLimitState={isViewingRemote ? remoteRateLimitState : rateLimitState}
@@ -2694,6 +2867,7 @@ export function RunApp({
             sandboxConfig={sandboxConfig}
             resolvedSandboxMode={resolvedSandboxMode}
             historicContext={iterationDetailHistoricContext}
+            workerAgent={agentPlugin}
           />
         ) : viewMode === 'parallel-overview' ? (
           // Parallel workers overview
@@ -2727,7 +2901,7 @@ export function RunApp({
             <LeftPanel
               tasks={displayedTasks}
               selectedIndex={selectedIndex}
-              isFocused={!subagentPanelVisible || focusedPane === 'output'}
+              isFocused={focusedPane === 'tasks'}
               isViewingRemote={isViewingRemote}
               remoteConnectionStatus={instanceTabs?.[selectedTabIndex]?.status}
               remoteAlias={instanceTabs?.[selectedTabIndex]?.alias}
@@ -2741,11 +2915,15 @@ export function RunApp({
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}
               currentModel={displayAgentInfo.model}
+              reviewerAgent={reviewerAgentName}
               promptPreview={promptPreview}
               templateSource={templateSource}
+              reviewPromptPreview={reviewPromptPreview}
+              reviewTemplateSource={reviewTemplateSource}
               isViewingRemote={isViewingRemote}
               remoteConnectionStatus={instanceTabs?.[selectedTabIndex]?.status}
               remoteAlias={instanceTabs?.[selectedTabIndex]?.alias}
+              outputFocus={focusedPane === 'worker' || focusedPane === 'reviewer' ? focusedPane : focusedPane === 'content' ? 'content' : undefined}
             />
             {/* Subagent Tree Panel - shown on right side when toggled with 'T' key */}
             {subagentPanelVisible && (
@@ -2781,11 +2959,15 @@ export function RunApp({
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}
               currentModel={displayAgentInfo.model}
+              reviewerAgent={reviewerAgentName}
               promptPreview={promptPreview}
               templateSource={templateSource}
+              reviewPromptPreview={reviewPromptPreview}
+              reviewTemplateSource={reviewTemplateSource}
               isViewingRemote={isViewingRemote}
               remoteConnectionStatus={instanceTabs?.[selectedTabIndex]?.status}
               remoteAlias={instanceTabs?.[selectedTabIndex]?.alias}
+              outputFocus={focusedPane === 'worker' || focusedPane === 'reviewer' ? focusedPane : focusedPane === 'content' ? 'content' : undefined}
             />
             {/* Subagent Tree Panel - shown on right side when toggled with 'T' key */}
             {subagentPanelVisible && (
@@ -2914,10 +3096,7 @@ export function RunApp({
         taskId={parallelConflictTaskId}
         taskTitle={parallelConflictTaskTitle}
         aiResolving={parallelAiResolving}
-        currentlyResolvingFile={parallelCurrentlyResolvingFile}
         selectedIndex={conflictSelectedIndex}
-        onRetry={onConflictRetry}
-        onSkip={onConflictSkip}
       />
 
       {/* Settings View */}

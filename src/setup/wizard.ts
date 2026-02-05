@@ -238,6 +238,14 @@ async function saveConfig(
     trackerOptions: answers.trackerOptions,
     agent: answers.agent,
     agentOptions: answers.agentOptions,
+    ...(answers.reviewEnabled
+      ? {
+          review: {
+            enabled: true,
+            agent: answers.reviewAgent,
+          },
+        }
+      : {}),
     maxIterations: answers.maxIterations,
     autoCommit: answers.autoCommit,
   };
@@ -349,7 +357,7 @@ export async function runSetupWizard(
     const trackerOptions = await collectTrackerOptions(selectedTracker);
 
     // === Step 2: Select Agent ===
-    printSection('Agent CLI Selection');
+    printSection('Worker Agent Selection');
 
     const agentPlugins = await detectAgentPlugins();
     if (agentPlugins.length === 0) {
@@ -378,11 +386,11 @@ export async function runSetupWizard(
     console.log();
 
     const selectedAgent = await promptSelect(
-      'Which agent CLI do you want to use?',
+      'Which worker agent do you want to use for tasks?',
       agentChoices,
       {
         default: defaultAgent,
-        help: 'The AI agent that will execute coding tasks.',
+        help: 'Worker agent executes coding tasks.',
       }
     );
 
@@ -391,7 +399,37 @@ export async function runSetupWizard(
     // They can be configured later via config file
     const agentOptions: Record<string, unknown> = {};
 
-    // === Step 3: Iteration Settings ===
+    // === Step 3: Reviewer Selection ===
+    printSection('Reviewer Agent Selection');
+
+    const reviewerChoices = [
+      {
+        value: 'none',
+        label: 'None (disable review)',
+        description: 'Skip the reviewer stage after task completion',
+      },
+      ...agentPlugins.map((p) => ({
+        value: p.id,
+        label: `${p.name}${p.available ? ` (v${p.version})` : ''}`,
+        description: p.available
+          ? p.description
+          : `${p.description} (not detected: ${p.error})`,
+      })),
+    ];
+
+    const selectedReviewer = await promptSelect(
+      'Which reviewer agent do you want to use?',
+      reviewerChoices,
+      {
+        default: 'none',
+        help: 'Reviewer runs after each task. Choose "none" to disable.',
+      }
+    );
+
+    const reviewEnabled = selectedReviewer !== 'none';
+    const reviewAgent = reviewEnabled ? selectedReviewer : undefined;
+
+    // === Step 4: Iteration Settings ===
     printSection('Iteration Settings');
 
     const maxIterations = await promptNumber(
@@ -412,7 +450,7 @@ export async function runSetupWizard(
       }
     );
 
-    // === Step 4: Skills Installation ===
+    // === Step 5: Skills Installation ===
     printSection('AI Skills Installation');
 
     // Get the selected agent's skills paths from the registry
@@ -472,6 +510,8 @@ export async function runSetupWizard(
       trackerOptions,
       agent: selectedAgent,
       agentOptions,
+      reviewEnabled,
+      reviewAgent,
       maxIterations,
       autoCommit,
     };

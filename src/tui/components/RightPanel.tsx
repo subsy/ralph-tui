@@ -7,11 +7,17 @@
 
 import type { ReactNode } from 'react';
 import { useMemo, useState, useEffect } from 'react';
+import { useTerminalDimensions } from '@opentui/react';
 import { colors, getTaskStatusColor, getTaskStatusIndicator } from '../theme.js';
 import type { RightPanelProps, DetailsViewMode, IterationTimingInfo, TaskPriority } from '../types.js';
 import { stripAnsiCodes, type FormattedSegment } from '../../plugins/agents/output-formatting.js';
 import { formatElapsedTime } from '../theme.js';
 import { parseAgentOutput } from '../output-parser.js';
+
+/**
+ * Divider to separate reviewer output in logs (matches engine constant).
+ */
+const REVIEW_OUTPUT_DIVIDER = '\n\n===== REVIEW OUTPUT =====\n';
 
 /**
  * Priority label mapping for display
@@ -264,82 +270,116 @@ function NoSelection({
  */
 function TaskMetadataView({
   task,
+  isFocused = false,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
+  isFocused?: boolean;
 }): ReactNode {
+  const { width } = useTerminalDimensions();
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
+  const sanitizeMetadataValue = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    const cleaned = stripAnsiCodes(value)
+      .replace(/\p{C}/gu, '')
+      .trim();
+    return cleaned.length > 0 ? cleaned : undefined;
+  };
+  const formatTimestamp = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  };
+  const displayType = sanitizeMetadataValue(task.type);
+  const displayAssignee = sanitizeMetadataValue(task.assignee);
+  const displayLabels = task.labels
+    ? task.labels
+      .map((label) => sanitizeMetadataValue(label))
+      .filter((label): label is string => Boolean(label))
+    : [];
+  const displayCreatedAt = formatTimestamp(task.createdAt);
+  const displayUpdatedAt = formatTimestamp(task.updatedAt);
+  const metadataRowStyle = {
+    flexDirection: 'row',
+    marginBottom: 0,
+    width: '100%',
+    backgroundColor: colors.bg.secondary,
+  } as const;
   // Check metadata for acceptance criteria (JSON tracker stores it there)
   const metadataCriteria = task.metadata?.acceptanceCriteria;
   const criteria = parseAcceptanceCriteria(task.description, undefined, metadataCriteria);
   const cleanDescription = extractDescription(task.description);
 
+  // Responsive layout: side-by-side on wide screens (>= 160 cols), stacked on narrow
+  const useWideLayout = width >= 160;
+
   return (
     <box style={{ flexDirection: 'column', padding: 1, flexGrow: 1 }}>
-      <scrollbox style={{ flexGrow: 1 }}>
-        {/* Task title and status */}
-        <box style={{ marginBottom: 1 }}>
-          <text>
-            <span fg={statusColor}>{statusIndicator}</span>
-            <span fg={colors.fg.primary}> {task.title}</span>
-          </text>
-        </box>
+      {/* Task title and status */}
+      <box style={{ marginBottom: 1 }}>
+        <text>
+          <span fg={statusColor}>{statusIndicator}</span>
+          <span fg={colors.fg.primary}> {task.title}</span>
+        </text>
+      </box>
 
-        {/* Task ID */}
-        <box style={{ marginBottom: 1 }}>
-          <text fg={colors.fg.muted}>ID: {task.id}</text>
-        </box>
+      {/* Task ID */}
+      <box style={{ marginBottom: 1 }}>
+        <text fg={colors.fg.muted}>ID: {task.id}</text>
+      </box>
 
-        {/* Metadata section - compact row of key info */}
-        <box
-          style={{
-            marginBottom: 1,
-            padding: 1,
-            backgroundColor: colors.bg.secondary,
-            border: true,
-            borderColor: colors.border.muted,
-            flexDirection: 'column',
-          }}
-        >
+      {/* Metadata section - compact row of key info */}
+      <box
+        style={{
+          marginBottom: 1,
+          padding: 1,
+          backgroundColor: colors.bg.secondary,
+          border: true,
+          borderColor: colors.border.muted,
+          flexDirection: 'column',
+        }}
+      >
           {/* Status row */}
-          <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-            <text fg={colors.fg.muted}>Status: </text>
-            <text fg={statusColor}>{task.status}</text>
+          <box style={metadataRowStyle}>
+            <text fg={colors.fg.muted}>Status:</text>
+            <text fg={statusColor}>{` ${task.status}`}</text>
           </box>
 
           {/* Priority row */}
           {task.priority !== undefined && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Priority: </text>
-              <text fg={getPriorityColor(task.priority)}>{priorityLabels[task.priority]}</text>
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Priority:</text>
+              <text fg={getPriorityColor(task.priority)}>{` ${priorityLabels[task.priority]}`}</text>
             </box>
           )}
 
           {/* Type row */}
-          {task.type && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Type: </text>
-              <text fg={colors.fg.secondary}>{task.type}</text>
+          {displayType && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Type:</text>
+              <text fg={colors.fg.secondary}>{` ${displayType}`}</text>
             </box>
           )}
 
           {/* Assignee row */}
-          {task.assignee && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Assignee: </text>
-              <text fg={colors.fg.secondary}>{task.assignee}</text>
+          {displayAssignee && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Assignee:</text>
+              <text fg={colors.fg.secondary}>{` ${displayAssignee}`}</text>
             </box>
           )}
 
           {/* Labels row */}
-          {task.labels && task.labels.length > 0 && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Labels: </text>
+          {displayLabels.length > 0 && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Labels:</text>
               <text>
-                {task.labels.map((label, i) => (
-                  <span key={label}>
+                {' '}
+                {displayLabels.map((label, i) => (
+                  <span key={`${label}-${i}`}>
                     <span fg={colors.accent.secondary}>{label}</span>
-                    {i < task.labels!.length - 1 ? ', ' : ''}
+                    {i < displayLabels.length - 1 ? ', ' : ''}
                   </span>
                 ))}
               </text>
@@ -348,63 +388,89 @@ function TaskMetadataView({
 
           {/* Iteration row */}
           {task.iteration !== undefined && (
-            <box style={{ flexDirection: 'row', marginBottom: 0 }}>
-              <text fg={colors.fg.muted}>Iteration: </text>
-              <text fg={colors.accent.primary}>{task.iteration}</text>
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Iteration:</text>
+              <text fg={colors.accent.primary}>{` ${task.iteration}`}</text>
+            </box>
+          )}
+
+          {/* Timestamp rows */}
+          {displayCreatedAt && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Created:</text>
+              <text fg={colors.fg.dim}>{` ${displayCreatedAt}`}</text>
+            </box>
+          )}
+          {displayUpdatedAt && (
+            <box style={metadataRowStyle}>
+              <text fg={colors.fg.muted}>Updated:</text>
+              <text fg={colors.fg.dim}>{` ${displayUpdatedAt}`}</text>
             </box>
           )}
         </box>
 
-        {/* Description section */}
-        {cleanDescription && (
-          <box style={{ marginBottom: 1 }}>
-            <box style={{ marginBottom: 0 }}>
-              <text fg={colors.accent.primary}>Description</text>
+      {/* Responsive layout for Description and Acceptance Criteria */}
+      {(cleanDescription || criteria.length > 0) && (
+        <box style={{ flexGrow: 1, flexDirection: useWideLayout ? 'row' : 'column', gap: 1, marginBottom: 1 }}>
+          {/* Description section - scrollable and focusable */}
+          {cleanDescription && (
+            <box style={{ flexGrow: 1, flexBasis: 0, flexDirection: 'column' }}>
+              <box style={{ marginBottom: 0 }}>
+                <text fg={colors.accent.primary}>Description</text>
+              </box>
+              <box
+                style={{
+                  flexGrow: 1,
+                  border: true,
+                  borderColor: isFocused ? colors.accent.primary : colors.border.muted,
+                  backgroundColor: colors.bg.tertiary,
+                }}
+              >
+                <scrollbox style={{ flexGrow: 1, padding: 1 }} focused={isFocused}>
+                  <text fg={colors.fg.secondary}>{cleanDescription}</text>
+                </scrollbox>
+              </box>
             </box>
-            <box
-              style={{
-                padding: 1,
-                backgroundColor: colors.bg.tertiary,
-                border: true,
-                borderColor: colors.border.muted,
-              }}
-            >
-              <text fg={colors.fg.secondary}>{cleanDescription}</text>
-            </box>
-          </box>
-        )}
+          )}
 
-        {/* Acceptance criteria section */}
-        {criteria.length > 0 && (
-          <box style={{ marginBottom: 1 }}>
-            <box style={{ marginBottom: 0 }}>
-              <text fg={colors.accent.primary}>Acceptance Criteria</text>
+          {/* Acceptance criteria section */}
+          {criteria.length > 0 && (
+            <box style={{ flexGrow: 1, flexBasis: 0, flexDirection: 'column' }}>
+              <box style={{ marginBottom: 0 }}>
+                <text fg={colors.accent.primary}>Acceptance Criteria</text>
+              </box>
+              <box
+                style={{
+                  flexGrow: 1,
+                  padding: 1,
+                  backgroundColor: colors.bg.secondary,
+                  border: true,
+                  borderColor: colors.border.muted,
+                  flexDirection: 'column',
+                }}
+              >
+                <scrollbox style={{ flexGrow: 1 }}>
+                  <box style={{ flexDirection: 'column' }}>
+                    {criteria.map((item, index) => (
+                      <box key={index} style={{ flexDirection: 'row', marginBottom: 0 }}>
+                        <text>
+                          <span fg={item.checked ? colors.status.success : colors.fg.muted}>
+                            {item.checked ? '[x]' : '[ ]'}
+                          </span>
+                          <span fg={item.checked ? colors.fg.muted : colors.fg.secondary}>
+                            {' '}
+                            {item.text}
+                          </span>
+                        </text>
+                      </box>
+                    ))}
+                  </box>
+                </scrollbox>
+              </box>
             </box>
-            <box
-              style={{
-                padding: 1,
-                backgroundColor: colors.bg.secondary,
-                border: true,
-                borderColor: colors.border.muted,
-                flexDirection: 'column',
-              }}
-            >
-              {criteria.map((item, index) => (
-                <box key={index} style={{ flexDirection: 'row', marginBottom: 0 }}>
-                  <text>
-                    <span fg={item.checked ? colors.status.success : colors.fg.muted}>
-                      {item.checked ? '[x]' : '[ ]'}
-                    </span>
-                    <span fg={item.checked ? colors.fg.muted : colors.fg.secondary}>
-                      {' '}
-                      {item.text}
-                    </span>
-                  </text>
-                </box>
-              ))}
-            </box>
-          </box>
-        )}
+          )}
+        </box>
+      )}
 
         {/* Dependencies section */}
         {((task.dependsOn && task.dependsOn.length > 0) ||
@@ -482,22 +548,6 @@ function TaskMetadataView({
           </box>
         )}
 
-        {/* Timestamps */}
-        {(task.createdAt || task.updatedAt) && (
-          <box style={{ marginTop: 1 }}>
-            {task.createdAt && (
-              <text fg={colors.fg.dim}>
-                Created: {new Date(task.createdAt).toLocaleString()}
-              </text>
-            )}
-            {task.updatedAt && (
-              <text fg={colors.fg.dim}>
-                {' '}| Updated: {new Date(task.updatedAt).toLocaleString()}
-              </text>
-            )}
-          </box>
-        )}
-      </scrollbox>
     </box>
   );
 }
@@ -605,17 +655,98 @@ function TimingSummary({ timing }: { timing?: IterationTimingInfo }): ReactNode 
  * Note: This shows a "point-in-time" preview - dynamic content like progress.md
  * may change before the actual prompt is sent during execution.
  */
+/**
+ * Simplifies template source labels for display
+ * - "tracker:beads-bv" -> "tracker:beads-bv"
+ * - "global:/path" -> "global"
+ * - "project:/path" -> "project"
+ * - "builtin" -> "builtin"
+ * - "/full/path" -> "cli"
+ */
+function simplifyTemplateSource(source: string | undefined): string {
+  if (!source) return 'unknown';
+
+  // Handle prefixed sources
+  if (source.startsWith('tracker:')) return source;
+  if (source.startsWith('global:')) return 'global';
+  if (source.startsWith('project:')) return 'project';
+  if (source === 'builtin') return 'builtin';
+
+  // Absolute path without prefix = CLI argument
+  if (source.startsWith('/')) return 'cli';
+
+  return source;
+}
+
+/**
+ * Renders highlighted prompt text with syntax highlighting
+ */
+function renderPromptText(promptText: string): ReactNode {
+  return (
+    <box style={{ flexDirection: 'column' }}>
+      {promptText.split('\n').map((line, i) => {
+        // Highlight markdown headers
+        if (line.match(/^#+\s/)) {
+          return (
+            <text key={i} fg={colors.accent.primary}>
+              {line}
+            </text>
+          );
+        }
+        // Highlight bullet points
+        if (line.match(/^\s*[-*]\s/)) {
+          return (
+            <text key={i} fg={colors.fg.secondary}>
+              {line}
+            </text>
+          );
+        }
+        // Highlight code fences
+        if (line.match(/^```/)) {
+          return (
+            <text key={i} fg={colors.accent.tertiary}>
+              {line}
+            </text>
+          );
+        }
+        // Regular text
+        return (
+          <text key={i} fg={colors.fg.secondary}>
+            {line}
+          </text>
+        );
+      })}
+    </box>
+  );
+}
+
 function PromptPreviewView({
   task,
   promptPreview,
   templateSource,
+  reviewPromptPreview,
+  reviewTemplateSource,
+  outputFocus,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   promptPreview?: string;
   templateSource?: string;
+  reviewPromptPreview?: string;
+  reviewTemplateSource?: string;
+  outputFocus?: 'worker' | 'reviewer' | 'content';
 }): ReactNode {
+  const { width } = useTerminalDimensions();
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
+  const hasReviewPrompt = Boolean(reviewPromptPreview);
+
+  // When review is enabled, focus is either 'worker' or 'reviewer'
+  // When review is disabled, focus is 'content' (which applies to worker only)
+  const workerFocused = outputFocus === 'worker' || (!hasReviewPrompt && outputFocus === 'content');
+  const reviewerFocused = outputFocus === 'reviewer';
+
+  // Responsive layout: side-by-side on wide screens (>= 160 cols), stacked on narrow
+  const useWideLayout = width >= 160;
 
   return (
     <box style={{ flexDirection: 'column', padding: 1, flexGrow: 1 }}>
@@ -628,11 +759,14 @@ function PromptPreviewView({
             <span fg={colors.fg.muted}> ({task.id})</span>
           </text>
         </box>
-        {templateSource && (
-          <box>
-            <text fg={colors.accent.secondary}>[{templateSource}]</text>
-          </box>
-        )}
+        <box style={{ flexDirection: 'row', gap: 1 }}>
+          {templateSource && (
+            <text fg={colors.accent.secondary}>worker:{simplifyTemplateSource(templateSource)}</text>
+          )}
+          {hasReviewPrompt && reviewTemplateSource && (
+            <text fg={colors.accent.tertiary}> reviewer:{simplifyTemplateSource(reviewTemplateSource)}</text>
+          )}
+        </box>
       </box>
 
       {/* Dynamic content notice */}
@@ -650,59 +784,76 @@ function PromptPreviewView({
         </text>
       </box>
 
-      {/* Full-height prompt preview */}
-      <box
-        title="Prompt Preview"
-        style={{
-          flexGrow: 1,
-          border: true,
-          borderColor: colors.accent.primary,
-          backgroundColor: colors.bg.secondary,
-        }}
-      >
-        <scrollbox style={{ flexGrow: 1, padding: 1 }}>
-          {promptPreview ? (
-            <box style={{ flexDirection: 'column' }}>
-              {promptPreview.split('\n').map((line, i) => {
-                // Highlight markdown headers
-                if (line.match(/^#+\s/)) {
-                  return (
-                    <text key={i} fg={colors.accent.primary}>
-                      {line}
-                    </text>
-                  );
-                }
-                // Highlight bullet points
-                if (line.match(/^\s*[-*]\s/)) {
-                  return (
-                    <text key={i} fg={colors.fg.secondary}>
-                      {line}
-                    </text>
-                  );
-                }
-                // Highlight code fences
-                if (line.match(/^```/)) {
-                  return (
-                    <text key={i} fg={colors.accent.tertiary}>
-                      {line}
-                    </text>
-                  );
-                }
-                // Regular text
-                return (
-                  <text key={i} fg={colors.fg.secondary}>
-                    {line}
-                  </text>
-                );
-              })}
+      {/* Split or single prompt preview */}
+      {hasReviewPrompt ? (
+        // Responsive split view: side-by-side on wide screens, stacked on narrow
+        <box style={{ flexGrow: 1, flexDirection: useWideLayout ? 'row' : 'column', gap: 1 }}>
+          {/* Worker prompt */}
+          <box
+            style={{
+              flexGrow: 1,
+              flexBasis: 0,
+              border: true,
+              borderColor: workerFocused ? colors.accent.primary : colors.border.muted,
+              backgroundColor: colors.bg.secondary,
+            }}
+          >
+            <box style={{ padding: 1, backgroundColor: colors.bg.tertiary }}>
+              <text fg={colors.fg.primary}>WORKER PROMPT</text>
             </box>
-          ) : (
-            <text fg={colors.fg.muted}>
-              Cycle views with 'o' or press Shift+O for prompt preview
-            </text>
-          )}
-        </scrollbox>
-      </box>
+            <scrollbox style={{ flexGrow: 1, padding: 1 }} focused={workerFocused}>
+              {promptPreview ? (
+                renderPromptText(promptPreview)
+              ) : (
+                <text fg={colors.fg.muted}>No worker prompt</text>
+              )}
+            </scrollbox>
+          </box>
+
+          {/* Reviewer prompt */}
+          <box
+            style={{
+              flexGrow: 1,
+              flexBasis: 0,
+              border: true,
+              borderColor: reviewerFocused ? colors.accent.primary : colors.border.muted,
+              backgroundColor: colors.bg.secondary,
+            }}
+          >
+            <box style={{ padding: 1, backgroundColor: colors.bg.tertiary }}>
+              <text fg={colors.accent.primary}>REVIEWER PROMPT</text>
+            </box>
+            <scrollbox style={{ flexGrow: 1, padding: 1 }} focused={reviewerFocused}>
+              {reviewPromptPreview ? (
+                renderPromptText(reviewPromptPreview)
+              ) : (
+                <text fg={colors.fg.muted}>Loading review prompt...</text>
+              )}
+            </scrollbox>
+          </box>
+        </box>
+      ) : (
+        // Single view: Worker prompt only
+        <box
+          title="Worker Prompt"
+          style={{
+            flexGrow: 1,
+            border: true,
+            borderColor: workerFocused ? colors.accent.primary : colors.border.muted,
+            backgroundColor: colors.bg.secondary,
+          }}
+        >
+          <scrollbox style={{ flexGrow: 1, padding: 1 }} focused={workerFocused}>
+            {promptPreview ? (
+              renderPromptText(promptPreview)
+            ) : (
+              <text fg={colors.fg.muted}>
+                Cycle views with 'o' or press Shift+O for prompt preview
+              </text>
+            )}
+          </scrollbox>
+        </box>
+      )}
     </box>
   );
 }
@@ -719,6 +870,8 @@ function TaskOutputView({
   iterationTiming,
   agentName,
   currentModel,
+  reviewerAgent,
+  outputFocus,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
@@ -727,26 +880,58 @@ function TaskOutputView({
   iterationTiming?: IterationTimingInfo;
   agentName?: string;
   currentModel?: string;
+  reviewerAgent?: string;
+  outputFocus?: 'worker' | 'reviewer';
 }): ReactNode {
+  const { width } = useTerminalDimensions();
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
+
+  // Responsive layout: side-by-side on wide screens (>= 160 cols), stacked on narrow
+  const useWideLayout = width >= 160;
 
   // Check if we're live streaming
   const isLiveStreaming = iterationTiming?.isRunning === true;
 
+  // Check if output actually has reviewer section
+  const hasReviewOutput = iterationOutput?.includes(REVIEW_OUTPUT_DIVIDER) ?? false;
+
+  // Treat divider presence as implicit signal to keep split layout
+  // This preserves historical reviewer output even if review is currently disabled
+  const isReviewEnabled = (reviewerAgent !== undefined && reviewerAgent !== '') || hasReviewOutput;
+
   // For live streaming, prefer segments for TUI-native colors
   // For historical/completed output, parse the string to extract readable content
   // ALWAYS strip ANSI codes - they cause black background artifacts in OpenTUI
-  const displayOutput = useMemo(() => {
-    if (!iterationOutput) return undefined;
+  const { workerOutput, reviewerOutput } = useMemo(() => {
+    if (iterationOutput == null) return { workerOutput: undefined, reviewerOutput: undefined };
+
+    // Split worker and reviewer on first divider only to avoid content loss
+    const dividerIndex = hasReviewOutput
+      ? iterationOutput.indexOf(REVIEW_OUTPUT_DIVIDER)
+      : -1;
+    const worker = dividerIndex >= 0
+      ? iterationOutput.slice(0, dividerIndex)
+      : iterationOutput;
+    const reviewer = dividerIndex >= 0
+      ? iterationOutput.slice(dividerIndex + REVIEW_OUTPUT_DIVIDER.length)
+      : undefined;
+
     // For live output during execution, strip ANSI but keep raw content
     if (isLiveStreaming) {
-      return stripAnsiCodes(iterationOutput);
+      return {
+        workerOutput: stripAnsiCodes(worker),
+        reviewerOutput: reviewer ? stripAnsiCodes(reviewer) : undefined,
+      };
     }
+
     // For completed output (historical or from current session), parse to extract readable content
     // parseAgentOutput already strips ANSI codes
-    return parseAgentOutput(iterationOutput, agentName);
-  }, [iterationOutput, isLiveStreaming, agentName]);
+    return {
+      workerOutput: parseAgentOutput(worker, agentName),
+      reviewerOutput: reviewer ? parseAgentOutput(reviewer, reviewerAgent) : undefined,
+    };
+  }, [iterationOutput, isLiveStreaming, agentName, reviewerAgent, hasReviewOutput]);
 
   // Note: Full segment-based coloring (FormattedText) disabled due to OpenTUI
   // span rendering issues causing black backgrounds and character loss.
@@ -761,9 +946,37 @@ function TaskOutputView({
       })()
     : null;
 
+  // Helper to render output lines with tool name highlighting
+  const renderOutputLines = (output: string | undefined) => {
+    if (!output || output.length === 0) return null;
+
+    return (
+      <box style={{ flexDirection: 'column' }}>
+        {output.split('\n').map((line, i) => {
+          // Check if line starts with [toolname] pattern
+          const toolMatch = line.match(/^(\[[\w-]+\])(.*)/);
+          if (toolMatch) {
+            const [, toolName, rest] = toolMatch;
+            return (
+              <box key={i} style={{ flexDirection: 'row' }}>
+                <text fg={colors.status.success}>{toolName}</text>
+                <text fg={colors.fg.secondary}>{rest}</text>
+              </box>
+            );
+          }
+          return (
+            <text key={i} fg={colors.fg.secondary}>
+              {line}
+            </text>
+          );
+        })}
+      </box>
+    );
+  };
+
   return (
     <box style={{ flexDirection: 'column', padding: 1, flexGrow: 1 }}>
-      {/* Compact task header with agent/model info */}
+      {/* Compact task header - only show task title and status */}
       <box style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1 }}>
         <box>
           <text>
@@ -772,68 +985,115 @@ function TaskOutputView({
             <span fg={colors.fg.muted}> ({task.id})</span>
           </text>
         </box>
-        {(agentName || modelDisplay) && (
-          <box style={{ flexDirection: 'row', gap: 1 }}>
-            {agentName && <text fg={colors.accent.secondary}>{agentName}</text>}
-            {agentName && modelDisplay && <text fg={colors.fg.muted}>|</text>}
-            {modelDisplay && (
-              <text fg={colors.accent.primary}>{modelDisplay.display}</text>
-            )}
-          </box>
+        {/* Show model info on the right */}
+        {modelDisplay && (
+          <text fg={colors.accent.primary}>{modelDisplay.display}</text>
         )}
       </box>
 
       {/* Timing summary - shows start/end/duration */}
       <TimingSummary timing={iterationTiming} />
 
-      {/* Full-height iteration output */}
-      <box
-        title={
-          currentIteration === -1
-            ? 'Historical Output'
-            : currentIteration > 0
-              ? `Iteration ${currentIteration}`
-              : 'Output'
-        }
-        style={{
-          flexGrow: 1,
-          border: true,
-          borderColor: colors.border.normal,
-          backgroundColor: colors.bg.secondary,
-        }}
-      >
-        <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={true} stickyStart="bottom">
-          {/* Line-based coloring with tool names in green */}
-          {displayOutput !== undefined && displayOutput.length > 0 ? (
-            <box style={{ flexDirection: 'column' }}>
-              {displayOutput.split('\n').map((line, i) => {
-                // Check if line starts with [toolname] pattern
-                const toolMatch = line.match(/^(\[[\w-]+\])(.*)/);
-                if (toolMatch) {
-                  const [, toolName, rest] = toolMatch;
-                  return (
-                    <box key={i} style={{ flexDirection: 'row' }}>
-                      <text fg={colors.status.success}>{toolName}</text>
-                      <text fg={colors.fg.secondary}>{rest}</text>
-                    </box>
-                  );
-                }
-                return (
-                  <text key={i} fg={colors.fg.secondary}>
-                    {line}
-                  </text>
-                );
-              })}
+      {/* Split output sections when review is enabled - responsive layout */}
+      {isReviewEnabled ? (
+        <box style={{ flexDirection: useWideLayout ? 'row' : 'column', flexGrow: 1, gap: 1 }}>
+          {/* Worker output section */}
+          <box
+            style={{
+              flexGrow: 1,
+              flexBasis: 0,
+              flexDirection: 'column',
+              border: true,
+              borderColor: outputFocus === 'worker' ? colors.accent.primary : colors.border.muted,
+              backgroundColor: colors.bg.secondary,
+            }}
+          >
+            <box style={{ paddingLeft: 1, paddingRight: 1, paddingBottom: 0 }}>
+              <text>
+                <span fg={colors.fg.secondary}>Worker: </span>
+                <span fg={colors.fg.primary}>{agentName || 'agent'}</span>
+                {currentIteration > 0 && (
+                  <span fg={colors.fg.muted}> (Iteration {currentIteration})</span>
+                )}
+              </text>
             </box>
-          ) : displayOutput === '' ? (
-            <text fg={colors.fg.muted}>No output captured</text>
-          ) : currentIteration === 0 ? (
-            <text fg={colors.fg.muted}>Task not yet executed</text>
-          ) : (
-            <text fg={colors.fg.muted}>Waiting for output...</text>
-          )}
-        </scrollbox>
-      </box>
+            <scrollbox
+              style={{ flexGrow: 1, padding: 1 }}
+              stickyScroll={isLiveStreaming}
+              stickyStart="bottom"
+              focused={outputFocus === 'worker'}
+            >
+              {workerOutput !== undefined && workerOutput.length > 0 ? (
+                renderOutputLines(workerOutput)
+              ) : (
+                <text fg={colors.fg.muted}>No worker output yet...</text>
+              )}
+            </scrollbox>
+          </box>
+
+          {/* Reviewer output section */}
+          <box
+            style={{
+              flexGrow: 1,
+              flexBasis: 0,
+              flexDirection: 'column',
+              border: true,
+              borderColor: outputFocus === 'reviewer' ? colors.accent.primary : colors.border.muted,
+              backgroundColor: colors.bg.secondary,
+            }}
+          >
+            <box style={{ paddingLeft: 1, paddingRight: 1, paddingBottom: 0 }}>
+              <text>
+                <span fg={colors.fg.secondary}>Reviewer: </span>
+                <span fg={colors.fg.primary}>{reviewerAgent || 'reviewer'}</span>
+              </text>
+            </box>
+            <scrollbox
+              style={{ flexGrow: 1, padding: 1 }}
+              stickyScroll={isLiveStreaming}
+              stickyStart="bottom"
+              focused={outputFocus === 'reviewer'}
+            >
+              {reviewerOutput !== undefined && reviewerOutput.length > 0 ? (
+                renderOutputLines(reviewerOutput)
+              ) : (
+                <text fg={colors.fg.muted}>
+                  {isLiveStreaming ? 'Waiting for reviewer...' : 'No reviewer output captured'}
+                </text>
+              )}
+            </scrollbox>
+          </box>
+        </box>
+      ) : (
+        /* Single output section when no review */
+        <box
+          title={
+            currentIteration === -1
+              ? 'Output'
+              : currentIteration > 0
+                ? `Iteration ${currentIteration}`
+                : 'Output'
+          }
+          style={{
+            flexGrow: 1,
+            border: true,
+            borderColor: colors.border.normal,
+            backgroundColor: colors.bg.secondary,
+          }}
+        >
+          <scrollbox style={{ flexGrow: 1, padding: 1 }} stickyScroll={isLiveStreaming} stickyStart="bottom">
+            {workerOutput !== undefined && workerOutput.length > 0 ? (
+              renderOutputLines(workerOutput)
+            ) : workerOutput === '' ? (
+              <text fg={colors.fg.muted}>No output captured</text>
+            ) : currentIteration === 0 ? (
+              <text fg={colors.fg.muted}>Task not yet executed</text>
+            ) : (
+              <text fg={colors.fg.muted}>Waiting for output...</text>
+            )}
+          </scrollbox>
+        </box>
+      )}
     </box>
   );
 }
@@ -850,8 +1110,12 @@ function TaskDetails({
   iterationTiming,
   agentName,
   currentModel,
+  reviewerAgent,
   promptPreview,
   templateSource,
+  reviewPromptPreview,
+  reviewTemplateSource,
+  outputFocus,
 }: {
   task: NonNullable<RightPanelProps['selectedTask']>;
   currentIteration: number;
@@ -861,8 +1125,12 @@ function TaskDetails({
   iterationTiming?: IterationTimingInfo;
   agentName?: string;
   currentModel?: string;
+  reviewerAgent?: string;
   promptPreview?: string;
   templateSource?: string;
+  reviewPromptPreview?: string;
+  reviewTemplateSource?: string;
+  outputFocus?: 'worker' | 'reviewer' | 'content';
 }): ReactNode {
   if (viewMode === 'output') {
     return (
@@ -874,6 +1142,8 @@ function TaskDetails({
         iterationTiming={iterationTiming}
         agentName={agentName}
         currentModel={currentModel}
+        reviewerAgent={reviewerAgent}
+        outputFocus={outputFocus === 'worker' || outputFocus === 'reviewer' ? outputFocus : undefined}
       />
     );
   }
@@ -884,11 +1154,14 @@ function TaskDetails({
         task={task}
         promptPreview={promptPreview}
         templateSource={templateSource}
+        reviewPromptPreview={reviewPromptPreview}
+        reviewTemplateSource={reviewTemplateSource}
+        outputFocus={outputFocus}
       />
     );
   }
 
-  return <TaskMetadataView task={task} />;
+  return <TaskMetadataView task={task} isFocused={outputFocus === 'content'} />;
 }
 
 /**
@@ -903,11 +1176,15 @@ export function RightPanel({
   iterationTiming,
   agentName,
   currentModel,
+  reviewerAgent,
   promptPreview,
   templateSource,
+  reviewPromptPreview,
+  reviewTemplateSource,
   isViewingRemote = false,
   remoteConnectionStatus,
   remoteAlias,
+  outputFocus,
 }: RightPanelProps): ReactNode {
   // Build title with view mode indicator
   const modeIndicators: Record<typeof viewMode, string> = {
@@ -941,8 +1218,12 @@ export function RightPanel({
           iterationTiming={iterationTiming}
           agentName={agentName}
           currentModel={currentModel}
+          reviewerAgent={reviewerAgent}
           promptPreview={promptPreview}
           templateSource={templateSource}
+          reviewPromptPreview={reviewPromptPreview}
+          reviewTemplateSource={reviewTemplateSource}
+          outputFocus={outputFocus}
         />
       ) : (
         <NoSelection

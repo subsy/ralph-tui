@@ -171,6 +171,7 @@ export function Header({
   completedTasks = 0,
   totalTasks = 0,
   agentName,
+  reviewerAgent,
   trackerName,
   activeAgentState,
   rateLimitState,
@@ -185,6 +186,11 @@ export function Header({
 
   // Get agent display info including fallback status and status line message
   const agentDisplay = getAgentDisplay(agentName, activeAgentState, rateLimitState);
+
+  // Build agent display string with worker/reviewer split if reviewer is configured
+  const agentDisplayString = reviewerAgent
+    ? `worker: ${agentDisplay.displayName || agentName || 'agent'} | reviewer: ${reviewerAgent}`
+    : agentDisplay.displayName;
 
   // Parse model info for display
   const modelDisplay = currentModel
@@ -255,19 +261,19 @@ export function Header({
         {/* Right section: Agent/Tracker + Model + Sandbox + Progress (X/Y) with mini bar + elapsed time */}
         <box style={{ flexDirection: 'row', gap: 2, alignItems: 'center' }}>
           {/* Agent, model, tracker, and sandbox indicators */}
-          {(agentDisplay.displayName || trackerName || modelDisplay || sandboxDisplay) && (
+          {(agentDisplayString || trackerName || modelDisplay || sandboxDisplay) && (
             <text fg={colors.fg.muted}>
               {agentDisplay.showRateLimitIcon && (
                 <span fg={colors.status.warning}>{RATE_LIMIT_ICON} </span>
               )}
-              {agentDisplay.displayName && (
-                <span fg={agentDisplay.color}>{agentDisplay.displayName}</span>
+              {agentDisplayString && (
+                <span fg={agentDisplay.color}>{agentDisplayString}</span>
               )}
-              {agentDisplay.displayName && (trackerName || modelDisplay || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
+              {agentDisplayString && (trackerName || modelDisplay || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
               {modelDisplay && (
                 <span fg={colors.accent.primary}>{modelDisplay.display}</span>
               )}
-              {(agentDisplay.displayName || modelDisplay) && (trackerName || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
+              {(agentDisplayString || modelDisplay) && (trackerName || sandboxDisplay) && <span fg={colors.fg.dim}> | </span>}
               {trackerName && <span fg={colors.accent.tertiary}>{trackerName}</span>}
               {trackerName && sandboxDisplay && <span fg={colors.fg.dim}> | </span>}
               {sandboxDisplay && (

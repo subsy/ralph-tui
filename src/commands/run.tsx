@@ -43,7 +43,6 @@ import {
 } from '../session/index.js';
 import { ExecutionEngine } from '../engine/index.js';
 import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel, recommendParallelism } from '../parallel/index.js';
-import { createAiResolver } from '../parallel/ai-resolver.js';
 import type {
   WorkerDisplayState,
   MergeOperation,
@@ -104,6 +103,80 @@ export function isSessionComplete(
   totalTasks: number
 ): boolean {
   return parallelAllComplete ?? (tasksCompleted >= totalTasks);
+}
+
+/**
+ * Check if the current directory is a git repository.
+ * Returns true if git repository, false otherwise.
+ */
+function isGitRepository(cwd: string): boolean {
+  try {
+    const result = spawnSync('git', ['rev-parse', '--git-dir'], {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Initialize git repository in the given directory.
+ * Returns true on success, false on failure.
+ */
+function initGitRepository(cwd: string): boolean {
+  try {
+    const result = spawnSync('git', ['init'], {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 10000,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prompt user about git repository initialization.
+ * Returns 'init' to initialize, 'continue' to proceed anyway, 'abort' to exit.
+ */
+async function promptGitInit(): Promise<'init' | 'continue' | 'abort'> {
+  console.log('');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('                 No Git Repository Detected                    ');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('');
+  console.log('  ⚠️   An autonomous coding agent should work under version control.');
+  console.log('');
+  console.log('  Without git:');
+  console.log('    • Changes cannot be reverted if something goes wrong');
+  console.log('    • No audit trail of modifications');
+  console.log('    • Some agent tools may not work correctly');
+  console.log('');
+  console.log('  Options:');
+  console.log('    [Y] Initialize git repository (recommended)');
+  console.log('    [N] Exit and initialize manually');
+  console.log('    [C] Continue without git (not recommended)');
+  console.log('');
+
+  const { createInterface } = await import('node:readline');
+  return new Promise<'init' | 'continue' | 'abort'>((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('  Your choice [Y/n/c]: ', (answer) => {
+      rl.close();
+      const choice = answer.trim().toLowerCase();
+      if (choice === '' || choice === 'y' || choice === 'yes') {
+        resolve('init');
+      } else if (choice === 'c' || choice === 'continue') {
+        resolve('continue');
+      } else {
+        resolve('abort');
+      }
+    });
+  });
 }
 
 /**
@@ -224,6 +297,35 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--agent':
         if (nextArg && !nextArg.startsWith('-')) {
           options.agent = nextArg;
+          i++;
+        }
+        break;
+
+      case '--review':
+        options.review = true;
+        break;
+
+      case '--no-review':
+        options.review = false;
+        break;
+
+      case '--review-agent':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.reviewAgent = nextArg;
+          i++;
+        }
+        break;
+
+      case '--review-prompt':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.reviewPromptPath = nextArg;
+          i++;
+        }
+        break;
+
+      case '--review-model':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.reviewModel = nextArg;
           i++;
         }
         break;
@@ -456,6 +558,11 @@ Options:
   --epic <id>         Epic ID for beads tracker (if omitted, shows epic selection)
   --prd <path>        PRD file path (auto-switches to json tracker)
   --agent <name>      Override agent plugin (e.g., claude, opencode)
+  --review            Enable reviewer stage before completing tasks
+  --no-review         Disable reviewer stage
+  --review-agent <name> Reviewer agent plugin/name (e.g., claude, codex)
+  --review-prompt <path> Custom review prompt template path
+  --review-model <name> Override reviewer model (agent-specific)
   --model <name>      Override model (e.g., opus, sonnet)
   --variant <level>   Model variant/reasoning effort (minimal, high, max)
   --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json)
@@ -978,10 +1085,6 @@ interface RunAppWrapperProps {
   parallelConflictTaskTitle?: string;
   /** Whether AI conflict resolution is running */
   parallelAiResolving?: boolean;
-  /** The file currently being resolved by AI */
-  parallelCurrentlyResolvingFile?: string;
-  /** Whether to show the conflict panel (true during Phase 2 conflict resolution) */
-  parallelShowConflicts?: boolean;
   /** Maps task IDs to worker IDs for output routing in parallel mode */
   parallelTaskIdToWorkerId?: Map<string, string>;
   /** Task IDs that completed locally but merge failed (shows ⚠ in TUI) */
@@ -1002,10 +1105,12 @@ interface RunAppWrapperProps {
   onParallelKill?: () => Promise<void>;
   /** Callback to restart parallel execution after stop/complete */
   onParallelStart?: () => void;
-  /** Callback when user requests conflict resolution retry */
-  onConflictRetry?: () => Promise<void>;
-  /** Callback when user requests to skip a failed merge */
-  onConflictSkip?: () => void;
+  /** Callback to abort conflict resolution and rollback the merge */
+  onConflictAbort?: () => Promise<void>;
+  /** Callback to accept AI resolution for a specific file */
+  onConflictAccept?: (filePath: string) => void;
+  /** Callback to accept all AI resolutions */
+  onConflictAcceptAll?: () => void;
 }
 
 /**
@@ -1043,8 +1148,6 @@ function RunAppWrapper({
   parallelConflictTaskId,
   parallelConflictTaskTitle,
   parallelAiResolving,
-  parallelCurrentlyResolvingFile,
-  parallelShowConflicts,
   parallelTaskIdToWorkerId,
   parallelCompletedLocallyTaskIds,
   parallelAutoCommitSkippedTaskIds,
@@ -1055,8 +1158,9 @@ function RunAppWrapper({
   onParallelResume,
   onParallelKill,
   onParallelStart,
-  onConflictRetry,
-  onConflictSkip,
+  onConflictAbort,
+  onConflictAccept,
+  onConflictAcceptAll,
 }: RunAppWrapperProps) {
   const [showInterruptDialog, setShowInterruptDialog] = useState(false);
   const [storedConfig, setStoredConfig] = useState<StoredConfig | undefined>(initialStoredConfig);
@@ -1245,8 +1349,6 @@ function RunAppWrapper({
       parallelConflictTaskId={parallelConflictTaskId}
       parallelConflictTaskTitle={parallelConflictTaskTitle}
       parallelAiResolving={parallelAiResolving}
-      parallelCurrentlyResolvingFile={parallelCurrentlyResolvingFile}
-      parallelShowConflicts={parallelShowConflicts}
       parallelTaskIdToWorkerId={parallelTaskIdToWorkerId}
       parallelCompletedLocallyTaskIds={parallelCompletedLocallyTaskIds}
       parallelAutoCommitSkippedTaskIds={parallelAutoCommitSkippedTaskIds}
@@ -1257,8 +1359,9 @@ function RunAppWrapper({
       onParallelResume={onParallelResume}
       onParallelKill={onParallelKill}
       onParallelStart={onParallelStart}
-      onConflictRetry={onConflictRetry}
-      onConflictSkip={onConflictSkip}
+      onConflictAbort={onConflictAbort}
+      onConflictAccept={onConflictAccept}
+      onConflictAcceptAll={onConflictAcceptAll}
     />
   );
 }
@@ -1314,7 +1417,7 @@ async function runWithTui(
     if (event.type === 'iteration:completed') {
       currentState = updateSessionAfterIteration(currentState, event.result);
       // If task was completed, remove it from active tasks
-      if (event.result.taskCompleted) {
+      if (event.result.taskCompleted || event.result.taskBlocked) {
         currentState = removeActiveTask(currentState, event.result.task.id);
       }
       savePersistedSession(currentState).catch(() => {
@@ -1565,10 +1668,6 @@ async function runParallelWithTui(
     conflictTaskId: '',
     conflictTaskTitle: '',
     aiResolving: false,
-    /** The file currently being resolved by AI */
-    currentlyResolvingFile: '' as string,
-    /** Whether to show the conflict panel (set true at Phase 2 start, false when resolved) */
-    showConflicts: false,
     /** Maps task IDs to their assigned worker IDs for output routing */
     taskIdToWorkerId: new Map<string, string>(),
     /** Task IDs that completed locally but merge failed (shows ⚠ in TUI) */
@@ -1720,44 +1819,24 @@ async function runParallelWithTui(
 
       case 'conflict:ai-resolving':
         parallelState.aiResolving = true;
-        parallelState.currentlyResolvingFile = event.filePath;
-        // Show the conflict panel now that Phase 2 (resolution) has started
-        parallelState.showConflicts = true;
         break;
 
       case 'conflict:ai-resolved':
         parallelState.aiResolving = false;
-        parallelState.currentlyResolvingFile = '';
         parallelState.conflictResolutions = [...parallelState.conflictResolutions, event.result];
         break;
 
       case 'conflict:ai-failed':
         parallelState.aiResolving = false;
-        parallelState.currentlyResolvingFile = '';
         break;
 
-      case 'conflict:resolved': {
+      case 'conflict:resolved':
         parallelState.conflicts = [];
         parallelState.conflictResolutions = event.results;
         parallelState.conflictTaskId = '';
         parallelState.conflictTaskTitle = '';
         parallelState.aiResolving = false;
-        parallelState.currentlyResolvingFile = '';
-        // Hide the conflict panel now that resolution is complete
-        parallelState.showConflicts = false;
-        // Refresh merge queue to show updated status (conflicted -> completed)
-        parallelState.mergeQueue = [...parallelExecutor.getState().mergeQueue];
-        // Task successfully merged after conflict resolution — update tracking sets
-        // Remove from completedLocally (no more ⚠ warning) and add to merged (shows ✓)
-        const resolvedSet = new Set(parallelState.completedLocallyTaskIds);
-        resolvedSet.delete(event.taskId);
-        parallelState.completedLocallyTaskIds = resolvedSet;
-        parallelState.mergedTaskIds = new Set([
-          ...parallelState.mergedTaskIds,
-          event.taskId,
-        ]);
         break;
-      }
 
       case 'parallel:completed':
         currentState = completeSession(currentState);
@@ -1884,8 +1963,6 @@ async function runParallelWithTui(
         parallelConflictTaskId={parallelState.conflictTaskId}
         parallelConflictTaskTitle={parallelState.conflictTaskTitle}
         parallelAiResolving={parallelState.aiResolving}
-        parallelCurrentlyResolvingFile={parallelState.currentlyResolvingFile}
-        parallelShowConflicts={parallelState.showConflicts}
         parallelTaskIdToWorkerId={parallelState.taskIdToWorkerId}
         parallelCompletedLocallyTaskIds={parallelState.completedLocallyTaskIds}
         parallelAutoCommitSkippedTaskIds={parallelState.autoCommitSkippedTaskIds}
@@ -1910,25 +1987,42 @@ async function runParallelWithTui(
             triggerRerender?.();
           });
         }}
-        onConflictRetry={async () => {
-          // Re-attempt AI conflict resolution
-          parallelState.aiResolving = true;
-          triggerRerender?.();
+        onConflictAbort={async () => {
+          // Stop the executor gracefully. Full cleanup (worktrees, git state) is
+          // guaranteed by execute()'s finally block which calls this.cleanup().
+          // We clear UI conflict state in finally to ensure it runs even if stop() rejects.
           try {
-            await parallelExecutor.retryConflictResolution();
-            // State updates handled by conflict:resolved event
-          } catch {
-            // Retry failed - state updates handled by conflict:ai-failed event
+            await parallelExecutor.stop();
           } finally {
-            parallelState.aiResolving = false;
+            clearConflictState(parallelState);
             triggerRerender?.();
           }
         }}
-        onConflictSkip={() => {
-          // Skip this failed merge and continue
-          parallelExecutor.skipFailedConflict();
-          // Clear conflict state
-          clearConflictState(parallelState);
+        onConflictAccept={(filePath: string) => {
+          // Mark file as accepted - the AI resolution continues automatically
+          // This is primarily for user feedback; actual resolution is AI-driven
+          const resolution = findResolutionByPath(parallelState.conflictResolutions, filePath);
+          if (resolution?.success) {
+            // File already resolved by AI - nothing more to do
+            triggerRerender?.();
+            return;
+          }
+          if (!resolution) {
+            parallelState.conflictResolutions = [
+              ...parallelState.conflictResolutions,
+              {
+                filePath,
+                success: false,
+                method: 'ai',
+                error: 'No AI resolution available for this file',
+              },
+            ];
+          }
+          triggerRerender?.();
+        }}
+        onConflictAcceptAll={() => {
+          // Accept all resolutions - let AI continue and close panel
+          // The AI resolution process continues automatically
           triggerRerender?.();
         }}
       />
@@ -2043,6 +2137,9 @@ async function runHeadless(
         if (event.result.taskCompleted) {
           logger.taskCompleted(event.result.task.id, event.result.iteration);
           // Remove from active tasks
+          currentState = removeActiveTask(currentState, event.result.task.id);
+        } else if (event.result.taskBlocked) {
+          // Remove from active tasks when review blocks progress
           currentState = removeActiveTask(currentState, event.result.task.id);
         }
 
@@ -2376,6 +2473,42 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Show warnings
   for (const warning of validation.warnings) {
     console.warn(`Warning: ${warning}`);
+  }
+
+  // Check for git repository (only in interactive TUI mode, skip for headless/CI)
+  if (!options.headless && process.stdin.isTTY) {
+    if (!isGitRepository(cwd)) {
+      const choice = await promptGitInit();
+
+      if (choice === 'init') {
+        console.log('');
+        console.log('Initializing git repository...');
+        if (initGitRepository(cwd)) {
+          console.log('✓ Git repository initialized successfully');
+          console.log('');
+          console.log('Consider creating an initial commit:');
+          console.log('  git add .');
+          console.log('  git commit -m "Initial commit"');
+        } else {
+          console.error('✗ Failed to initialize git repository');
+          console.error('  Please initialize git manually before continuing');
+          process.exit(1);
+        }
+      } else if (choice === 'abort') {
+        console.log('');
+        console.log('Please initialize git repository manually:');
+        console.log('  git init');
+        console.log('  git add .');
+        console.log('  git commit -m "Initial commit"');
+        console.log('');
+        process.exit(0);
+      } else {
+        // Continue without git - show warning
+        console.log('');
+        console.log('⚠️  Continuing without git repository (not recommended)');
+        console.log('');
+      }
+    }
   }
 
   // Show environment variable exclusion report upfront (using resolved agent config)
@@ -2843,17 +2976,6 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         directMerge,
         filteredTaskIds,
       });
-
-      // Wire up AI conflict resolution if enabled (default: true)
-      const conflictResolutionEnabled = storedConfig?.conflictResolution?.enabled !== false;
-      if (conflictResolutionEnabled) {
-        // Pass conflict resolution config to RalphConfig for the resolver
-        const configWithConflictRes = {
-          ...config,
-          conflictResolution: storedConfig?.conflictResolution,
-        };
-        parallelExecutor.setAiResolver(createAiResolver(configWithConflictRes));
-      }
 
       // Track session branch info for completion guidance
       let sessionBranchForGuidance: string | null = null;

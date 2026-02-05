@@ -62,6 +62,30 @@ export interface NotificationsConfig {
   sound?: NotificationSoundMode;
 }
 
+/**
+ * Review configuration for optional reviewer agent stage.
+ */
+export interface ReviewConfig {
+  /** Whether review is enabled */
+  enabled?: boolean;
+  /** Agent name or plugin id to use for review */
+  agent?: string;
+  /** Model override for the reviewer agent */
+  model?: string;
+}
+
+/**
+ * Resolved review configuration used at runtime.
+ */
+export interface ReviewRuntimeConfig {
+  /** Whether review is enabled */
+  enabled: boolean;
+  /** Resolved reviewer agent config (if enabled) */
+  agent?: AgentPluginConfig;
+  /** Model override for the reviewer agent */
+  model?: string;
+}
+
 export type SandboxMode = 'auto' | 'bwrap' | 'sandbox-exec' | 'off';
 
 export interface SandboxConfig {
@@ -184,6 +208,18 @@ export interface RuntimeOptions {
 
   /** Enable parallel execution, optionally with worker count (--parallel [N]) */
   parallel?: number | boolean;
+
+  /** Enable or disable review stage */
+  review?: boolean;
+
+  /** Override reviewer agent plugin/name */
+  reviewAgent?: string;
+
+  /** Custom review prompt template path */
+  reviewPromptPath?: string;
+
+  /** Override model for reviewer agent */
+  reviewModel?: string;
 }
 
 /**
@@ -295,6 +331,9 @@ export interface StoredConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Review configuration */
+  review?: ReviewConfig;
 }
 
 /**
@@ -342,6 +381,9 @@ export interface RalphConfig {
   /** Custom prompt template path (resolved) */
   promptTemplate?: string;
 
+  /** Custom review prompt template path (from CLI --review-prompt flag only) */
+  reviewPromptPath?: string;
+
   /** Session ID for log file naming and tracking */
   sessionId?: string;
 
@@ -357,6 +399,9 @@ export interface RalphConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Optional reviewer stage configuration */
+  review?: ReviewRuntimeConfig;
 }
 
 /**

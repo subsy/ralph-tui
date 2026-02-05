@@ -434,12 +434,15 @@ export function segmentsToPlainText(segments: FormattedSegment[]): string {
  * - CSI sequences: ESC[...letter (colors, cursor, etc.)
  * - OSC sequences: ESC]...BEL (window title, etc.)
  * - Charset switching: ESC(A, ESC)B, etc.
+ * - Corrupted sequences: �[...letter (where ESC was corrupted to U+FFFD)
  *
  * Uses RegExp constructor to avoid embedded control characters in source.
  */
 const ANSI_REGEX = new RegExp(
   // CSI sequences: ESC[...letter | OSC sequences: ESC]...BEL | Charset: ESC(/)AB012
-  '\\x1b\\[[0-9;?]*[a-zA-Z]|\\x1b\\][^\\x07]*\\x07|\\x1b[()][AB012]',
+  '\\x1b\\[[0-9;?]*[a-zA-Z]|\\x1b\\][^\\x07]*\\x07|\\x1b[()][AB012]|' +
+  // Corrupted ANSI codes (ESC byte replaced with U+FFFD replacement character)
+  '\ufffd\\[[0-9;?]*[a-zA-Z]',
   'g'
 );
 

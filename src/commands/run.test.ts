@@ -520,6 +520,7 @@ describe('conflict resolution helpers', () => {
   });
 
   describe('keyboard handler behavior', () => {
+    // Contract tests: mirror expected key handling semantics without instantiating the TUI.
     test('escape key triggers abort callback', () => {
       let abortCalled = false;
       let panelHidden = false;

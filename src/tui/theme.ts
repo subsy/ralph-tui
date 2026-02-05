@@ -5,7 +5,7 @@
  */
 
 import { readFile, access, constants } from 'node:fs/promises';
-import { resolve, isAbsolute, join, dirname, sep } from 'node:path';
+import { resolve, isAbsolute, join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -417,8 +417,7 @@ function getThemesDir(): string {
   // In dist: dist/cli.js -> assets/themes (copied during build to dist/assets/)
   // Note: bun bundler produces flat output (dist/cli.js), not nested (dist/tui/theme.js)
   // Use path-segment-aware check for cross-platform compatibility (Windows uses backslashes)
-  const pathSegments = currentDir.split(sep);
-  const isInDist = pathSegments.includes('dist');
+  const isInDist = basename(currentDir) === 'dist';
   if (isInDist) {
     return join(currentDir, 'assets', 'themes');
   }

@@ -51,10 +51,12 @@ function TaskRow({
   const titleWidth = maxWidth - indentWidth - 3 - idDisplay.length;
   const truncatedTitle = truncateText(task.title, Math.max(5, titleWidth));
 
-  // Greyed-out colors for closed tasks
-  const idColor = isClosed ? colors.fg.dim : colors.fg.muted;
+  // Greyed-out colors for closed tasks, but more readable when selected
+  const idColor = isClosed ? (isSelected ? colors.fg.muted : colors.fg.dim) : colors.fg.muted;
   const titleColor = isClosed
-    ? colors.fg.dim
+    ? isSelected
+      ? colors.fg.secondary
+      : colors.fg.dim
     : isSelected
       ? colors.fg.primary
       : colors.fg.secondary;
@@ -136,7 +138,6 @@ export const LeftPanel = memo(function LeftPanel({
 
   return (
     <box
-      title="Tasks"
       style={{
         flexGrow: 1,
         flexShrink: 1,
@@ -148,6 +149,9 @@ export const LeftPanel = memo(function LeftPanel({
         borderColor: isFocused ? colors.accent.primary : colors.border.normal,
       }}
     >
+      <box style={{ paddingLeft: 1, paddingRight: 1, paddingBottom: 0 }}>
+        <text fg={colors.fg.secondary}>Tasks</text>
+      </box>
       <scrollbox
         style={{
           flexGrow: 1,
