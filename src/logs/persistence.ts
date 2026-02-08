@@ -4,6 +4,7 @@
  */
 
 import { join } from 'node:path';
+import { createReadStream, createWriteStream, type WriteStream } from 'node:fs';
 import {
   writeFile,
   readFile,
@@ -44,6 +45,55 @@ const STDERR_DIVIDER = '\n--- STDERR ---\n';
  * Divider before subagent trace JSON section.
  */
 const SUBAGENT_TRACE_DIVIDER = '\n--- SUBAGENT TRACE ---\n';
+
+/**
+ * Write a string chunk to a writable stream and await completion.
+ */
+async function writeChunkToStream(stream: WriteStream, chunk: string): Promise<void> {
+  if (chunk.length === 0) return;
+  await new Promise<void>((resolve, reject) => {
+    stream.write(chunk, 'utf-8', (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Pipe a file's content into a writable stream without closing the destination.
+ */
+async function pipeFileToStream(filePath: string, stream: WriteStream): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const source = createReadStream(filePath, { encoding: 'utf-8' });
+    const onError = (error: Error): void => {
+      source.destroy();
+      stream.off('error', onError);
+      reject(error);
+    };
+
+    source.once('error', onError);
+    stream.once('error', onError);
+    source.once('end', () => {
+      stream.off('error', onError);
+      resolve();
+    });
+    source.pipe(stream, { end: false });
+  });
+}
+
+/**
+ * Close a writable stream and await completion.
+ */
+async function closeWriteStream(stream: WriteStream): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => reject(error);
+    stream.once('error', onError);
+    stream.end(() => {
+      stream.off('error', onError);
+      resolve();
+    });
+  });
+}
 
 /**
  * Format a timestamp for use in filenames.
@@ -540,6 +590,18 @@ export interface SaveIterationLogOptions {
 
   /** Resolved sandbox mode when configured mode was 'auto' */
   resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>;
+
+  /**
+   * Optional file path containing full raw stdout for this iteration.
+   * When provided, saveIterationLog streams from this file instead of the stdout string argument.
+   */
+  rawStdoutFilePath?: string;
+
+  /**
+   * Optional file path containing full raw stderr for this iteration.
+   * When provided, saveIterationLog streams from this file instead of the stderr string argument.
+   */
+  rawStderrFilePath?: string;
 }
 
 /**
@@ -568,6 +630,8 @@ export async function saveIterationLog(
   let summary: IterationSummary | undefined;
   let sandboxConfig: SandboxConfig | undefined;
   let resolvedSandboxMode: Exclude<SandboxMode, 'auto'> | undefined;
+  let rawStdoutFilePath: string | undefined;
+  let rawStderrFilePath: string | undefined;
 
   // Detect new options object format by checking for any of its unique keys
   const isOptionsObject = options && (
@@ -575,7 +639,9 @@ export async function saveIterationLog(
     'subagentTrace' in options ||
     'sandboxConfig' in options ||
     'resolvedSandboxMode' in options ||
-    'sessionId' in options
+    'sessionId' in options ||
+    'rawStdoutFilePath' in options ||
+    'rawStderrFilePath' in options
   );
 
   if (isOptionsObject) {
@@ -589,6 +655,8 @@ export async function saveIterationLog(
     summary = saveOptions.summary;
     sandboxConfig = saveOptions.sandboxConfig;
     resolvedSandboxMode = saveOptions.resolvedSandboxMode;
+    rawStdoutFilePath = saveOptions.rawStdoutFilePath;
+    rawStderrFilePath = saveOptions.rawStderrFilePath;
   } else {
     // Old config-only signature for backward compatibility
     config = options as Partial<RalphConfig> | undefined;
@@ -608,6 +676,52 @@ export async function saveIterationLog(
   // Generate filename with new format if sessionId available, else legacy format
   const filename = generateLogFilename(result.iteration, result.task.id, sessionId, result.startedAt);
   const filePath = join(getIterationsDir(cwd, outputDir), filename);
+
+  // If raw stream files are provided, stream log content directly from files.
+  // This avoids requiring full raw output strings in memory.
+  if (rawStdoutFilePath || rawStderrFilePath) {
+    const stream = createWriteStream(filePath, { encoding: 'utf-8' });
+    let writeError: unknown;
+    try {
+      await writeChunkToStream(stream, formatMetadataHeader(metadata) + LOG_DIVIDER);
+
+      if (rawStdoutFilePath) {
+        await pipeFileToStream(rawStdoutFilePath, stream);
+      } else {
+        await writeChunkToStream(stream, stdout);
+      }
+
+      const hasStderr = rawStderrFilePath
+        ? await stat(rawStderrFilePath).then((s) => s.size > 0).catch(() => false)
+        : stderr.trim().length > 0;
+
+      if (hasStderr) {
+        await writeChunkToStream(stream, STDERR_DIVIDER);
+        if (rawStderrFilePath) {
+          await pipeFileToStream(rawStderrFilePath, stream);
+        } else {
+          await writeChunkToStream(stream, stderr);
+        }
+      }
+
+      if (subagentTrace && subagentTrace.events.length > 0) {
+        await writeChunkToStream(stream, SUBAGENT_TRACE_DIVIDER);
+        await writeChunkToStream(stream, JSON.stringify(subagentTrace, null, 2));
+      }
+    } catch (error) {
+      writeError = error;
+      throw error;
+    } finally {
+      try {
+        await closeWriteStream(stream);
+      } catch (closeError) {
+        if (!writeError) {
+          throw closeError;
+        }
+      }
+    }
+    return filePath;
+  }
 
   // Build file content with structured header and raw output
   const header = formatMetadataHeader(metadata);

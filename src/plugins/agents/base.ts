@@ -130,6 +130,64 @@ export const DEFAULT_ENV_EXCLUDE_PATTERNS: readonly string[] = [
 ];
 
 /**
+ * Maximum number of characters kept in memory per execution stream.
+ * This prevents unbounded growth when agents emit large outputs.
+ */
+const MAX_EXECUTION_STREAM_CHARS = 2_000_000;
+
+/**
+ * Prefix added when stream output is truncated in memory.
+ */
+const STREAM_TRUNCATED_PREFIX = '[...agent output truncated in memory...]\n';
+
+/**
+ * Append chunk data while enforcing an in-memory size cap.
+ * Keeps the most recent content (tail) to preserve completion markers near the end.
+ */
+function appendWithCharLimit(
+  current: string,
+  chunk: string,
+  maxChars: number,
+  prefix = STREAM_TRUNCATED_PREFIX
+): string {
+  if (!chunk) return current;
+  if (maxChars <= 0) return '';
+
+  const totalLen = current.length + chunk.length;
+  if (totalLen <= maxChars) {
+    return current + chunk;
+  }
+
+  if (maxChars <= prefix.length) {
+    return prefix.slice(0, maxChars);
+  }
+
+  const keep = maxChars - prefix.length;
+  const combinedTailStart = totalLen - keep;
+
+  let tail: string;
+  if (combinedTailStart >= current.length) {
+    const startInChunk = combinedTailStart - current.length;
+    tail = chunk.slice(startInChunk);
+  } else {
+    const tailFromCurrent = current.slice(combinedTailStart);
+    const remaining = keep - tailFromCurrent.length;
+    const tailFromChunk = remaining > 0 ? chunk.slice(-remaining) : '';
+    tail = tailFromCurrent + tailFromChunk;
+  }
+
+  return prefix + tail;
+}
+
+/**
+ * Test-only exports for internal helpers.
+ * Do not use from production code.
+ */
+export const __test__ = {
+  appendWithCharLimit,
+};
+
+/**
  * Abstract base class for agent plugins.
  * Provides sensible defaults and utility methods for executing CLI-based agents.
  */
@@ -525,14 +583,22 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // Handle stdout
       proc.stdout?.on('data', (data: Buffer) => {
         const text = data.toString();
-        execution.stdout += text;
+        execution.stdout = appendWithCharLimit(
+          execution.stdout,
+          text,
+          MAX_EXECUTION_STREAM_CHARS
+        );
         options?.onStdout?.(text);
       });
 
       // Handle stderr
       proc.stderr?.on('data', (data: Buffer) => {
         const text = data.toString();
-        execution.stderr += text;
+        execution.stderr = appendWithCharLimit(
+          execution.stderr,
+          text,
+          MAX_EXECUTION_STREAM_CHARS
+        );
         options?.onStderr?.(text);
       });
 
