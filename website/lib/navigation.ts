@@ -84,6 +84,7 @@ export const docsNavigation: NavItem[] = [
           { title: 'Codex', href: '/docs/plugins/agents/codex', label: 'New' },
           { title: 'Cursor', href: '/docs/plugins/agents/cursor', label: 'New' },
           { title: 'Gemini', href: '/docs/plugins/agents/gemini', label: 'New' },
+          { title: 'GitHub Copilot', href: '/docs/plugins/agents/github-copilot', label: 'New' },
           { title: 'Kiro', href: '/docs/plugins/agents/kiro', label: 'New' },
         ],
       },
