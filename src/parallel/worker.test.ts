@@ -9,7 +9,7 @@
 import { describe, test, expect, spyOn, beforeEach, afterEach } from 'bun:test';
 import type { TrackerTask, TrackerPlugin } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
-import type { WorkerConfig, WorkerDisplayState } from './types.js';
+import type { WorkerConfig } from './types.js';
 import type { ParallelEvent } from './events.js';
 import { Worker } from './worker.js';
 import { ExecutionEngine } from '../engine/index.js';
@@ -47,6 +47,12 @@ function createMockConfig(): RalphConfig {
     agent: { name: 'test', plugin: 'test', options: {} },
     tracker: { name: 'test', plugin: 'test', options: {} },
     showTui: false,
+    errorHandling: {
+      strategy: 'skip',
+      maxRetries: 3,
+      retryDelayMs: 1000,
+      continueOnNonZeroExit: false,
+    },
   };
 }
 
@@ -62,7 +68,7 @@ describe('Worker', () => {
     spies.push(spyOn(ExecutionEngine.prototype, 'pause').mockReturnValue());
     spies.push(spyOn(ExecutionEngine.prototype, 'resume').mockReturnValue());
     spies.push(spyOn(ExecutionEngine.prototype, 'getState').mockReturnValue({
-      status: 'completed',
+      status: 'idle',
       currentIteration: 3,
       tasksCompleted: 1,
       totalTasks: 1,

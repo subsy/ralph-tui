@@ -53,6 +53,12 @@ function createMockConfig(): RalphConfig {
     agent: { name: 'test', plugin: 'test', options: {} },
     tracker: { name: 'test', plugin: 'test', options: {} },
     showTui: false,
+    errorHandling: {
+      strategy: 'skip',
+      maxRetries: 3,
+      retryDelayMs: 1000,
+      continueOnNonZeroExit: false,
+    },
   };
 }
 
@@ -66,7 +72,7 @@ describe('ParallelExecutor execution (spyOn)', () => {
     spies.push(spyOn(taskGraph, 'shouldRunParallel').mockReturnValue(true));
     spies.push(spyOn(taskGraph, 'analyzeTaskGraph').mockImplementation((tasks) => ({
       nodes: new Map(),
-      groups: [{ index: 0, tasks, depth: 0 }],
+      groups: [{ index: 0, tasks, depth: 0, maxPriority: 2 }],
       cyclicTaskIds: [],
       actionableTaskCount: tasks.length,
       maxParallelism: tasks.length,

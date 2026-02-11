@@ -455,6 +455,11 @@ export class ParallelExecutor {
     let groupMergesFailed = 0;
     const groupErrors: Array<{ taskId: string; error: string }> = [];
 
+    const recordError = (taskId: string, error: string) => {
+      groupErrors.push({ taskId, error });
+      this.allErrors.push({ taskId, error });
+    };
+
     for (const batch of batches) {
       if (this.shouldStop) break;
 
@@ -511,24 +516,21 @@ export class ParallelExecutor {
               // AI conflict resolution disabled - mark as failed
               groupMergesFailed++;
               const error = mergeResult?.error ?? 'Merge conflict (AI resolution disabled)';
-              groupErrors.push({ taskId: result.task.id, error });
-              this.allErrors.push({ taskId: result.task.id, error });
+              recordError(result.task.id, error);
               await this.handleMergeFailure(result);
             }
           } else {
             // Merge failed (non-conflict) - don't mark task as complete
             groupMergesFailed++;
             const error = mergeResult?.error ?? 'Merge failed';
-            groupErrors.push({ taskId: result.task.id, error });
-            this.allErrors.push({ taskId: result.task.id, error });
+            recordError(result.task.id, error);
             await this.handleMergeFailure(result);
           }
         } else {
           groupTasksFailed++;
           this.totalTasksFailed++;
           const error = result.error ?? 'Worker execution failed';
-          groupErrors.push({ taskId: result.task.id, error });
-          this.allErrors.push({ taskId: result.task.id, error });
+          recordError(result.task.id, error);
         }
       }
 
@@ -552,7 +554,7 @@ export class ParallelExecutor {
           }
 
           if (allResolved) {
-            // ... (rest of success logic)
+            // Conflict resolved — clear pending state, complete task, and merge progress
             if (
               !this.pendingConflictWorkerResult ||
               this.pendingConflictWorkerResult.task.id === workerResult.task.id
@@ -576,8 +578,7 @@ export class ParallelExecutor {
             this.pendingConflictWorkerResult = workerResult;
             groupMergesFailed++;
             const error = 'AI conflict resolution failed';
-            groupErrors.push({ taskId: workerResult.task.id, error });
-            this.allErrors.push({ taskId: workerResult.task.id, error });
+            recordError(workerResult.task.id, error);
             await this.handleMergeFailure(workerResult);
           }
         }

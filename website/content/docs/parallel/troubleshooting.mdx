@@ -68,7 +68,7 @@ git for-each-ref --format='%(refname:short)' refs/heads/ralph-parallel/ | \
 
 **Symptom:** Tracker status (beads, JSON) is overwritten or produces a conflict after a parallel run.
 
-**Cause:** Git merge merged a stale version of the tracker file from a worker branch back into the main branch.
+**Cause:** A Git merge brought a stale version of the tracker file from a worker branch back into the main branch.
 
 **Prevention:** Ralph includes built-in protection that saves the main tracker state before a merge and restores it afterward. This ensures that only the main process (the ParallelExecutor) can permanently update task statuses.
 

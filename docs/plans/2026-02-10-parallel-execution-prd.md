@@ -68,8 +68,8 @@ New configuration options in `ralph.json`:
 ```json
 {
   "parallel": {
-    "enabled": true,           // Auto-detect by default
-    "maxWorkers": 4,           // Max concurrent worktrees
+    "mode": "auto",            // "auto" | "always" | "never"
+    "maxWorkers": 3,           // Max concurrent worktrees
     "conflictResolution": {
       "enabled": true,         // Enable AI resolution
       "timeoutMs": 120000      // Timeout for AI resolution
