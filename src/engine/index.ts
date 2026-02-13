@@ -4,6 +4,9 @@
  * Supports configurable error handling strategies: retry, skip, abort.
  */
 
+import { mkdtemp, open, rm, type FileHandle } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   ActiveAgentState,
   ActiveAgentReason,
@@ -30,7 +33,11 @@ import type { RalphConfig, RateLimitHandlingConfig } from '../config/types.js';
 import { DEFAULT_RATE_LIMIT_HANDLING } from '../config/types.js';
 import { RateLimitDetector, type RateLimitDetectionResult } from './rate-limit-detector.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
-import type { AgentPlugin, AgentExecutionHandle } from '../plugins/agents/types.js';
+import type {
+  AgentPlugin,
+  AgentExecutionHandle,
+  AgentExecutionResult,
+} from '../plugins/agents/types.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { SubagentTraceParser } from '../plugins/agents/tracing/parser.js';
@@ -46,6 +53,7 @@ import { saveIterationLog, buildSubagentTrace, getRecentProgressSummary, getCode
 import { performAutoCommit } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
+import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
 
 /**
  * Pattern to detect completion signal in agent output
@@ -63,6 +71,63 @@ const PRIMARY_RECOVERY_TEST_TIMEOUT_MS = 5000;
  * Kept simple to minimize token usage and allow fast response.
  */
 const PRIMARY_RECOVERY_TEST_PROMPT = 'Reply with just the word "ok".';
+
+/**
+ * Maximum characters kept for live stdout/stderr buffers in engine state.
+ * These buffers are for UI/remote progress display and should stay bounded.
+ */
+const MAX_ENGINE_LIVE_STREAM_CHARS = 250_000;
+
+/**
+ * Maximum characters kept per iteration in in-memory history.
+ * Full raw output is persisted to iteration logs on disk.
+ */
+const MAX_ITERATION_HISTORY_STREAM_CHARS = 100_000;
+
+/**
+ * Prefix used when trimming output retained in memory.
+ */
+const OUTPUT_TRUNCATED_PREFIX = '[...output truncated in memory...]\n';
+
+/**
+ * Append text to an in-memory buffer while enforcing a maximum size.
+ * Keeps the tail because completion markers and recent context are usually at the end.
+ */
+function appendWithCharLimit(
+  current: string,
+  chunk: string,
+  maxChars: number,
+  prefix = OUTPUT_TRUNCATED_PREFIX
+): string {
+  return appendWithSharedCharLimit(current, chunk, maxChars, prefix);
+}
+
+/**
+ * Create a memory-safe copy of an AgentExecutionResult for iteration history.
+ * Keeps disk logs complete while preventing in-memory iteration arrays from growing unbounded.
+ */
+function toMemorySafeAgentResult(agentResult: AgentExecutionResult): AgentExecutionResult {
+  const safeStdout = appendWithCharLimit(
+    '',
+    agentResult.stdout,
+    MAX_ITERATION_HISTORY_STREAM_CHARS
+  );
+  const safeStderr = appendWithCharLimit(
+    '',
+    agentResult.stderr,
+    MAX_ITERATION_HISTORY_STREAM_CHARS
+  );
+
+  if (safeStdout === agentResult.stdout && safeStderr === agentResult.stderr) {
+    return agentResult;
+  }
+
+  return {
+    ...agentResult,
+    stdout: safeStdout,
+    stderr: safeStderr,
+  };
+}
 
 /**
  * Build prompt for the agent based on task using the template system.
@@ -900,8 +965,99 @@ export class ExecutionEngine {
     // For Claude and OpenCode, we use the onJsonlMessage callback which gets pre-parsed messages.
     const isDroidAgent = this.agent?.meta.id === 'droid';
     const droidJsonlParser = isDroidAgent ? createDroidStreamingJsonlParser() : null;
+    type RawStreamName = 'stdout' | 'stderr';
+    type RawOutputState = {
+      filePath?: string;
+      fileHandle?: FileHandle;
+      writeChain: Promise<void>;
+    };
+
+    let rawOutputTempDir: string | undefined;
+    const rawOutput: Record<RawStreamName, RawOutputState> = {
+      stdout: { writeChain: Promise.resolve() },
+      stderr: { writeChain: Promise.resolve() },
+    };
+
+    const closeRawOutputStream = async (stream: RawStreamName): Promise<void> => {
+      const streamState = rawOutput[stream];
+      if (!streamState.fileHandle) {
+        return;
+      }
+
+      try {
+        await streamState.fileHandle.close();
+      } catch {
+        // Ignore close errors for best-effort cleanup.
+      }
+
+      streamState.fileHandle = undefined;
+    };
+
+    const closeRawOutputFiles = async (): Promise<void> => {
+      await Promise.all([
+        closeRawOutputStream('stdout'),
+        closeRawOutputStream('stderr'),
+      ]);
+    };
+
+    const flushRawOutputWrites = async (): Promise<void> => {
+      await Promise.allSettled([
+        rawOutput.stdout.writeChain,
+        rawOutput.stderr.writeChain,
+      ]);
+    };
+
+    const appendRawChunk = (stream: RawStreamName, chunk: string): void => {
+      if (!chunk) {
+        return;
+      }
+
+      const streamState = rawOutput[stream];
+      if (!streamState.fileHandle) {
+        return;
+      }
+
+      streamState.writeChain = streamState.writeChain
+        .then(async () => {
+          if (!streamState.fileHandle) {
+            return;
+          }
+          await streamState.fileHandle.write(chunk, undefined, 'utf-8');
+        })
+        .catch(async () => {
+          // Disable only the failing stream and preserve the other stream if possible.
+          streamState.filePath = undefined;
+          await closeRawOutputStream(stream);
+        });
+    };
+
+    const initRawOutputStream = async (
+      stream: RawStreamName,
+      filename: string,
+    ): Promise<void> => {
+      if (!rawOutputTempDir) {
+        return;
+      }
+
+      const filePath = join(rawOutputTempDir, filename);
+      try {
+        rawOutput[stream].fileHandle = await open(filePath, 'w');
+        rawOutput[stream].filePath = filePath;
+      } catch {
+        rawOutput[stream].filePath = undefined;
+        await closeRawOutputStream(stream);
+      }
+    };
 
     try {
+      try {
+        rawOutputTempDir = await mkdtemp(join(tmpdir(), 'ralph-iter-'));
+        await initRawOutputStream('stdout', 'stdout.raw');
+        await initRawOutputStream('stderr', 'stderr.raw');
+      } catch {
+        rawOutputTempDir = undefined;
+      }
+
       // Execute agent with subagent tracing if supported
       const handle = this.agent!.execute(prompt, [], {
         cwd: this.config.cwd,
@@ -945,7 +1101,12 @@ export class ExecutionEngine {
           this.subagentParser.processMessage(claudeMessage);
         },
         onStdout: (data) => {
-          this.state.currentOutput += data;
+          this.state.currentOutput = appendWithCharLimit(
+            this.state.currentOutput,
+            data,
+            MAX_ENGINE_LIVE_STREAM_CHARS
+          );
+          appendRawChunk('stdout', data);
           this.emit({
             type: 'agent:output',
             timestamp: new Date().toISOString(),
@@ -973,7 +1134,12 @@ export class ExecutionEngine {
 
         },
         onStderr: (data) => {
-          this.state.currentStderr += data;
+          this.state.currentStderr = appendWithCharLimit(
+            this.state.currentStderr,
+            data,
+            MAX_ENGINE_LIVE_STREAM_CHARS
+          );
+          appendRawChunk('stderr', data);
           this.emit({
             type: 'agent:output',
             timestamp: new Date().toISOString(),
@@ -1005,6 +1171,9 @@ export class ExecutionEngine {
           }
         }
       }
+
+      await flushRawOutputWrites();
+      await closeRawOutputFiles();
 
       // Check for rate limit condition before processing result
       const rateLimitResult = this.checkForRateLimit(
@@ -1127,7 +1296,7 @@ export class ExecutionEngine {
         iteration,
         status,
         task,
-        agentResult,
+        agentResult: toMemorySafeAgentResult(agentResult),
         taskCompleted,
         promiseComplete,
         durationMs,
@@ -1152,6 +1321,8 @@ export class ExecutionEngine {
         agentSwitches: this.currentIterationAgentSwitches.length > 0 ? [...this.currentIterationAgentSwitches] : undefined,
         completionSummary,
         sandboxConfig: this.config.sandbox,
+        rawStdoutFilePath: rawOutput.stdout.filePath,
+        rawStderrFilePath: rawOutput.stderr.filePath,
       });
 
       this.emit({
@@ -1184,6 +1355,13 @@ export class ExecutionEngine {
 
       return failedResult;
     } finally {
+      await flushRawOutputWrites();
+      await closeRawOutputFiles();
+      if (rawOutputTempDir) {
+        await rm(rawOutputTempDir, { recursive: true, force: true }).catch(() => {
+          // Ignore cleanup errors for temporary files
+        });
+      }
       this.state.currentTask = null;
     }
   }
@@ -2005,6 +2183,15 @@ export class ExecutionEngine {
     this.listeners = [];
   }
 }
+
+/**
+ * Test-only exports for internal memory helpers.
+ * Do not use from production code.
+ */
+export const __test__ = {
+  appendWithCharLimit,
+  toMemorySafeAgentResult,
+};
 
 // Re-export types
 export type {

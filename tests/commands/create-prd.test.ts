@@ -3,11 +3,15 @@
  * Tests argument parsing, bundled skill loading, and PRD creation flow.
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'node:path';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { parseCreatePrdArgs, printCreatePrdHelp } from '../../src/commands/create-prd.js';
+import {
+  loadBundledPrdSkill,
+  parseCreatePrdArgs,
+  printCreatePrdHelp,
+} from '../../src/commands/create-prd-utils.js';
 
 describe('create-prd command', () => {
   describe('printCreatePrdHelp', () => {
@@ -150,9 +154,6 @@ describe('create-prd command', () => {
         '---\nname: ralph-tui-prd\n---\n# Test Skill Content'
       );
 
-      // Import the module dynamically to get the function
-      const { loadBundledPrdSkill } = await import('../../src/commands/create-prd.js');
-
       // Create mock agent with skillsPaths
       const mockAgent = {
         meta: {
@@ -170,8 +171,6 @@ describe('create-prd command', () => {
     });
 
     test('returns undefined when skill not found', async () => {
-      const { loadBundledPrdSkill } = await import('../../src/commands/create-prd.js');
-
       const mockAgent = {
         meta: {
           id: 'kiro',
@@ -188,8 +187,6 @@ describe('create-prd command', () => {
     });
 
     test('returns undefined when agent has no skillsPaths', async () => {
-      const { loadBundledPrdSkill } = await import('../../src/commands/create-prd.js');
-
       const mockAgent = {
         meta: {
           id: 'claude',
@@ -216,8 +213,6 @@ describe('create-prd command', () => {
         join(repoSkillsDir, 'SKILL.md'),
         '# Repo Skill'
       );
-
-      const { loadBundledPrdSkill } = await import('../../src/commands/create-prd.js');
 
       const mockAgent = {
         meta: {
@@ -246,8 +241,6 @@ describe('create-prd command', () => {
       // Change to the project directory so repo path resolves
       const originalCwd = process.cwd();
       process.chdir(join(tempDir, 'project'));
-
-      const { loadBundledPrdSkill } = await import('../../src/commands/create-prd.js');
 
       const mockAgent = {
         meta: {

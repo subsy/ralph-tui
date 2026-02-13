@@ -10,7 +10,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -243,10 +243,7 @@ describe('buildMetadata', () => {
   });
 });
 
-// Note: These tests pass in isolation but may fail when run with the full test suite
-// due to module mocking interference from other test files (execution-engine.test.ts
-// mocks the logs module globally). Run `bun test tests/logs/persistence.test.ts` to verify.
-describe.skipIf(process.env.CI === 'true')('saveIterationLog and loadIterationLog', () => {
+describe('saveIterationLog and loadIterationLog', () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -359,6 +356,35 @@ describe.skipIf(process.env.CI === 'true')('saveIterationLog and loadIterationLo
     expect(loaded).not.toBeNull();
     expect(loaded!.stdout).toBe(stdout);
     expect(loaded!.stderr).toBe(stderr);
+  });
+
+  test('streams raw stdout/stderr from files when provided', async () => {
+    const result = createTestIterationResult();
+    const rawStdout = `${'x'.repeat(8192)}\n<promise>COMPLETE</promise>`;
+    const rawStderr = 'Warning: stream test stderr';
+    const rawStdoutFilePath = join(tempDir, 'stdout.raw');
+    const rawStderrFilePath = join(tempDir, 'stderr.raw');
+
+    await writeFile(rawStdoutFilePath, rawStdout, 'utf-8');
+    await writeFile(rawStderrFilePath, rawStderr, 'utf-8');
+
+    const filePath = await saveIterationLog(
+      tempDir,
+      result,
+      '[truncated stdout]',
+      '[truncated stderr]',
+      {
+        config: {},
+        rawStdoutFilePath,
+        rawStderrFilePath,
+      }
+    );
+
+    const loaded = await loadIterationLog(filePath);
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.stdout).toBe(rawStdout);
+    expect(loaded!.stderr).toBe(rawStderr);
   });
 });
 

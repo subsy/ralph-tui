@@ -4,14 +4,24 @@
  * user input, and message history. Used primarily for PRD generation.
  */
 
-import type { ReactNode } from 'react';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import type { KeyEvent, PasteEvent, TextareaRenderable } from '@opentui/core';
 import { useKeyboard } from '@opentui/react';
-import type { TextareaRenderable, KeyEvent } from '@opentui/core';
-import { colors } from '../theme.js';
+import type { ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage } from '../../chat/types.js';
-import { FormattedText } from './FormattedText.js';
+import { colors } from '../theme.js';
+
 import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
+import { usePaste } from '../hooks/usePaste.js';
+import type { Toast as ToastData } from '../hooks/useToast.js';
+import {
+  deleteRangeSafely,
+  findMarkerAtCursor,
+  wordBoundaryBackward,
+  wordBoundaryForward,
+} from '../utils/marker-edit.js';
+import { FormattedText } from './FormattedText.js';
+import { ToastContainer } from './Toast.js';
 
 /**
  * Spinner frames for animation
@@ -83,6 +93,61 @@ export interface ChatViewProps {
 
   /** Callback when user submits (presses Ctrl+Enter) with the current input value */
   onSubmit?: (value: string) => void;
+
+  /**
+   * Callback when an image marker (e.g., [Image 1]) is deleted from the input.
+   * This is called when the user presses backspace or delete while the cursor
+   * is inside or adjacent to a marker. The entire marker is deleted atomically.
+   * Parent component should use this to detach the corresponding image.
+   * @param imageNumber - The number of the image whose marker was deleted (1-indexed)
+   */
+  onImageMarkerDeleted?: (imageNumber: number) => void;
+
+  /**
+   * Callback when text is pasted into the input.
+   * If this callback is provided, it will be called with the pasted text and event.
+   * The callback can call event.preventDefault() to prevent the default paste behavior.
+   *
+   * Use this to implement image detection:
+   * 1. Check clipboard for actual image data
+   * 2. Check if pasted text is a file path
+   * 3. Check for base64/OSC 52 data
+   * 4. If image detected, attach it and call event.preventDefault()
+   * 5. If not image, let the default paste behavior occur
+   *
+   * @param text - The pasted text
+   * @param event - The paste event (call preventDefault() to stop default paste)
+   */
+  onPaste?: (text: string, event: PasteEvent) => void | Promise<void>;
+
+  /**
+   * Toast notifications to display in the chat view.
+   * Provide this from the useToast hook to show transient feedback messages.
+   */
+  toasts?: ToastData[];
+
+  /**
+   * Ref to receive a text insertion function.
+   * When set, the ChatView will populate ref.current with a function that
+   * inserts text at the current cursor position in the input.
+   *
+   * This is useful for inserting image markers when an image is attached.
+   *
+   * @example
+   * ```tsx
+   * const insertTextRef = useRef<((text: string) => void) | null>(null);
+   *
+   * const handlePaste = async () => {
+   *   const result = await attachFromClipboard();
+   *   if (result.success && insertTextRef.current) {
+   *     insertTextRef.current(result.inlineMarker);
+   *   }
+   * };
+   *
+   * return <ChatView insertTextRef={insertTextRef} onPaste={handlePaste} />;
+   * ```
+   */
+  insertTextRef?: React.MutableRefObject<((text: string) => void) | null>;
 }
 
 /**
@@ -95,7 +160,6 @@ function formatTime(date: Date): string {
     hour12: false,
   });
 }
-
 
 /**
  * MessageBubble component for displaying a single chat message
@@ -121,9 +185,7 @@ function MessageBubble({ message }: { message: ChatMessage }): ReactNode {
 
       {/* Message content */}
       <box style={{ paddingLeft: 2, paddingTop: 0 }}>
-        <text fg={colors.fg.primary}>
-          {message.content}
-        </text>
+        <text fg={colors.fg.primary}>{message.content}</text>
       </box>
     </box>
   );
@@ -148,14 +210,34 @@ export function ChatView({
   hint = '[Ctrl+Enter] Send  [Esc] Cancel',
   agentName,
   onSubmit,
+  onImageMarkerDeleted,
+  onPaste,
+  toasts = [],
+  insertTextRef,
 }: ChatViewProps): ReactNode {
   // Generate dynamic loading text
-  const loadingText = agentName
-    ? `Waiting for ${agentName}...`
-    : loadingStatus;
+  const loadingText = agentName ? `Waiting for ${agentName}...` : loadingStatus;
 
   // Textarea ref for submit handling and value access
   const textareaRef = useRef<TextareaRenderable>(null);
+
+  // Provide insert text function to parent via ref
+  // This allows the parent to insert text (like image markers) at cursor position
+  useEffect(() => {
+    if (insertTextRef) {
+      insertTextRef.current = (text: string) => {
+        if (textareaRef.current) {
+          // Insert text at current cursor position
+          textareaRef.current.editBuffer.insertText(text);
+        }
+      };
+    }
+    return () => {
+      if (insertTextRef) {
+        insertTextRef.current = null;
+      }
+    };
+  }, [insertTextRef]);
 
   // Sync textarea content when inputValue changes from outside (e.g., after clearing)
   useEffect(() => {
@@ -175,31 +257,205 @@ export function ChatView({
     onSubmit?.(currentValue);
   }, [onSubmit]);
 
+  // Track last cursor position to determine movement direction
+  const lastCursorOffsetRef = useRef<number>(0);
+
+  // Subscribe to cursor changes and skip over markers automatically
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const editBuffer = textarea.editBuffer;
+
+    const handleCursorChange = () => {
+      const text = textarea.plainText;
+      const cursor = editBuffer.getCursorPosition();
+      const cursorOffset = cursor.offset;
+      const lastOffset = lastCursorOffsetRef.current;
+
+      // Determine movement direction
+      const movingRight = cursorOffset > lastOffset;
+      const movingLeft = cursorOffset < lastOffset;
+
+      // Check if cursor is inside any marker
+      const markerPattern = /\[Image \d+\]/g;
+      let match;
+
+      while ((match = markerPattern.exec(text)) !== null) {
+        const start = match.index;
+        const end = match.index + match[0].length;
+
+        // If cursor is strictly inside the marker (not at boundaries)
+        if (cursorOffset > start && cursorOffset < end) {
+          // Move cursor out based on direction
+          if (movingRight) {
+            editBuffer.setCursorByOffset(end);
+            lastCursorOffsetRef.current = end;
+          } else if (movingLeft) {
+            editBuffer.setCursorByOffset(start);
+            lastCursorOffsetRef.current = start;
+          } else {
+            // Unknown direction (e.g., click) - move to end
+            editBuffer.setCursorByOffset(end);
+            lastCursorOffsetRef.current = end;
+          }
+          return;
+        }
+      }
+
+      // Update last position
+      lastCursorOffsetRef.current = cursorOffset;
+    };
+
+    // Subscribe to cursor changes
+    editBuffer.on('cursor-changed', handleCursorChange);
+
+    return () => {
+      editBuffer.off('cursor-changed', handleCursorChange);
+    };
+  }, []);
+
+  /**
+   * Find an [Image N] marker that contains or is adjacent to the given cursor position.
+   * Returns the marker info or null if cursor is not near a marker.
+   */
+
   // Handle keyboard for text editing shortcuts (macOS-style)
   const handleKeyboard = useCallback(
     (key: KeyEvent) => {
-      // Only handle if textarea is focused and input is enabled
-      if (!textareaRef.current || !inputEnabled || isLoading) {
+      if (!textareaRef.current || !inputEnabled || isLoading) return;
+
+      const textarea = textareaRef.current;
+      const editBuffer = textarea.editBuffer;
+
+      const text = textarea.plainText;
+      const cursorOffset = editBuffer.getCursorPosition().offset;
+
+      // Ctrl+W = delete word backward (your logs show this is what you get)
+      if (key.ctrl && key.name === 'w') {
+        key.preventDefault?.();
+        const start = wordBoundaryBackward(text, cursorOffset);
+        deleteRangeSafely({
+          textarea,
+          start,
+          end: cursorOffset,
+          onImageMarkerDeleted,
+        });
         return;
       }
 
-      const textarea = textareaRef.current;
+      // Ctrl+U = kill to start of line (common terminal/readline behavior)
+      if (key.ctrl && key.name === 'u') {
+        key.preventDefault?.();
+        // Explanation:
+        // lastIndexOf("\n") returns -1 if none; +1 makes it 0; cursorOffset - 0 = cursorOffset
+        // We want start offset of current line, so:
+        const start = text.lastIndexOf('\n', cursorOffset - 1) + 1;
+        deleteRangeSafely({
+          textarea,
+          start,
+          end: cursorOffset,
+          onImageMarkerDeleted,
+        });
+        return;
+      }
 
-      // Enter = submit (without modifiers)
+      // Ctrl+K = kill to end of line
+      if (key.ctrl && key.name === 'k') {
+        key.preventDefault?.();
+        const nextNl = text.indexOf('\n', cursorOffset);
+        const end = nextNl === -1 ? text.length : nextNl;
+        deleteRangeSafely({
+          textarea,
+          start: cursorOffset,
+          end,
+          onImageMarkerDeleted,
+        });
+        return;
+      }
+
+      // Option+Delete / Option+Backspace handling (when terminals actually deliver these)
+      const isWordBackspace =
+        (key.option && key.name === 'backspace') ||
+        (key.ctrl && key.name === 'backspace'); // some envs do this
+
+      const isWordDelete =
+        (key.option && key.name === 'delete') ||
+        (key.ctrl && key.name === 'delete'); // some envs do this
+
+      if (isWordBackspace) {
+        key.preventDefault?.();
+        const start = wordBoundaryBackward(text, cursorOffset);
+        deleteRangeSafely({
+          textarea,
+          start,
+          end: cursorOffset,
+          onImageMarkerDeleted,
+        });
+        return;
+      }
+
+      if (isWordDelete) {
+        key.preventDefault?.();
+        const end = wordBoundaryForward(text, cursorOffset);
+        deleteRangeSafely({
+          textarea,
+          start: cursorOffset,
+          end,
+          onImageMarkerDeleted,
+        });
+        return;
+      }
+
+      if (key.name === 'backspace') {
+        if (onImageMarkerDeleted) {
+          const marker = findMarkerAtCursor(text, cursorOffset);
+          if (marker && cursorOffset > marker.start) {
+            key.preventDefault?.();
+            const newText =
+              text.slice(0, marker.start) + text.slice(marker.end);
+            editBuffer.setText(newText);
+            editBuffer.setCursorByOffset(marker.start);
+            onImageMarkerDeleted(marker.imageNumber);
+            return;
+          }
+        }
+        return;
+      }
+
+      if (key.name === 'delete') {
+        if (onImageMarkerDeleted) {
+          const marker = findMarkerAtCursor(text, cursorOffset);
+          if (marker && cursorOffset < marker.end) {
+            key.preventDefault?.();
+            const newText =
+              text.slice(0, marker.start) + text.slice(marker.end);
+            editBuffer.setText(newText);
+            editBuffer.setCursorByOffset(marker.start);
+            onImageMarkerDeleted(marker.imageNumber);
+            return;
+          }
+        }
+        return;
+      }
+
+      // Enter / newline shortcuts
       if (key.name === 'return' && !key.meta && !key.ctrl && !key.shift) {
         key.preventDefault?.();
         handleSubmit();
         return;
       }
 
-      // Shift+Enter or Ctrl+J = insert newline
-      if ((key.shift && key.name === 'return') || (key.ctrl && key.name === 'j')) {
+      if (
+        (key.shift && key.name === 'return') ||
+        (key.ctrl && key.name === 'j')
+      ) {
         key.preventDefault?.();
         textarea.newLine();
         return;
       }
 
-      // === Option + Arrow Keys (word navigation) ===
+      // Movement / selection shortcuts
       if (key.option && !key.shift && !key.meta && !key.ctrl) {
         if (key.name === 'left') {
           key.preventDefault?.();
@@ -223,20 +479,6 @@ export function ChatView({
         }
       }
 
-      // === Option + Delete (delete word) ===
-      if (key.option && key.name === 'backspace') {
-        key.preventDefault?.();
-        textarea.deleteWordBackward();
-        return;
-      }
-      // Option + Fn + Delete (Forward Delete on some keyboards)
-      if (key.option && key.name === 'delete') {
-        key.preventDefault?.();
-        textarea.deleteWordForward();
-        return;
-      }
-
-      // === Shift + Option + Arrow Keys (select by word/paragraph) ===
       if (key.shift && key.option && !key.meta && !key.ctrl) {
         if (key.name === 'left') {
           key.preventDefault?.();
@@ -260,7 +502,6 @@ export function ChatView({
         }
       }
 
-      // === Shift + Arrow Keys (select by character/line) ===
       if (key.shift && !key.meta && !key.option && !key.ctrl) {
         if (key.name === 'left') {
           key.preventDefault?.();
@@ -284,7 +525,6 @@ export function ChatView({
         }
       }
 
-      // === Shift + Cmd + Arrow Keys (select to line start/end) ===
       if (key.shift && key.meta && !key.option && !key.ctrl) {
         if (key.name === 'left') {
           key.preventDefault?.();
@@ -308,10 +548,44 @@ export function ChatView({
         }
       }
     },
-    [inputEnabled, isLoading, handleSubmit]
+    [
+      inputEnabled,
+      isLoading,
+      handleSubmit,
+      onImageMarkerDeleted,
+      findMarkerAtCursor,
+    ],
   );
 
   useKeyboard(handleKeyboard);
+
+  // Handle paste events with optional image detection
+  // The onPaste callback can call event.preventDefault() to stop default paste behavior
+  const handlePaste = useCallback(
+    (text: string, event: PasteEvent) => {
+      // Only handle paste if input is enabled and not loading
+      if (!inputEnabled || isLoading) {
+        return;
+      }
+
+      // If a custom paste handler is provided, call it
+      // The handler can call event.preventDefault() to stop default paste behavior
+      if (onPaste) {
+        void Promise.resolve(onPaste(text, event)).catch((error) => {
+          console.error('Paste handler failed:', error);
+        });
+      }
+      // If no handler or handler didn't prevent default, OpenTUI's textarea
+      // will handle the paste normally
+    },
+    [inputEnabled, isLoading, onPaste],
+  );
+
+  // Subscribe to paste events with debouncing enabled
+  usePaste(handlePaste, {
+    enabled: inputEnabled && !isLoading,
+    debounceMs: 100,
+  });
 
   return (
     <box
@@ -322,6 +596,9 @@ export function ChatView({
         backgroundColor: colors.bg.primary,
       }}
     >
+      {/* Toast notifications */}
+      {toasts.length > 0 && <ToastContainer toasts={toasts} />}
+
       {/* Header */}
       <box
         style={{
@@ -356,7 +633,11 @@ export function ChatView({
           paddingTop: 1,
         }}
       >
-        <scrollbox style={{ flexGrow: 1 }} stickyScroll={true} stickyStart="bottom">
+        <scrollbox
+          style={{ flexGrow: 1 }}
+          stickyScroll={true}
+          stickyStart="bottom"
+        >
           {/* Welcome message if no messages */}
           {messages.length === 0 && !isLoading && (
             <box style={{ marginBottom: 1 }}>
@@ -378,13 +659,17 @@ export function ChatView({
                 <text fg={colors.accent.secondary}>Assistant</text>
                 <AnimatedSpinner />
               </box>
-              <box style={{ paddingLeft: 2, flexDirection: 'row', flexWrap: 'wrap' }}>
+              <box
+                style={{
+                  paddingLeft: 2,
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                }}
+              >
                 {streamingSegments?.length ? (
                   <FormattedText segments={streamingSegments} />
                 ) : (
-                  <text fg={colors.fg.primary}>
-                    {streamingChunk}
-                  </text>
+                  <text fg={colors.fg.primary}>{streamingChunk}</text>
                 )}
               </box>
             </box>
@@ -424,7 +709,10 @@ export function ChatView({
           flexDirection: 'column',
           backgroundColor: colors.bg.secondary,
           border: true,
-          borderColor: inputEnabled && !isLoading ? colors.border.active : colors.border.normal,
+          borderColor:
+            inputEnabled && !isLoading
+              ? colors.border.active
+              : colors.border.normal,
           paddingLeft: 1,
           paddingRight: 1,
         }}
@@ -437,7 +725,9 @@ export function ChatView({
             alignItems: 'flex-start',
           }}
         >
-          <text fg={colors.accent.primary} style={{ paddingTop: 0 }}>{'>'} </text>
+          <text fg={colors.accent.primary} style={{ paddingTop: 0 }}>
+            {'>'}{' '}
+          </text>
           <textarea
             ref={textareaRef}
             initialValue={inputValue}

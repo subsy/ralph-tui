@@ -4,48 +4,53 @@
  * Supports: ~/.config/ralph-tui/config.toml (global) and .ralph-tui/config.toml (project).
  */
 
-import { homedir } from 'node:os';
-import { join, dirname, resolve } from 'node:path';
-import { readFile, access, constants, mkdir } from 'node:fs/promises';
-import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+import { homedir } from "node:os";
+import { join, dirname, resolve } from "node:path";
+import { readFile, access, constants, mkdir } from "node:fs/promises";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import type {
   StoredConfig,
   RalphConfig,
   RuntimeOptions,
   ConfigValidationResult,
   SandboxConfig,
-} from './types.js';
+} from "./types.js";
 import {
   DEFAULT_CONFIG,
   DEFAULT_ERROR_HANDLING,
   DEFAULT_SANDBOX_CONFIG,
-} from './types.js';
-import type { ErrorHandlingConfig } from '../engine/types.js';
-import type { AgentPluginConfig } from '../plugins/agents/types.js';
-import type { TrackerPluginConfig } from '../plugins/trackers/types.js';
-import { getAgentRegistry } from '../plugins/agents/registry.js';
-import { getTrackerRegistry } from '../plugins/trackers/registry.js';
-import { DroidAgentConfigSchema } from '../plugins/agents/droid/schema.js';
+} from "./types.js";
+import type { ErrorHandlingConfig } from "../engine/types.js";
+import type { AgentPluginConfig } from "../plugins/agents/types.js";
+import type { TrackerPluginConfig } from "../plugins/trackers/types.js";
+import { getAgentRegistry } from "../plugins/agents/registry.js";
+import { getTrackerRegistry } from "../plugins/trackers/registry.js";
+import { DroidAgentConfigSchema } from "../plugins/agents/droid/schema.js";
 import {
   validateStoredConfig,
   formatConfigErrors,
   type ConfigParseResult,
-} from './schema.js';
+} from "./schema.js";
 
 /**
  * Global config file path (~/.config/ralph-tui/config.toml)
  */
-const GLOBAL_CONFIG_PATH = join(homedir(), '.config', 'ralph-tui', 'config.toml');
+const GLOBAL_CONFIG_PATH = join(
+  homedir(),
+  ".config",
+  "ralph-tui",
+  "config.toml",
+);
 
 /**
  * Project config directory name (.ralph-tui in project root)
  */
-const PROJECT_CONFIG_DIR = '.ralph-tui';
+const PROJECT_CONFIG_DIR = ".ralph-tui";
 
 /**
  * Project config file name (config.toml inside .ralph-tui directory)
  */
-const PROJECT_CONFIG_FILENAME = 'config.toml';
+const PROJECT_CONFIG_FILENAME = "config.toml";
 
 /**
  * Config source information for debugging
@@ -78,7 +83,7 @@ interface LoadConfigResult {
 async function loadConfigFile(configPath: string): Promise<LoadConfigResult> {
   try {
     await access(configPath, constants.R_OK);
-    const content = await readFile(configPath, 'utf-8');
+    const content = await readFile(configPath, "utf-8");
 
     // Handle empty file
     if (!content.trim()) {
@@ -136,20 +141,29 @@ async function findProjectConfigPath(startDir: string): Promise<string | null> {
  * Deep merge two config objects. Project config overrides global config.
  * Arrays are replaced (not merged) to give project full control.
  */
-function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig {
+function mergeConfigs(
+  global: StoredConfig,
+  project: StoredConfig,
+): StoredConfig {
   const merged: StoredConfig = { ...global };
 
   // Config version from project takes precedence
-  if (project.configVersion !== undefined) merged.configVersion = project.configVersion;
+  if (project.configVersion !== undefined)
+    merged.configVersion = project.configVersion;
 
   // Override scalar values from project
-  if (project.defaultAgent !== undefined) merged.defaultAgent = project.defaultAgent;
-  if (project.defaultTracker !== undefined) merged.defaultTracker = project.defaultTracker;
-  if (project.maxIterations !== undefined) merged.maxIterations = project.maxIterations;
-  if (project.iterationDelay !== undefined) merged.iterationDelay = project.iterationDelay;
+  if (project.defaultAgent !== undefined)
+    merged.defaultAgent = project.defaultAgent;
+  if (project.defaultTracker !== undefined)
+    merged.defaultTracker = project.defaultTracker;
+  if (project.maxIterations !== undefined)
+    merged.maxIterations = project.maxIterations;
+  if (project.iterationDelay !== undefined)
+    merged.iterationDelay = project.iterationDelay;
   if (project.outputDir !== undefined) merged.outputDir = project.outputDir;
   if (project.agent !== undefined) merged.agent = project.agent;
-  if (project.agentCommand !== undefined) merged.agentCommand = project.agentCommand;
+  if (project.agentCommand !== undefined)
+    merged.agentCommand = project.agentCommand;
   if (project.command !== undefined) merged.command = project.command;
   if (project.tracker !== undefined) merged.tracker = project.tracker;
 
@@ -162,10 +176,16 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
     merged.agentOptions = { ...merged.agentOptions, ...project.agentOptions };
   }
   if (project.trackerOptions !== undefined) {
-    merged.trackerOptions = { ...merged.trackerOptions, ...project.trackerOptions };
+    merged.trackerOptions = {
+      ...merged.trackerOptions,
+      ...project.trackerOptions,
+    };
   }
   if (project.errorHandling !== undefined) {
-    merged.errorHandling = { ...merged.errorHandling, ...project.errorHandling };
+    merged.errorHandling = {
+      ...merged.errorHandling,
+      ...project.errorHandling,
+    };
   }
   if (project.sandbox !== undefined) {
     merged.sandbox = { ...merged.sandbox, ...project.sandbox };
@@ -178,23 +198,31 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
 
   // Override other scalar fields
   if (project.skills_dir !== undefined) merged.skills_dir = project.skills_dir;
-  if (project.progressFile !== undefined) merged.progressFile = project.progressFile;
+  if (project.progressFile !== undefined)
+    merged.progressFile = project.progressFile;
   if (project.autoCommit !== undefined) merged.autoCommit = project.autoCommit;
   if (project.subagentTracingDetail !== undefined) {
     merged.subagentTracingDetail = project.subagentTracingDetail;
   }
 
   // Replace arrays entirely if present in project config
-  if (project.fallbackAgents !== undefined) merged.fallbackAgents = project.fallbackAgents;
+  if (project.fallbackAgents !== undefined)
+    merged.fallbackAgents = project.fallbackAgents;
   if (project.envExclude !== undefined) merged.envExclude = project.envExclude;
   if (project.envPassthrough !== undefined) merged.envPassthrough = project.envPassthrough;
 
   // Merge nested objects
   if (project.rateLimitHandling !== undefined) {
-    merged.rateLimitHandling = { ...merged.rateLimitHandling, ...project.rateLimitHandling };
+    merged.rateLimitHandling = {
+      ...merged.rateLimitHandling,
+      ...project.rateLimitHandling,
+    };
   }
   if (project.notifications !== undefined) {
-    merged.notifications = { ...merged.notifications, ...project.notifications };
+    merged.notifications = {
+      ...merged.notifications,
+      ...project.notifications,
+    };
   }
   if (project.parallel !== undefined) {
     merged.parallel = { ...merged.parallel, ...project.parallel };
@@ -212,7 +240,7 @@ function mergeConfigs(global: StoredConfig, project: StoredConfig): StoredConfig
  */
 export async function loadStoredConfig(
   cwd: string = process.cwd(),
-  globalConfigPath: string = GLOBAL_CONFIG_PATH
+  globalConfigPath: string = GLOBAL_CONFIG_PATH,
 ): Promise<StoredConfig> {
   // Load global config
   const globalResult = await loadConfigFile(globalConfigPath);
@@ -243,7 +271,7 @@ export async function loadStoredConfig(
  */
 export async function loadStoredConfigWithSource(
   cwd: string = process.cwd(),
-  globalConfigPath: string = GLOBAL_CONFIG_PATH
+  globalConfigPath: string = GLOBAL_CONFIG_PATH,
 ): Promise<{ config: StoredConfig; source: ConfigSource }> {
   // Load global config
   const globalResult = await loadConfigFile(globalConfigPath);
@@ -301,7 +329,7 @@ export function serializeConfig(config: StoredConfig): string {
  */
 export function getDefaultAgentConfig(
   storedConfig: StoredConfig,
-  options: RuntimeOptions
+  options: RuntimeOptions,
 ): AgentPluginConfig | undefined {
   const registry = getAgentRegistry();
   const plugins = registry.getRegisteredPlugins();
@@ -373,7 +401,7 @@ export function getDefaultAgentConfig(
   // Check CLI override first
   if (options.agent) {
     const found = storedConfig.agents?.find(
-      (a) => a.name === options.agent || a.plugin === options.agent
+      (a) => a.name === options.agent || a.plugin === options.agent,
     );
     if (found) return applyAgentOptions(found);
 
@@ -394,7 +422,7 @@ export function getDefaultAgentConfig(
   if (shorthandAgent) {
     // First check if it matches a configured agent in agents array
     const found = storedConfig.agents?.find(
-      (a) => a.name === shorthandAgent || a.plugin === shorthandAgent
+      (a) => a.name === shorthandAgent || a.plugin === shorthandAgent,
     );
     if (found) return applyAgentOptions(found);
 
@@ -411,7 +439,7 @@ export function getDefaultAgentConfig(
   // Check stored default
   if (storedConfig.defaultAgent) {
     const found = storedConfig.agents?.find(
-      (a) => a.name === storedConfig.defaultAgent
+      (a) => a.name === storedConfig.defaultAgent,
     );
     if (found) return applyAgentOptions(found);
   }
@@ -423,7 +451,7 @@ export function getDefaultAgentConfig(
   }
 
   // Fall back to first built-in plugin (claude)
-  const firstPlugin = plugins.find((p) => p.id === 'claude') ?? plugins[0];
+  const firstPlugin = plugins.find((p) => p.id === "claude") ?? plugins[0];
   if (firstPlugin) {
     return applyAgentOptions({
       name: firstPlugin.id,
@@ -440,13 +468,15 @@ export function getDefaultAgentConfig(
  */
 function getDefaultTrackerConfig(
   storedConfig: StoredConfig,
-  options: RuntimeOptions
+  options: RuntimeOptions,
 ): TrackerPluginConfig | undefined {
   const registry = getTrackerRegistry();
   const plugins = registry.getRegisteredPlugins();
 
   // Helper to apply trackerOptions shorthand to config
-  const applyTrackerOptions = (config: TrackerPluginConfig): TrackerPluginConfig => {
+  const applyTrackerOptions = (
+    config: TrackerPluginConfig,
+  ): TrackerPluginConfig => {
     if (storedConfig.trackerOptions) {
       return {
         ...config,
@@ -459,7 +489,7 @@ function getDefaultTrackerConfig(
   // Check CLI override first
   if (options.tracker) {
     const found = storedConfig.trackers?.find(
-      (t) => t.name === options.tracker || t.plugin === options.tracker
+      (t) => t.name === options.tracker || t.plugin === options.tracker,
     );
     if (found) return applyTrackerOptions(found);
 
@@ -478,7 +508,8 @@ function getDefaultTrackerConfig(
   if (storedConfig.tracker) {
     // First check if it matches a configured tracker in trackers array
     const found = storedConfig.trackers?.find(
-      (t) => t.name === storedConfig.tracker || t.plugin === storedConfig.tracker
+      (t) =>
+        t.name === storedConfig.tracker || t.plugin === storedConfig.tracker,
     );
     if (found) return applyTrackerOptions(found);
 
@@ -495,7 +526,7 @@ function getDefaultTrackerConfig(
   // Check stored default
   if (storedConfig.defaultTracker) {
     const found = storedConfig.trackers?.find(
-      (t) => t.name === storedConfig.defaultTracker
+      (t) => t.name === storedConfig.defaultTracker,
     );
     if (found) return applyTrackerOptions(found);
   }
@@ -507,7 +538,7 @@ function getDefaultTrackerConfig(
   }
 
   // Fall back to first built-in plugin (beads-bv)
-  const firstPlugin = plugins.find((p) => p.id === 'beads-bv') ?? plugins[0];
+  const firstPlugin = plugins.find((p) => p.id === "beads-bv") ?? plugins[0];
   if (firstPlugin) {
     return applyTrackerOptions({
       name: firstPlugin.id,
@@ -524,7 +555,7 @@ function getDefaultTrackerConfig(
  * Loads both global (~/.config/ralph-tui/config.toml) and project (.ralph-tui/config.toml) configs.
  */
 export async function buildConfig(
-  options: RuntimeOptions = {}
+  options: RuntimeOptions = {},
 ): Promise<RalphConfig | null> {
   const cwd = options.cwd ?? process.cwd();
   const storedConfig = await loadStoredConfig(cwd);
@@ -532,14 +563,14 @@ export async function buildConfig(
   // Get agent config
   const agentConfig = getDefaultAgentConfig(storedConfig, options);
   if (!agentConfig) {
-    console.error('Error: No agent configured or available');
+    console.error("Error: No agent configured or available");
     return null;
   }
 
   // Get tracker config
   let trackerConfig = getDefaultTrackerConfig(storedConfig, options);
   if (!trackerConfig) {
-    console.error('Error: No tracker configured or available');
+    console.error("Error: No tracker configured or available");
     return null;
   }
 
@@ -547,10 +578,10 @@ export async function buildConfig(
   // This allows `ralph-tui run --prd ./prd.json` to work without needing `--tracker json`
   if (options.prdPath && !options.tracker) {
     const registry = getTrackerRegistry();
-    if (registry.hasPlugin('json')) {
+    if (registry.hasPlugin("json")) {
       trackerConfig = {
-        name: 'json',
-        plugin: 'json',
+        name: "json",
+        plugin: "json",
         options: {},
       };
     }
@@ -578,7 +609,9 @@ export async function buildConfig(
     ...DEFAULT_ERROR_HANDLING,
     ...(storedConfig.errorHandling ?? {}),
     ...(options.onError ? { strategy: options.onError } : {}),
-    ...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+    ...(options.maxRetries !== undefined
+      ? { maxRetries: options.maxRetries }
+      : {}),
   };
 
   const sandbox: SandboxConfig = {
@@ -599,8 +632,12 @@ export async function buildConfig(
       storedConfig.iterationDelay ??
       DEFAULT_CONFIG.iterationDelay,
     cwd: options.cwd ?? DEFAULT_CONFIG.cwd,
-    outputDir: options.outputDir ?? storedConfig.outputDir ?? DEFAULT_CONFIG.outputDir,
-    progressFile: options.progressFile ?? storedConfig.progressFile ?? DEFAULT_CONFIG.progressFile,
+    outputDir:
+      options.outputDir ?? storedConfig.outputDir ?? DEFAULT_CONFIG.outputDir,
+    progressFile:
+      options.progressFile ??
+      storedConfig.progressFile ??
+      DEFAULT_CONFIG.progressFile,
     epicId: options.epicId,
     prdPath: options.prdPath,
     model: options.model,
@@ -617,7 +654,7 @@ export async function buildConfig(
  * Validate configuration before starting
  */
 export async function validateConfig(
-  config: RalphConfig
+  config: RalphConfig,
 ): Promise<ConfigValidationResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -628,11 +665,11 @@ export async function validateConfig(
     errors.push(`Agent plugin '${config.agent.plugin}' not found`);
   }
 
-  if (config.agent.plugin === 'droid') {
+  if (config.agent.plugin === "droid") {
     const result = DroidAgentConfigSchema.safeParse(config.agent.options ?? {});
     if (!result.success) {
       for (const issue of result.error.issues) {
-        const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+        const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
         errors.push(`Droid agent config ${path}: ${issue.message}`);
       }
     }
@@ -646,28 +683,28 @@ export async function validateConfig(
 
   // Validate tracker-specific requirements
   if (
-    config.tracker.plugin === 'beads' ||
-    config.tracker.plugin === 'beads-bv' ||
-    config.tracker.plugin === 'beads-rust'
+    config.tracker.plugin === "beads" ||
+    config.tracker.plugin === "beads-bv" ||
+    config.tracker.plugin === "beads-rust"
   ) {
     if (!config.epicId) {
       if (config.showTui) {
         warnings.push(
-          'No epic ID specified for beads tracker; will show interactive epic selection'
+          "No epic ID specified for beads tracker; will show interactive epic selection",
         );
       } else {
         warnings.push(
-          'No epic ID specified for beads tracker; running headless so no interactive epic selection available'
+          "No epic ID specified for beads tracker; running headless so no interactive epic selection available",
         );
       }
     }
   }
 
-  if (config.tracker.plugin === 'json') {
+  if (config.tracker.plugin === "json") {
     if (!config.prdPath) {
       // No error - TUI will show file prompt dialog to let user select a file
       warnings.push(
-        'No PRD path specified for json tracker; TUI will prompt for file selection'
+        "No PRD path specified for json tracker; TUI will prompt for file selection",
       );
     } else {
       // Validate PRD file exists and is valid JSON
@@ -675,7 +712,7 @@ export async function validateConfig(
       try {
         await access(prdFilePath, constants.R_OK);
         // Try to parse as JSON to validate format
-        const content = await readFile(prdFilePath, 'utf-8');
+        const content = await readFile(prdFilePath, "utf-8");
         JSON.parse(content);
       } catch (err) {
         if (err instanceof SyntaxError) {
@@ -693,7 +730,7 @@ export async function validateConfig(
       // Check if fallback is a known plugin or a configured agent
       if (!agentRegistry.hasPlugin(fallbackName)) {
         warnings.push(
-          `Fallback agent '${fallbackName}' not found in available plugins; it may not be installed`
+          `Fallback agent '${fallbackName}' not found in available plugins; it may not be installed`,
         );
       }
     }
@@ -701,12 +738,12 @@ export async function validateConfig(
 
   // Validate iterations
   if (config.maxIterations < 0) {
-    errors.push('Max iterations must be 0 or greater');
+    errors.push("Max iterations must be 0 or greater");
   }
 
   // Validate delay
   if (config.iterationDelay < 0) {
-    errors.push('Iteration delay must be 0 or greater');
+    errors.push("Iteration delay must be 0 or greater");
   }
 
   return {
@@ -717,8 +754,21 @@ export async function validateConfig(
 }
 
 // Re-export types
-export type { StoredConfig, RalphConfig, RuntimeOptions, ConfigValidationResult, SubagentDetailLevel, NotificationSoundMode } from './types.js';
-export { DEFAULT_CONFIG, DEFAULT_SANDBOX_CONFIG };
+export type {
+  StoredConfig,
+  RalphConfig,
+  RuntimeOptions,
+  ConfigValidationResult,
+  SubagentDetailLevel,
+  NotificationSoundMode,
+  ImageCleanupPolicy,
+  ImageConfig,
+} from "./types.js";
+export {
+  DEFAULT_CONFIG,
+  DEFAULT_SANDBOX_CONFIG,
+  DEFAULT_IMAGE_CONFIG,
+} from "./types.js";
 
 // Export schema utilities
 export {
@@ -730,12 +780,12 @@ export {
   ErrorHandlingConfigSchema,
   SubagentDetailLevelSchema,
   NotificationSoundModeSchema,
-} from './schema.js';
+} from "./schema.js";
 export type {
   ConfigParseResult,
   ConfigValidationError,
   StoredConfigValidated,
-} from './schema.js';
+} from "./schema.js";
 
 /**
  * Save configuration to the project config file (.ralph-tui/config.toml).
@@ -745,9 +795,9 @@ export type {
  */
 export async function saveProjectConfig(
   config: StoredConfig,
-  cwd: string = process.cwd()
+  cwd: string = process.cwd(),
 ): Promise<void> {
-  const { writeFile } = await import('node:fs/promises');
+  const { writeFile } = await import("node:fs/promises");
   const configDir = join(cwd, PROJECT_CONFIG_DIR);
   const projectPath = join(configDir, PROJECT_CONFIG_FILENAME);
 
@@ -755,7 +805,7 @@ export async function saveProjectConfig(
   await mkdir(configDir, { recursive: true });
 
   const toml = serializeConfig(config);
-  await writeFile(projectPath, toml, 'utf-8');
+  await writeFile(projectPath, toml, "utf-8");
 }
 
 /**
@@ -783,7 +833,7 @@ export function getProjectConfigDir(cwd: string = process.cwd()): string {
  * @returns Project config only (empty object if no config exists)
  */
 export async function loadProjectConfigOnly(
-  cwd: string = process.cwd()
+  cwd: string = process.cwd(),
 ): Promise<StoredConfig> {
   const projectPath = getProjectConfigPath(cwd);
   const result = await loadConfigFile(projectPath);
@@ -813,7 +863,7 @@ export interface SetupCheckResult {
  * @returns Setup check result
  */
 export async function checkSetupStatus(
-  cwd: string = process.cwd()
+  cwd: string = process.cwd(),
 ): Promise<SetupCheckResult> {
   const { config, source } = await loadStoredConfigWithSource(cwd);
 
@@ -839,7 +889,8 @@ export async function checkSetupStatus(
       configExists: true,
       agentConfigured: false,
       configPath,
-      message: 'No agent configured. Run "ralph-tui setup" to configure an agent.',
+      message:
+        'No agent configured. Run "ralph-tui setup" to configure an agent.',
     };
   }
 
@@ -859,21 +910,21 @@ export async function checkSetupStatus(
  */
 export async function requireSetup(
   cwd: string = process.cwd(),
-  commandName: string = 'This command'
+  commandName: string = "This command",
 ): Promise<void> {
   const status = await checkSetupStatus(cwd);
 
   if (!status.ready) {
-    console.error('');
+    console.error("");
     console.error(`${commandName} requires ralph-tui to be configured.`);
-    console.error('');
+    console.error("");
     if (status.message) {
       console.error(`  ${status.message}`);
     }
-    console.error('');
-    console.error('Quick setup:');
-    console.error('  ralph-tui setup');
-    console.error('');
+    console.error("");
+    console.error("Quick setup:");
+    console.error("  ralph-tui setup");
+    console.error("");
     process.exit(1);
   }
 }

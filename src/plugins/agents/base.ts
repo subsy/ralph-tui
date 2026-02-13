@@ -99,6 +99,7 @@ import type {
 } from './types.js';
 import { SandboxWrapper, detectSandboxMode } from '../../sandbox/index.js';
 import type { SandboxConfig } from '../../sandbox/types.js';
+import { appendWithCharLimit as appendWithSharedCharLimit } from '../../utils/buffer-limits.js';
 
 /**
  * Internal representation of a running execution.
@@ -128,6 +129,38 @@ export const DEFAULT_ENV_EXCLUDE_PATTERNS: readonly string[] = [
   '*_SECRET_KEY',
   '*_SECRET',
 ];
+
+/**
+ * Maximum number of characters kept in memory per execution stream.
+ * This prevents unbounded growth when agents emit large outputs.
+ */
+const MAX_EXECUTION_STREAM_CHARS = 2_000_000;
+
+/**
+ * Prefix added when stream output is truncated in memory.
+ */
+const STREAM_TRUNCATED_PREFIX = '[...agent output truncated in memory...]\n';
+
+/**
+ * Append chunk data while enforcing an in-memory size cap.
+ * Keeps the most recent content (tail) to preserve completion markers near the end.
+ */
+function appendWithCharLimit(
+  current: string,
+  chunk: string,
+  maxChars: number,
+  prefix = STREAM_TRUNCATED_PREFIX
+): string {
+  return appendWithSharedCharLimit(current, chunk, maxChars, prefix);
+}
+
+/**
+ * Test-only exports for internal helpers.
+ * Do not use from production code.
+ */
+export const __test__ = {
+  appendWithCharLimit,
+};
 
 /**
  * Abstract base class for agent plugins.
@@ -525,14 +558,22 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // Handle stdout
       proc.stdout?.on('data', (data: Buffer) => {
         const text = data.toString();
-        execution.stdout += text;
+        execution.stdout = appendWithCharLimit(
+          execution.stdout,
+          text,
+          MAX_EXECUTION_STREAM_CHARS
+        );
         options?.onStdout?.(text);
       });
 
       // Handle stderr
       proc.stderr?.on('data', (data: Buffer) => {
         const text = data.toString();
-        execution.stderr += text;
+        execution.stderr = appendWithCharLimit(
+          execution.stderr,
+          text,
+          MAX_EXECUTION_STREAM_CHARS
+        );
         options?.onStderr?.(text);
       });
 

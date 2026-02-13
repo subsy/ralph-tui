@@ -142,9 +142,17 @@ function mapStatus(brStatus: string): TrackerTaskStatus {
     in_progress: 'in_progress',
     closed: 'completed',
     cancelled: 'cancelled',
+    tombstone: 'cancelled',
   };
 
   return statusMap[brStatus] ?? 'open';
+}
+
+/**
+ * Check whether a br status represents a soft-deleted (tombstone) issue.
+ */
+function isTombstone(brStatus: string): boolean {
+  return brStatus === 'tombstone';
 }
 
 /**
@@ -365,6 +373,9 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
       return [];
     }
 
+    // Filter out tombstoned (soft-deleted) issues before conversion
+    tasksJson = tasksJson.filter((t) => !isTombstone(t.status));
+
     let tasks = tasksJson.map(brTaskToTask);
 
     // Filter by parent (br list doesn't support --parent)
@@ -411,6 +422,9 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
       return [];
     }
 
+    // Filter out tombstoned (soft-deleted) epics
+    tasksJson = tasksJson.filter((t) => !isTombstone(t.status));
+
     const tasks = tasksJson.map(brTaskToTask);
     return tasks.filter(
       (t) =>
@@ -438,6 +452,10 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
     }
 
     if (tasksJson.length === 0) {
+      return undefined;
+    }
+
+    if (isTombstone(tasksJson[0]!.status)) {
       return undefined;
     }
 
@@ -532,6 +550,9 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
       console.error('Failed to parse br ready output:', err);
       return undefined;
     }
+
+    // Filter out tombstoned (soft-deleted) issues
+    tasksJson = tasksJson.filter((t) => !isTombstone(t.status));
 
     if (tasksJson.length === 0) {
       return undefined;
@@ -701,7 +722,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
 
       if (epic.dependents) {
         const children = epic.dependents.filter(
-          (d) => d.type === 'parent-child'
+          (d) => d.type === 'parent-child' && !isTombstone(d.status)
         );
         totalCount = children.length;
         completedCount = children.filter(
