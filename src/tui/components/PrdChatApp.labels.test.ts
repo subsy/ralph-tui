@@ -4,7 +4,10 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { buildBeadsLabelsInstruction } from './PrdChatApp.js';
+import {
+  buildBeadsLabelsInstruction,
+  classifyPastePayload,
+} from './PrdChatApp.js';
 
 describe('buildBeadsLabelsInstruction', () => {
   test('returns empty string when trackerLabels is undefined', () => {
@@ -63,5 +66,45 @@ describe('buildBeadsLabelsInstruction', () => {
     expect(match).not.toBeNull();
     const labels = match![1].split(',');
     expect(labels.filter((l) => l.toLowerCase() === 'ralph')).toHaveLength(1);
+  });
+});
+
+describe('classifyPastePayload', () => {
+  test('does not intercept empty paste payload', () => {
+    expect(classifyPastePayload('')).toEqual({
+      intercept: false,
+      suppressFallbackInsert: false,
+    });
+  });
+
+  test('does not intercept regular text', () => {
+    expect(classifyPastePayload('hello world')).toEqual({
+      intercept: false,
+      suppressFallbackInsert: false,
+    });
+  });
+
+  test('intercepts image file paths', () => {
+    expect(classifyPastePayload('/tmp/screenshot.png')).toEqual({
+      intercept: true,
+      suppressFallbackInsert: false,
+    });
+  });
+
+  test('intercepts data URI image payloads', () => {
+    const dataUri =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    expect(classifyPastePayload(dataUri)).toEqual({
+      intercept: true,
+      suppressFallbackInsert: false,
+    });
+  });
+
+  test('suppresses fallback insertion for binary-like payloads', () => {
+    const binaryish = '\u0000\u0001\u0002\u0003\u0004\u0005ABCDEF';
+    expect(classifyPastePayload(binaryish)).toEqual({
+      intercept: true,
+      suppressFallbackInsert: true,
+    });
   });
 });

@@ -38,6 +38,10 @@ import {
   isSlashCommand,
   executeSlashCommand,
 } from '../utils/slash-commands.js';
+import {
+  detectBase64Image,
+  looksLikeImagePath,
+} from '../utils/image-detection.js';
 
 /**
  * Props for the PrdChatApp component
@@ -229,6 +233,50 @@ IMPORTANT: Apply these labels to EVERY issue created (epic and all child tasks):
   --labels "${labelsStr}"
 
 Add the --labels flag to every bd create / br create command.`;
+}
+
+/**
+ * Classification result for pasted text.
+ */
+export interface PasteClassification {
+  /** Whether the paste should be intercepted and handled manually. */
+  intercept: boolean;
+  /** Whether fallback text insertion should be suppressed to avoid gibberish. */
+  suppressFallbackInsert: boolean;
+}
+
+/**
+ * Classify pasted text for image-handling flow.
+ * Intercepts image-like payloads while allowing plain text to use native paste behavior.
+ */
+export function classifyPastePayload(text: string): PasteClassification {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { intercept: false, suppressFallbackInsert: false };
+  }
+
+  if (looksLikeImagePath(trimmed)) {
+    return { intercept: true, suppressFallbackInsert: false };
+  }
+
+  if (detectBase64Image(trimmed).isBase64Image) {
+    return { intercept: true, suppressFallbackInsert: false };
+  }
+
+  // Treat high-control-character payloads as binary-ish and avoid inserting raw noise.
+  let controlChars = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    const isControl = (code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127;
+    if (isControl) {
+      controlChars++;
+    }
+  }
+  if (controlChars >= 4 && controlChars / Math.max(text.length, 1) > 0.05) {
+    return { intercept: true, suppressFallbackInsert: true };
+  }
+
+  return { intercept: false, suppressFallbackInsert: false };
 }
 
 /**
@@ -788,8 +836,9 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
    * 2. If no clipboard image, try to parse the pasted text as an image path
    *    This handles pasting file paths to images
    *
-   * IMPORTANT: We must call preventDefault() SYNCHRONOUSLY before any async work
-   * to prevent the default paste behavior. Then we decide what to insert.
+   * Plain text uses native textarea paste behavior.
+   * We only prevent default for image-like or binary payloads that need
+   * manual handling to avoid inserting opaque escape/control sequences.
    */
   const handlePaste = useCallback(
     async (text: string, event: PasteEvent) => {
@@ -798,24 +847,33 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
         return;
       }
 
-      // ALWAYS prevent default first - we'll manually insert text if needed
-      // This prevents the race condition where paste completes before our async check
-      event.preventDefault();
+      const pasteType = classifyPastePayload(text);
+      const hasText = text.trim().length > 0;
+      let feedbackShown = false;
 
-      // Phase 1: Try to read actual image data from clipboard
-      // This is the primary path for screenshot tools (Shottr, etc.)
-      const clipboardResult = await attachFromClipboard();
-      if (clipboardResult.success && clipboardResult.inlineMarker) {
-        // Insert the plain [Image N] marker at cursor
-        if (insertTextRef.current) {
-          insertTextRef.current(clipboardResult.inlineMarker + ' ');
+      // Only intercept image-like payloads. For normal text, keep native paste behavior.
+      if (pasteType.intercept) {
+        event.preventDefault();
+      }
+
+      // Check clipboard image when payload is image-like OR text is unavailable.
+      // Some terminals emit empty paste text for clipboard operations.
+      if (pasteType.intercept || !hasText) {
+        const clipboardResult = await attachFromClipboard();
+        feedbackShown = clipboardResult.feedbackShown;
+
+        if (clipboardResult.success && clipboardResult.inlineMarker) {
+          // Insert the plain [Image N] marker at cursor
+          if (insertTextRef.current) {
+            insertTextRef.current(clipboardResult.inlineMarker + ' ');
+          }
+          return;
         }
-        return;
       }
 
       // Phase 2: If no clipboard image, try to parse pasted text as image path
       // This handles cases where user pastes a file path to an image
-      if (text.trim()) {
+      if (hasText) {
         const textResult = await attachImage(text);
         if (textResult.success && textResult.inlineMarker) {
           // Insert the plain [Image N] marker at cursor
@@ -826,17 +884,29 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
         }
       }
 
-      // Not an image - manually insert the pasted text
-      if (text && insertTextRef.current) {
-        insertTextRef.current(text);
+      if (pasteType.intercept) {
+        // Not an image - optionally fall back to manual text insertion.
+        if (!pasteType.suppressFallbackInsert && text && insertTextRef.current) {
+          insertTextRef.current(text);
+        }
+
+        // For binary-ish payloads, avoid inserting opaque control-sequence noise.
+        if (pasteType.suppressFallbackInsert && !feedbackShown) {
+          toast.showError('Unable to parse pasted image data');
+        }
+
+        if (!feedbackShown && hasText) {
+          onTextPaste();
+        }
+        return;
       }
 
-      // Show first-time paste hint if enabled
-      if (!clipboardResult.feedbackShown) {
+      // For non-intercepted text, native paste already inserted content.
+      if (!feedbackShown && hasText) {
         onTextPaste();
       }
     },
-    [imagesEnabled, attachFromClipboard, attachImage, onTextPaste],
+    [imagesEnabled, attachFromClipboard, attachImage, onTextPaste, toast],
   );
 
   // Auto-dismiss copy feedback after 2 seconds
