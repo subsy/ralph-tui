@@ -224,6 +224,9 @@ function mergeConfigs(
       ...project.notifications,
     };
   }
+  if (project.parallel !== undefined) {
+    merged.parallel = { ...merged.parallel, ...project.parallel };
+  }
 
   return merged;
 }

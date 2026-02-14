@@ -219,6 +219,24 @@ describe('loadStoredConfig', () => {
     expect(config.notifications?.enabled).toBe(true);
     expect(config.notifications?.sound).toBe('ralph');
   });
+
+  test('merges parallel config', async () => {
+    await writeTomlConfig(globalConfigPath, {
+      parallel: { mode: 'auto', maxWorkers: 2, worktreeDir: '.global/worktrees' },
+    });
+
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      parallel: { maxWorkers: 5, directMerge: true },
+    });
+
+    const config = await loadStoredConfig(tempDir, globalConfigPath);
+    expect(config.parallel?.mode).toBe('auto');
+    expect(config.parallel?.worktreeDir).toBe('.global/worktrees');
+    expect(config.parallel?.maxWorkers).toBe(5);
+    expect(config.parallel?.directMerge).toBe(true);
+  });
 });
 
 describe('loadStoredConfigWithSource', () => {

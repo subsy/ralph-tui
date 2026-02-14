@@ -213,6 +213,50 @@ describe('BeadsRustTrackerPlugin', () => {
       expect(tasks[0]?.id).toBe('epic.1');
     });
 
+    test('uses setEpicId for parent filtering when filter is not provided', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'epic-parent-child', title: 'Tracked child', status: 'open', priority: 1 },
+            { id: 'other', title: 'Unrelated task', status: 'open', priority: 1 },
+          ]),
+        },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            {
+              issue_id: 'epic-parent-child',
+              depends_on_id: 'epic-parent',
+              type: 'parent-child',
+              title: 'Tracked child',
+              status: 'open',
+              priority: 1,
+            },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      plugin.setEpicId('epic-parent');
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks();
+
+      expect(mockSpawnArgs[1]?.args).toEqual([
+        'dep',
+        'list',
+        'epic-parent',
+        '--direction',
+        'up',
+        '--json',
+      ]);
+      expect(tasks.length).toBe(1);
+      expect(tasks[0]?.id).toBe('epic-parent-child');
+    });
+
     test('returns empty array when br dep list fails for parent filtering', async () => {
       mockSpawnResponses = [
         { exitCode: 0, stdout: 'br version 0.4.1\n' },

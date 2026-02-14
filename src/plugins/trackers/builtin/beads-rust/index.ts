@@ -284,6 +284,14 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
   }
 
   /**
+   * Set the epic ID for filtering tasks.
+   * Used when user selects an epic from the TUI.
+   */
+  setEpicId(epicId: string): void {
+    this.epicId = epicId;
+  }
+
+  /**
    * Detect if beads-rust is available in the current environment.
    * Checks for .beads/ directory and br binary.
    */
