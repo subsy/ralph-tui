@@ -1,0 +1,210 @@
+---
+title: Kimi Agent
+description: Integrate Moonshot AI's Kimi CLI with Ralph TUI for AI-assisted coding.
+---
+
+## Kimi Agent
+
+The Kimi agent plugin integrates with Moonshot AI's `kimi` CLI to execute AI coding tasks. It supports streaming JSONL output for subagent tracing and uses `--print` mode for non-interactive operation.
+
+<Callout type="tip">
+Kimi supports **subagent tracing** via stream-json output - Ralph TUI can show tool calls in real-time as Kimi works.
+</Callout>
+
+## Prerequisites
+
+Install Kimi CLI following the [official Getting Started guide](https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html):
+
+```bash
+# Linux / macOS
+curl -LsSf https://code.kimi.com/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+Invoke-RestMethod https://code.kimi.com/install.ps1 | Invoke-Expression
+```
+
+Or install manually with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install --python 3.13 kimi-cli
+```
+
+Verify installation:
+
+```bash
+kimi --version
+```
+
+<Callout type="info">
+On first run, you need to configure your API source. Run `kimi` and enter `/login` to complete setup.
+</Callout>
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Kimi">
+    Use the `--agent kimi` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent kimi
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent kimi --model kimi-k2-0711
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "kimi"
+
+[agentOptions]
+model = "kimi-k2-0711"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-kimi"
+plugin = "kimi"
+default = true
+command = "kimi"
+timeout = 300000
+
+[agents.options]
+model = "kimi-k2-0711"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | Kimi model (e.g., `kimi-k2-0711`). Leave empty for default. |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"kimi"` | Path to Kimi CLI executable |
+
+## Subagent Tracing
+
+Kimi emits structured JSONL via `--output-format stream-json` (always enabled). Ralph TUI parses this to display:
+
+- Text responses from the model
+- Tool invocations (file reads, writes, shell commands)
+- Error messages from failed operations
+
+### Enabling Tracing
+
+```toml
+subagentTracingDetail = "full"
+```
+
+Or toggle in TUI:
+- Press `t` to cycle through detail levels
+- Press `T` (Shift+T) to toggle the subagent tree panel
+
+## How It Works
+
+When Ralph TUI executes a task with Kimi:
+
+1. **Build command**: Constructs `kimi --print --input-format text --output-format stream-json [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Parse JSONL**: Extracts structured tool call data
+5. **Detect completion**: Watches for process exit
+6. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+kimi \
+  --print \                         # Non-interactive mode (implies --yolo)
+  --input-format text \             # Read prompt from stdin
+  --output-format stream-json \     # Structured JSONL output for parsing
+  --model kimi-k2-0711 \            # If model specified
+  < prompt.txt                      # Prompt via stdin
+```
+
+<Callout type="info">
+`--print` mode enables non-interactive operation: Kimi processes the prompt and exits. It also auto-approves operations (equivalent to `--yolo`), which is required for Ralph TUI's autonomous workflow.
+</Callout>
+
+### Windows Compatibility
+
+On Windows, Kimi CLI runs with additional environment variables to avoid encoding issues:
+
+```
+PYTHONUTF8=1
+PYTHONIOENCODING=utf-8
+```
+
+These are injected automatically by Ralph TUI.
+
+## Troubleshooting
+
+### "Kimi CLI not found"
+
+Ensure Kimi is installed and in your PATH:
+
+```bash
+kimi --version
+
+# If not found, install:
+curl -LsSf https://code.kimi.com/install.sh | bash
+```
+
+### "Not logged in"
+
+Kimi CLI requires authentication on first run:
+
+```bash
+kimi
+# Then type: /login
+```
+
+Or use the subcommand:
+
+```bash
+kimi login
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "kimi"
+plugin = "kimi"
+timeout = 600000  # 10 minutes
+```
+
+### Encoding errors on Windows
+
+If you see `charmap` codec errors, ensure Python is configured for UTF-8. Ralph TUI sets this automatically, but you can also set it system-wide:
+
+```powershell
+$env:PYTHONUTF8 = "1"
+```
+
+## Next Steps
+
+- **[Gemini Agent](/docs/plugins/agents/gemini)** - Google's Gemini CLI
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Configuration](/docs/configuration/options)** - Full options reference

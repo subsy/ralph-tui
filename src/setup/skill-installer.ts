@@ -18,6 +18,7 @@ export const AGENT_ID_MAP: Record<string, string> = {
   opencode: 'opencode',
   codex: 'codex',
   gemini: 'gemini',
+  kimi: 'kimi-cli',
   kiro: 'kiro',
   cursor: 'cursor',
   'github-copilot': 'github-copilot',

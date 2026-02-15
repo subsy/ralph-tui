@@ -69,6 +69,117 @@ function isCodexAgent(agentPlugin?: string): boolean {
   return agentPlugin?.toLowerCase() === 'codex';
 }
 
+function isKimiAgent(agentPlugin?: string): boolean {
+  return agentPlugin?.toLowerCase() === 'kimi';
+}
+
+/**
+ * Structure of a Kimi CLI stream-json event.
+ * Kimi CLI uses --output-format stream-json which emits events like:
+ * - {"role":"assistant","content":[{"type":"think","think":"..."},{"type":"text","text":"..."}]}
+ * - {"role":"tool","content":[{"type":"function","function":{"name":"...","arguments":"..."}}]}
+ * - Tool results, status updates, etc.
+ */
+interface KimiEvent {
+  role?: string;
+  content?: Array<{
+    type: string;
+    text?: string;
+    think?: string;
+    function?: {
+      name: string;
+      arguments?: string;
+    };
+    is_error?: boolean;
+    output?: string;
+    return_value?: {
+      is_error?: boolean;
+      output?: string;
+      message?: string;
+    };
+  }>;
+  type?: string;
+  error?: unknown;
+  message?: string;
+}
+
+/**
+ * Parse a Kimi CLI stream-json line and return the parsed event if valid.
+ */
+function parseKimiJsonlLine(line: string): { success: boolean; event?: KimiEvent } {
+  if (!line.trim() || !line.startsWith('{')) {
+    return { success: false };
+  }
+
+  try {
+    const parsed = JSON.parse(line) as KimiEvent;
+    // Kimi events have a role field (assistant, tool) with a content array
+    if (parsed.role && Array.isArray(parsed.content)) {
+      return { success: true, event: parsed };
+    }
+    // Also handle error events
+    if (parsed.type === 'error' || parsed.error) {
+      return { success: true, event: parsed };
+    }
+    return { success: false };
+  } catch {
+    return { success: false };
+  }
+}
+
+/**
+ * Format a Kimi event for display.
+ * Returns undefined for events that shouldn't be displayed (like think, status).
+ */
+function formatKimiEventForDisplay(event: KimiEvent): string | undefined {
+  if (!event.content || !Array.isArray(event.content)) {
+    // Handle error events
+    if (event.type === 'error' || event.error) {
+      const msg = typeof event.error === 'string' ? event.error :
+        typeof event.error === 'object' && event.error !== null && 'message' in event.error
+          ? String((event.error as { message?: unknown }).message)
+          : event.message || 'Unknown error';
+      return `Error: ${msg}`;
+    }
+    return undefined;
+  }
+
+  const parts: string[] = [];
+
+  for (const item of event.content) {
+    if (item.type === 'text' && item.text) {
+      parts.push(item.text);
+    } else if (item.type === 'function' && item.function) {
+      // Tool call
+      const toolName = item.function.name || 'unknown';
+      let detail = '';
+      if (item.function.arguments) {
+        try {
+          const args = JSON.parse(item.function.arguments) as Record<string, unknown>;
+          const argStr = Object.entries(args)
+            .slice(0, 2)
+            .map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 50) : '...'}`)
+            .join(', ');
+          detail = ` ${argStr}`;
+        } catch {
+          detail = ` ${item.function.arguments.slice(0, 50)}`;
+        }
+      }
+      parts.push(`[Tool: ${toolName}]${detail}`);
+    } else if (item.type === 'tool_result' || item.type === 'function_result') {
+      // Only show errors from tool results
+      const isError = item.is_error === true || item.return_value?.is_error === true;
+      if (isError) {
+        const errorMsg = item.output || item.return_value?.output || item.return_value?.message || 'tool execution failed';
+        parts.push(`[Tool Error] ${String(errorMsg).slice(0, 200)}`);
+      }
+    }
+    // Skip: think (internal reasoning), status updates
+  }
+
+  return parts.length > 0 ? parts.join('\n') : undefined;
+}
+
 /**
  * Structure of an OpenCode JSONL event.
  */
@@ -178,9 +289,9 @@ function formatGeminiEventForDisplay(event: GeminiEvent): string | undefined {
       // Tool completed - only show if error
       if (event.is_error === true || event.status === 'error') {
         const errorMsg = typeof event.error === 'string' ? event.error :
-                        typeof event.error === 'object' && event.error !== null && 'message' in event.error
-                          ? String((event.error as { message?: unknown }).message)
-                          : 'tool execution failed';
+          typeof event.error === 'object' && event.error !== null && 'message' in event.error
+            ? String((event.error as { message?: unknown }).message)
+            : 'tool execution failed';
         return `[Tool Error] ${errorMsg}`;
       }
       // Don't display successful tool results (too verbose)
@@ -190,9 +301,9 @@ function formatGeminiEventForDisplay(event: GeminiEvent): string | undefined {
     case 'error': {
       // Error from Gemini
       const errorMsg = typeof event.error === 'string' ? event.error :
-                      typeof event.error === 'object' && event.error !== null && 'message' in event.error
-                        ? String((event.error as { message?: unknown }).message)
-                        : 'Unknown error';
+        typeof event.error === 'object' && event.error !== null && 'message' in event.error
+          ? String((event.error as { message?: unknown }).message)
+          : 'Unknown error';
       return `Error: ${errorMsg}`;
     }
 
@@ -298,9 +409,9 @@ function formatCodexEventForDisplay(event: CodexEvent): string | undefined {
   // Error events
   if (event.type === 'error' && event.error) {
     const errorMsg = typeof event.error === 'string' ? event.error :
-                    typeof event.error === 'object' && event.error !== null && 'message' in event.error
-                      ? String((event.error as { message?: unknown }).message)
-                      : 'Unknown error';
+      typeof event.error === 'object' && event.error !== null && 'message' in event.error
+        ? String((event.error as { message?: unknown }).message)
+        : 'Unknown error';
     return `Error: ${errorMsg}`;
   }
 
@@ -451,6 +562,7 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
   const useOpenCodeParser = isOpenCodeAgent(agentPlugin);
   const useGeminiParser = isGeminiAgent(agentPlugin);
   const useCodexParser = isCodexAgent(agentPlugin);
+  const useKimiParser = isKimiAgent(agentPlugin);
   const droidCostAccumulator = useDroidParser ? new DroidCostAccumulator() : null;
   let hasJsonl = false;
 
@@ -509,6 +621,19 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
       }
     }
 
+    // Kimi CLI parsing
+    if (useKimiParser) {
+      const kimiResult = parseKimiJsonlLine(line);
+      if (kimiResult.success && kimiResult.event) {
+        hasJsonl = true;
+        const kimiDisplay = formatKimiEventForDisplay(kimiResult.event);
+        if (kimiDisplay !== undefined) {
+          parsedParts.push(kimiDisplay);
+        }
+        continue; // Skip generic parsing for kimi events
+      }
+    }
+
     // Try to parse as JSONL
     const parsed = parseJsonlLine(line);
     if (parsed !== undefined) {
@@ -539,7 +664,7 @@ export function parseAgentOutput(rawOutput: string, agentPlugin?: string): strin
   // Fallback: return raw output truncated if it looks like unparseable JSON
   if (rawOutput.startsWith('{') && rawOutput.length > 500) {
     return '[Agent output could not be parsed - showing raw JSON]\n' +
-           rawOutput.slice(0, 200) + '...\n[truncated]';
+      rawOutput.slice(0, 200) + '...\n[truncated]';
   }
 
   return stripAnsiCodes(rawOutput);
@@ -557,7 +682,7 @@ export function formatOutputForDisplay(output: string, maxLines?: number): strin
     const lines = formatted.split('\n');
     if (lines.length > maxLines) {
       formatted = lines.slice(0, maxLines).join('\n') +
-                 `\n... (${lines.length - maxLines} more lines)`;
+        `\n... (${lines.length - maxLines} more lines)`;
     }
   }
 
@@ -595,6 +720,7 @@ export class StreamingOutputParser {
   private isOpenCode: boolean;
   private isGemini: boolean;
   private isCodex: boolean;
+  private isKimi: boolean;
   private droidCostAccumulator?: DroidCostAccumulator;
 
   constructor(options: StreamingOutputParserOptions = {}) {
@@ -602,6 +728,7 @@ export class StreamingOutputParser {
     this.isOpenCode = isOpenCodeAgent(options.agentPlugin);
     this.isGemini = isGeminiAgent(options.agentPlugin);
     this.isCodex = isCodexAgent(options.agentPlugin);
+    this.isKimi = isKimiAgent(options.agentPlugin);
     if (this.isDroid) {
       this.droidCostAccumulator = new DroidCostAccumulator();
     }
@@ -617,6 +744,7 @@ export class StreamingOutputParser {
     this.isOpenCode = isOpenCodeAgent(agentPlugin);
     this.isGemini = isGeminiAgent(agentPlugin);
     this.isCodex = isCodexAgent(agentPlugin);
+    this.isKimi = isKimiAgent(agentPlugin);
     if (this.isDroid && !wasDroid) {
       this.droidCostAccumulator = new DroidCostAccumulator();
     }
@@ -755,6 +883,16 @@ export class StreamingOutputParser {
         const geminiDisplay = formatGeminiEventForDisplay(geminiResult.event);
         // Return the display text or undefined (to skip init/stats events)
         return geminiDisplay;
+      }
+    }
+
+    // Kimi CLI parsing
+    if (this.isKimi) {
+      const kimiResult = parseKimiJsonlLine(trimmed);
+      if (kimiResult.success && kimiResult.event) {
+        const kimiDisplay = formatKimiEventForDisplay(kimiResult.event);
+        // Return the display text or undefined (to skip think/status events)
+        return kimiDisplay;
       }
     }
 
@@ -897,6 +1035,26 @@ export class StreamingOutputParser {
           return [{ text: displayText }];
         }
         // Gemini event was recognized but nothing to display (init/stats events)
+        return [];
+      }
+    }
+
+    // Kimi CLI segment extraction
+    if (this.isKimi) {
+      const kimiResult = parseKimiJsonlLine(trimmed);
+      if (kimiResult.success && kimiResult.event) {
+        const displayText = formatKimiEventForDisplay(kimiResult.event);
+        if (displayText) {
+          // Color tool calls and errors
+          if (displayText.startsWith('[Tool:')) {
+            return [{ text: displayText, color: 'cyan' }];
+          }
+          if (displayText.startsWith('[Tool Error]') || displayText.startsWith('Error:')) {
+            return [{ text: displayText, color: 'yellow' }];
+          }
+          return [{ text: displayText }];
+        }
+        // Kimi event was recognized but nothing to display (think/status events)
         return [];
       }
     }
