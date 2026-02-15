@@ -47,15 +47,17 @@ interface BrTaskJson {
     id: string;
     title: string;
     status: string;
-    /** br serializes dep_type as "type" via serde rename */
-    type: 'blocks' | 'parent-child';
+    priority: number;
+    /** br show --json uses "dependency_type" (not "type") */
+    dependency_type: 'blocks' | 'parent-child';
   }>;
   dependents?: Array<{
     id: string;
     title: string;
     status: string;
-    /** br serializes dep_type as "type" via serde rename */
-    type: 'blocks' | 'parent-child';
+    priority: number;
+    /** br show --json uses "dependency_type" (not "type") */
+    dependency_type: 'blocks' | 'parent-child';
   }>;
 }
 
@@ -188,7 +190,7 @@ function brTaskToTask(task: BrTaskJson): TrackerTask {
 
   if (task.dependencies) {
     for (const dep of task.dependencies) {
-      if (dep.type === 'blocks') {
+      if (dep.dependency_type === 'blocks') {
         dependsOn.push(dep.id);
       }
     }
@@ -196,7 +198,7 @@ function brTaskToTask(task: BrTaskJson): TrackerTask {
 
   if (task.dependents) {
     for (const dep of task.dependents) {
-      if (dep.type === 'blocks') {
+      if (dep.dependency_type === 'blocks') {
         blocks.push(dep.id);
       }
     }
@@ -722,7 +724,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
 
       if (epic.dependents) {
         const children = epic.dependents.filter(
-          (d) => d.type === 'parent-child' && !isTombstone(d.status)
+          (d) => d.dependency_type === 'parent-child' && !isTombstone(d.status)
         );
         totalCount = children.length;
         completedCount = children.filter(
