@@ -70,8 +70,8 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@opentui/core": "^0.1.72",
-    "@opentui/react": "^0.1.72",
+    "@opentui/core": "0.1.72",
+    "@opentui/react": "0.1.72",
     "handlebars": "^4.7.8",
     "node-notifier": "^8.0.2",
     "smol-toml": "^1.6.0",
