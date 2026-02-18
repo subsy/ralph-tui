@@ -102,6 +102,10 @@ jobs:
           bun test src/plugins/trackers/builtin/beads-rust/index.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/beads-rust.lcov
 
+          echo "=== Running beads test (isolated) ===" | tee -a coverage-output.txt
+          bun test src/plugins/trackers/builtin/beads/index.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/beads.lcov
+
           echo "=== Running src/plugins/ (excluding beads-bv and beads-rust) ===" | tee -a coverage-output.txt
           bun test src/plugins/agents/ src/plugins/trackers/builtin/beads.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt || true
           cp coverage/lcov.info coverage-parts/plugins.lcov || true
@@ -195,7 +199,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           # Upload all batch coverage files - Codecov will merge them correctly
-          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/plugins.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
+          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/beads.lcov,./coverage-parts/plugins.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
           fail_ci_if_error: false
           verbose: true
         env:
