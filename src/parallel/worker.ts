@@ -40,6 +40,7 @@ export class Worker {
   private maxIterations: number;
   private lastOutput = '';
   private lastCommitSha?: string;
+  private commitCount = 0;
   private readonly listeners: ParallelEventListener[] = [];
   private readonly engineListeners: EngineEventListener[] = [];
 
@@ -129,6 +130,8 @@ export class Worker {
 
     this.status = 'running';
     this.startTime = Date.now();
+    this.commitCount = 0;
+    this.lastCommitSha = undefined;
 
     this.emitParallel({
       type: 'worker:started',
@@ -153,7 +156,7 @@ export class Worker {
           durationMs: Date.now() - this.startTime,
           error: 'Worker was cancelled',
           branchName: this.config.branchName,
-          commitCount: 0,
+          commitCount: this.commitCount,
           worktreePath: this.config.worktreePath,
         };
 
@@ -181,7 +184,7 @@ export class Worker {
         taskCompleted,
         durationMs: Date.now() - this.startTime,
         branchName: this.config.branchName,
-        commitCount: 0, // Will be set by the executor after checking the worktree
+        commitCount: this.commitCount,
         worktreePath: this.config.worktreePath,
       };
 
@@ -206,7 +209,7 @@ export class Worker {
         durationMs: Date.now() - this.startTime,
         error,
         branchName: this.config.branchName,
-        commitCount: 0,
+        commitCount: this.commitCount,
         worktreePath: this.config.worktreePath,
       };
 
@@ -313,6 +316,7 @@ export class Worker {
 
       case 'task:auto-committed':
         // Capture the commit SHA for display in the worker detail view
+        this.commitCount++;
         if (event.commitSha) {
           this.lastCommitSha = event.commitSha;
         }

@@ -4,7 +4,12 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { parseRunArgs, printRunHelp, isSessionComplete } from '../../src/commands/run.jsx';
+import {
+  parseRunArgs,
+  printRunHelp,
+  isSessionComplete,
+  shouldMarkCompletedLocally,
+} from '../../src/commands/run.jsx';
 
 describe('run command', () => {
   describe('parseRunArgs', () => {
@@ -448,6 +453,21 @@ describe('run command', () => {
       const output = consoleErrorOutput.join('\n');
       expect(output).toContain('ralph-tui convert --to json --input ./docs/feature.md');
       expect(output).toContain('ralph-tui convert --to beads --input ./docs/feature.md');
+    });
+  });
+
+  describe('shouldMarkCompletedLocally', () => {
+    test('returns true when task completed and at least one commit exists', () => {
+      expect(shouldMarkCompletedLocally(true, 1)).toBe(true);
+    });
+
+    test('returns false when task completed but no commits were created', () => {
+      expect(shouldMarkCompletedLocally(true, 0)).toBe(false);
+    });
+
+    test('returns false when task did not complete regardless of commit count', () => {
+      expect(shouldMarkCompletedLocally(false, 0)).toBe(false);
+      expect(shouldMarkCompletedLocally(false, 3)).toBe(false);
     });
   });
 

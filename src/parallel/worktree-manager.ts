@@ -108,7 +108,8 @@ export class WorktreeManager {
    * @throws If worktree creation fails or disk space is insufficient
    */
   async acquire(workerId: string, taskId: string): Promise<WorktreeInfo> {
-    if (this.worktrees.size >= this.config.maxWorktrees) {
+    const activeWorktreeCount = this.getActiveWorktreeCount();
+    if (activeWorktreeCount >= this.config.maxWorktrees) {
       throw new Error(
         `Maximum worktrees reached (${this.config.maxWorktrees}). ` +
           'Release existing worktrees before acquiring new ones.'
@@ -192,6 +193,19 @@ export class WorktreeManager {
    */
   getAllWorktrees(): WorktreeInfo[] {
     return [...this.worktrees.values()];
+  }
+
+  /**
+   * Count currently active (in-use) worktrees.
+   */
+  private getActiveWorktreeCount(): number {
+    let count = 0;
+    for (const info of this.worktrees.values()) {
+      if (info.active) {
+        count++;
+      }
+    }
+    return count;
   }
 
   /**

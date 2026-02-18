@@ -466,6 +466,17 @@ export class ParallelExecutor {
         if (this.shouldStop) break;
 
         if (result.success && result.taskCompleted) {
+          // In parallel mode, completion must produce at least one commit to be mergeable.
+          // If auto-commit skipped (for example, all changes were gitignored), keep the task
+          // open instead of showing it as completed-locally and failing in merge preflight.
+          if (result.commitCount < 1) {
+            groupTasksFailed++;
+            this.totalTasksFailed++;
+            groupMergesFailed++;
+            await this.handleMergeFailure(result);
+            continue;
+          }
+
           groupTasksCompleted++;
           this.totalTasksCompleted++;
 
@@ -675,7 +686,7 @@ export class ParallelExecutor {
   }
 
   /**
-   * Handle a merge failure by re-queuing the task if allowed.
+   * Handle a merge failure by tracking retries and resetting the task to open.
    */
   private async handleMergeFailure(result: WorkerResult): Promise<void> {
     const taskId = result.task.id;
@@ -683,12 +694,13 @@ export class ParallelExecutor {
 
     if (currentCount < this.config.maxRequeueCount) {
       this.requeueCounts.set(taskId, currentCount + 1);
-      // Reset task to open so it can be picked up again
-      try {
-        await this.tracker.updateTaskStatus(taskId, 'open');
-      } catch {
-        // Best effort
-      }
+    }
+
+    // Always reset failed merge tasks to open so they do not remain stuck in_progress.
+    try {
+      await this.tracker.updateTaskStatus(taskId, 'open');
+    } catch {
+      // Best effort
     }
   }
 

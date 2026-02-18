@@ -237,6 +237,20 @@ describe('WorktreeManager', () => {
       // Should not throw
       manager.release('nonexistent');
     });
+
+    test('allows acquiring a new worktree after release without cleanupAll', async () => {
+      const smallManager = new WorktreeManager({
+        cwd: repoDir,
+        maxWorktrees: 1,
+      });
+
+      const first = await smallManager.acquire('w1', 'task-001');
+      smallManager.release(first.id);
+
+      await expect(
+        smallManager.acquire('w2', 'task-002')
+      ).resolves.toBeTruthy();
+    });
   });
 
   describe('isDirty', () => {
