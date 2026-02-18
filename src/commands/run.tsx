@@ -1442,6 +1442,8 @@ async function runWithTui(
   let cancelledCallback: (() => void) | null = null;
   let resolveQuitPromise: (() => void) | null = null;
   let engineStarted = false;
+  let executionPromise: Promise<void> | null = null;
+  let shutdownPromise: Promise<void> | null = null;
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: false, // We handle this ourselves
@@ -1541,22 +1543,63 @@ async function runWithTui(
   // Graceful shutdown: reset active tasks, save state, clean up, and resolve the quit promise
   // This is called when the user explicitly quits (q key or Ctrl+C confirmation)
   const gracefulShutdown = async (): Promise<void> => {
-    // Reset any active (in_progress) tasks back to open
-    // This prevents tasks from being stuck in_progress after shutdown
-    const activeTasks = getActiveTasks(currentState);
-    if (activeTasks.length > 0) {
-      const resetCount = await engine.resetTasksToOpen(activeTasks);
-      if (resetCount > 0) {
-        // Clear active tasks from state now that they've been reset
-        currentState = clearActiveTasks(currentState);
-      }
+    if (shutdownPromise) {
+      await shutdownPromise;
+      return;
     }
 
-    // Save current state (may be completed, interrupted, etc.)
-    await savePersistedSession(currentState);
-    await cleanup();
-    // Resolve the quit promise to let the main function continue
-    resolveQuitPromise?.();
+    shutdownPromise = (async () => {
+      const status = engine.getStatus();
+      if (status === 'running' || status === 'pausing' || status === 'paused' || status === 'stopping') {
+        try {
+          await engine.stop();
+        } catch {
+          // Keep shutdown resilient even if stop() fails.
+        }
+      }
+
+      const exec = executionPromise;
+      if (exec) {
+        try {
+          await exec;
+        } catch {
+          // Execution errors are already surfaced through engine events.
+        }
+      }
+
+      try {
+        // Reset any active (in_progress) tasks back to open.
+        // This prevents tasks from being stuck in_progress after shutdown.
+        const activeTasks = getActiveTasks(currentState);
+        if (activeTasks.length > 0) {
+          const resetCount = await engine.resetTasksToOpen(activeTasks);
+          if (resetCount > 0) {
+            // Clear active tasks from state now that they've been reset.
+            currentState = clearActiveTasks(currentState);
+          }
+        }
+      } catch {
+        // Continue shutdown even if task reset fails.
+      }
+
+      try {
+        // Save current state (may be completed, interrupted, etc.)
+        await savePersistedSession(currentState);
+      } catch {
+        // Continue shutdown even if state persistence fails.
+      }
+
+      try {
+        await cleanup();
+      } catch {
+        // Ensure quit promise still resolves when cleanup fails.
+      }
+
+      // Resolve the quit promise to let the main function continue
+      resolveQuitPromise?.();
+    })();
+
+    await shutdownPromise;
   };
 
   // Force quit: immediate exit
@@ -1590,7 +1633,15 @@ async function runWithTui(
     engineStarted = true;
     // Start the engine (this runs the loop in the background)
     // The TUI will show running status via engine events
-    await engine.start();
+    const runPromise = engine.start();
+    executionPromise = runPromise;
+    try {
+      await runPromise;
+    } finally {
+      if (executionPromise === runPromise) {
+        executionPromise = null;
+      }
+    }
   };
 
   // Handler to update persisted state and save it
@@ -1664,6 +1715,7 @@ async function runWithTui(
   });
 
   clearInterval(checkCallbacks);
+  process.removeListener('SIGTERM', gracefulShutdown);
 
   return currentState;
 }
@@ -2155,6 +2207,14 @@ async function runParallelWithTui(
           }
           // Reset executor state and re-run
           resetParallelStateForRestart();
+          currentState = {
+            ...currentState,
+            status: 'running',
+            isPaused: false,
+            pausedAt: undefined,
+            updatedAt: new Date().toISOString(),
+          };
+          savePersistedSession(currentState).catch(() => {});
           parallelExecutor.reset();
           startParallelExecution();
         }}

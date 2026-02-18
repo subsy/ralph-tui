@@ -563,6 +563,18 @@ describe('run command', () => {
       expect(outcome.mergedTaskIds).toEqual(new Set());
     });
 
+    test('moves task from completed-locally to merged when exactly one conflict is resolved', () => {
+      const outcome = applyConflictResolvedTaskTracking(
+        new Set<string>(['task-1', 'task-2']),
+        new Set<string>(['task-3']),
+        'task-1',
+        1
+      );
+
+      expect(outcome.completedLocallyTaskIds).toEqual(new Set(['task-2']));
+      expect(outcome.mergedTaskIds).toEqual(new Set(['task-3', 'task-1']));
+    });
+
     test('moves task from completed-locally to merged when conflicts resolved', () => {
       const outcome = applyConflictResolvedTaskTracking(
         new Set<string>(['task-1', 'task-2']),

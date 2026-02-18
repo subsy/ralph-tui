@@ -21,6 +21,7 @@ import {
   createSuccessfulExecution,
   createFailedExecution,
   createRateLimitedExecution,
+  createTimeoutExecution,
   createDetectResult,
 } from '../mocks/agent-responses.js';
 
@@ -559,6 +560,121 @@ describe('ExecutionEngine', () => {
       });
 
       expect(result.isRateLimit).toBe(false);
+    });
+  });
+
+  describe('execution result handling', () => {
+    test('treats timeout execution as a failed iteration', async () => {
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => {
+        const result = createTimeoutExecution();
+        return {
+          promise: Promise.resolve(result),
+          interrupt: mock(() => {}),
+        };
+      }) as AgentPlugin['execute'];
+
+      config = createTestConfig({
+        maxIterations: 2,
+        errorHandling: {
+          strategy: 'abort',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
+      });
+      engine = new ExecutionEngine(config);
+      engine.on((event) => events.push(event));
+
+      const task = createTrackerTask({ id: 'task-timeout', title: 'Timeout task' });
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve([task])
+      );
+      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>)
+        .mockImplementationOnce(() => Promise.resolve(task))
+        .mockImplementation(() => Promise.resolve(undefined));
+      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve(false)
+      );
+
+      try {
+        await engine.initialize();
+        await engine.start();
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+      }
+
+      const firstIteration = engine.getState().iterations[0];
+      expect(firstIteration?.status).toBe('failed');
+
+      const failedEvent = events.find((event) => event.type === 'iteration:failed');
+      expect(failedEvent).toBeDefined();
+
+      const stopEvent = events.find(
+        (event) => event.type === 'engine:stopped' && 'reason' in event && event.reason === 'error'
+      );
+      expect(stopEvent).toBeDefined();
+    });
+
+    test('clears rate-limited agent tracking after all agents are limited', async () => {
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => {
+        const result = createRateLimitedExecution();
+        return {
+          promise: Promise.resolve(result),
+          interrupt: mock(() => {}),
+        };
+      }) as AgentPlugin['execute'];
+
+      config = createTestConfig({
+        maxIterations: 2,
+        agent: {
+          name: 'claude',
+          plugin: 'claude',
+          options: {},
+          fallbackAgents: ['opencode'],
+          rateLimitHandling: {
+            enabled: true,
+            maxRetries: 0,
+            baseBackoffMs: 0,
+            recoverPrimaryBetweenIterations: false,
+          },
+        },
+        errorHandling: {
+          strategy: 'abort',
+          maxRetries: 0,
+          retryDelayMs: 0,
+          continueOnNonZeroExit: false,
+        },
+      });
+      engine = new ExecutionEngine(config);
+      engine.on((event) => events.push(event));
+
+      const task = createTrackerTask({ id: 'task-rate-limit', title: 'Rate limited task' });
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve([task])
+      );
+      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve(task)
+      );
+      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve(false)
+      );
+
+      try {
+        await engine.initialize();
+        await engine.start();
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+      }
+
+      const allLimitedEvent = events.find((event) => event.type === 'agent:all-limited');
+      expect(allLimitedEvent).toBeDefined();
+      if (allLimitedEvent && 'triedAgents' in allLimitedEvent) {
+        expect(allLimitedEvent.triedAgents).toEqual(expect.arrayContaining(['claude', 'opencode']));
+      }
+
+      expect((engine as any).rateLimitedAgents.size).toBe(0);
     });
   });
 

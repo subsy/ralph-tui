@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import type {
   AuthMessage,
   AuthResponseMessage,
+  InterruptMessage,
   PongMessage,
   ErrorMessage,
   StateResponseMessage,
@@ -29,6 +30,7 @@ import type {
   PushConfigResponseMessage,
   RemoteEngineState,
 } from '../../src/remote/types.js';
+import type { ExecutionEngine } from '../../src/engine/index.js';
 import { TOKEN_LIFETIMES, DEFAULT_LISTEN_OPTIONS } from '../../src/remote/types.js';
 
 // ============================================================================
@@ -385,6 +387,65 @@ describe('RemoteServer', () => {
         expect(typeof type).toBe('string');
         expect(type.length).toBeGreaterThan(0);
       });
+    });
+  });
+
+  describe('Interrupt Handling', () => {
+    test('resets the active task to open after interrupt succeeds', async () => {
+      const { RemoteServer } = await import('../../src/remote/server.js');
+
+      const stop = mock(() => Promise.resolve());
+      const resetTasksToOpen = mock(() => Promise.resolve(1));
+      const on = mock(() => () => {});
+      const mockEngine = {
+        on,
+        stop,
+        resetTasksToOpen,
+        getState: () => ({
+          currentTask: {
+            id: 'task-123',
+            title: 'Task 123',
+            status: 'in_progress',
+          },
+        }),
+      };
+
+      const server = new RemoteServer({
+        port: 7890,
+        hasToken: false,
+        engine: mockEngine as unknown as ExecutionEngine,
+      });
+
+      const ws = {
+        send: mock(() => {}),
+      };
+
+      const message: InterruptMessage = {
+        type: 'interrupt',
+        id: 'interrupt-1',
+        timestamp: new Date().toISOString(),
+      };
+
+      (server as unknown as {
+        handleInterrupt: (
+          ws: unknown,
+          message: InterruptMessage
+        ) => void;
+      }).handleInterrupt(ws, message);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(on).toHaveBeenCalledTimes(1);
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(resetTasksToOpen).toHaveBeenCalledWith(['task-123']);
+
+      const calls = (ws.send as ReturnType<typeof mock>).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const response = JSON.parse(calls[calls.length - 1][0] as string) as OperationResultMessage;
+      expect(response.type).toBe('operation_result');
+      expect(response.operation).toBe('interrupt');
+      expect(response.success).toBe(true);
+      expect(response.id).toBe('interrupt-1');
     });
   });
 });

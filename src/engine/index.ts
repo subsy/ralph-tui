@@ -1223,6 +1223,10 @@ export class ExecutionEngine {
 
           // Pause the engine - user intervention required
           this.pause();
+
+          // Reset per-task rate-limited tracking so future retries/resume attempts
+          // can re-evaluate all configured agents.
+          this.clearRateLimitedAgents();
         }
 
         // Return as failed with rate limit error
@@ -1286,7 +1290,7 @@ export class ExecutionEngine {
       let status: IterationStatus;
       if (agentResult.interrupted) {
         status = 'interrupted';
-      } else if (agentResult.status === 'failed') {
+      } else if (agentResult.status === 'failed' || agentResult.status === 'timeout') {
         status = 'failed';
       } else {
         status = 'completed';
