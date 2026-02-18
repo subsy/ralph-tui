@@ -129,15 +129,14 @@ export function isSessionComplete(
 /**
  * Determine whether a worker result should be shown as completed-locally.
  *
- * A completed-locally task must have:
- * 1. Agent-level completion signal
- * 2. At least one commit produced for merge
+ * A completed-locally task needs only an agent-level completion signal.
+ * Merge success/failure is tracked separately via merge events.
  */
 export function shouldMarkCompletedLocally(
   taskCompleted: boolean,
-  commitCount: number
+  _commitCount: number
 ): boolean {
-  return taskCompleted && commitCount > 0;
+  return taskCompleted;
 }
 
 /**

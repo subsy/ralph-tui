@@ -477,17 +477,6 @@ export class ParallelExecutor {
         }
 
         if (result.success && result.taskCompleted) {
-          // In parallel mode, completion must produce at least one commit to be mergeable.
-          // If auto-commit skipped (for example, all changes were gitignored), keep the task
-          // open instead of showing it as completed-locally and failing in merge preflight.
-          if (result.commitCount < 1) {
-            groupTasksFailed++;
-            this.totalTasksFailed++;
-            groupMergesFailed++;
-            await this.handleMergeFailure(result);
-            continue;
-          }
-
           // Save tracker state before merge to prevent worktree's stale copy from overwriting
           const savedState = await this.saveTrackerState();
 

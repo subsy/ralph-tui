@@ -461,12 +461,12 @@ describe('run command', () => {
   });
 
   describe('shouldMarkCompletedLocally', () => {
-    test('returns true when task completed and at least one commit exists', () => {
+    test('returns true when task completed with at least one commit', () => {
       expect(shouldMarkCompletedLocally(true, 1)).toBe(true);
     });
 
-    test('returns false when task completed but no commits were created', () => {
-      expect(shouldMarkCompletedLocally(true, 0)).toBe(false);
+    test('returns true when task completed but no commits were created', () => {
+      expect(shouldMarkCompletedLocally(true, 0)).toBe(true);
     });
 
     test('returns false when task did not complete regardless of commit count', () => {
@@ -481,14 +481,14 @@ describe('run command', () => {
       expect(next).toEqual(new Set(['task-1']));
     });
 
-    test('removes stale task ID when task completion is not mergeable', () => {
+    test('keeps task ID when task completed but no commit was produced', () => {
       const next = updateCompletedLocallyTaskIds(
         new Set<string>(['task-1', 'task-2']),
         'task-1',
         true,
         0
       );
-      expect(next).toEqual(new Set(['task-2']));
+      expect(next).toEqual(new Set(['task-1', 'task-2']));
     });
 
     test('removes task ID when task did not complete regardless of commit count', () => {
