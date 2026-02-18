@@ -177,14 +177,14 @@ The Beads tracker selects the next task by:
 Beads stores issues in `.beads/beads.jsonl`. Sync with your team:
 
 ```bash
-# Pull latest changes
-bd sync
+# Export tracker state to JSONL (safe, no git side effects)
+bd sync --flush-only
 
-# Or manually
-git pull
+# Then commit and push manually
+git add .beads/ && git commit -m "Update beads" && git push
 ```
 
-Ralph TUI calls `bd sync` automatically when you run.
+Ralph TUI calls `bd sync --flush-only` automatically when you run, which exports tracker state to JSONL without performing any git operations. This prevents data loss on branches that haven't been pushed to a remote.
 
 ## Label Filtering (Optional)
 
@@ -223,7 +223,7 @@ When Ralph TUI runs with the Beads tracker:
 4. **Update**: Set task to `in_progress` via `bd update`
 5. **Execute**: Run agent with task prompt
 6. **Complete**: Set task to `closed` via `bd update`
-7. **Sync**: Run `bd sync` to push changes
+7. **Sync**: Run `bd sync --flush-only` to export state to JSONL
 
 ### bd Commands Used
 
@@ -233,7 +233,7 @@ When Ralph TUI runs with the Beads tracker:
 | Get task | `bd show <id> --json` |
 | Start task | `bd update <id> --status in_progress` |
 | Complete task | `bd update <id> --status closed` |
-| Sync | `bd sync` |
+| Sync | `bd sync --flush-only` |
 
 ## Switching Epics
 
@@ -272,7 +272,8 @@ Check that:
 Run sync manually:
 
 ```bash
-bd sync
+bd sync --flush-only
+git add .beads/ && git commit -m "Sync beads"
 ```
 
 Check for git conflicts in `.beads/beads.jsonl`.

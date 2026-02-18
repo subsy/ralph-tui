@@ -483,9 +483,12 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
   }
 
   override async sync(): Promise<SyncResult> {
-    // Run bd sync to synchronize with git
+    // Export tracker state to JSONL only. Use --flush-only to avoid git
+    // operations (pull/push) which can silently destroy locally-created beads
+    // when the branch has no upstream tracking ref.
+    // See: https://github.com/subsy/ralph-tui/issues/314
     const { exitCode, stderr, stdout } = await execBd(
-      ['sync'],
+      ['sync', '--flush-only'],
       this.workingDir
     );
 
@@ -500,7 +503,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
 
     return {
       success: true,
-      message: 'Beads synced with git',
+      message: 'Beads tracker data flushed to JSONL',
       syncedAt: new Date().toISOString(),
     };
   }
