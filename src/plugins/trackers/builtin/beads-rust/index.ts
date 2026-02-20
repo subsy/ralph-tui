@@ -509,7 +509,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
    * Populate dependsOn for a single task from br dep list output.
    */
   private async enrichTaskDependencies(task: TrackerTask): Promise<void> {
-    const { stdout, exitCode } = await execBr(
+    const { stdout, stderr, exitCode } = await execBr(
       ['dep', 'list', task.id, '--json'],
       this.workingDir
     );
@@ -517,7 +517,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
     if (exitCode !== 0) {
       console.warn(
         `Dependency enrichment failed for task ${task.id}: br dep list exited non-zero`,
-        { taskId: task.id, exitCode, stdout }
+        { taskId: task.id, exitCode, stdout, stderr }
       );
       return;
     }
