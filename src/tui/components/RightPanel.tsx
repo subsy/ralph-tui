@@ -502,12 +502,23 @@ function TaskMetadataView({
   );
 }
 
+function formatTokenNumber(tokens: number): string {
+  return tokens.toLocaleString();
+}
+
 /**
- * Timing summary component for the output view
- * Shows started time immediately, duration that updates every second while running,
- * and ended time when complete. Also displays model info when available.
+ * Timing and usage summary component for the output view.
+ * Shows started/ended/duration, and usage/context details in the same panel.
  */
-function TimingSummary({ timing }: { timing?: IterationTimingInfo }): ReactNode {
+function TimingSummary({
+  timing,
+  usage,
+  isRunning,
+}: {
+  timing?: IterationTimingInfo;
+  usage?: RightPanelProps['taskUsage'];
+  isRunning: boolean;
+}): ReactNode {
   // Track elapsed time for running iterations
   const [elapsedMs, setElapsedMs] = useState<number>(0);
 
@@ -556,87 +567,15 @@ function TimingSummary({ timing }: { timing?: IterationTimingInfo }): ReactNode 
       })()
     : null;
 
-  return (
-    <box
-      style={{
-        marginBottom: 1,
-        padding: 1,
-        border: true,
-        borderColor: colors.border.muted,
-        backgroundColor: colors.bg.tertiary,
-      }}
-    >
-      {/* Model info row - show when model is available */}
-      {modelDisplay && (
-        <box style={{ flexDirection: 'row', marginBottom: 1 }}>
-          <text fg={colors.fg.muted}>Model: </text>
-          <text fg={colors.accent.primary}>{modelDisplay.display}</text>
-        </box>
-      )}
-      {/* Timing info row */}
-      <box style={{ flexDirection: 'row', gap: 3 }}>
-        <text fg={colors.fg.muted}>
-          Started:{' '}
-          <span fg={colors.fg.secondary}>
-            {timing.startedAt ? formatTimestamp(timing.startedAt) : '—'}
-          </span>
-        </text>
-        <text fg={colors.fg.muted}>
-          Ended:{' '}
-          <span fg={colors.fg.secondary}>
-            {timing.endedAt ? formatTimestamp(timing.endedAt) : '—'}
-          </span>
-        </text>
-        <text fg={colors.fg.muted}>
-          Duration:{' '}
-          <span fg={timing.isRunning ? colors.status.info : colors.accent.primary}>
-            {durationDisplay}
-          </span>
-        </text>
-      </box>
-    </box>
-  );
-}
-
-function formatTokenNumber(tokens: number): string {
-  return tokens.toLocaleString();
-}
-
-/**
- * Token/context usage summary for the current task output.
- */
-function UsageSummary({
-  usage,
-  isRunning,
-}: {
-  usage?: RightPanelProps['taskUsage'];
-  isRunning: boolean;
-}): ReactNode {
-  if (!usage) {
-    return (
-      <box
-        style={{
-          marginBottom: 1,
-          padding: 1,
-          border: true,
-          borderColor: colors.border.muted,
-          backgroundColor: colors.bg.tertiary,
-        }}
-      >
-        <text fg={colors.fg.muted}>
-          {isRunning ? 'Usage: waiting for live telemetry...' : 'Usage: unavailable'}
-        </text>
-      </box>
-    );
-  }
-
-  const inputTokens = usage.inputTokens ?? 0;
-  const outputTokens = usage.outputTokens ?? 0;
+  const inputTokens = usage?.inputTokens ?? 0;
+  const outputTokens = usage?.outputTokens ?? 0;
   const totalTokens =
-    usage.totalTokens > 0 ? usage.totalTokens : inputTokens + outputTokens;
-  const remainingTokens = usage.remainingContextTokens;
-  const contextWindow = usage.contextWindowTokens;
-  const remainingPercent = usage.remainingContextPercent;
+    usage && usage.totalTokens > 0
+      ? usage.totalTokens
+      : inputTokens + outputTokens;
+  const remainingTokens = usage?.remainingContextTokens;
+  const contextWindow = usage?.contextWindowTokens;
+  const remainingPercent = usage?.remainingContextPercent;
 
   return (
     <box
@@ -649,17 +588,72 @@ function UsageSummary({
         flexDirection: 'column',
       }}
     >
+      {/* Model info row - show when model is available */}
+      {modelDisplay && (
+        <box style={{ flexDirection: 'row', marginBottom: 1 }}>
+          <text fg={colors.fg.muted}>Model: </text>
+          <text fg={colors.accent.primary}>{modelDisplay.display}</text>
+        </box>
+      )}
+      {/* Timing + usage row */}
+      <box
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginBottom: isRunning ? 1 : 0,
+        }}
+      >
+        <box style={{ flexDirection: 'row', gap: 3 }}>
+          <text fg={colors.fg.muted}>
+            Started:{' '}
+            <span fg={colors.fg.secondary}>
+              {timing.startedAt ? formatTimestamp(timing.startedAt) : '—'}
+            </span>
+          </text>
+          <text fg={colors.fg.muted}>
+            Ended:{' '}
+            <span fg={colors.fg.secondary}>
+              {timing.endedAt ? formatTimestamp(timing.endedAt) : '—'}
+            </span>
+          </text>
+          <text fg={colors.fg.muted}>
+            Duration:{' '}
+            <span fg={timing.isRunning ? colors.status.info : colors.accent.primary}>
+              {durationDisplay}
+            </span>
+          </text>
+        </box>
+
+        {usage ? (
+          <box style={{ flexDirection: 'row', gap: 3 }}>
+            <text fg={colors.fg.muted}>
+              Input: <span fg={colors.fg.secondary}>{formatTokenNumber(inputTokens)}</span>
+            </text>
+            <text fg={colors.fg.muted}>
+              Output: <span fg={colors.fg.secondary}>{formatTokenNumber(outputTokens)}</span>
+            </text>
+            <text fg={colors.fg.muted}>
+              Total: <span fg={colors.accent.primary}>{formatTokenNumber(totalTokens)}</span>
+            </text>
+          </box>
+        ) : (
+          <text fg={colors.fg.muted}>
+            {isRunning ? 'Usage: waiting for live telemetry...' : 'Usage: unavailable'}
+          </text>
+        )}
+      </box>
+
       {isRunning && (
         <box style={{ flexDirection: 'row', marginBottom: 1 }}>
           <text fg={colors.fg.muted}>Context: </text>
-          {remainingPercent !== undefined ? (
+          {usage && remainingPercent !== undefined ? (
             <text fg={colors.accent.primary}>
               {remainingPercent.toFixed(1)}% remaining
             </text>
           ) : (
             <text fg={colors.fg.secondary}>window size unknown</text>
           )}
-          {remainingTokens !== undefined && contextWindow !== undefined && (
+          {usage && remainingTokens !== undefined && contextWindow !== undefined && (
             <text fg={colors.fg.secondary}>
               {' '}
               ({formatTokenNumber(remainingTokens)} / {formatTokenNumber(contextWindow)} tokens)
@@ -667,17 +661,7 @@ function UsageSummary({
           )}
         </box>
       )}
-      <box style={{ flexDirection: 'row', gap: 3 }}>
-        <text fg={colors.fg.muted}>
-          Input: <span fg={colors.fg.secondary}>{formatTokenNumber(inputTokens)}</span>
-        </text>
-        <text fg={colors.fg.muted}>
-          Output: <span fg={colors.fg.secondary}>{formatTokenNumber(outputTokens)}</span>
-        </text>
-        <text fg={colors.fg.muted}>
-          Total: <span fg={colors.accent.primary}>{formatTokenNumber(totalTokens)}</span>
-        </text>
-      </box>
+
     </box>
   );
 }
@@ -869,9 +853,12 @@ function TaskOutputView({
         )}
       </box>
 
-      {/* Timing summary - shows start/end/duration */}
-      <TimingSummary timing={iterationTiming} />
-      <UsageSummary usage={taskUsage} isRunning={isLiveStreaming} />
+      {/* Timing + usage summary - unified panel */}
+      <TimingSummary
+        timing={iterationTiming}
+        usage={taskUsage}
+        isRunning={isLiveStreaming}
+      />
 
       {/* Full-height iteration output */}
       <box
