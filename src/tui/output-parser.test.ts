@@ -356,6 +356,22 @@ describe('StreamingOutputParser with codex format', () => {
     expect(segments.length).toBeGreaterThan(0);
     expect(segments[0]?.color).toBe('yellow');
   });
+
+  test('tracks token usage from turn.completed usage payload', () => {
+    const parser = new StreamingOutputParser({ agentPlugin: 'codex' });
+    parser.push(
+      JSON.stringify({
+        type: 'turn.completed',
+        usage: { input_tokens: 200, output_tokens: 50 },
+      }) + '\n'
+    );
+
+    const usage = parser.getUsage();
+    expect(usage).toBeDefined();
+    expect(usage?.inputTokens).toBe(200);
+    expect(usage?.outputTokens).toBe(50);
+    expect(usage?.totalTokens).toBe(250);
+  });
 });
 
 describe('StreamingOutputParser with gemini format', () => {

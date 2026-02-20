@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, writeFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AgentRegistry } from '../../src/plugins/agents/registry.js'
@@ -96,6 +96,27 @@ describe('collectSystemInfo', () => {
     expect(info.skills).toHaveProperty('agents')
     expect(Array.isArray(info.skills.bundled)).toBe(true)
     expect(Array.isArray(info.skills.agents)).toBe(true)
+  })
+
+  test('collects custom skills from symlinked skill directories', async () => {
+    const customSkillsDir = join(tempDir, 'custom-skills')
+    const realSkillDir = join(tempDir, 'real-skills', 'ralph-tui-prd')
+    const symlinkedSkillDir = join(customSkillsDir, 'ralph-tui-prd')
+
+    await mkdir(realSkillDir, { recursive: true })
+    await writeFile(join(realSkillDir, 'SKILL.md'), '# test skill', 'utf-8')
+    await mkdir(customSkillsDir, { recursive: true })
+    await symlink(realSkillDir, symlinkedSkillDir, 'dir')
+
+    await writeConfig(tempDir, {
+      agent: 'claude',
+      skills_dir: customSkillsDir,
+    })
+
+    const info = await collectSystemInfo(tempDir)
+
+    expect(info.skills.customDir).toBe(customSkillsDir)
+    expect(info.skills.customSkills).toContain('ralph-tui-prd')
   })
 
   test('detects runtime correctly', async () => {

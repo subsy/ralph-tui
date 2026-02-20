@@ -8,6 +8,7 @@ import type { IterationResult, SubagentTreeNode, ActiveAgentState, RateLimitStat
 import type { TaskPriority } from '../plugins/trackers/types.js';
 import type { SubagentDetailLevel, SandboxConfig, SandboxMode } from '../config/types.js';
 import type { FormattedSegment } from '../plugins/agents/output-formatting.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 
 // Re-export types for convenience
 export type { TaskPriority };
@@ -67,6 +68,8 @@ export interface TaskItem {
   parentId?: string;
   /** Tracker-specific metadata (varies by plugin) */
   metadata?: Record<string, unknown>;
+  /** Task-level token/context usage indicators */
+  usage?: TokenUsageSummary;
 }
 
 /**
@@ -168,6 +171,8 @@ export interface RightPanelProps {
   iterationOutput?: string;
   /** Current iteration output segments for TUI-native color rendering */
   iterationSegments?: FormattedSegment[];
+  /** Token/context usage for the selected task output */
+  taskUsage?: TokenUsageSummary;
   /** View mode for the details panel (details or output) */
   viewMode?: DetailsViewMode;
   /** Callback when view mode should be toggled */

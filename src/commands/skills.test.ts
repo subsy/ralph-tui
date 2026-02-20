@@ -420,6 +420,17 @@ ELOOP: too many symbolic links encountered, mkdir`;
     expect(result.eloopOnly).toBe(true);
   });
 
+  test('falls back to parsed agent list when detected count is missing', () => {
+    const output = `Found 4 skills
+Installing to: OpenCode [global]
+Installation complete`;
+    const result = parseAddSkillOutput(output);
+    expect(result.skillCount).toBe(4);
+    expect(result.agentCount).toBe(1);
+    expect(result.agents).toEqual(['OpenCode [global]']);
+    expect(result.installed).toBe(true);
+  });
+
   test('parses install with non-ELOOP failures', () => {
     const output = `Found 2 skills
 Detected 2 agents

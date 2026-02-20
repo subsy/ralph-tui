@@ -6,6 +6,7 @@
 import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { AgentExecutionResult } from '../plugins/agents/types.js';
 import type { SubagentState as ParserSubagentState } from '../plugins/agents/tracing/types.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 
 /**
  * Reason why an agent is currently active.
@@ -177,6 +178,9 @@ export interface IterationResult {
   /** Duration of the iteration in milliseconds */
   durationMs: number;
 
+  /** Token usage summary extracted from agent output (if available) */
+  usage?: TokenUsageSummary;
+
   /** Error message if failed */
   error?: string;
 
@@ -211,6 +215,8 @@ export type EngineEventType =
   | 'task:auto-commit-failed'
   | 'task:auto-commit-skipped'
   | 'agent:output'
+  | 'agent:usage'
+  | 'agent:model'
   | 'agent:switched'
   | 'agent:all-limited'
   | 'agent:recovery-attempted'
@@ -511,8 +517,38 @@ export interface AgentOutputEvent extends EngineEventBase {
   stream: 'stdout' | 'stderr';
   /** Output data */
   data: string;
+  /** Task that emitted this output (if available) */
+  taskId?: string;
   /** Iteration number */
   iteration: number;
+}
+
+/**
+ * Agent token usage event (streaming).
+ * Emitted when structured JSONL usage telemetry is observed during execution.
+ */
+export interface AgentUsageEvent extends EngineEventBase {
+  type: 'agent:usage';
+  /** Task that emitted this usage update (if available) */
+  taskId?: string;
+  /** Iteration number */
+  iteration: number;
+  /** Aggregated usage summary up to this point in the iteration */
+  usage: TokenUsageSummary;
+}
+
+/**
+ * Agent model event (streaming).
+ * Emitted when the engine detects the effective model from agent JSONL telemetry.
+ */
+export interface AgentModelEvent extends EngineEventBase {
+  type: 'agent:model';
+  /** Task that emitted this model update (if available) */
+  taskId?: string;
+  /** Iteration number */
+  iteration: number;
+  /** Detected model identifier (may be provider/model or shorthand) */
+  model: string;
 }
 
 /**
@@ -606,6 +642,8 @@ export type EngineEvent =
   | TaskAutoCommitFailedEvent
   | TaskAutoCommitSkippedEvent
   | AgentOutputEvent
+  | AgentUsageEvent
+  | AgentModelEvent
   | AgentSwitchedEvent
   | AllAgentsLimitedEvent
   | AgentRecoveryAttemptedEvent
@@ -657,6 +695,9 @@ export interface EngineState {
 
   /** Current iteration stderr buffer */
   currentStderr: string;
+
+  /** Current effective model (configured or detected from runtime telemetry) */
+  currentModel?: string;
 
   /**
    * Subagents tracked during the current iteration.

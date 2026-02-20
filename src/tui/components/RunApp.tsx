@@ -8,7 +8,7 @@
 import { useKeyboard, useTerminalDimensions, useRenderer } from '@opentui/react';
 import type { KeyEvent } from '@opentui/core';
 import type { ReactNode } from 'react';
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, startTransition } from 'react';
 import { colors, layout } from '../theme.js';
 import type { RalphStatus, TaskStatus } from '../theme.js';
 import type { TaskItem, BlockerInfo, DetailsViewMode, IterationTimingInfo, SubagentTreeNode } from '../types.js';
@@ -55,6 +55,12 @@ import { platform } from 'node:os';
 import { writeToClipboard } from '../../utils/index.js';
 import { StreamingOutputParser } from '../output-parser.js';
 import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
+import {
+  summarizeTokenUsageFromOutput,
+  withContextWindow,
+  type TokenUsageSummary,
+} from '../../plugins/agents/usage.js';
+import { getModelsForProvider, getProviders } from '../../models-dev/index.js';
 import type {
   WorkerDisplayState,
   MergeOperation,
@@ -406,6 +412,68 @@ function convertTasksWithDependencyStatus(trackerTasks: TrackerTask[]): TaskItem
   });
 }
 
+function parseProviderModel(model?: string): { providerId: string; modelId: string } | null {
+  if (!model || !model.includes('/')) {
+    return null;
+  }
+  const [providerId, ...rest] = model.split('/');
+  const modelId = rest.join('/');
+  if (!providerId || !modelId) {
+    return null;
+  }
+  return { providerId, modelId };
+}
+
+function getFallbackContextWindow(model?: string, agentHint?: string): number | undefined {
+  const normalizedModel = model?.trim().toLowerCase() ?? '';
+  const normalizedAgent = agentHint?.trim().toLowerCase();
+  const modelPart = normalizedModel.includes('/')
+    ? normalizedModel.split('/').slice(1).join('/')
+    : normalizedModel;
+
+  // Claude CLI often uses shorthand model names ("sonnet", "opus", "haiku")
+  // that cannot be resolved via models.dev without provider/model format.
+  if (
+    normalizedAgent === 'claude' ||
+    modelPart === 'sonnet' ||
+    modelPart === 'opus' ||
+    modelPart === 'haiku' ||
+    modelPart.startsWith('claude-') ||
+    modelPart.includes('claude')
+  ) {
+    return 200_000;
+  }
+
+  return undefined;
+}
+
+function normalizeUsage(usage: TokenUsageSummary, contextWindow?: number): TokenUsageSummary {
+  const normalizedTotal =
+    usage.totalTokens > 0 ? usage.totalTokens : usage.inputTokens + usage.outputTokens;
+  return withContextWindow({ ...usage, totalTokens: normalizedTotal }, contextWindow);
+}
+
+function areUsageSummariesEqual(
+  a: TokenUsageSummary | undefined,
+  b: TokenUsageSummary | undefined
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return (
+    a.inputTokens === b.inputTokens &&
+    a.outputTokens === b.outputTokens &&
+    a.totalTokens === b.totalTokens &&
+    a.contextWindowTokens === b.contextWindowTokens &&
+    a.remainingContextTokens === b.remainingContextTokens &&
+    a.remainingContextPercent === b.remainingContextPercent &&
+    a.events === b.events
+  );
+}
+
 /**
  * Main RunApp component for execution view
  */
@@ -502,6 +570,9 @@ export function RunApp({
   });
   const [currentOutput, setCurrentOutput] = useState('');
   const [currentSegments, setCurrentSegments] = useState<FormattedSegment[]>([]);
+  const [taskUsageMap, setTaskUsageMap] = useState<Map<string, TokenUsageSummary>>(
+    () => new Map()
+  );
   // Streaming parser for live output - extracts readable content and prevents memory bloat
   // Use agentPlugin prop (from resolved config with CLI override) with fallback to storedConfig
   const resolvedAgentName = agentPlugin || storedConfig?.defaultAgent || storedConfig?.agent || 'claude';
@@ -510,6 +581,9 @@ export function RunApp({
       agentPlugin: resolvedAgentName,
     })
   );
+  const currentTaskIdRef = useRef<string | undefined>(undefined);
+  const localContextWindowRef = useRef<number | undefined>(undefined);
+  const [localContextWindow, setLocalContextWindow] = useState<number | undefined>(undefined);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [epicName] = useState('Ralph');
   // Derive agent/tracker names from config - these are displayed in the header
@@ -551,7 +625,13 @@ export function RunApp({
   const [showClosedTasks, setShowClosedTasks] = useState(true);
   // Cache for historical iteration output loaded from disk (taskId -> { output, timing, agent, model })
   const [historicalOutputCache, setHistoricalOutputCache] = useState<
-    Map<string, { output: string; timing: IterationTimingInfo; agentPlugin?: string; model?: string }>
+    Map<string, {
+      output: string;
+      timing: IterationTimingInfo;
+      usage?: TokenUsageSummary;
+      agentPlugin?: string;
+      model?: string;
+    }>
   >(() => new Map());
   // Current task info for status display
   const [currentTaskId, setCurrentTaskId] = useState<string | undefined>(undefined);
@@ -618,6 +698,8 @@ export function RunApp({
   const [activeAgentState, setActiveAgentState] = useState<ActiveAgentState | null>(null);
   // Rate limit state from engine - tracks primary agent rate limiting
   const [rateLimitState, setRateLimitState] = useState<RateLimitState | null>(null);
+  // Runtime-detected model from agent telemetry (falls back to configured model when unavailable)
+  const [detectedModel, setDetectedModel] = useState<string | undefined>(currentModel);
 
   // Remote viewing state
   const isViewingRemote = selectedTabIndex > 0;
@@ -633,6 +715,9 @@ export function RunApp({
   const [remoteAgentName, setRemoteAgentName] = useState<string | undefined>(undefined);
   const [remoteTrackerName, setRemoteTrackerName] = useState<string | undefined>(undefined);
   const [remoteModel, setRemoteModel] = useState<string | undefined>(undefined);
+  const [remoteTaskUsageMap, setRemoteTaskUsageMap] = useState<Map<string, TokenUsageSummary>>(
+    () => new Map()
+  );
   const [remoteAutoCommit, setRemoteAutoCommit] = useState<boolean | undefined>(undefined);
   // Remote sandbox config for display
   const [remoteSandboxConfig, setRemoteSandboxConfig] = useState<SandboxConfig | undefined>(undefined);
@@ -651,12 +736,73 @@ export function RunApp({
     startedAt?: string;
     endedAt?: string;
     durationMs?: number;
+    usage?: TokenUsageSummary;
     isRunning: boolean;
   }>>(new Map());
+  const remoteOutputParserRef = useRef(
+    new StreamingOutputParser({
+      agentPlugin: remoteAgentName ?? 'claude',
+    })
+  );
+  const remoteCurrentTaskIdRef = useRef<string | undefined>(undefined);
+  const remoteContextWindowRef = useRef<number | undefined>(undefined);
+  const [remoteContextWindow, setRemoteContextWindow] = useState<number | undefined>(undefined);
 
   // Get the selected tab's connection status from instanceTabs
   // This is used to trigger data fetch when connection completes
   const selectedTabStatus = instanceTabs?.[selectedTabIndex]?.status;
+  const remoteSubagentTreeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const remoteSubagentTreeRefreshInFlightRef = useRef(false);
+
+  const updateRemoteUsage = useCallback(
+    (usage: TokenUsageSummary | undefined, taskId?: string) => {
+      const resolvedTaskId = taskId ?? remoteCurrentTaskIdRef.current;
+      if (!usage || !resolvedTaskId) {
+        return;
+      }
+
+      const normalized = normalizeUsage(usage, remoteContextWindowRef.current);
+      setRemoteTaskUsageMap((prev) => {
+        const existing = prev.get(resolvedTaskId);
+        if (areUsageSummariesEqual(existing, normalized)) {
+          return prev;
+        }
+        const next = new Map(prev);
+        next.set(resolvedTaskId, normalized);
+        return next;
+      });
+    },
+    []
+  );
+
+  const refreshRemoteSubagentTree = useCallback(() => {
+    if (!instanceManager) {
+      return;
+    }
+
+    if (remoteSubagentTreeRefreshTimerRef.current !== undefined) {
+      return;
+    }
+
+    remoteSubagentTreeRefreshTimerRef.current = setTimeout(() => {
+      remoteSubagentTreeRefreshTimerRef.current = undefined;
+
+      if (remoteSubagentTreeRefreshInFlightRef.current) {
+        return;
+      }
+
+      remoteSubagentTreeRefreshInFlightRef.current = true;
+      instanceManager.getRemoteState().then((state) => {
+        if (state?.subagentTree) {
+          setRemoteSubagentTree(state.subagentTree);
+        }
+      }).catch((err) => {
+        console.error('Failed to refresh remote state:', err);
+      }).finally(() => {
+        remoteSubagentTreeRefreshInFlightRef.current = false;
+      });
+    }, 200);
+  }, [instanceManager]);
 
   // Fetch remote data when switching to a remote tab AND when it becomes connected
   useEffect(() => {
@@ -686,10 +832,32 @@ export function RunApp({
         setRemoteCurrentIteration(state.currentIteration);
         setRemoteMaxIterations(state.maxIterations);
         setRemoteOutput(state.currentOutput || '');
+        const hydratedUsage = new Map<string, TokenUsageSummary>();
+        for (const iteration of state.iterations) {
+          const usageFromIteration =
+            iteration.usage ??
+            summarizeTokenUsageFromOutput(iteration.agentResult?.stdout ?? '');
+          if (usageFromIteration) {
+            hydratedUsage.set(
+              iteration.task.id,
+              normalizeUsage(usageFromIteration)
+            );
+          }
+        }
         if (state.currentTask) {
           setRemoteCurrentTaskId(state.currentTask.id);
           setRemoteCurrentTaskTitle(state.currentTask.title);
+          remoteCurrentTaskIdRef.current = state.currentTask.id;
+
+          const liveUsage = summarizeTokenUsageFromOutput(state.currentOutput ?? '');
+          if (liveUsage) {
+            hydratedUsage.set(
+              state.currentTask.id,
+              normalizeUsage(liveUsage, remoteContextWindowRef.current)
+            );
+          }
         }
+        setRemoteTaskUsageMap(hydratedUsage);
         // Capture remote agent and rate limit state
         if (state.activeAgent) {
           setRemoteActiveAgent(state.activeAgent);
@@ -704,9 +872,7 @@ export function RunApp({
         if (state.trackerName) {
           setRemoteTrackerName(state.trackerName);
         }
-        if (state.currentModel) {
-          setRemoteModel(state.currentModel);
-        }
+        setRemoteModel(state.currentModel);
         // Capture auto-commit setting for status display
         if (state.autoCommit !== undefined) {
           setRemoteAutoCommit(state.autoCommit);
@@ -775,7 +941,9 @@ export function RunApp({
           setRemoteCurrentIteration(event.iteration);
           setRemoteCurrentTaskId(event.task.id);
           setRemoteCurrentTaskTitle(event.task.title);
+          remoteCurrentTaskIdRef.current = event.task.id;
           setRemoteOutput(''); // Clear output for new iteration
+          remoteOutputParserRef.current.reset();
           setRemoteSubagentTree([]); // Clear subagent tree for new iteration
           // Mark this task as active in the task list
           setRemoteTasks((prevTasks) =>
@@ -791,15 +959,25 @@ export function RunApp({
         case 'agent:output':
           if (event.stream === 'stdout') {
             setRemoteOutput((prev) => prev + event.data);
+            remoteOutputParserRef.current.push(event.data);
+            updateRemoteUsage(remoteOutputParserRef.current.getUsage(), event.taskId);
           }
-          // Refresh remote state to get updated subagent tree
-          instanceManager.getRemoteState().then((state) => {
-            if (state?.subagentTree) {
-              setRemoteSubagentTree(state.subagentTree);
+          // Refresh subagent tree at a throttled cadence to avoid fetching remote state per chunk.
+          refreshRemoteSubagentTree();
+          break;
+        case 'agent:usage':
+          updateRemoteUsage(event.usage, event.taskId);
+          break;
+        case 'agent:model':
+          setRemoteModel(event.model);
+          break;
+        case 'iteration:completed':
+          {
+            const usage = event.result.usage;
+            if (usage) {
+              updateRemoteUsage(usage, event.result.task.id);
             }
-          }).catch((err) => {
-            console.error('Failed to refresh remote state:', err);
-          });
+          }
           break;
         case 'task:completed':
           // Refresh task list
@@ -826,10 +1004,22 @@ export function RunApp({
     });
 
     return () => {
+      if (remoteSubagentTreeRefreshTimerRef.current !== undefined) {
+        clearTimeout(remoteSubagentTreeRefreshTimerRef.current);
+        remoteSubagentTreeRefreshTimerRef.current = undefined;
+      }
+      remoteSubagentTreeRefreshInFlightRef.current = false;
       unsubscribe();
       instanceManager.unsubscribeFromSelectedRemote();
     };
-  }, [isViewingRemote, selectedTabIndex, selectedTabStatus, instanceManager]);
+  }, [
+    isViewingRemote,
+    selectedTabIndex,
+    selectedTabStatus,
+    instanceManager,
+    updateRemoteUsage,
+    refreshRemoteSubagentTree,
+  ]);
 
   // Computed display values that switch between local and remote state
   // These are used in the UI to show the appropriate data based on which tab is selected
@@ -838,6 +1028,30 @@ export function RunApp({
   const displayMaxIterations = isViewingRemote ? remoteMaxIterations : maxIterations;
   const displayCurrentTaskId = isViewingRemote ? remoteCurrentTaskId : currentTaskId;
   const displayCurrentTaskTitle = isViewingRemote ? remoteCurrentTaskTitle : currentTaskTitle;
+  const displayAggregateUsage = useMemo(() => {
+    const usageMap = isViewingRemote ? remoteTaskUsageMap : taskUsageMap;
+    if (usageMap.size === 0) {
+      return undefined;
+    }
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalTokens = 0;
+
+    for (const usage of usageMap.values()) {
+      inputTokens += usage.inputTokens ?? 0;
+      outputTokens += usage.outputTokens ?? 0;
+      totalTokens += usage.totalTokens > 0
+        ? usage.totalTokens
+        : (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+    }
+
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens,
+    };
+  }, [isViewingRemote, taskUsageMap, remoteTaskUsageMap]);
 
   // Compute display agent name - prefer active agent from engine state, fallback to config
   // For remote viewing, use remote active agent state, then remote config, then local config
@@ -848,10 +1062,189 @@ export function RunApp({
   const displayAgentName = !isViewingRemote && agentCommand && agentCommand !== baseAgentName
     ? `${baseAgentName} (${agentCommand})`
     : baseAgentName;
+  const localModel = detectedModel ?? currentModel;
 
   // Compute display tracker and model for local vs remote
   const displayTrackerName = isViewingRemote ? (remoteTrackerName ?? trackerName) : trackerName;
-  const displayModel = isViewingRemote ? (remoteModel ?? currentModel) : currentModel;
+  const displayModel = isViewingRemote ? (remoteModel ?? currentModel) : localModel;
+
+  // Resolve model context windows for live local/remote usage indicators.
+  const modelContextCacheRef = useRef<Map<string, number | null>>(new Map());
+  const resolveModelContextWindow = useCallback(
+    async (model?: string, agentHint?: string): Promise<number | undefined> => {
+    if (!model) {
+      return undefined;
+    }
+
+    const key = model.trim();
+    if (!key) {
+      return undefined;
+    }
+
+    const cacheKey = `${agentHint ?? ''}::${key}`;
+    if (modelContextCacheRef.current.has(cacheKey)) {
+      const cached = modelContextCacheRef.current.get(cacheKey);
+      return cached === null ? undefined : cached;
+    }
+
+    const parsed = parseProviderModel(key);
+    try {
+      if (parsed) {
+        const models = await getModelsForProvider(parsed.providerId);
+        const match = models.find((m) => m.id === parsed.modelId);
+        if (match?.contextLimit && Number.isFinite(match.contextLimit)) {
+          modelContextCacheRef.current.set(cacheKey, match.contextLimit);
+          return match.contextLimit;
+        }
+      } else {
+        // Fallback for model strings without provider prefix (e.g., "gpt-4o", "sonnet").
+        const providers = await getProviders();
+        const allProviderModels = await Promise.all(
+          providers.map((provider) => getModelsForProvider(provider.id))
+        );
+        const normalizedKey = key.toLowerCase();
+        const match = allProviderModels
+          .flat()
+          .find(
+            (m) =>
+              m.id === key ||
+              m.name.toLowerCase() === normalizedKey
+          );
+        if (match?.contextLimit && Number.isFinite(match.contextLimit)) {
+          modelContextCacheRef.current.set(cacheKey, match.contextLimit);
+          return match.contextLimit;
+        }
+      }
+    } catch {
+      // Ignore lookup failures and fall back to unavailable context window.
+    }
+
+    const fallback = getFallbackContextWindow(key, agentHint);
+    if (fallback && Number.isFinite(fallback)) {
+      modelContextCacheRef.current.set(cacheKey, fallback);
+      return fallback;
+    }
+
+    modelContextCacheRef.current.set(cacheKey, null);
+    return undefined;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveModelContextWindow(
+      localModel,
+      activeAgentState?.plugin ?? resolvedAgentName
+    ).then((contextWindow) => {
+      if (!cancelled) {
+        localContextWindowRef.current = contextWindow;
+        setLocalContextWindow(contextWindow);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [localModel, activeAgentState?.plugin, resolvedAgentName, resolveModelContextWindow]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveModelContextWindow(
+      remoteModel,
+      remoteActiveAgent?.plugin ?? remoteAgentName
+    ).then((contextWindow) => {
+      if (!cancelled) {
+        remoteContextWindowRef.current = contextWindow;
+        setRemoteContextWindow(contextWindow);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteModel, remoteActiveAgent?.plugin, remoteAgentName, resolveModelContextWindow]);
+
+  useEffect(() => {
+    if (localContextWindow === undefined) {
+      return;
+    }
+
+    startTransition(() => {
+      setTaskUsageMap((prev) => {
+        if (prev.size === 0) {
+          return prev;
+        }
+        const next = new Map<string, TokenUsageSummary>();
+        for (const [taskId, usage] of prev.entries()) {
+          next.set(taskId, normalizeUsage(usage, localContextWindow));
+        }
+        return next;
+      });
+
+      setIterations((prev) =>
+        prev.map((iteration) =>
+          iteration.usage
+            ? {
+                ...iteration,
+                usage: normalizeUsage(iteration.usage, localContextWindow),
+              }
+            : iteration
+        )
+      );
+
+      setHistoricalOutputCache((prev) => {
+        if (prev.size === 0) {
+          return prev;
+        }
+        const next = new Map(prev);
+        for (const [taskId, cacheEntry] of prev.entries()) {
+          if (!cacheEntry.usage) {
+            continue;
+          }
+          next.set(taskId, {
+            ...cacheEntry,
+            usage: normalizeUsage(cacheEntry.usage, localContextWindow),
+          });
+        }
+        return next;
+      });
+    });
+  }, [localContextWindow]);
+
+  useEffect(() => {
+    if (remoteContextWindow === undefined) {
+      return;
+    }
+
+    setRemoteTaskUsageMap((prev) => {
+      if (prev.size === 0) {
+        return prev;
+      }
+      const next = new Map<string, TokenUsageSummary>();
+      for (const [taskId, usage] of prev.entries()) {
+        next.set(taskId, normalizeUsage(usage, remoteContextWindow));
+      }
+      return next;
+    });
+
+    setRemoteIterationCache((prev) => {
+      if (prev.size === 0) {
+        return prev;
+      }
+      const next = new Map(prev);
+      for (const [taskId, cacheEntry] of prev.entries()) {
+        if (!cacheEntry.usage) {
+          continue;
+        }
+        next.set(taskId, {
+          ...cacheEntry,
+          usage: normalizeUsage(cacheEntry.usage, remoteContextWindow),
+        });
+      }
+      return next;
+    });
+  }, [remoteContextWindow]);
+
+  useEffect(() => {
+    remoteOutputParserRef.current.setAgentPlugin(remoteActiveAgent?.plugin ?? remoteAgentName ?? 'claude');
+  }, [remoteActiveAgent?.plugin, remoteAgentName]);
 
   // Count running subagents for status indicator when panel is hidden
   const runningSubagentCount = useMemo(() => {
@@ -932,13 +1325,36 @@ export function RunApp({
       });
     }
 
+    const usageMap = isViewingRemote ? remoteTaskUsageMap : taskUsageMap;
+    sourceTasks = sourceTasks.map((task) => {
+      const nextUsage = usageMap.get(task.id);
+      if (areUsageSummariesEqual(task.usage, nextUsage)) {
+        return task;
+      }
+      return {
+        ...task,
+        usage: nextUsage,
+      };
+    });
+
     const filtered = showClosedTasks ? sourceTasks : sourceTasks.filter((t) => t.status !== 'closed');
     return [...filtered].sort((a, b) => {
       const priorityA = statusPriority[a.status] ?? 10;
       const priorityB = statusPriority[b.status] ?? 10;
       return priorityA - priorityB;
     });
-  }, [tasks, remoteTasks, isViewingRemote, showClosedTasks, isParallelMode, parallelWorkers, parallelCompletedLocallyTaskIds, parallelMergedTaskIds]);
+  }, [
+    tasks,
+    remoteTasks,
+    isViewingRemote,
+    showClosedTasks,
+    isParallelMode,
+    parallelWorkers,
+    parallelCompletedLocallyTaskIds,
+    parallelMergedTaskIds,
+    taskUsageMap,
+    remoteTaskUsageMap,
+  ]);
 
   // Derive parallel execution status from worker states.
   // This allows restart gating to use actual worker completion state rather than stale local status.
@@ -1073,6 +1489,17 @@ export function RunApp({
       if (cancelled) return;
 
       if (result && result.success && result.output !== undefined) {
+        const contextWindow = await resolveModelContextWindow(
+          remoteModel,
+          remoteActiveAgent?.plugin ?? remoteAgentName
+        );
+        if (cancelled) return;
+        const fallbackUsage = summarizeTokenUsageFromOutput(result.output ?? '');
+        const usage = result.usage
+          ? normalizeUsage(result.usage, contextWindow)
+          : fallbackUsage
+            ? normalizeUsage(fallbackUsage, contextWindow)
+            : undefined;
         setRemoteIterationCache((prev) => {
           const next = new Map(prev);
           next.set(effectiveTaskId, {
@@ -1081,17 +1508,39 @@ export function RunApp({
             startedAt: result.startedAt,
             endedAt: result.endedAt,
             durationMs: result.durationMs,
+            usage,
             isRunning: result.isRunning ?? false,
           });
           return next;
         });
+        if (usage) {
+          setRemoteTaskUsageMap((prev) => {
+            const next = new Map(prev);
+            next.set(effectiveTaskId, usage);
+            return next;
+          });
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [isViewingRemote, instanceManager, viewMode, iterations, iterationSelectedIndex, displayedTasks, selectedIndex, remoteCurrentTaskId, remoteIterationCache]);
+  }, [
+    isViewingRemote,
+    instanceManager,
+    viewMode,
+    iterations,
+    iterationSelectedIndex,
+    displayedTasks,
+    selectedIndex,
+    remoteCurrentTaskId,
+    remoteIterationCache,
+    resolveModelContextWindow,
+    remoteModel,
+    remoteActiveAgent?.plugin,
+    remoteAgentName,
+  ]);
 
   // Update output parser when agent changes (parser was created before config was loaded)
   useEffect(() => {
@@ -1120,6 +1569,7 @@ export function RunApp({
           // Clear current task info since we're not executing anymore
           setCurrentTaskId(undefined);
           setCurrentTaskTitle(undefined);
+          currentTaskIdRef.current = undefined;
           if (event.reason === 'error') {
             setStatus('error');
           } else if (event.reason === 'completed') {
@@ -1162,6 +1612,7 @@ export function RunApp({
           // Set current task info for display
           setCurrentTaskId(event.task.id);
           setCurrentTaskTitle(event.task.title);
+          currentTaskIdRef.current = event.task.id;
           // Capture the iteration start time for timing display
           setCurrentIterationStartedAt(event.timestamp);
           setStatus('executing');
@@ -1183,7 +1634,21 @@ export function RunApp({
           setCurrentTaskId(undefined);
           setCurrentTaskTitle(undefined);
           setCurrentIterationStartedAt(undefined);
+          currentTaskIdRef.current = undefined;
           setStatus('selecting');
+          {
+            const usage = event.result.usage;
+            if (usage) {
+              setTaskUsageMap((prev) => {
+                const next = new Map(prev);
+                next.set(
+                  event.result.task.id,
+                  normalizeUsage(usage, localContextWindowRef.current)
+                );
+                return next;
+              });
+            }
+          }
           if (event.result.taskCompleted) {
             // Update completed task status AND recalculate dependency status for all tasks
             // This ensures that tasks previously blocked by this one become actionable
@@ -1252,11 +1717,46 @@ export function RunApp({
             setCurrentOutput(outputParserRef.current.getOutput());
             // Also update segments for TUI-native color rendering
             setCurrentSegments(outputParserRef.current.getSegments());
+            const usage = outputParserRef.current.getUsage();
+            const taskId = event.taskId ?? currentTaskIdRef.current;
+            if (usage && taskId) {
+              const normalized = normalizeUsage(usage, localContextWindowRef.current);
+              setTaskUsageMap((prev) => {
+                const existing = prev.get(taskId);
+                if (areUsageSummariesEqual(existing, normalized)) {
+                  return prev;
+                }
+                const next = new Map(prev);
+                next.set(taskId, normalized);
+                return next;
+              });
+            }
           }
           // Always refresh subagent tree from engine (subagent events are processed in engine).
           // This decouples data collection from display preferences - the subagentDetailLevel
           // only affects how much detail to show inline, not whether to track subagents.
           setSubagentTree(engine!.getSubagentTree());
+          break;
+
+        case 'agent:usage':
+          {
+            const taskId = event.taskId ?? currentTaskIdRef.current;
+            if (taskId) {
+              const normalized = normalizeUsage(event.usage, localContextWindowRef.current);
+              setTaskUsageMap((prev) => {
+                const existing = prev.get(taskId);
+                if (areUsageSummariesEqual(existing, normalized)) {
+                  return prev;
+                }
+                const next = new Map(prev);
+                next.set(taskId, normalized);
+                return next;
+              });
+            }
+          }
+          break;
+        case 'agent:model':
+          setDetectedModel(event.model);
           break;
 
         case 'agent:switched':
@@ -1338,6 +1838,28 @@ export function RunApp({
       outputParserRef.current.push(state.currentOutput);
       setCurrentOutput(outputParserRef.current.getOutput());
     }
+    const hydratedUsage = new Map<string, TokenUsageSummary>();
+    for (const iteration of state.iterations) {
+      const usageFromIteration =
+        iteration.usage ??
+        summarizeTokenUsageFromOutput(iteration.agentResult?.stdout ?? '');
+      if (usageFromIteration) {
+        hydratedUsage.set(
+          iteration.task.id,
+          normalizeUsage(usageFromIteration, localContextWindowRef.current)
+        );
+      }
+    }
+    if (state.currentTask?.id && state.currentOutput) {
+      const liveUsage = summarizeTokenUsageFromOutput(state.currentOutput);
+      if (liveUsage) {
+        hydratedUsage.set(
+          state.currentTask.id,
+          normalizeUsage(liveUsage, localContextWindowRef.current)
+        );
+      }
+    }
+    setTaskUsageMap(hydratedUsage);
     // Initialize active agent and rate limit state from engine
     if (state.activeAgent) {
       setActiveAgentState(state.activeAgent);
@@ -1345,7 +1867,18 @@ export function RunApp({
     if (state.rateLimitState) {
       setRateLimitState(state.rateLimitState);
     }
+    if (state.currentModel) {
+      setDetectedModel(state.currentModel);
+    }
   }, [engine, agentName]);
+
+  useEffect(() => {
+    currentTaskIdRef.current = currentTaskId;
+  }, [currentTaskId]);
+
+  useEffect(() => {
+    remoteCurrentTaskIdRef.current = remoteCurrentTaskId;
+  }, [remoteCurrentTaskId]);
 
   // Sync task selection → agent tree selection
   // When currentTaskId changes, reset tree selection to the task root
@@ -2131,6 +2664,7 @@ export function RunApp({
           iteration: remoteCurrentIteration,
           output: remoteOutput || undefined,
           segments: undefined,
+          usage: effectiveTaskId ? remoteTaskUsageMap.get(effectiveTaskId) : undefined,
           timing,
         };
       }
@@ -2148,6 +2682,7 @@ export function RunApp({
           iteration: cached.iteration,
           output: cached.output,
           segments: undefined,
+          usage: cached.usage,
           timing,
         };
       }
@@ -2160,6 +2695,7 @@ export function RunApp({
         iteration: 0,
         output: undefined,
         segments: undefined,
+        usage: effectiveTaskId ? remoteTaskUsageMap.get(effectiveTaskId) : undefined,
         timing,
       };
     }
@@ -2180,6 +2716,7 @@ export function RunApp({
           iteration: 1,
           output,
           segments: [{ text: output }],
+          usage: effectiveTaskId ? taskUsageMap.get(effectiveTaskId) : undefined,
           timing: { isRunning },
         };
       }
@@ -2193,9 +2730,21 @@ export function RunApp({
           startedAt: currentIterationStartedAt,
           isRunning: true,
         };
-        return { iteration: currentIteration, output: currentOutput, segments: currentSegments, timing };
+        return {
+          iteration: currentIteration,
+          output: currentOutput,
+          segments: currentSegments,
+          usage: taskUsageMap.get(currentTaskId),
+          timing,
+        };
       }
-      return { iteration: currentIteration, output: undefined, segments: undefined, timing: undefined };
+      return {
+        iteration: currentIteration,
+        output: undefined,
+        segments: undefined,
+        usage: undefined,
+        timing: undefined,
+      };
     }
 
     // Check if this task is currently being executed
@@ -2214,7 +2763,13 @@ export function RunApp({
         startedAt: currentIterationStartedAt,
         isRunning: true,
       };
-      return { iteration: currentIteration, output: currentOutput, segments: currentSegments, timing };
+      return {
+        iteration: currentIteration,
+        output: currentOutput,
+        segments: currentSegments,
+        usage: taskUsageMap.get(effectiveTaskId),
+        timing,
+      };
     }
 
     // Look for a completed iteration for this task (in-memory from current session)
@@ -2230,6 +2785,7 @@ export function RunApp({
         iteration: taskIteration.iteration,
         output: taskIteration.agentResult?.stdout ?? '',
         segments: undefined, // Completed iterations don't have live segments
+        usage: taskIteration.usage,
         timing,
       };
     }
@@ -2243,13 +2799,43 @@ export function RunApp({
         iteration: -1, // Historical iteration number unknown, use -1 to indicate "past"
         output: historicalData.output,
         segments: undefined, // Historical data doesn't have segments
+        usage: historicalData.usage,
         timing: historicalData.timing,
       };
     }
 
     // Task hasn't been run yet (or historical log not yet loaded)
-    return { iteration: 0, output: undefined, segments: undefined, timing: undefined };
-  }, [effectiveTaskId, selectedTask, selectedIteration, viewMode, currentTaskId, currentIteration, currentOutput, currentSegments, iterations, historicalOutputCache, currentIterationStartedAt, isViewingRemote, remoteStatus, remoteCurrentIteration, remoteOutput, remoteIterationCache, remoteCurrentTaskId, isParallelMode, parallelTaskIdToWorkerId, parallelWorkerOutputs]);
+    return {
+      iteration: 0,
+      output: undefined,
+      segments: undefined,
+      usage: effectiveTaskId ? taskUsageMap.get(effectiveTaskId) : undefined,
+      timing: undefined,
+    };
+  }, [
+    effectiveTaskId,
+    selectedTask,
+    selectedIteration,
+    viewMode,
+    currentTaskId,
+    currentIteration,
+    currentOutput,
+    currentSegments,
+    iterations,
+    historicalOutputCache,
+    currentIterationStartedAt,
+    isViewingRemote,
+    remoteStatus,
+    remoteCurrentIteration,
+    remoteOutput,
+    remoteIterationCache,
+    remoteCurrentTaskId,
+    isParallelMode,
+    parallelTaskIdToWorkerId,
+    parallelWorkerOutputs,
+    taskUsageMap,
+    remoteTaskUsageMap,
+  ]);
 
   // Compute the actual output to display based on selectedSubagentId
   // When a subagent is selected (not task root), try to get its specific output
@@ -2406,12 +2992,12 @@ export function RunApp({
   const displayAgentInfo = useMemo(() => {
     // If this is the currently executing task, use current agent/model
     if (effectiveTaskId && currentTaskId === effectiveTaskId) {
-      return { agent: displayAgentName, model: currentModel };
+      return { agent: displayAgentName, model: displayModel };
     }
 
     // If viewing a running iteration, use current values
     if (selectedIteration?.status === 'running') {
-      return { agent: displayAgentName, model: currentModel };
+      return { agent: displayAgentName, model: displayModel };
     }
 
     // For completed tasks/iterations, check historical cache using the unified task ID
@@ -2423,8 +3009,8 @@ export function RunApp({
     }
 
     // Fall back to current values
-    return { agent: displayAgentName, model: currentModel };
-  }, [effectiveTaskId, selectedIteration, currentTaskId, displayAgentName, currentModel, historicalOutputCache]);
+    return { agent: displayAgentName, model: displayModel };
+  }, [effectiveTaskId, selectedIteration, currentTaskId, displayAgentName, displayModel, historicalOutputCache]);
 
   // Load historical iteration logs from disk when a task is selected.
   // This populates the cache so output is available even on session resume
@@ -2455,44 +3041,74 @@ export function RunApp({
     if (!hasInCache) {
       // Load from disk asynchronously
       const taskId = effectiveTaskId;
-      getIterationLogsByTask(cwd, taskId).then((logs) => {
-        if (logs.length > 0) {
-          // Use the most recent log (last one)
-          const mostRecent = logs[logs.length - 1];
-          const timing: IterationTimingInfo = {
-            startedAt: mostRecent.metadata.startedAt,
-            endedAt: mostRecent.metadata.endedAt,
-            durationMs: mostRecent.metadata.durationMs,
-            isRunning: false,
-          };
-          setHistoricalOutputCache((prev) => {
-            const next = new Map(prev);
-            next.set(taskId, {
-              output: mostRecent.stdout,
-              timing,
-              agentPlugin: mostRecent.metadata.agentPlugin,
-              model: mostRecent.metadata.model,
+      void (async () => {
+        try {
+          const logs = await getIterationLogsByTask(cwd, taskId);
+          if (logs.length > 0) {
+            // Use the most recent log (last one)
+            const mostRecent = logs[logs.length - 1];
+            const timing: IterationTimingInfo = {
+              startedAt: mostRecent.metadata.startedAt,
+              endedAt: mostRecent.metadata.endedAt,
+              durationMs: mostRecent.metadata.durationMs,
+              isRunning: false,
+            };
+            const contextWindow = await resolveModelContextWindow(
+              mostRecent.metadata.model,
+              mostRecent.metadata.agentPlugin
+            );
+            const fallbackUsage = summarizeTokenUsageFromOutput(mostRecent.stdout);
+            const usage = mostRecent.metadata.usage
+              ? normalizeUsage(mostRecent.metadata.usage, contextWindow)
+              : fallbackUsage
+                ? normalizeUsage(fallbackUsage, contextWindow)
+                : undefined;
+
+            setHistoricalOutputCache((prev) => {
+              const next = new Map(prev);
+              next.set(taskId, {
+                output: mostRecent.stdout,
+                timing,
+                usage,
+                agentPlugin: mostRecent.metadata.agentPlugin,
+                model: mostRecent.metadata.model,
+              });
+              return next;
             });
-            return next;
-          });
-        } else {
-          // No logs found - mark as empty output with no timing to avoid repeated lookups
+
+            if (usage) {
+              setTaskUsageMap((prev) => {
+                const next = new Map(prev);
+                next.set(taskId, usage);
+                return next;
+              });
+            }
+          } else {
+            // No logs found - mark as empty output with no timing to avoid repeated lookups
+            setHistoricalOutputCache((prev) => {
+              const next = new Map(prev);
+              next.set(taskId, { output: '', timing: {} });
+              return next;
+            });
+          }
+        } catch {
+          // On error, mark as empty to avoid repeated failed lookups
           setHistoricalOutputCache((prev) => {
             const next = new Map(prev);
             next.set(taskId, { output: '', timing: {} });
             return next;
           });
         }
-      }).catch(() => {
-        // On error, mark as empty to avoid repeated failed lookups
-        setHistoricalOutputCache((prev) => {
-          const next = new Map(prev);
-          next.set(taskId, { output: '', timing: {} });
-          return next;
-        });
-      });
+      })();
     }
-  }, [effectiveTaskId, selectedTask, selectedIteration, cwd, historicalOutputCache]);
+  }, [
+    effectiveTaskId,
+    selectedTask,
+    selectedIteration,
+    cwd,
+    historicalOutputCache,
+    resolveModelContextWindow,
+  ]);
 
   // Lazy load subagent trace data and historic context when viewing iteration details
   useEffect(() => {
@@ -2675,6 +3291,7 @@ export function RunApp({
           gitInfo={isViewingRemote ? remoteGitInfo : localGitInfo}
           activeWorkerCount={activeWorkerCount}
           totalWorkerCount={totalWorkerCount}
+          aggregateUsage={displayAggregateUsage}
         />
       )}
 
@@ -2744,6 +3361,7 @@ export function RunApp({
               currentIteration={selectedTaskIteration.iteration}
               iterationOutput={displayIterationOutput}
               iterationSegments={selectedTaskIteration.segments}
+              taskUsage={selectedTaskIteration.usage}
               viewMode={detailsViewMode}
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}
@@ -2784,6 +3402,7 @@ export function RunApp({
               currentIteration={selectedTaskIteration.iteration}
               iterationOutput={displayIterationOutput}
               iterationSegments={selectedTaskIteration.segments}
+              taskUsage={selectedTaskIteration.usage}
               viewMode={detailsViewMode}
               iterationTiming={selectedTaskIteration.timing}
               agentName={displayAgentInfo.agent}

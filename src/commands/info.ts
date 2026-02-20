@@ -164,7 +164,7 @@ async function listSkillsInDir(skillsDir: string): Promise<string[]> {
   try {
     const entries = await readdir(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
         const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
         try {
           await access(skillMdPath, constants.F_OK);

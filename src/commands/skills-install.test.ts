@@ -127,6 +127,17 @@ describe('skills install command (spawn)', () => {
     expect(allOutput).toContain('symlinks');
   });
 
+  test('falls back to parsed installing list count when detected count is missing', async () => {
+    mockSpawnStdout = 'Found 4 skills\nInstalling to: OpenCode [global]\nInstallation complete\n';
+    mockSpawnExitCode = 0;
+
+    await executeSkillsCommand(['install', '--agent', 'opencode']);
+
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    expect(allOutput).toContain('Installed 4 skills to 1 agent');
+    expect(allOutput).toContain('OpenCode [global]');
+  });
+
   test('shows failure message for non-ELOOP errors', async () => {
     mockSpawnStderr = 'ENOENT: no such file or directory\n';
     mockSpawnExitCode = 1;

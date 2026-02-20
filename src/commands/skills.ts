@@ -304,14 +304,17 @@ export function parseAddSkillOutput(output: string): {
   const failMatch = output.match(/Failed to install (\d+)/);
 
   const agents = agentsMatch
-    ? agentsMatch[1].split(',').map(a => a.trim())
+    ? agentsMatch[1].split(',').map(a => a.trim()).filter(a => a.length > 0)
     : [];
 
   const failureCount = failMatch ? parseInt(failMatch[1], 10) : 0;
+  const detectedAgentCount = agentCountMatch ? parseInt(agentCountMatch[1], 10) : null;
 
   return {
     skillCount: skillMatch ? parseInt(skillMatch[1], 10) : 0,
-    agentCount: agentCountMatch ? parseInt(agentCountMatch[1], 10) : 0,
+    // add-skill output for targeted installs may omit "Detected X agents".
+    // Fall back to parsed agent names from "Installing to:" for accurate summaries.
+    agentCount: detectedAgentCount ?? agents.length,
     agents,
     installed: output.includes('Installation complete'),
     failureCount,
