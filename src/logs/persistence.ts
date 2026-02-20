@@ -238,6 +238,7 @@ export function buildMetadata(
     startedAt: result.startedAt,
     endedAt: result.endedAt,
     durationMs: result.durationMs,
+    usage: result.usage,
     error: result.error,
     agentPlugin: config?.agent?.plugin,
     model: config?.model,
@@ -316,6 +317,22 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
   lines.push(`- **Started At**: ${metadata.startedAt}`);
   lines.push(`- **Ended At**: ${metadata.endedAt}`);
   lines.push(`- **Duration**: ${formatDuration(metadata.durationMs)}`);
+  if (metadata.usage) {
+    lines.push(`- **Input Tokens**: ${metadata.usage.inputTokens}`);
+    lines.push(`- **Output Tokens**: ${metadata.usage.outputTokens}`);
+    lines.push(`- **Total Tokens**: ${metadata.usage.totalTokens}`);
+    if (metadata.usage.contextWindowTokens !== undefined) {
+      lines.push(`- **Context Window Tokens**: ${metadata.usage.contextWindowTokens}`);
+    }
+    if (metadata.usage.remainingContextTokens !== undefined) {
+      lines.push(`- **Remaining Context Tokens**: ${metadata.usage.remainingContextTokens}`);
+    }
+    if (metadata.usage.remainingContextPercent !== undefined) {
+      lines.push(
+        `- **Remaining Context Percent**: ${metadata.usage.remainingContextPercent.toFixed(2)}`
+      );
+    }
+  }
 
   if (metadata.error) {
     lines.push(`- **Error**: ${metadata.error}`);
@@ -495,6 +512,12 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
       return match ? match[1].trim() : undefined;
     };
 
+    const parseNumber = (value?: string): number | undefined => {
+      if (!value) return undefined;
+      const parsed = Number(value.replace(/,/g, '').replace(/%/g, '').trim());
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
     const taskId = extractValue('Task ID') ?? '';
     const taskTitle = extractValue('Task Title') ?? '';
     const taskDescription = extractValue('Description');
@@ -539,6 +562,31 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
       : sandboxNetworkStr === 'Disabled' ? false
       : undefined;
 
+    const inputTokens = parseNumber(extractValue('Input Tokens'));
+    const outputTokens = parseNumber(extractValue('Output Tokens'));
+    const totalTokens = parseNumber(extractValue('Total Tokens'));
+    const contextWindowTokens = parseNumber(extractValue('Context Window Tokens'));
+    const remainingContextTokens = parseNumber(extractValue('Remaining Context Tokens'));
+    const remainingContextPercent = parseNumber(extractValue('Remaining Context Percent'));
+    const usage =
+      inputTokens !== undefined ||
+      outputTokens !== undefined ||
+      totalTokens !== undefined ||
+      contextWindowTokens !== undefined ||
+      remainingContextTokens !== undefined ||
+      remainingContextPercent !== undefined
+        ? {
+            inputTokens: inputTokens ?? 0,
+            outputTokens: outputTokens ?? 0,
+            totalTokens: totalTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
+            contextWindowTokens,
+            remainingContextTokens,
+            remainingContextPercent,
+            // events is not persisted in metadata headers; default to 0 when parsing from disk.
+            events: 0,
+          }
+        : undefined;
+
     return {
       iteration,
       taskId,
@@ -550,6 +598,7 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
       startedAt,
       endedAt,
       durationMs,
+      usage,
       error,
       agentPlugin,
       model,

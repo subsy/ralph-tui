@@ -256,6 +256,7 @@ import type {
   RateLimitState,
   SubagentTreeNode,
 } from '../engine/types.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 
 /**
  * Subscribe to engine events from remote instance.
@@ -569,6 +570,8 @@ export interface IterationOutputResponseMessage extends WSMessage {
   endedAt?: string;
   /** Duration in milliseconds */
   durationMs?: number;
+  /** Token usage summary for the iteration (if available) */
+  usage?: TokenUsageSummary;
   /** Whether the iteration is still running */
   isRunning?: boolean;
   /** Error message if not found or failed */

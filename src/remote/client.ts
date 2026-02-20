@@ -48,6 +48,7 @@ import type {
   RemoteOrchestrationState,
 } from './types.js';
 import { TOKEN_LIFETIMES } from './types.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { EngineEvent } from '../engine/types.js';
 import type { ParallelEvent } from '../parallel/events.js';
@@ -694,6 +695,7 @@ export class RemoteClient {
     startedAt?: string;
     endedAt?: string;
     durationMs?: number;
+    usage?: TokenUsageSummary;
     isRunning?: boolean;
     error?: string;
   }> {
@@ -714,6 +716,7 @@ export class RemoteClient {
       startedAt: outputResponse.startedAt,
       endedAt: outputResponse.endedAt,
       durationMs: outputResponse.durationMs,
+      usage: outputResponse.usage,
       isRunning: outputResponse.isRunning,
       error: outputResponse.error,
     };

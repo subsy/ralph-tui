@@ -565,6 +565,7 @@ export class InstanceManager {
     startedAt?: string;
     endedAt?: string;
     durationMs?: number;
+    usage?: import('../plugins/agents/usage.js').TokenUsageSummary;
     isRunning?: boolean;
     error?: string;
   } | null> {

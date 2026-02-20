@@ -64,6 +64,7 @@ import { createAuditLogger, type AuditLogger } from './audit.js';
 import type { ExecutionEngine, EngineEvent } from '../engine/index.js';
 import type { TrackerPlugin } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
+import { summarizeTokenUsageFromOutput } from '../plugins/agents/usage.js';
 import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel } from '../parallel/index.js';
 import type { ParallelEvent } from '../parallel/events.js';
 
@@ -748,7 +749,7 @@ export class RemoteServer {
       // Include config info for remote TUI display
       agentName: this.options.agentName,
       trackerName: this.options.trackerName,
-      currentModel: this.options.currentModel,
+      currentModel: engineState.currentModel ?? this.options.currentModel,
       // Include subagent tree for TUI rendering
       subagentTree: this.options.engine.getSubagentTree(),
       // Include config settings for TUI display
@@ -1049,6 +1050,7 @@ export class RemoteServer {
         taskId,
         iteration: engineState.currentIteration,
         output: engineState.currentOutput,
+        usage: summarizeTokenUsageFromOutput(engineState.currentOutput),
         isRunning: true,
       });
       response.id = message.id;
@@ -1067,6 +1069,7 @@ export class RemoteServer {
         startedAt: taskIteration.startedAt,
         endedAt: taskIteration.endedAt,
         durationMs: taskIteration.durationMs,
+        usage: taskIteration.usage,
         isRunning: taskIteration.status === 'running',
       });
       response.id = message.id;

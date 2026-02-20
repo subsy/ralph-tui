@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react';
 import { colors, statusIndicators, layout, type RalphStatus } from '../theme.js';
 import type { SandboxConfig, SandboxMode } from '../../config/types.js';
+import { formatTokenCount } from '../utils/token-format.js';
 
 /**
  * Props for the ProgressDashboard component
@@ -54,6 +55,12 @@ export interface ProgressDashboardProps {
   activeWorkerCount?: number;
   /** Total number of parallel workers */
   totalWorkerCount?: number;
+  /** Aggregated token usage across all tasks in the current run */
+  aggregateUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 /**
@@ -140,6 +147,7 @@ export function ProgressDashboard({
   gitInfo,
   activeWorkerCount,
   totalWorkerCount,
+  aggregateUsage,
 }: ProgressDashboardProps): ReactNode {
   const statusDisplay = getStatusDisplay(status, currentTaskId);
   const sandboxDisplay = getSandboxDisplay(sandboxConfig, resolvedSandboxMode);
@@ -213,7 +221,11 @@ export function ProgressDashboard({
         )}
 
         {/* Parallel worker count - shown when workers are active */}
-        {activeWorkerCount != null && activeWorkerCount > 0 && totalWorkerCount != null && (
+        {activeWorkerCount !== undefined &&
+          activeWorkerCount !== null &&
+          activeWorkerCount > 0 &&
+          totalWorkerCount !== undefined &&
+          totalWorkerCount !== null && (
           <box style={{ flexDirection: 'row' }}>
             <text fg={colors.status.info}>Workers: </text>
             <text fg={colors.status.success}>{activeWorkerCount} active</text>
@@ -240,6 +252,17 @@ export function ProgressDashboard({
         <box style={{ flexDirection: 'row' }}>
           <text fg={colors.fg.secondary}>Tracker: </text>
           <text fg={colors.accent.tertiary}>{trackerName}</text>
+          {aggregateUsage && (
+            <>
+              <text fg={colors.fg.muted}> · </text>
+              <text fg={colors.fg.secondary}>Σ I/O/T: </text>
+              <text fg={colors.accent.secondary}>{formatTokenCount(aggregateUsage.inputTokens)}</text>
+              <text fg={colors.fg.muted}>/</text>
+              <text fg={colors.accent.primary}>{formatTokenCount(aggregateUsage.outputTokens)}</text>
+              <text fg={colors.fg.muted}>/</text>
+              <text fg={colors.status.info}>{formatTokenCount(aggregateUsage.totalTokens)}</text>
+            </>
+          )}
         </box>
 
         {/* Row 3: Git branch (own line) */}

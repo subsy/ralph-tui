@@ -5,6 +5,7 @@
 
 import type { IterationStatus, ActiveAgentReason } from '../engine/types.js';
 import type { SubagentEvent, SubagentState } from '../plugins/agents/tracing/types.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 
 /**
  * Summary of what was accomplished in an iteration.
@@ -83,6 +84,9 @@ export interface IterationLogMetadata {
 
   /** Duration in milliseconds */
   durationMs: number;
+
+  /** Token usage summary for this iteration (if available) */
+  usage?: TokenUsageSummary;
 
   /** Error message if iteration failed */
   error?: string;

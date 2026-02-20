@@ -14,6 +14,11 @@ import {
   type DroidJsonlMessage,
 } from '../plugins/agents/droid/outputParser.js';
 import { stripAnsiCodes, type FormattedSegment } from '../plugins/agents/output-formatting.js';
+import {
+  extractTokenUsageFromJsonLine,
+  TokenUsageAccumulator,
+  type TokenUsageSummary,
+} from '../plugins/agents/usage.js';
 
 /**
  * Known JSONL event types from agent output.
@@ -731,6 +736,7 @@ export class StreamingOutputParser {
   private isCodex: boolean;
   private isKimi: boolean;
   private droidCostAccumulator?: DroidCostAccumulator;
+  private tokenUsageAccumulator = new TokenUsageAccumulator();
 
   constructor(options: StreamingOutputParserOptions = {}) {
     this.isDroid = isDroidAgent(options.agentPlugin);
@@ -774,6 +780,7 @@ export class StreamingOutputParser {
     while ((newlineIndex = this.buffer.indexOf('\n')) !== -1) {
       const line = this.buffer.slice(0, newlineIndex);
       this.buffer = this.buffer.slice(newlineIndex + 1);
+      this.tokenUsageAccumulator.add(extractTokenUsageFromJsonLine(line));
 
       // Extract both string and segment representations
       const extracted = this.extractReadableContent(line);
@@ -1163,6 +1170,15 @@ export class StreamingOutputParser {
   }
 
   /**
+   * Get aggregated token usage for parsed output.
+   */
+  getUsage(): TokenUsageSummary | undefined {
+    return this.tokenUsageAccumulator.hasData()
+      ? this.tokenUsageAccumulator.getSummary()
+      : undefined;
+  }
+
+  /**
    * Get the final result text (from the 'result' event).
    * This is typically the most complete output at the end.
    */
@@ -1179,6 +1195,7 @@ export class StreamingOutputParser {
     this.parsedSegments = [];
     this.lastResultText = '';
     this.lastCostSummary = '';
+    this.tokenUsageAccumulator.reset();
     if (this.droidCostAccumulator) {
       this.droidCostAccumulator = new DroidCostAccumulator();
     }

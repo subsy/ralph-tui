@@ -164,6 +164,26 @@ describe('buildMetadata', () => {
     expect(metadata.error).toBe('Task failed due to timeout');
   });
 
+  test('includes usage from iteration result when present', () => {
+    const result = createTestIterationResult({
+      usage: {
+        inputTokens: 1200,
+        outputTokens: 400,
+        totalTokens: 1600,
+        contextWindowTokens: 200000,
+        remainingContextTokens: 198400,
+        remainingContextPercent: 99.2,
+        events: 1,
+      },
+    });
+
+    const metadata = buildMetadata(result, { config: {} });
+    expect(metadata.usage).toBeDefined();
+    expect(metadata.usage?.inputTokens).toBe(1200);
+    expect(metadata.usage?.outputTokens).toBe(400);
+    expect(metadata.usage?.totalTokens).toBe(1600);
+  });
+
   test('includes completionSummary when provided', () => {
     const result = createTestIterationResult();
 
@@ -588,6 +608,31 @@ describe('formatMetadataHeader', () => {
     expect(header).toContain('**Completion Summary**: Completed successfully');
   });
 
+  test('includes usage metrics when present', () => {
+    const metadata = buildMetadata(
+      createTestIterationResult({
+        usage: {
+          inputTokens: 111,
+          outputTokens: 222,
+          totalTokens: 333,
+          contextWindowTokens: 1000,
+          remainingContextTokens: 667,
+          remainingContextPercent: 66.7,
+          events: 1,
+        },
+      }),
+      { config: {} }
+    );
+    const header = formatMetadataHeader(metadata);
+
+    expect(header).toContain('**Input Tokens**: 111');
+    expect(header).toContain('**Output Tokens**: 222');
+    expect(header).toContain('**Total Tokens**: 333');
+    expect(header).toContain('**Context Window Tokens**: 1000');
+    expect(header).toContain('**Remaining Context Tokens**: 667');
+    expect(header).toContain('**Remaining Context Percent**: 66.70');
+  });
+
   test('includes agent switches section', () => {
     const metadata = buildMetadata(createTestIterationResult(), {
       config: {},
@@ -673,6 +718,34 @@ describe('parseMetadataHeader', () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed!.epicId).toBe('epic-456');
+  });
+
+  test('parses usage metrics', () => {
+    const original = buildMetadata(
+      createTestIterationResult({
+        usage: {
+          inputTokens: 900,
+          outputTokens: 100,
+          totalTokens: 1000,
+          contextWindowTokens: 200000,
+          remainingContextTokens: 199000,
+          remainingContextPercent: 99.5,
+          events: 2,
+        },
+      }),
+      { config: {} }
+    );
+    const header = formatMetadataHeader(original);
+    const parsed = parseMetadataHeader(header);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.usage).toBeDefined();
+    expect(parsed!.usage?.inputTokens).toBe(900);
+    expect(parsed!.usage?.outputTokens).toBe(100);
+    expect(parsed!.usage?.totalTokens).toBe(1000);
+    expect(parsed!.usage?.contextWindowTokens).toBe(200000);
+    expect(parsed!.usage?.remainingContextTokens).toBe(199000);
+    expect(parsed!.usage?.remainingContextPercent).toBe(99.5);
   });
 
   test('returns null for invalid header', () => {

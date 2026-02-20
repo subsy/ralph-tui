@@ -48,6 +48,12 @@ import {
   isOpenCodeTaskTool,
   openCodeTaskToClaudeMessages,
 } from '../plugins/agents/opencode/outputParser.js';
+import {
+  extractModelFromJsonObject,
+  extractTokenUsageFromJsonObject,
+  summarizeTokenUsageFromOutput,
+  TokenUsageAccumulator,
+} from '../plugins/agents/usage.js';
 import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
 import { saveIterationLog, buildSubagentTrace, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
 import { performAutoCommit } from './auto-commit.js';
@@ -249,6 +255,7 @@ export class ExecutionEngine {
       startedAt: null,
       currentOutput: '',
       currentStderr: '',
+      currentModel: config.model,
       subagents: new Map(),
       activeAgent: null,
       rateLimitState: null,
@@ -977,6 +984,34 @@ export class ExecutionEngine {
       stdout: { writeChain: Promise.resolve() },
       stderr: { writeChain: Promise.resolve() },
     };
+    const iterationUsageAccumulator = new TokenUsageAccumulator();
+    const emitStreamingTelemetry = (message: Record<string, unknown>): void => {
+      const detectedModel = extractModelFromJsonObject(message);
+      if (detectedModel && detectedModel !== this.state.currentModel) {
+        this.state.currentModel = detectedModel;
+        this.emit({
+          type: 'agent:model',
+          timestamp: new Date().toISOString(),
+          taskId: task.id,
+          iteration,
+          model: detectedModel,
+        });
+      }
+
+      const usageSample = extractTokenUsageFromJsonObject(message);
+      if (usageSample) {
+        iterationUsageAccumulator.add(usageSample);
+        if (iterationUsageAccumulator.hasData()) {
+          this.emit({
+            type: 'agent:usage',
+            timestamp: new Date().toISOString(),
+            taskId: task.id,
+            iteration,
+            usage: iterationUsageAccumulator.getSummary(),
+          });
+        }
+      }
+    };
 
     const closeRawOutputStream = async (stream: RawStreamName): Promise<void> => {
       const streamState = rawOutput[stream];
@@ -1067,6 +1102,8 @@ export class ExecutionEngine {
         // Callback for pre-parsed JSONL messages (used by Claude and OpenCode plugins)
         // This receives raw JSON objects directly from the agent's parsed JSONL output.
         onJsonlMessage: (message: Record<string, unknown>) => {
+          emitStreamingTelemetry(message);
+
           // Check if this is OpenCode format (has 'part' with 'tool' property)
           const part = message.part as Record<string, unknown> | undefined;
           if (message.type === 'tool_use' && part?.tool) {
@@ -1112,6 +1149,7 @@ export class ExecutionEngine {
             timestamp: new Date().toISOString(),
             stream: 'stdout',
             data,
+            taskId: task.id,
             iteration,
           });
 
@@ -1122,10 +1160,15 @@ export class ExecutionEngine {
             for (const result of results) {
               if (result.success) {
                 if (isDroidJsonlMessage(result.message)) {
+                  emitStreamingTelemetry(result.message.raw);
                   for (const normalized of toClaudeJsonlMessages(result.message)) {
                     this.subagentParser.processMessage(normalized);
                   }
                 } else {
+                  const parsed = result.message as unknown;
+                  if (typeof parsed === 'object' && parsed !== null) {
+                    emitStreamingTelemetry(parsed as Record<string, unknown>);
+                  }
                   this.subagentParser.processMessage(result.message);
                 }
               }
@@ -1145,6 +1188,7 @@ export class ExecutionEngine {
             timestamp: new Date().toISOString(),
             stream: 'stderr',
             data,
+            taskId: task.id,
             iteration,
           });
         },
@@ -1162,10 +1206,15 @@ export class ExecutionEngine {
         for (const result of remaining) {
           if (result.success) {
             if (isDroidJsonlMessage(result.message)) {
+              emitStreamingTelemetry(result.message.raw);
               for (const normalized of toClaudeJsonlMessages(result.message)) {
                 this.subagentParser.processMessage(normalized);
               }
             } else {
+              const parsed = result.message as unknown;
+              if (typeof parsed === 'object' && parsed !== null) {
+                emitStreamingTelemetry(parsed as Record<string, unknown>);
+              }
               this.subagentParser.processMessage(result.message);
             }
           }
@@ -1304,6 +1353,9 @@ export class ExecutionEngine {
         taskCompleted,
         promiseComplete,
         durationMs,
+        usage: iterationUsageAccumulator.hasData()
+          ? iterationUsageAccumulator.getSummary()
+          : summarizeTokenUsageFromOutput(agentResult.stdout),
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
       };
@@ -1319,7 +1371,10 @@ export class ExecutionEngine {
       const completionSummary = this.buildCompletionSummary(result);
 
       await saveIterationLog(this.config.cwd, result, agentResult.stdout, agentResult.stderr ?? this.state.currentStderr, {
-        config: this.config,
+        config: {
+          ...this.config,
+          model: this.state.currentModel ?? this.config.model,
+        },
         sessionId: this.config.sessionId,
         subagentTrace,
         agentSwitches: this.currentIterationAgentSwitches.length > 0 ? [...this.currentIterationAgentSwitches] : undefined,
