@@ -41,11 +41,11 @@ interface BvRecommendation {
 }
 
 /**
- * Output from bv --robot-next (single best actionable task).
+ * Output from bv --robot-next when an actionable task exists.
  * Unlike --robot-triage recommendations, --robot-next is guaranteed
  * to return only an unblocked task.
  */
-interface BvRobotNextOutput {
+interface BvRobotNextTask {
   generated_at: string;
   data_hash: string;
   output_format: string;
@@ -56,9 +56,23 @@ interface BvRobotNextOutput {
   unblocks: number;
   claim_command: string;
   show_command: string;
-  /** Present when no actionable items exist */
-  message?: string;
 }
+
+/**
+ * Output from bv --robot-next when no actionable items are available.
+ */
+interface BvRobotNextEmpty {
+  generated_at: string;
+  data_hash: string;
+  output_format: string;
+  message: string;
+}
+
+/**
+ * Discriminated union for bv --robot-next output.
+ * Use `'message' in output` to narrow between the two shapes.
+ */
+type BvRobotNextOutput = BvRobotNextTask | BvRobotNextEmpty;
 
 /**
  * Top pick from bv quick_ref section.
@@ -366,8 +380,9 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
       }
 
       // --robot-next returns { message: "No actionable items available" }
-      // when nothing is unblocked
-      if (!nextOutput.id || nextOutput.message) {
+      // when nothing is unblocked. The discriminated union narrows the
+      // type: after this guard, TypeScript knows nextOutput is BvRobotNextTask.
+      if ('message' in nextOutput) {
         return super.getNextTask(filter);
       }
 
