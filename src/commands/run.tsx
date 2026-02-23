@@ -222,6 +222,20 @@ export function applyConflictResolvedTaskTracking(
 }
 
 /**
+ * Propagate runtime-updateable settings from stored config to a running engine.
+ * Called after saving settings to ensure the engine picks up changes immediately.
+ */
+export function propagateSettingsToEngine(
+  engine: ExecutionEngine | null | undefined,
+  newConfig: StoredConfig,
+): void {
+  if (!engine) return;
+  if (newConfig.autoCommit !== undefined) {
+    engine.setAutoCommit(newConfig.autoCommit);
+  }
+}
+
+/**
  * Get git repository information for the current working directory.
  * Returns undefined values if not a git repository or git command fails.
  */
@@ -1247,6 +1261,7 @@ function RunAppWrapper({
   const handleSaveSettings = async (newConfig: StoredConfig): Promise<void> => {
     await saveProjectConfig(newConfig, cwd);
     setStoredConfig(newConfig);
+    propagateSettingsToEngine(engine, newConfig);
   };
 
   // Handle loading available epics (engine absent in parallel mode)

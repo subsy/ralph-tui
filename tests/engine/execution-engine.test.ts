@@ -525,6 +525,57 @@ describe('ExecutionEngine', () => {
     });
   });
 
+  describe('setAutoCommit', () => {
+    test('updates autoCommit from false to true', () => {
+      config = createTestConfig({ autoCommit: false });
+      engine = new ExecutionEngine(config);
+
+      engine.setAutoCommit(true);
+
+      // Access the config via the engine's internal state
+      // The engine uses this.config.autoCommit in runIteration
+      expect((engine as any).config.autoCommit).toBe(true);
+    });
+
+    test('updates autoCommit from true to false', () => {
+      config = createTestConfig({ autoCommit: true });
+      engine = new ExecutionEngine(config);
+
+      engine.setAutoCommit(false);
+
+      expect((engine as any).config.autoCommit).toBe(false);
+    });
+
+    test('preserves initial autoCommit value from config', () => {
+      config = createTestConfig({ autoCommit: true });
+      engine = new ExecutionEngine(config);
+
+      expect((engine as any).config.autoCommit).toBe(true);
+    });
+
+    test('defaults to undefined when not set in config', () => {
+      config = createTestConfig();
+      engine = new ExecutionEngine(config);
+
+      // When not explicitly set, autoCommit is undefined on the config
+      expect((engine as any).config.autoCommit).toBeUndefined();
+    });
+
+    test('can be toggled multiple times', () => {
+      config = createTestConfig({ autoCommit: false });
+      engine = new ExecutionEngine(config);
+
+      engine.setAutoCommit(true);
+      expect((engine as any).config.autoCommit).toBe(true);
+
+      engine.setAutoCommit(false);
+      expect((engine as any).config.autoCommit).toBe(false);
+
+      engine.setAutoCommit(true);
+      expect((engine as any).config.autoCommit).toBe(true);
+    });
+  });
+
   describe('error classification', () => {
     test('classifies rate limit errors', async () => {
       engine = new ExecutionEngine(config);
