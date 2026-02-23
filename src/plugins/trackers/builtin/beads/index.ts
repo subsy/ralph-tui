@@ -410,6 +410,9 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Convert to TrackerTask
     let tasks = beads.map(beadToTask);
 
+    // sort so that child issues of form <project>-<parentId>.<issueNumber> will appear in order starting from
+    tasks.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: "base" }));
+
     // Apply additional filtering that bd doesn't support directly
     // Note: Remove parentId from filter since bd already handled it via --parent flag
     // (bd list --json doesn't include parent field in output, so filterTasks would incorrectly remove tasks)
