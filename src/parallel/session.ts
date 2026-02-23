@@ -68,7 +68,18 @@ export async function saveParallelSession(
     taskGraph: serializeTaskGraph(state.taskGraph),
   };
 
-  fs.writeFileSync(filePath, JSON.stringify(serializable, null, 2), 'utf-8');
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(serializable, null, 2), 'utf-8');
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // Best effort cleanup.
+    }
+    throw error;
+  }
 }
 
 /**

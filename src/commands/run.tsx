@@ -285,6 +285,67 @@ function getGitInfo(cwd: string): {
   }
 }
 
+interface ParallelGitPreflightResult {
+  ok: boolean;
+  errors: string[];
+}
+
+/**
+ * Validate that git state is safe for parallel worktree/merge execution.
+ */
+function checkParallelGitPreflight(cwd: string): ParallelGitPreflightResult {
+  const errors: string[] = [];
+  const baseOptions = { cwd, encoding: 'utf-8' as const, timeout: 5000 };
+
+  const isGitRepo = spawnSync(
+    'git',
+    ['rev-parse', '--is-inside-work-tree'],
+    baseOptions
+  );
+  if (isGitRepo.status !== 0 || isGitRepo.stdout.trim() !== 'true') {
+    errors.push('Parallel mode requires running inside a git repository.');
+    return { ok: false, errors };
+  }
+
+  const branchResult = spawnSync(
+    'git',
+    ['rev-parse', '--abbrev-ref', 'HEAD'],
+    baseOptions
+  );
+  const branch = branchResult.status === 0 ? branchResult.stdout.trim() : '';
+  if (!branch || branch === 'HEAD') {
+    errors.push('Parallel mode requires a named branch (detached HEAD is not supported).');
+  }
+
+  const trackedStatus = spawnSync(
+    'git',
+    ['status', '--porcelain', '--untracked-files=no'],
+    baseOptions
+  );
+  if (trackedStatus.status !== 0) {
+    errors.push('Unable to verify git working tree status.');
+  } else if (trackedStatus.stdout.trim().length > 0) {
+    errors.push(
+      'Tracked working tree is not clean. Commit or stash tracked changes before parallel mode.'
+    );
+  }
+
+  const unmerged = spawnSync('git', ['ls-files', '-u'], baseOptions);
+  if (unmerged.status === 0 && unmerged.stdout.trim().length > 0) {
+    errors.push('Repository has unresolved merge entries (git ls-files -u is not empty).');
+  }
+
+  const inProgressRefs = ['MERGE_HEAD', 'REBASE_HEAD', 'CHERRY_PICK_HEAD'];
+  for (const ref of inProgressRefs) {
+    const result = spawnSync('git', ['rev-parse', '-q', '--verify', ref], baseOptions);
+    if (result.status === 0) {
+      errors.push(`Repository has an in-progress git operation (${ref}).`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
 /**
  * Task range filter for --task-range flag.
  * Allows filtering tasks by 1-indexed position (e.g., 1-5, 3-, -10).
@@ -2855,6 +2916,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     await clearProgress(config.cwd);
 
     session = await createSession({
+      sessionId: newSessionId,
       agentPlugin: config.agent.plugin,
       trackerPlugin: config.tracker.plugin,
       epicId: config.epicId,
@@ -2862,6 +2924,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       maxIterations: config.maxIterations,
       totalTasks: 0, // Will be updated
       cwd: config.cwd,
+      lockAlreadyAcquired: true,
     });
   }
 
@@ -3132,6 +3195,14 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
     if (useParallel) {
       // Parallel execution path
+      const parallelPreflight = checkParallelGitPreflight(config.cwd);
+      if (!parallelPreflight.ok) {
+        const details = parallelPreflight.errors.map((error) => `- ${error}`).join('\n');
+        throw new Error(
+          `Parallel preflight failed:\n${details}\nRun with --serial or fix git state and retry.`
+        );
+      }
+
       let maxWorkers = typeof options.parallel === 'number'
         ? options.parallel
         : storedConfig?.parallel?.maxWorkers ?? 3;
