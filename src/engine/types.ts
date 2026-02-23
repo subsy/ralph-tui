@@ -7,6 +7,8 @@ import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { AgentExecutionResult } from '../plugins/agents/types.js';
 import type { SubagentState as ParserSubagentState } from '../plugins/agents/tracing/types.js';
 import type { TokenUsageSummary } from '../plugins/agents/usage.js';
+import type { DiffSummary } from './diff-summarizer.js';
+import type { CostSnapshot } from './cost-tracker.js';
 
 /**
  * Reason why an agent is currently active.
@@ -189,6 +191,9 @@ export interface IterationResult {
 
   /** Timestamp when iteration ended (ISO 8601) */
   endedAt: string;
+
+  /** Diff summary of changes made during this iteration (captured before auto-commit) */
+  diffSummary?: DiffSummary;
 }
 
 /**
@@ -244,7 +249,13 @@ export type EngineEventType =
   | 'parallel:group-started'
   | 'parallel:group-completed'
   | 'parallel:completed'
-  | 'parallel:failed';
+  | 'parallel:failed'
+  | 'verification:started'
+  | 'verification:passed'
+  | 'verification:failed'
+  | 'model:escalated'
+  | 'cost:updated'
+  | 'cost:threshold-exceeded';
 
 /**
  * Base engine event
@@ -619,6 +630,75 @@ export interface TasksRefreshedEvent extends EngineEventBase {
 }
 
 /**
+ * Verification started event - emitted when post-completion verification begins
+ */
+export interface VerificationStartedEvent extends EngineEventBase {
+  type: 'verification:started';
+  task: TrackerTask;
+  commands: string[];
+}
+
+/**
+ * Verification passed event - emitted when all verification commands succeed
+ */
+export interface VerificationPassedEvent extends EngineEventBase {
+  type: 'verification:passed';
+  task: TrackerTask;
+  durationMs: number;
+}
+
+/**
+ * Verification failed event - emitted when any verification command fails
+ */
+export interface VerificationFailedEvent extends EngineEventBase {
+  type: 'verification:failed';
+  task: TrackerTask;
+  failures: string[];
+  retriesRemaining: number;
+}
+
+/**
+ * Model escalated event - emitted when the engine switches to a more capable model
+ * due to task failures exceeding the escalateAfter threshold.
+ */
+export interface ModelEscalatedEvent extends EngineEventBase {
+  type: 'model:escalated';
+  /** Task that triggered escalation */
+  taskId: string;
+  /** Model that was being used before escalation */
+  previousModel: string;
+  /** Model that will now be used */
+  newModel: string;
+  /** Number of failed attempts that triggered escalation */
+  failedAttempts: number;
+}
+
+/**
+ * Cost updated event - emitted after each iteration with cumulative cost snapshot.
+ */
+export interface CostUpdatedEvent extends EngineEventBase {
+  type: 'cost:updated';
+  /** Iteration that triggered the update */
+  iteration: number;
+  /** Cumulative cost snapshot after this iteration */
+  snapshot: CostSnapshot;
+  /** Cost for this specific iteration in USD */
+  iterationCost: number;
+}
+
+/**
+ * Cost threshold exceeded event - emitted when cumulative cost exceeds alertThreshold.
+ * Engine will pause execution after emitting this event.
+ */
+export interface CostThresholdExceededEvent extends EngineEventBase {
+  type: 'cost:threshold-exceeded';
+  /** Cumulative cost snapshot at time of threshold breach */
+  snapshot: CostSnapshot;
+  /** Configured threshold in USD */
+  threshold: number;
+}
+
+/**
  * Union of all engine events
  */
 export type EngineEvent =
@@ -648,7 +728,13 @@ export type EngineEvent =
   | AllAgentsLimitedEvent
   | AgentRecoveryAttemptedEvent
   | AllCompleteEvent
-  | TasksRefreshedEvent;
+  | TasksRefreshedEvent
+  | VerificationStartedEvent
+  | VerificationPassedEvent
+  | VerificationFailedEvent
+  | ModelEscalatedEvent
+  | CostUpdatedEvent
+  | CostThresholdExceededEvent;
 
 /**
  * Event listener function type
@@ -716,4 +802,10 @@ export interface EngineState {
    * Persists across iterations until primary agent is recovered.
    */
   rateLimitState: RateLimitState | null;
+
+  /**
+   * Cumulative cost snapshot for the session.
+   * Updated after each iteration via CostTracker.
+   */
+  costSnapshot?: CostSnapshot;
 }

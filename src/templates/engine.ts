@@ -295,6 +295,12 @@ export interface ExtendedTemplateContext {
 
   /** Selection reason (for beads-bv tracker) */
   selectionReason?: string;
+
+  /** Verification errors from previous attempt (if verification failed) */
+  verificationErrors?: string;
+
+  /** Structured diff context from previous iterations */
+  diffContext?: string;
 }
 
 /**
@@ -320,6 +326,8 @@ export function buildTemplateVariables(
   let prdCompletedCount = '0';
   let prdTotalCount = '0';
   let selectionReason = '';
+  let verificationErrors = '';
+  let diffContext = '';
 
   if (typeof extended === 'string') {
     recentProgress = extended;
@@ -327,6 +335,8 @@ export function buildTemplateVariables(
     recentProgress = extended.recentProgress ?? '';
     codebasePatterns = extended.codebasePatterns ?? '';
     selectionReason = extended.selectionReason ?? '';
+    verificationErrors = extended.verificationErrors ?? '';
+    diffContext = extended.diffContext ?? '';
 
     if (extended.prd) {
       prdName = extended.prd.name;
@@ -380,6 +390,10 @@ export function buildTemplateVariables(
     codebasePatterns,
     // New selection context variable
     selectionReason,
+    // Verification errors from previous failed verification attempt
+    verificationErrors,
+    // Diff context from previous iterations (structured change summary)
+    diffContext,
   };
 }
 

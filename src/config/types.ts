@@ -9,6 +9,7 @@ import type {
   ErrorHandlingConfig,
   ErrorHandlingStrategy,
 } from "../engine/types.js";
+import type { CompletionStrategyName } from "../engine/completion-strategies.js";
 
 /**
  * Rate limit handling configuration for agents.
@@ -222,6 +223,15 @@ export interface RuntimeOptions {
 
   /** Enable parallel execution, optionally with worker count (--parallel [N]) */
   parallel?: number | boolean;
+
+  /** Override auto-commit behavior (--auto-commit or --no-auto-commit CLI flags) */
+  autoCommit?: boolean;
+
+  /** Starting model for model escalation (overrides stored config) */
+  startModel?: string;
+
+  /** Escalation model for model escalation (overrides stored config) */
+  escalateModel?: string;
 }
 
 /**
@@ -336,6 +346,18 @@ export interface StoredConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Post-completion verification commands configuration */
+  verification?: VerificationConfig;
+
+  /** Model escalation configuration */
+  modelEscalation?: ModelEscalationConfig;
+
+  /** Completion detection strategy configuration */
+  completion?: CompletionConfig;
+
+  /** Cost tracking configuration */
+  cost?: CostConfig;
 }
 
 /**
@@ -386,7 +408,7 @@ export interface RalphConfig {
   /** Session ID for log file naming and tracking */
   sessionId?: string;
 
-  /** Whether to auto-commit after successful task completion (default: false) */
+  /** Whether to auto-commit after successful task completion (default: true) */
   autoCommit?: boolean;
 
   /**
@@ -398,6 +420,18 @@ export interface RalphConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Post-completion verification commands configuration */
+  verification?: VerificationConfig;
+
+  /** Model escalation configuration */
+  modelEscalation?: ModelEscalationConfig;
+
+  /** Completion detection strategy configuration */
+  completion?: CompletionConfig;
+
+  /** Cost tracking configuration */
+  cost?: CostConfig;
 }
 
 /**
@@ -412,6 +446,85 @@ export interface ConfigValidationResult {
 
   /** Warning messages (non-fatal) */
   warnings: string[];
+}
+
+/**
+ * Configuration for post-completion verification commands.
+ * Commands run after agent signals completion but before task is marked done.
+ */
+export interface VerificationConfig {
+  /** Whether verification is enabled (default: false) */
+  enabled?: boolean;
+
+  /** Shell commands to run for verification. All must pass (exit code 0). */
+  commands?: string[];
+
+  /** Timeout per command in milliseconds (default: 60000) */
+  timeoutMs?: number;
+
+  /** Maximum verification retries before skipping task (default: 2) */
+  maxRetries?: number;
+}
+
+export const DEFAULT_VERIFICATION_CONFIG: Required<VerificationConfig> = {
+  enabled: false,
+  commands: [],
+  timeoutMs: 60_000, // Valid range: 1000-600000ms
+  maxRetries: 2,
+};
+
+/**
+ * Model escalation configuration.
+ * Start with a cheaper model and escalate on failure.
+ */
+export interface ModelEscalationConfig {
+  /** Whether model escalation is enabled (default: false) */
+  enabled?: boolean;
+
+  /** Starting model — used for first attempt (e.g., "sonnet") */
+  startModel?: string;
+
+  /** Escalated model — used after failure (e.g., "opus") */
+  escalateModel?: string;
+
+  /** Number of failed attempts before escalating (default: 1) */
+  escalateAfter?: number;
+}
+
+export const DEFAULT_MODEL_ESCALATION: Required<ModelEscalationConfig> = {
+  enabled: false,
+  startModel: 'sonnet',
+  escalateModel: 'opus',
+  escalateAfter: 1,
+};
+
+/**
+ * Cost tracking configuration.
+ */
+export interface CostConfig {
+  /** Whether cost tracking is enabled (default: true) */
+  enabled?: boolean;
+  /** Cost threshold in USD that triggers a pause (default: 0 = no limit) */
+  alertThreshold?: number;
+  /**
+   * Model pricing in USD per 1M tokens. No built-in defaults are provided —
+   * configure this to enable dollar-cost estimation. Token counts are always tracked.
+   *
+   * @example
+   * [cost.pricing]
+   * "claude-opus-4-6" = { inputPer1M = 5.0, outputPer1M = 25.0 }
+   * "claude-sonnet-4-6" = { inputPer1M = 3.0, outputPer1M = 15.0 }
+   * "claude-haiku-4-5" = { inputPer1M = 0.80, outputPer1M = 4.0 }
+   */
+  pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
+}
+
+/**
+ * Completion detection strategy configuration.
+ */
+export interface CompletionConfig {
+  /** Ordered list of strategies to try (default: ['promise-tag']) */
+  strategies?: CompletionStrategyName[];
 }
 
 /**

@@ -273,6 +273,15 @@ function mergeConfigs(
   if (project.parallel !== undefined) {
     merged.parallel = { ...merged.parallel, ...project.parallel };
   }
+  if (project.modelEscalation !== undefined) {
+    merged.modelEscalation = {
+      ...merged.modelEscalation,
+      ...project.modelEscalation,
+    };
+  }
+  if (project.verification !== undefined) {
+    merged.verification = { ...merged.verification, ...project.verification };
+  }
 
   return merged;
 }
@@ -692,7 +701,16 @@ export async function buildConfig(
     sandbox,
     // CLI --prompt takes precedence over config file prompt_template
     promptTemplate: options.promptPath ?? storedConfig.prompt_template,
-    autoCommit: storedConfig.autoCommit ?? false,
+    autoCommit: options.autoCommit ?? storedConfig.autoCommit ?? true,
+    modelEscalation: (options.startModel || options.escalateModel)
+      ? {
+          ...storedConfig.modelEscalation,
+          enabled: true,
+          ...(options.startModel ? { startModel: options.startModel } : {}),
+          ...(options.escalateModel ? { escalateModel: options.escalateModel } : {}),
+        }
+      : storedConfig.modelEscalation ?? undefined,
+    verification: storedConfig.verification ?? undefined,
   };
 }
 
