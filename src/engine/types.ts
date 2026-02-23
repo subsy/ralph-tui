@@ -8,6 +8,7 @@ import type { AgentExecutionResult } from '../plugins/agents/types.js';
 import type { SubagentState as ParserSubagentState } from '../plugins/agents/tracing/types.js';
 import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 import type { DiffSummary } from './diff-summarizer.js';
+import type { CostSnapshot } from './cost-tracker.js';
 
 /**
  * Reason why an agent is currently active.
@@ -252,7 +253,9 @@ export type EngineEventType =
   | 'verification:started'
   | 'verification:passed'
   | 'verification:failed'
-  | 'model:escalated';
+  | 'model:escalated'
+  | 'cost:updated'
+  | 'cost:threshold-exceeded';
 
 /**
  * Base engine event
@@ -671,6 +674,31 @@ export interface ModelEscalatedEvent extends EngineEventBase {
 }
 
 /**
+ * Cost updated event - emitted after each iteration with cumulative cost snapshot.
+ */
+export interface CostUpdatedEvent extends EngineEventBase {
+  type: 'cost:updated';
+  /** Iteration that triggered the update */
+  iteration: number;
+  /** Cumulative cost snapshot after this iteration */
+  snapshot: CostSnapshot;
+  /** Cost for this specific iteration in USD */
+  iterationCost: number;
+}
+
+/**
+ * Cost threshold exceeded event - emitted when cumulative cost exceeds alertThreshold.
+ * Engine will pause execution after emitting this event.
+ */
+export interface CostThresholdExceededEvent extends EngineEventBase {
+  type: 'cost:threshold-exceeded';
+  /** Cumulative cost snapshot at time of threshold breach */
+  snapshot: CostSnapshot;
+  /** Configured threshold in USD */
+  threshold: number;
+}
+
+/**
  * Union of all engine events
  */
 export type EngineEvent =
@@ -704,7 +732,9 @@ export type EngineEvent =
   | VerificationStartedEvent
   | VerificationPassedEvent
   | VerificationFailedEvent
-  | ModelEscalatedEvent;
+  | ModelEscalatedEvent
+  | CostUpdatedEvent
+  | CostThresholdExceededEvent;
 
 /**
  * Event listener function type
@@ -772,4 +802,10 @@ export interface EngineState {
    * Persists across iterations until primary agent is recovered.
    */
   rateLimitState: RateLimitState | null;
+
+  /**
+   * Cumulative cost snapshot for the session.
+   * Updated after each iteration via CostTracker.
+   */
+  costSnapshot?: CostSnapshot;
 }

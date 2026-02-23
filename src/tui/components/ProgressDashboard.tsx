@@ -61,6 +61,8 @@ export interface ProgressDashboardProps {
     outputTokens: number;
     totalTokens: number;
   };
+  /** Cumulative cost estimate for the session */
+  totalCost?: number;
 }
 
 /**
@@ -148,6 +150,7 @@ export function ProgressDashboard({
   activeWorkerCount,
   totalWorkerCount,
   aggregateUsage,
+  totalCost,
 }: ProgressDashboardProps): ReactNode {
   const statusDisplay = getStatusDisplay(status, currentTaskId);
   const sandboxDisplay = getSandboxDisplay(sandboxConfig, resolvedSandboxMode);
@@ -248,7 +251,7 @@ export function ProgressDashboard({
           )}
         </box>
 
-        {/* Row 2: Tracker */}
+        {/* Row 2: Tracker + cost */}
         <box style={{ flexDirection: 'row' }}>
           <text fg={colors.fg.secondary}>Tracker: </text>
           <text fg={colors.accent.tertiary}>{trackerName}</text>
@@ -261,6 +264,13 @@ export function ProgressDashboard({
               <text fg={colors.accent.primary}>{formatTokenCount(aggregateUsage.outputTokens)}</text>
               <text fg={colors.fg.muted}>/</text>
               <text fg={colors.status.info}>{formatTokenCount(aggregateUsage.totalTokens)}</text>
+            </>
+          )}
+          {totalCost !== undefined && totalCost > 0 && (
+            <>
+              <text fg={colors.fg.muted}> · </text>
+              <text fg={colors.fg.secondary}>Cost: </text>
+              <text fg={colors.accent.primary}>${totalCost.toFixed(4)}</text>
             </>
           )}
         </box>

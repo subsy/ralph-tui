@@ -355,6 +355,9 @@ export interface StoredConfig {
 
   /** Completion detection strategy configuration */
   completion?: CompletionConfig;
+
+  /** Cost tracking configuration */
+  cost?: CostConfig;
 }
 
 /**
@@ -426,6 +429,9 @@ export interface RalphConfig {
 
   /** Completion detection strategy configuration */
   completion?: CompletionConfig;
+
+  /** Cost tracking configuration */
+  cost?: CostConfig;
 }
 
 /**
@@ -491,6 +497,16 @@ export const DEFAULT_MODEL_ESCALATION: Required<ModelEscalationConfig> = {
   escalateModel: 'opus',
   escalateAfter: 1,
 };
+
+/**
+ * Cost tracking configuration.
+ */
+export interface CostConfig {
+  /** Whether cost tracking is enabled (default: true) */
+  enabled?: boolean;
+  /** Cost threshold in USD that triggers a pause (default: 0 = no limit) */
+  alertThreshold?: number;
+}
 
 /**
  * Completion detection strategy configuration.

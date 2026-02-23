@@ -4,9 +4,9 @@
 Eight improvements to the ralph-tui engine that collectively add verification, cost awareness, smarter model selection, and better completion detection. The theme: Ralph trusts the agent too much — these changes add "trust but verify" guardrails without sacrificing speed.
 
 ## Status
-🟡 In Progress
+✅ Complete
 
-**Progress:** 5/8 steps
+**Progress:** 8/8 steps
 **Branch:** feat/engine-improvements
 **Depends on:** None
 
@@ -65,9 +65,9 @@ Step 8 (parallel first-class) ── independent
 | 3 | Model escalation strategy | ✅ | None | M |
 | 4 | Cross-iteration context | ✅ | None | M |
 | 5 | Completion detection hardening | ✅ | None | M |
-| 6 | Acceptance criteria validation | ⬜ | Step 1 | M |
-| 7 | Cost tracking | ⬜ | Step 3 | M |
-| 8 | First-class parallel execution | ⬜ | None | S |
+| 6 | Acceptance criteria validation | ✅ | Step 1 | M |
+| 7 | Cost tracking | ✅ | Step 3 | M |
+| 8 | First-class parallel execution | ✅ | None | S |
 
 ## Step Details
 
@@ -150,3 +150,6 @@ Step 8 (parallel first-class) ── independent
 | 3 | 2026-02-22 | Model escalation: start cheap, escalate on failure, configurable via config pipeline |
 | 4 | 2026-02-22 | Cross-iteration context: git diff summaries fed as structured context to subsequent iterations |
 | 5 | 2026-02-22 | Completion detection: pluggable strategies (promise-tag, relaxed-tag, heuristic) |
+| 6 | 2026-02-22 | AC validation: parse executable criteria from AC text, run as verification commands |
+| 7 | 2026-02-22 | Cost tracking: per-session cost accumulation, TUI display, configurable alerts |
+| 8 | 2026-02-22 | Parallel first-class: auto-detect mode default, --conflict-timeout flag, improved help |

@@ -70,9 +70,11 @@ import { renderPrompt } from '../templates/index.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
 import { runVerification, formatVerificationErrors } from './verification.js';
 import { DEFAULT_VERIFICATION_CONFIG } from '../config/types.js';
+import { getAcVerificationCommands } from './ac-validator.js';
 import { generateDiffSummary, formatDiffContext } from './diff-summarizer.js';
 import type { DiffSummary } from './diff-summarizer.js';
 import { detectCompletion } from './completion-strategies.js';
+import { CostTracker } from './cost-tracker.js';
 
 /**
  * Timeout for primary agent recovery test (5 seconds).
@@ -262,6 +264,8 @@ export class ExecutionEngine {
   private escalationState: ModelEscalationState = createEscalationState();
   /** Rolling window of diff summaries from completed iterations (last 5) */
   private recentDiffSummaries: DiffSummary[] = [];
+  /** Cost tracker for cumulative session cost estimation */
+  private costTracker: CostTracker = new CostTracker();
 
   constructor(config: RalphConfig) {
     this.config = config;
@@ -638,11 +642,12 @@ export class ExecutionEngine {
         break;
       }
 
-      // Update session
+      // Update session (include cumulative cost if available)
       await updateSessionIteration(
         this.config.cwd,
         this.state.currentIteration,
-        this.state.tasksCompleted
+        this.state.tasksCompleted,
+        this.state.costSnapshot?.totalCost
       );
 
       // Wait between iterations
@@ -1370,7 +1375,13 @@ export class ExecutionEngine {
 
       // Run verification gate if task appears complete and verification is enabled
       if (taskCompleted && this.config.verification?.enabled) {
-        const verifyConfig = { ...DEFAULT_VERIFICATION_CONFIG, ...this.config.verification };
+        const baseVerifyConfig = { ...DEFAULT_VERIFICATION_CONFIG, ...this.config.verification };
+        // Prepend AC-derived commands ahead of configured commands
+        const acCommands = getAcVerificationCommands(task.metadata);
+        const verifyConfig = {
+          ...baseVerifyConfig,
+          commands: [...acCommands, ...baseVerifyConfig.commands],
+        };
         const verificationRetries = this.verificationRetryMap.get(task.id) ?? 0;
 
         this.emit({
@@ -1515,6 +1526,43 @@ export class ExecutionEngine {
         rawStdoutFilePath: rawOutput.stdout.filePath,
         rawStderrFilePath: rawOutput.stderr.filePath,
       });
+
+      // Track cost for this iteration if usage data is available
+      if (result.usage) {
+        const costEnabled = this.config.cost?.enabled !== false;
+        if (costEnabled) {
+          const inputTokens = result.usage.inputTokens ?? 0;
+          const outputTokens = result.usage.outputTokens ?? 0;
+          const iterationCost = this.costTracker.addIteration(
+            inputTokens,
+            outputTokens,
+            this.state.currentModel
+          );
+          const snapshot = this.costTracker.getSnapshot();
+          this.state.costSnapshot = snapshot;
+
+          this.emit({
+            type: 'cost:updated',
+            timestamp: endedAt.toISOString(),
+            iteration,
+            snapshot,
+            iterationCost,
+          });
+
+          // Check alert threshold
+          const alertThreshold = this.config.cost?.alertThreshold ?? 0;
+          if (alertThreshold > 0 && snapshot.totalCost >= alertThreshold) {
+            this.emit({
+              type: 'cost:threshold-exceeded',
+              timestamp: endedAt.toISOString(),
+              snapshot,
+              threshold: alertThreshold,
+            });
+            // Pause the engine so the user can decide whether to continue
+            this.pause();
+          }
+        }
+      }
 
       this.emit({
         type: 'iteration:completed',

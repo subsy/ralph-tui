@@ -301,6 +301,8 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   startModel?: string;
   /** Override escalation model for model escalation */
   escalateModel?: string;
+  /** Override conflict resolution timeout in milliseconds */
+  conflictTimeout?: number;
 }
 
 /**
@@ -529,6 +531,17 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         options.directMerge = true;
         break;
 
+      case '--conflict-timeout': {
+        if (nextArg && !nextArg.startsWith('-')) {
+          const parsed = parseInt(nextArg, 10);
+          if (!isNaN(parsed) && parsed > 0) {
+            options.conflictTimeout = parsed;
+            i++;
+          }
+        }
+        break;
+      }
+
       case '--start-model':
         if (nextArg && !nextArg.startsWith('-')) {
           options.startModel = nextArg;
@@ -624,11 +637,14 @@ Options:
   --no-network        Disable network access in sandbox
   --auto-commit       Force enable auto-commit after task completion
   --no-auto-commit    Disable auto-commit after task completion
-  --serial            Force sequential execution (default behavior)
-  --sequential        Alias for --serial
-  --parallel [N]      Force parallel execution with optional max workers (default workers: 3)
-  --direct-merge      Merge directly to current branch (skip session branch creation)
   --task-range <range> Filter tasks by index (e.g., 1-5, 3-, -10)
+
+Parallel Execution:
+  --parallel [N]       Enable parallel mode with N workers (default: 3)
+  --serial             Force sequential execution
+  --sequential         Alias for --serial
+  --direct-merge       Merge directly to current branch (skip session branch)
+  --conflict-timeout <ms>   AI conflict resolution timeout per file (default: 120000)
   --listen            Enable remote listener (implies --headless)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
@@ -664,7 +680,7 @@ Examples:
  *
  * @returns 'auto' | 'always' | 'never'
  */
-function resolveParallelMode(
+export function resolveParallelMode(
   options: ExtendedRuntimeOptions,
   storedConfig?: StoredConfig | null
 ): 'auto' | 'always' | 'never' {
@@ -672,8 +688,8 @@ function resolveParallelMode(
   if (options.serial) return 'never';
   if (options.parallel) return 'always';
 
-  // Fall back to stored config. Default to serial execution when unset.
-  return storedConfig?.parallel?.mode ?? 'never';
+  // Fall back to stored config. Default to 'auto' to enable dependency-graph-based detection.
+  return storedConfig?.parallel?.mode ?? 'auto';
 }
 
 /**
@@ -3179,10 +3195,13 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       // Wire up AI conflict resolution if enabled (default: true)
       const conflictResolutionEnabled = storedConfig?.conflictResolution?.enabled !== false;
       if (conflictResolutionEnabled) {
-        // Pass conflict resolution config to RalphConfig for the resolver
+        // Merge CLI --conflict-timeout with stored config, CLI takes precedence
+        const conflictResolution = options.conflictTimeout != null
+          ? { ...storedConfig?.conflictResolution, timeoutMs: options.conflictTimeout }
+          : storedConfig?.conflictResolution;
         const configWithConflictRes = {
           ...config,
-          conflictResolution: storedConfig?.conflictResolution,
+          conflictResolution,
         };
         parallelExecutor.setAiResolver(createAiResolver(configWithConflictRes));
       }

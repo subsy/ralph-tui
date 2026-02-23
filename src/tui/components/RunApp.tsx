@@ -694,6 +694,9 @@ export function RunApp({
   // - string: Subagent ID is selected
   const [selectedSubagentId, setSelectedSubagentId] = useState<string>('main');
 
+  // Cumulative cost for this session (updated on cost:updated events)
+  const [totalCost, setTotalCost] = useState<number>(0);
+
   // Active agent state from engine - tracks which agent is running and why (primary/fallback)
   const [activeAgentState, setActiveAgentState] = useState<ActiveAgentState | null>(null);
   // Rate limit state from engine - tracks primary agent rate limiting
@@ -1803,6 +1806,15 @@ export function RunApp({
         case 'engine:iterations-removed':
           // Update maxIterations state when iterations are removed at runtime
           setMaxIterations(event.newMax);
+          break;
+
+        case 'cost:updated':
+          setTotalCost(event.snapshot.totalCost);
+          break;
+
+        case 'cost:threshold-exceeded':
+          // Engine will auto-pause; update cost display
+          setTotalCost(event.snapshot.totalCost);
           break;
       }
     });
@@ -3292,6 +3304,7 @@ export function RunApp({
           activeWorkerCount={activeWorkerCount}
           totalWorkerCount={totalWorkerCount}
           aggregateUsage={displayAggregateUsage}
+          totalCost={totalCost > 0 ? totalCost : undefined}
         />
       )}
 
