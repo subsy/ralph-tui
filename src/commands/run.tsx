@@ -371,6 +371,8 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   rotateToken?: boolean;
   /** Merge directly to current branch instead of creating session branch (parallel mode) */
   directMerge?: boolean;
+  /** Explicit session branch name for parallel mode */
+  targetBranch?: string;
   /** Filter tasks by index range (e.g., 1-5, 3-, -10) */
   taskRange?: TaskRangeFilter;
 }
@@ -593,6 +595,13 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         options.directMerge = true;
         break;
 
+      case '--target-branch':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.targetBranch = nextArg;
+          i++;
+        }
+        break;
+
       case '--task-range':
         // Allow nextArg if it exists and either doesn't start with '-' OR matches a negative-integer pattern (e.g., "-10")
         if (nextArg && (!nextArg.startsWith('-') || /^-\d+$/.test(nextArg))) {
@@ -674,6 +683,7 @@ Options:
   --sequential        Alias for --serial
   --parallel [N]      Force parallel execution with optional max workers (default workers: 3)
   --direct-merge      Merge directly to current branch (skip session branch creation)
+  --target-branch <name> Create/use explicit session branch name for parallel mode
   --task-range <range> Filter tasks by index (e.g., 1-5, 3-, -10)
   --listen            Enable remote listener (implies --headless)
   --listen-port <n>   Port for remote listener (default: 7890)
@@ -3222,6 +3232,10 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
       // Resolve directMerge: CLI flag takes precedence over config
       const directMerge = options.directMerge ?? storedConfig?.parallel?.directMerge ?? false;
+      const targetBranch = options.targetBranch ?? storedConfig?.parallel?.targetBranch;
+      if (directMerge && targetBranch) {
+        throw new Error('--target-branch cannot be used together with --direct-merge.');
+      }
 
       // Get filtered task IDs for ParallelExecutor (if --task-range was used)
       const filteredTaskIds = options.taskRange
@@ -3232,6 +3246,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         maxWorkers,
         worktreeDir: storedConfig?.parallel?.worktreeDir,
         directMerge,
+        sessionBranchName: targetBranch,
         filteredTaskIds,
       });
 
@@ -3250,6 +3265,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       let sessionBranchForGuidance: string | null = null;
       let originalBranchForGuidance: string | null = null;
       let preservedRecoveryWorktreesForGuidance: WorktreeInfo[] = [];
+      let returnToOriginalBranchErrorForGuidance: string | null = null;
 
       if (config.showTui) {
         // Parallel TUI mode — visualize workers, merges, and conflicts
@@ -3260,6 +3276,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         sessionBranchForGuidance = parallelExecutor.getSessionBranch();
         originalBranchForGuidance = parallelExecutor.getOriginalBranch();
         preservedRecoveryWorktreesForGuidance = parallelExecutor.getPreservedRecoveryWorktrees();
+        returnToOriginalBranchErrorForGuidance = parallelExecutor.getReturnToOriginalBranchError();
       } else {
         // Parallel headless mode — log events to console
         let parallelSignalInterrupted = false;
@@ -3355,6 +3372,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
           sessionBranchForGuidance = parallelExecutor.getSessionBranch();
           originalBranchForGuidance = parallelExecutor.getOriginalBranch();
           preservedRecoveryWorktreesForGuidance = parallelExecutor.getPreservedRecoveryWorktrees();
+          returnToOriginalBranchErrorForGuidance = parallelExecutor.getReturnToOriginalBranchError();
         } finally {
           parallelExecutionPromise = null;
           // Remove handlers after execution completes
@@ -3388,6 +3406,38 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         console.log('');
         console.log('    To discard all changes:');
         console.log(`      git branch -D ${sessionBranchForGuidance}`);
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+      }
+
+      if (
+        !sessionBranchForGuidance &&
+        parallelExecutor.getState().status === 'completed' &&
+        directMerge
+      ) {
+        const branch = getGitInfo(config.cwd).branch ?? '(unknown)';
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('                 Direct Merge Complete                          ');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+        console.log(`  Parallel changes were merged directly into: ${branch}`);
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+      }
+
+      if (returnToOriginalBranchErrorForGuidance) {
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('             Branch Checkout Requires Attention                 ');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+        console.log('  Ralph could not switch back to your original branch:');
+        console.log(`    ${returnToOriginalBranchErrorForGuidance}`);
+        console.log('  Check your current branch with:');
+        console.log('    git branch --show-current');
         console.log('');
         console.log('═══════════════════════════════════════════════════════════════');
         console.log('');

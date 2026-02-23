@@ -325,6 +325,12 @@ export interface ParallelExecutorConfig {
   directMerge?: boolean;
 
   /**
+   * Optional explicit branch name to create for session-based parallel merges.
+   * Ignored when directMerge is true.
+   */
+  sessionBranchName?: string;
+
+  /**
    * Optional list of task IDs to execute. When provided, only tasks with these
    * IDs will be executed, filtering out any others returned by the tracker.
    * Used for --task-range filtering.

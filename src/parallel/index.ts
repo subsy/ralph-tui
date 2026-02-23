@@ -84,6 +84,7 @@ export class ParallelExecutor {
   private paused = false;
   private statusBeforePause: ParallelExecutorStatus | null = null;
   private pauseWaiters: Array<() => void> = [];
+  private returnToOriginalBranchError: string | null = null;
 
   private readonly parallelListeners: ParallelEventListener[] = [];
   private readonly engineListeners: EngineEventListener[] = [];
@@ -265,6 +266,7 @@ export class ParallelExecutor {
     this.pauseWaiters = [];
     this.pendingConflicts = [];
     this.preservedRecoveryWorktrees = [];
+    this.returnToOriginalBranchError = null;
   }
 
   /**
@@ -304,7 +306,10 @@ export class ParallelExecutor {
       // Initialize session branch unless directMerge is enabled.
       // The session branch holds all worker merges, keeping the original branch clean.
       if (!this.config.directMerge) {
-        const { branch, original } = this.mergeEngine.initializeSessionBranch(this.sessionId);
+        const { branch, original } = this.mergeEngine.initializeSessionBranch(
+          this.sessionId,
+          this.config.sessionBranchName
+        );
 
         this.emitParallel({
           type: 'parallel:session-branch-created',
@@ -464,6 +469,13 @@ export class ParallelExecutor {
    */
   getOriginalBranch(): string | null {
     return this.mergeEngine.getOriginalBranch();
+  }
+
+  /**
+   * Get any error encountered when trying to return to the original branch.
+   */
+  getReturnToOriginalBranchError(): string | null {
+    return this.returnToOriginalBranchError;
   }
 
   /**
@@ -836,8 +848,11 @@ export class ParallelExecutor {
     if (!this.config.directMerge) {
       try {
         this.mergeEngine.returnToOriginalBranch();
-      } catch {
-        // Best effort — user may need to checkout manually
+        this.returnToOriginalBranchError = null;
+      } catch (error) {
+        this.returnToOriginalBranchError = error instanceof Error
+          ? error.message
+          : String(error);
       }
     }
   }

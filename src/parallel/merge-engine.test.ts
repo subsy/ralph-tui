@@ -283,6 +283,32 @@ describe('MergeEngine', () => {
     });
   });
 
+  describe('initializeSessionBranch', () => {
+    test('creates an explicit target branch when provided', () => {
+      const originalBranch = git(repoDir, 'branch --show-current').trim();
+      const result = engine.initializeSessionBranch(
+        'parallel-session-123',
+        'feature/parallel-out'
+      );
+
+      expect(result.branch).toBe('feature/parallel-out');
+      expect(result.original).toBe(originalBranch);
+      expect(engine.getSessionBranch()).toBe('feature/parallel-out');
+      expect(git(repoDir, 'branch --show-current').trim()).toBe('feature/parallel-out');
+    });
+
+    test('throws when explicit target branch already exists', () => {
+      git(repoDir, 'branch "feature/existing-target"');
+
+      expect(() =>
+        engine.initializeSessionBranch(
+          'parallel-session-123',
+          'feature/existing-target'
+        )
+      ).toThrow('Target branch already exists');
+    });
+  });
+
   describe('rollbackMerge', () => {
     test('rolls back a specific merge to its backup tag', async () => {
       const branchName = 'ralph-parallel/RB1';

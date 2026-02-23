@@ -269,6 +269,12 @@ describe('parseRunArgs', () => {
 
       expect(result.directMerge).toBe(true);
     });
+
+    test('parses --target-branch with value', () => {
+      const result = parseRunArgs(['--target-branch', 'feature/parallel-out']);
+
+      expect(result.targetBranch).toBe('feature/parallel-out');
+    });
   });
 
   describe('--serial/--sequential parsing', () => {
@@ -320,12 +326,15 @@ describe('parseRunArgs', () => {
         '--task-range',
         '1-10',
         '--direct-merge',
+        '--target-branch',
+        'feature/parallel-out',
         '--headless',
       ]);
 
       expect(result.parallel).toBe(3);
       expect(result.taskRange).toEqual({ start: 1, end: 10 });
       expect(result.directMerge).toBe(true);
+      expect(result.targetBranch).toBe('feature/parallel-out');
       expect(result.headless).toBe(true);
     });
   });
