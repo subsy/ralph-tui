@@ -674,12 +674,20 @@ export class ParallelExecutor {
             groupMergesCompleted++;
             this.totalMergesCompleted++;
           } else {
-            // Conflict resolution failed - track for retry/skip
-            this.enqueuePendingConflict(operation, workerResult);
+            // Conflict resolution failed - requeue first, then track as pending only
+            // if retries are exhausted so the conflict queue reflects actionable items.
             const requeued = await this.handleMergeFailure(workerResult, operation);
             if (requeued) {
               retryTasks.push(workerResult.task);
+              this.emitParallel({
+                type: 'conflict:resolved',
+                timestamp: new Date().toISOString(),
+                operationId: operation.id,
+                taskId: workerResult.task.id,
+                results: [],
+              });
             } else {
+              this.enqueuePendingConflict(operation, workerResult);
               groupTasksFailed++;
               this.totalTasksFailed++;
               groupMergesFailed++;

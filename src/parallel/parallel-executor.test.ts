@@ -710,6 +710,96 @@ describe('ParallelExecutor class', () => {
       }
     });
 
+    test('executeGroup requeues unresolved AI conflicts without stale pending conflicts', async () => {
+      const tracker = createMockTracker();
+      const completedTaskIds: string[] = [];
+      tracker.completeTask = async (taskId) => {
+        completedTaskIds.push(taskId);
+        return { success: true, message: 'Task completed' };
+      };
+
+      const executor = new ParallelExecutor(createMockConfig(), tracker, {
+        maxRequeueCount: 1,
+      });
+      const taskA = task('A');
+      const group = { index: 0, tasks: [taskA], depth: 0 };
+      const events: ParallelEvent[] = [];
+      executor.on((event) => events.push(event));
+
+      let executeBatchCalls = 0;
+      let mergeCalls = 0;
+      const conflictOperation = createMergeOperation(
+        'op-conflict',
+        createWorkerResult(taskA)
+      );
+
+      (executor as any).taskGraph = createSingleGroupAnalysis(taskA);
+      (executor as any).executeBatch = async () => {
+        executeBatchCalls++;
+        return [createWorkerResult(taskA, { success: true, taskCompleted: true, commitCount: 1 })];
+      };
+      (executor as any).saveTrackerState = async () => new Map();
+      (executor as any).restoreTrackerState = async () => {};
+      (executor as any).mergeProgressFile = async () => {};
+      (executor as any).conflictResolver = {
+        resolveConflicts: async () => [
+          {
+            filePath: 'src/conflict.ts',
+            success: false,
+            method: 'ai',
+            error: 'AI resolution failed',
+          },
+        ],
+      };
+      (executor as any).mergeEngine = {
+        enqueue: () => {},
+        getQueue: () => [conflictOperation],
+        processNext: async () => {
+          mergeCalls++;
+          if (mergeCalls === 1) {
+            return {
+              operationId: 'op-conflict',
+              success: false,
+              strategy: 'merge-commit',
+              hadConflicts: true,
+              filesChanged: 0,
+              durationMs: 1,
+              error: 'merge conflict',
+            };
+          }
+          return {
+            operationId: 'op-success',
+            success: true,
+            strategy: 'fast-forward',
+            hadConflicts: false,
+            filesChanged: 1,
+            durationMs: 1,
+          };
+        },
+      };
+
+      await (executor as any).executeGroup(group, 0);
+
+      expect(executeBatchCalls).toBe(2);
+      expect(completedTaskIds).toEqual(['A']);
+      expect((executor as any).pendingConflicts).toHaveLength(0);
+
+      const dismissedConflict = events.find(
+        (event) =>
+          event.type === 'conflict:resolved' &&
+          event.operationId === 'op-conflict' &&
+          event.results.length === 0
+      );
+      expect(dismissedConflict?.type).toBe('conflict:resolved');
+
+      const completedEvent = events.find((e) => e.type === 'parallel:group-completed');
+      expect(completedEvent?.type).toBe('parallel:group-completed');
+      if (completedEvent?.type === 'parallel:group-completed') {
+        expect(completedEvent.tasksCompleted).toBe(1);
+        expect(completedEvent.tasksFailed).toBe(0);
+      }
+    });
+
     test('retryConflictResolution processes pending conflicts in FIFO order', async () => {
       const tracker = createMockTracker();
       const completedTaskIds: string[] = [];
