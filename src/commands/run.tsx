@@ -49,6 +49,7 @@ import type {
   MergeOperation,
   FileConflict,
   ConflictResolutionResult,
+  ParallelExecutorState,
   ParallelExecutorStatus,
   WorktreeInfo,
 } from '../parallel/types.js';
@@ -82,8 +83,10 @@ import {
 import { initializeTheme } from '../tui/theme.js';
 import type { ConnectionToastMessage } from '../tui/components/Toast.js';
 import { spawnSync } from 'node:child_process';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { getEnvExclusionReport, formatEnvExclusionReport } from '../plugins/agents/base.js';
+import { writeFileAtomic } from '../session/atomic-write.js';
+import { formatDuration } from '../utils/logger.js';
 
 type PersistState = (state: PersistedSessionState) => void | Promise<void>;
 
@@ -290,6 +293,259 @@ interface ParallelGitPreflightResult {
   errors: string[];
 }
 
+const PARALLEL_SUMMARY_DIR = '.ralph-tui/reports';
+
+interface ParallelCompletionMetrics {
+  totalTasksCompleted: number;
+  totalTasksFailed: number;
+  totalMergesCompleted: number;
+  totalConflictsResolved: number;
+  durationMs: number;
+}
+
+interface ParallelRunSummary {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  status: ParallelExecutorStatus;
+  startedAt: string | null;
+  finishedAt: string;
+  durationMs: number;
+  totalTasks: number;
+  tasksCompleted: number;
+  tasksFailed: number;
+  mergesCompleted: number;
+  conflictsResolved: number;
+  directMerge: boolean;
+  sessionBranch: string | null;
+  originalBranch: string | null;
+  returnToOriginalBranchError: string | null;
+  preservedRecoveryWorktrees: WorktreeInfo[];
+}
+
+export function buildParallelSummaryFilePath(
+  cwd: string,
+  sessionId: string,
+  timestampIso: string
+): string {
+  const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '-');
+  const safeTimestamp = timestampIso.replace(/[:.]/g, '-');
+  return join(
+    cwd,
+    PARALLEL_SUMMARY_DIR,
+    `parallel-summary-${safeSessionId}-${safeTimestamp}.txt`
+  );
+}
+
+export function createParallelRunSummary(params: {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  executorState: ParallelExecutorState;
+  directMerge: boolean;
+  sessionBranch: string | null;
+  originalBranch: string | null;
+  returnToOriginalBranchError: string | null;
+  preservedRecoveryWorktrees: WorktreeInfo[];
+  completionMetrics?: ParallelCompletionMetrics | null;
+}): ParallelRunSummary {
+  const {
+    sessionId,
+    mode,
+    executorState,
+    completionMetrics,
+    directMerge,
+    sessionBranch,
+    originalBranch,
+    returnToOriginalBranchError,
+    preservedRecoveryWorktrees,
+  } = params;
+
+  const metrics = completionMetrics ?? {
+    totalTasksCompleted: executorState.totalTasksCompleted,
+    totalTasksFailed: Math.max(
+      0,
+      executorState.totalTasks - executorState.totalTasksCompleted
+    ),
+    totalMergesCompleted: executorState.totalTasksCompleted,
+    totalConflictsResolved: 0,
+    durationMs: executorState.elapsedMs,
+  };
+
+  return {
+    sessionId,
+    mode,
+    status: executorState.status,
+    startedAt: executorState.startedAt,
+    finishedAt: new Date().toISOString(),
+    durationMs: metrics.durationMs,
+    totalTasks: executorState.totalTasks,
+    tasksCompleted: metrics.totalTasksCompleted,
+    tasksFailed: metrics.totalTasksFailed,
+    mergesCompleted: metrics.totalMergesCompleted,
+    conflictsResolved: metrics.totalConflictsResolved,
+    directMerge,
+    sessionBranch,
+    originalBranch,
+    returnToOriginalBranchError,
+    preservedRecoveryWorktrees: preservedRecoveryWorktrees.map((info) => ({ ...info })),
+  };
+}
+
+export function formatParallelRunSummary(summary: ParallelRunSummary): string {
+  const lines: string[] = [];
+  const startedAt = summary.startedAt
+    ? new Date(summary.startedAt).toLocaleString()
+    : 'unknown';
+  const finishedAt = new Date(summary.finishedAt).toLocaleString();
+
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('                   Parallel Run Summary                         ');
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('');
+  lines.push(`  Session:                ${summary.sessionId}`);
+  lines.push(`  Mode:                   ${summary.mode}`);
+  lines.push(`  Status:                 ${summary.status.toUpperCase()}`);
+  lines.push(`  Started:                ${startedAt}`);
+  lines.push(`  Finished:               ${finishedAt}`);
+  lines.push(`  Duration:               ${formatDuration(summary.durationMs)}`);
+  lines.push(
+    `  Tasks:                  ${summary.tasksCompleted}/${summary.totalTasks} completed (${summary.tasksFailed} failed)`
+  );
+  lines.push(`  Merges completed:       ${summary.mergesCompleted}`);
+  lines.push(`  Conflicts resolved:     ${summary.conflictsResolved}`);
+  if (summary.directMerge) {
+    lines.push(
+      `  Merge target:           ${summary.originalBranch ?? 'current branch (direct merge)'}`
+    );
+  } else if (summary.sessionBranch) {
+    lines.push(`  Session branch:         ${summary.sessionBranch}`);
+  }
+  if (summary.originalBranch) {
+    lines.push(`  Original branch:        ${summary.originalBranch}`);
+  }
+  if (summary.returnToOriginalBranchError) {
+    lines.push(`  Checkout warning:       ${summary.returnToOriginalBranchError}`);
+  }
+  lines.push(`  Preserved worktrees:    ${summary.preservedRecoveryWorktrees.length}`);
+  for (const info of summary.preservedRecoveryWorktrees) {
+    lines.push(`    - ${info.branch} (${info.taskId})`);
+    lines.push(`      ${info.path}`);
+  }
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════════');
+
+  return lines.join('\n');
+}
+
+export async function writeParallelRunSummary(
+  cwd: string,
+  summary: ParallelRunSummary
+): Promise<string> {
+  const summaryPath = buildParallelSummaryFilePath(
+    cwd,
+    summary.sessionId,
+    summary.finishedAt
+  );
+  await writeFileAtomic(summaryPath, `${formatParallelRunSummary(summary)}\n`);
+  return summaryPath;
+}
+
+interface SequentialRunSummary {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  status: 'completed' | 'interrupted' | 'failed';
+  startedAt: string | null;
+  finishedAt: string;
+  durationMs: number;
+  totalTasks: number;
+  tasksCompleted: number;
+  currentIteration: number;
+  maxIterations: number;
+}
+
+export function buildSequentialSummaryFilePath(
+  cwd: string,
+  sessionId: string,
+  timestampIso: string
+): string {
+  const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '-');
+  const safeTimestamp = timestampIso.replace(/[:.]/g, '-');
+  return join(
+    cwd,
+    PARALLEL_SUMMARY_DIR,
+    `sequential-summary-${safeSessionId}-${safeTimestamp}.txt`
+  );
+}
+
+export function createSequentialRunSummary(params: {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  startedAt: string | null;
+  finishedAt?: string;
+  status: 'completed' | 'interrupted' | 'failed';
+  totalTasks: number;
+  tasksCompleted: number;
+  currentIteration: number;
+  maxIterations: number;
+}): SequentialRunSummary {
+  const finishedAt = params.finishedAt ?? new Date().toISOString();
+  const durationMs = params.startedAt
+    ? Math.max(0, Date.now() - new Date(params.startedAt).getTime())
+    : 0;
+
+  return {
+    sessionId: params.sessionId,
+    mode: params.mode,
+    status: params.status,
+    startedAt: params.startedAt,
+    finishedAt,
+    durationMs,
+    totalTasks: params.totalTasks,
+    tasksCompleted: params.tasksCompleted,
+    currentIteration: params.currentIteration,
+    maxIterations: params.maxIterations,
+  };
+}
+
+export function formatSequentialRunSummary(summary: SequentialRunSummary): string {
+  const lines: string[] = [];
+  const startedAt = summary.startedAt
+    ? new Date(summary.startedAt).toLocaleString()
+    : 'unknown';
+  const finishedAt = new Date(summary.finishedAt).toLocaleString();
+
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('                  Sequential Run Summary                        ');
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('');
+  lines.push(`  Session:                ${summary.sessionId}`);
+  lines.push(`  Mode:                   ${summary.mode}`);
+  lines.push(`  Status:                 ${summary.status.toUpperCase()}`);
+  lines.push(`  Started:                ${startedAt}`);
+  lines.push(`  Finished:               ${finishedAt}`);
+  lines.push(`  Duration:               ${formatDuration(summary.durationMs)}`);
+  lines.push(`  Tasks:                  ${summary.tasksCompleted}/${summary.totalTasks} completed`);
+  lines.push(
+    `  Iterations:             ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`
+  );
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════════');
+
+  return lines.join('\n');
+}
+
+export async function writeSequentialRunSummary(
+  cwd: string,
+  summary: SequentialRunSummary
+): Promise<string> {
+  const summaryPath = buildSequentialSummaryFilePath(
+    cwd,
+    summary.sessionId,
+    summary.finishedAt
+  );
+  await writeFileAtomic(summaryPath, `${formatSequentialRunSummary(summary)}\n`);
+  return summaryPath;
+}
+
 /**
  * Validate that git state is safe for parallel worktree/merge execution.
  */
@@ -331,7 +587,15 @@ function checkParallelGitPreflight(cwd: string): ParallelGitPreflightResult {
   }
 
   const unmerged = spawnSync('git', ['ls-files', '-u'], baseOptions);
-  if (unmerged.status === 0 && unmerged.stdout.trim().length > 0) {
+  if (unmerged.status !== 0) {
+    const exitCode = unmerged.status;
+    const stderr = unmerged.stderr.trim();
+    errors.push(
+      stderr
+        ? `Unable to verify unresolved merge entries (git ls-files -u exited with code ${exitCode}): ${stderr}`
+        : `Unable to verify unresolved merge entries (git ls-files -u exited with code ${exitCode}).`
+    );
+  } else if (unmerged.stdout.trim().length > 0) {
     errors.push('Repository has unresolved merge entries (git ls-files -u is not empty).');
   }
 
@@ -1197,6 +1461,12 @@ interface RunAppWrapperProps {
   totalWorkerCount?: number;
   /** Failure message for parallel execution */
   parallelFailureMessage?: string;
+  /** Preformatted completion summary lines for in-TUI display */
+  parallelCompletionSummaryLines?: string[];
+  /** Persisted summary file path for in-TUI display */
+  parallelCompletionSummaryPath?: string;
+  /** Persisted summary write warning for in-TUI display */
+  parallelCompletionSummaryWriteError?: string;
   /** Callback to pause parallel execution */
   onParallelPause?: () => void;
   /** Callback to resume parallel execution */
@@ -1253,6 +1523,9 @@ function RunAppWrapper({
   parallelAutoCommitSkippedTaskIds,
   parallelMergedTaskIds,
   parallelFailureMessage,
+  parallelCompletionSummaryLines,
+  parallelCompletionSummaryPath,
+  parallelCompletionSummaryWriteError,
   activeWorkerCount,
   totalWorkerCount,
   onParallelPause,
@@ -1477,6 +1750,9 @@ function RunAppWrapper({
       parallelAutoCommitSkippedTaskIds={parallelAutoCommitSkippedTaskIds}
       parallelMergedTaskIds={parallelMergedTaskIds}
       parallelFailureMessage={parallelFailureMessage}
+      parallelCompletionSummaryLines={parallelCompletionSummaryLines}
+      parallelCompletionSummaryPath={parallelCompletionSummaryPath}
+      parallelCompletionSummaryWriteError={parallelCompletionSummaryWriteError}
       activeWorkerCount={activeWorkerCount}
       totalWorkerCount={totalWorkerCount}
       onParallelPause={onParallelPause}
@@ -1815,18 +2091,30 @@ async function runWithTui(
  * - Passes parallel-specific props (workers, merge queue, conflicts) to RunApp
  * - Starts execution automatically (no "ready" state — parallel is always auto-start)
  */
+interface ParallelTuiRunResult {
+  state: PersistedSessionState;
+  summary: ParallelRunSummary | null;
+  summaryPath: string | null;
+  summaryWriteError: string | null;
+}
+
 async function runParallelWithTui(
   parallelExecutor: ParallelExecutor,
   persistedState: PersistedSessionState,
   config: RalphConfig,
   initialTasks: TrackerTask[],
+  directMerge: boolean,
   storedConfig?: StoredConfig,
-): Promise<PersistedSessionState> {
+): Promise<ParallelTuiRunResult> {
   let currentState = persistedState;
   let resolveQuitPromise: (() => void) | null = null;
   let showDialogCallback: (() => void) | null = null;
   let hideDialogCallback: (() => void) | null = null;
   let cancelledCallback: (() => void) | null = null;
+  let completionMetrics: ParallelCompletionMetrics | null = null;
+  let finalSummary: ParallelRunSummary | null = null;
+  let finalSummaryPath: string | null = null;
+  let finalSummaryWriteError: string | null = null;
 
   // Shared mutable state object for parallel props.
   // Using a single object ref avoids closure staleness: the React component holds a reference
@@ -1860,6 +2148,12 @@ async function runParallelWithTui(
     sessionBranch: null as string | null,
     /** Original branch before session branch was created */
     originalBranch: null as string | null,
+    /** Completion summary lines for in-TUI display */
+    completionSummaryLines: undefined as string[] | undefined,
+    /** Summary file path for in-TUI display */
+    completionSummaryPath: undefined as string | undefined,
+    /** Summary write warning for in-TUI display */
+    completionSummaryWriteError: undefined as string | undefined,
   };
 
   // Render trigger — forces React to re-render with updated parallel state.
@@ -1889,10 +2183,44 @@ async function runParallelWithTui(
     parallelState.mergedTaskIds = new Set();
     parallelState.sessionBranch = null;
     parallelState.originalBranch = null;
+    parallelState.completionSummaryLines = undefined;
+    parallelState.completionSummaryPath = undefined;
+    parallelState.completionSummaryWriteError = undefined;
+    completionMetrics = null;
+    finalSummary = null;
+    finalSummaryPath = null;
+    finalSummaryWriteError = null;
   };
 
   const startParallelExecution = (): void => {
-    const runPromise = parallelExecutor.execute().then(() => {
+    const runPromise = parallelExecutor.execute().then(async () => {
+      const executorState = parallelExecutor.getState();
+      finalSummary = createParallelRunSummary({
+        sessionId: currentState.sessionId,
+        mode: 'tui',
+        executorState,
+        directMerge,
+        sessionBranch: parallelExecutor.getSessionBranch(),
+        originalBranch: parallelExecutor.getOriginalBranch(),
+        returnToOriginalBranchError: parallelExecutor.getReturnToOriginalBranchError(),
+        preservedRecoveryWorktrees: parallelExecutor.getPreservedRecoveryWorktrees(),
+        completionMetrics: completionMetrics,
+      });
+
+      parallelState.completionSummaryLines = formatParallelRunSummary(finalSummary).split('\n');
+
+      try {
+        finalSummaryPath = await writeParallelRunSummary(config.cwd, finalSummary);
+        parallelState.completionSummaryPath = finalSummaryPath;
+        finalSummaryWriteError = null;
+        parallelState.completionSummaryWriteError = undefined;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        finalSummaryWriteError = message;
+        parallelState.completionSummaryWriteError = message;
+        parallelState.completionSummaryPath = undefined;
+      }
+
       // Execution finished — TUI stays open for user review
       triggerRerender?.();
     }).catch(() => {
@@ -2093,6 +2421,13 @@ async function runParallelWithTui(
       }
 
       case 'parallel:completed':
+        completionMetrics = {
+          totalTasksCompleted: event.totalTasksCompleted,
+          totalTasksFailed: event.totalTasksFailed,
+          totalMergesCompleted: event.totalMergesCompleted,
+          totalConflictsResolved: event.totalConflictsResolved,
+          durationMs: event.durationMs,
+        };
         currentState = applyParallelCompletionState(
           currentState,
           parallelExecutor.getState().status
@@ -2267,6 +2602,9 @@ async function runParallelWithTui(
         parallelAutoCommitSkippedTaskIds={parallelState.autoCommitSkippedTaskIds}
         parallelMergedTaskIds={parallelState.mergedTaskIds}
         parallelFailureMessage={parallelState.failureMessage ?? undefined}
+        parallelCompletionSummaryLines={parallelState.completionSummaryLines}
+        parallelCompletionSummaryPath={parallelState.completionSummaryPath}
+        parallelCompletionSummaryWriteError={parallelState.completionSummaryWriteError}
         activeWorkerCount={parallelState.workers.filter((w) => w.status === 'running').length}
         totalWorkerCount={parallelState.workers.length}
         onParallelPause={() => parallelExecutor.pause()}
@@ -2357,7 +2695,12 @@ async function runParallelWithTui(
   clearInterval(checkCallbacks);
   process.removeListener('SIGTERM', gracefulShutdown);
 
-  return currentState;
+  return {
+    state: currentState,
+    summary: finalSummary,
+    summaryPath: finalSummaryPath,
+    summaryWriteError: finalSummaryWriteError,
+  };
 }
 
 /**
@@ -3266,12 +3609,32 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       let originalBranchForGuidance: string | null = null;
       let preservedRecoveryWorktreesForGuidance: WorktreeInfo[] = [];
       let returnToOriginalBranchErrorForGuidance: string | null = null;
+      let parallelCompletionMetrics: ParallelCompletionMetrics | null = null;
+      let parallelSummaryForGuidance: ParallelRunSummary | null = null;
+      let parallelSummaryPathForGuidance: string | null = null;
+      let parallelSummaryWriteErrorForGuidance: string | null = null;
+
+      parallelExecutor.on((event: ParallelEvent) => {
+        if (event.type === 'parallel:completed') {
+          parallelCompletionMetrics = {
+            totalTasksCompleted: event.totalTasksCompleted,
+            totalTasksFailed: event.totalTasksFailed,
+            totalMergesCompleted: event.totalMergesCompleted,
+            totalConflictsResolved: event.totalConflictsResolved,
+            durationMs: event.durationMs,
+          };
+        }
+      });
 
       if (config.showTui) {
         // Parallel TUI mode — visualize workers, merges, and conflicts
-        persistedState = await runParallelWithTui(
-          parallelExecutor, persistedState, config, tasks, storedConfig
+        const parallelTuiResult = await runParallelWithTui(
+          parallelExecutor, persistedState, config, tasks, directMerge, storedConfig
         );
+        persistedState = parallelTuiResult.state;
+        parallelSummaryForGuidance = parallelTuiResult.summary;
+        parallelSummaryPathForGuidance = parallelTuiResult.summaryPath;
+        parallelSummaryWriteErrorForGuidance = parallelTuiResult.summaryWriteError;
         // Get branch info after execution completes
         sessionBranchForGuidance = parallelExecutor.getSessionBranch();
         originalBranchForGuidance = parallelExecutor.getOriginalBranch();
@@ -3381,11 +3744,13 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         }
       }
 
+      const pState = parallelExecutor.getState();
+
       // Show completion guidance if a session branch was created
       if (
         sessionBranchForGuidance &&
         originalBranchForGuidance &&
-        parallelExecutor.getState().status === 'completed'
+        pState.status === 'completed'
       ) {
         console.log('');
         console.log('═══════════════════════════════════════════════════════════════');
@@ -3393,7 +3758,13 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         console.log('═══════════════════════════════════════════════════════════════');
         console.log('');
         console.log(`  Changes are on branch: ${sessionBranchForGuidance}`);
-        console.log(`  You are now on branch: ${originalBranchForGuidance}`);
+        if (returnToOriginalBranchErrorForGuidance) {
+          console.log(
+            `  You are still on branch: ${sessionBranchForGuidance} (checkout to ${originalBranchForGuidance} failed).`
+          );
+        } else {
+          console.log(`  You are now on branch: ${originalBranchForGuidance}`);
+        }
         console.log('');
         console.log('  Next steps:');
         console.log('');
@@ -3413,7 +3784,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
       if (
         !sessionBranchForGuidance &&
-        parallelExecutor.getState().status === 'completed' &&
+        pState.status === 'completed' &&
         directMerge
       ) {
         const branch = getGitInfo(config.cwd).branch ?? '(unknown)';
@@ -3469,8 +3840,44 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         console.log('');
       }
 
+      const parallelSummary = parallelSummaryForGuidance ?? createParallelRunSummary({
+        sessionId: session.id,
+        mode: config.showTui ? 'tui' : 'headless',
+        executorState: pState,
+        directMerge,
+        sessionBranch: sessionBranchForGuidance,
+        originalBranch: originalBranchForGuidance,
+        returnToOriginalBranchError: returnToOriginalBranchErrorForGuidance,
+        preservedRecoveryWorktrees: preservedRecoveryWorktreesForGuidance,
+        completionMetrics: parallelCompletionMetrics,
+      });
+
+      if (!config.showTui) {
+        console.log('');
+        console.log(formatParallelRunSummary(parallelSummary));
+        console.log('');
+      }
+
+      if (parallelSummaryPathForGuidance) {
+        console.log(`Parallel summary saved to: ${parallelSummaryPathForGuidance}`);
+      } else if (parallelSummaryWriteErrorForGuidance) {
+        console.warn(
+          `Warning: Failed to write parallel summary file: ${parallelSummaryWriteErrorForGuidance}`
+        );
+      } else {
+        try {
+          const parallelSummaryPath = await writeParallelRunSummary(
+            config.cwd,
+            parallelSummary
+          );
+          console.log(`Parallel summary saved to: ${parallelSummaryPath}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`Warning: Failed to write parallel summary file: ${message}`);
+        }
+      }
+
       // Set parallel completion state for final check
-      const pState = parallelExecutor.getState();
       parallelAllComplete = isParallelExecutionComplete(
         pState.status,
         pState.totalTasksCompleted,
@@ -3528,6 +3935,42 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     // Update registry with current status
     await updateRegistryStatus(session.id, persistedState.status);
     console.log('\nSession state saved. Use "ralph-tui resume" to continue.');
+  }
+
+  if (!useParallel) {
+    const sequentialSummaryStatus: SequentialRunSummary['status'] = allComplete
+      ? 'completed'
+      : persistedState.status === 'failed'
+        ? 'failed'
+        : 'interrupted';
+
+    const sequentialSummary = createSequentialRunSummary({
+      sessionId: session.id,
+      mode: config.showTui ? 'tui' : 'headless',
+      startedAt: persistedState.startedAt ?? finalState.startedAt ?? null,
+      status: sequentialSummaryStatus,
+      totalTasks: finalState.totalTasks,
+      tasksCompleted: finalState.tasksCompleted,
+      currentIteration: finalState.currentIteration,
+      maxIterations: config.maxIterations,
+    });
+
+    if (!config.showTui) {
+      console.log('');
+      console.log(formatSequentialRunSummary(sequentialSummary));
+      console.log('');
+    }
+
+    try {
+      const sequentialSummaryPath = await writeSequentialRunSummary(
+        config.cwd,
+        sequentialSummary
+      );
+      console.log(`Sequential summary saved to: ${sequentialSummaryPath}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Warning: Failed to write sequential summary file: ${message}`);
+    }
   }
 
   // Stop remote server if running
