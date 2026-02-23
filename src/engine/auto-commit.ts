@@ -40,7 +40,8 @@ export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
 export async function performAutoCommit(
   cwd: string,
   taskId: string,
-  taskTitle: string
+  taskTitle: string,
+  iteration?: number
 ): Promise<AutoCommitResult> {
   // Check for uncommitted changes first
   let hasChanges: boolean;
@@ -69,7 +70,8 @@ export async function performAutoCommit(
   }
 
   // Create commit with standardized message
-  const commitMessage = `feat: ${taskId} - ${taskTitle}`;
+  const iterationLine = iteration !== undefined ? `\n\nIteration: ${iteration}\nAgent: ralph-tui` : '';
+  const commitMessage = `feat(ralph): ${taskId} - ${taskTitle.replace(/\n/g, ' ').trim()}${iterationLine}`;
   const commitResult = await runProcess(
     'git',
     ['commit', '-m', commitMessage],

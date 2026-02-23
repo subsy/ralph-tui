@@ -6,7 +6,7 @@ Eight improvements to the ralph-tui engine that collectively add verification, c
 ## Status
 🟡 In Progress
 
-**Progress:** 1/8 steps
+**Progress:** 3/8 steps
 **Branch:** feat/engine-improvements
 **Depends on:** None
 
@@ -61,8 +61,8 @@ Step 8 (parallel first-class) ── independent
 | # | Step | Status | Dependencies | Complexity |
 |---|------|--------|--------------|------------|
 | 1 | Verification gates | ✅ | None | M |
-| 2 | Auto-commit defaults | ⬜ | None | S |
-| 3 | Model escalation strategy | ⬜ | None | M |
+| 2 | Auto-commit defaults | ✅ | None | S |
+| 3 | Model escalation strategy | ✅ | None | M |
 | 4 | Cross-iteration context | ⬜ | None | M |
 | 5 | Completion detection hardening | ⬜ | None | M |
 | 6 | Acceptance criteria validation | ⬜ | Step 1 | M |
@@ -146,3 +146,5 @@ Step 8 (parallel first-class) ── independent
 | Step | Completed | Summary |
 |------|-----------|---------|
 | 1 | 2026-02-22 | Verification gates: configurable commands run post-completion, retry with error injection |
+| 2 | 2026-02-22 | Auto-commit defaults: autoCommit=true default, improved commit messages with iteration |
+| 3 | 2026-02-22 | Model escalation: start cheap, escalate on failure, configurable via config pipeline |

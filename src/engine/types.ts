@@ -247,7 +247,8 @@ export type EngineEventType =
   | 'parallel:failed'
   | 'verification:started'
   | 'verification:passed'
-  | 'verification:failed';
+  | 'verification:failed'
+  | 'model:escalated';
 
 /**
  * Base engine event
@@ -650,6 +651,22 @@ export interface VerificationFailedEvent extends EngineEventBase {
 }
 
 /**
+ * Model escalated event - emitted when the engine switches to a more capable model
+ * due to task failures exceeding the escalateAfter threshold.
+ */
+export interface ModelEscalatedEvent extends EngineEventBase {
+  type: 'model:escalated';
+  /** Task that triggered escalation */
+  taskId: string;
+  /** Model that was being used before escalation */
+  previousModel: string;
+  /** Model that will now be used */
+  newModel: string;
+  /** Number of failed attempts that triggered escalation */
+  failedAttempts: number;
+}
+
+/**
  * Union of all engine events
  */
 export type EngineEvent =
@@ -682,7 +699,8 @@ export type EngineEvent =
   | TasksRefreshedEvent
   | VerificationStartedEvent
   | VerificationPassedEvent
-  | VerificationFailedEvent;
+  | VerificationFailedEvent
+  | ModelEscalatedEvent;
 
 /**
  * Event listener function type

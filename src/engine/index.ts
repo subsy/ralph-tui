@@ -23,6 +23,7 @@ import type {
   IterationResult,
   IterationStatus,
   IterationRateLimitedEvent,
+  ModelEscalatedEvent,
   RateLimitState,
   SubagentTreeNode,
   TaskAutoCommittedEvent,
@@ -30,7 +31,14 @@ import type {
 } from './types.js';
 import { toEngineSubagentState } from './types.js';
 import type { RalphConfig, RateLimitHandlingConfig } from '../config/types.js';
-import { DEFAULT_RATE_LIMIT_HANDLING } from '../config/types.js';
+import { DEFAULT_RATE_LIMIT_HANDLING, DEFAULT_MODEL_ESCALATION } from '../config/types.js';
+import {
+  createEscalationState,
+  getModelForTask,
+  recordTaskAttempt,
+  clearTaskAttempts,
+  type ModelEscalationState,
+} from './model-escalation.js';
 import { RateLimitDetector, type RateLimitDetectionResult } from './rate-limit-detector.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import type {
@@ -250,6 +258,8 @@ export class ExecutionEngine {
   private lastVerificationErrors: string = '';
   /** Track verification retry count per task */
   private verificationRetryMap: Map<string, number> = new Map();
+  /** Model escalation state - tracks per-task attempt counts */
+  private escalationState: ModelEscalationState = createEscalationState();
 
   constructor(config: RalphConfig) {
     this.config = config;
@@ -769,6 +779,7 @@ export class ExecutionEngine {
           this.skippedTasks.add(task.id);
           this.retryCountMap.delete(task.id);
           this.verificationRetryMap.delete(task.id);
+          clearTaskAttempts(task.id, this.escalationState);
           // Mark forced task as processed to prevent infinite loop
           if (this.forcedTask?.id === task.id) {
             this.forcedTaskProcessed = true;
@@ -978,8 +989,32 @@ export class ExecutionEngine {
 
     // Build agent flags
     const flags: string[] = [];
+
+    // Determine effective model: explicit --model override takes precedence over escalation
     if (this.config.model) {
       flags.push('--model', this.config.model);
+    } else if (this.config.modelEscalation?.enabled) {
+      // Escalation is enabled and no explicit model override — use escalation logic
+      const escalationConfig = { ...DEFAULT_MODEL_ESCALATION, ...this.config.modelEscalation };
+      const escalatedModel = getModelForTask(task.id, escalationConfig, this.escalationState);
+      const previousModel = this.state.currentModel;
+      if (escalatedModel !== previousModel) {
+        this.state.currentModel = escalatedModel;
+        const attempts = this.escalationState.taskAttempts.get(task.id) ?? 0;
+        if (attempts >= escalationConfig.escalateAfter && previousModel) {
+          const event: ModelEscalatedEvent = {
+            type: 'model:escalated',
+            timestamp: new Date().toISOString(),
+            taskId: task.id,
+            previousModel,
+            newModel: escalatedModel,
+            failedAttempts: attempts,
+          };
+          this.emit(event);
+          console.log(`[model-escalation] Escalating model: ${previousModel} → ${escalatedModel} after ${attempts} failed attempt(s)`);
+        }
+      }
+      flags.push('--model', escalatedModel);
     }
 
     // Check if agent declares subagent tracing support (used for agent-specific flags)
@@ -1369,6 +1404,10 @@ export class ExecutionEngine {
             this.lastVerificationErrors = formatVerificationErrors(verifyResult);
             this.verificationRetryMap.set(task.id, verificationRetries + 1);
             taskCompleted = false;
+            // Record attempt for model escalation (verification failure counts as a failed attempt)
+            if (this.config.modelEscalation?.enabled) {
+              recordTaskAttempt(task.id, this.escalationState);
+            }
           }
         }
       } else if (!promiseComplete) {
@@ -1395,6 +1434,11 @@ export class ExecutionEngine {
         // Clear rate-limited agents tracking on task completion
         // This allows agents to be retried for the next task
         this.clearRateLimitedAgents();
+
+        // Clear model escalation attempts on task completion
+        if (this.config.modelEscalation?.enabled) {
+          clearTaskAttempts(task.id, this.escalationState);
+        }
       }
 
       // Auto-commit after task completion (before iteration log is saved)
@@ -1466,6 +1510,11 @@ export class ExecutionEngine {
       // Note: We don't emit iteration:failed here anymore - it's handled
       // by runIterationWithErrorHandling which determines the action.
       // This keeps the error handling logic centralized.
+
+      // Record attempt for model escalation on execution failure
+      if (this.config.modelEscalation?.enabled) {
+        recordTaskAttempt(task.id, this.escalationState);
+      }
 
       const failedResult: IterationResult = {
         iteration,
@@ -2263,7 +2312,7 @@ export class ExecutionEngine {
    */
   private async handleAutoCommit(task: TrackerTask, iteration: number): Promise<void> {
     try {
-      const result = await performAutoCommit(this.config.cwd, task.id, task.title);
+      const result = await performAutoCommit(this.config.cwd, task.id, task.title, iteration);
       if (result.committed) {
         this.emit({
           type: 'task:auto-committed',

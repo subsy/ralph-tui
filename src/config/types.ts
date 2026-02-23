@@ -222,6 +222,15 @@ export interface RuntimeOptions {
 
   /** Enable parallel execution, optionally with worker count (--parallel [N]) */
   parallel?: number | boolean;
+
+  /** Override auto-commit behavior (--auto-commit or --no-auto-commit CLI flags) */
+  autoCommit?: boolean;
+
+  /** Starting model for model escalation (overrides stored config) */
+  startModel?: string;
+
+  /** Escalation model for model escalation (overrides stored config) */
+  escalateModel?: string;
 }
 
 /**
@@ -339,6 +348,9 @@ export interface StoredConfig {
 
   /** Post-completion verification commands configuration */
   verification?: VerificationConfig;
+
+  /** Model escalation configuration */
+  modelEscalation?: ModelEscalationConfig;
 }
 
 /**
@@ -389,7 +401,7 @@ export interface RalphConfig {
   /** Session ID for log file naming and tracking */
   sessionId?: string;
 
-  /** Whether to auto-commit after successful task completion (default: false) */
+  /** Whether to auto-commit after successful task completion (default: true) */
   autoCommit?: boolean;
 
   /**
@@ -404,6 +416,9 @@ export interface RalphConfig {
 
   /** Post-completion verification commands configuration */
   verification?: VerificationConfig;
+
+  /** Model escalation configuration */
+  modelEscalation?: ModelEscalationConfig;
 }
 
 /**
@@ -443,6 +458,31 @@ export const DEFAULT_VERIFICATION_CONFIG: Required<VerificationConfig> = {
   commands: [],
   timeoutMs: 60_000, // Valid range: 1000-600000ms
   maxRetries: 2,
+};
+
+/**
+ * Model escalation configuration.
+ * Start with a cheaper model and escalate on failure.
+ */
+export interface ModelEscalationConfig {
+  /** Whether model escalation is enabled (default: false) */
+  enabled?: boolean;
+
+  /** Starting model — used for first attempt (e.g., "sonnet") */
+  startModel?: string;
+
+  /** Escalated model — used after failure (e.g., "opus") */
+  escalateModel?: string;
+
+  /** Number of failed attempts before escalating (default: 1) */
+  escalateAfter?: number;
+}
+
+export const DEFAULT_MODEL_ESCALATION: Required<ModelEscalationConfig> = {
+  enabled: false,
+  startModel: 'sonnet',
+  escalateModel: 'opus',
+  escalateAfter: 1,
 };
 
 /**

@@ -297,6 +297,10 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   directMerge?: boolean;
   /** Filter tasks by index range (e.g., 1-5, 3-, -10) */
   taskRange?: TaskRangeFilter;
+  /** Override starting model for model escalation */
+  startModel?: string;
+  /** Override escalation model for model escalation */
+  escalateModel?: string;
 }
 
 /**
@@ -492,6 +496,14 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         }
         break;
 
+      case '--auto-commit':
+        options.autoCommit = true;
+        break;
+
+      case '--no-auto-commit':
+        options.autoCommit = false;
+        break;
+
       case '--serial':
       case '--sequential':
         options.serial = true;
@@ -515,6 +527,20 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
 
       case '--direct-merge':
         options.directMerge = true;
+        break;
+
+      case '--start-model':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.startModel = nextArg;
+          i++;
+        }
+        break;
+
+      case '--escalate-model':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.escalateModel = nextArg;
+          i++;
+        }
         break;
 
       case '--task-range':
@@ -572,6 +598,8 @@ Options:
   --prd <path>        PRD file path (auto-switches to json tracker)
   --agent <name>      Override agent plugin (e.g., claude, opencode)
   --model <name>      Override model (e.g., opus, sonnet)
+  --start-model <n>   Starting model for escalation (cheaper, used first)
+  --escalate-model <n> Escalation model (more capable, used after failures)
   --variant <level>   Model variant/reasoning effort (minimal, high, max)
   --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json)
   --prompt <path>     Custom prompt file (default: based on tracker mode)
@@ -594,6 +622,8 @@ Options:
   --sandbox=sandbox-exec  Force sandbox-exec (macOS)
   --no-sandbox        Disable sandboxing
   --no-network        Disable network access in sandbox
+  --auto-commit       Force enable auto-commit after task completion
+  --no-auto-commit    Disable auto-commit after task completion
   --serial            Force sequential execution (default behavior)
   --sequential        Alias for --serial
   --parallel [N]      Force parallel execution with optional max workers (default workers: 3)

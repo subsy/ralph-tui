@@ -6,7 +6,7 @@ started_at: 2026-02-22T00:00:00Z
 # Ralph pattern: Circuit breaker tracking
 no_progress_count: 2
 error_count: 0
-last_completed_step: 0
+last_completed_step: 1
 circuit_breaker: open
 # Learning: Trace tracking
 current_trace_path: null
@@ -28,7 +28,7 @@ Implementing: spec/20260222-engine-improvements
 - 5 iterations with repeated errors → OPEN
 
 When circuit breaker opens, analyze and fix before continuing.
-last_completed_step: 0
+last_completed_step: 1
 0
-last_completed_step: 0
+last_completed_step: 1
 0
