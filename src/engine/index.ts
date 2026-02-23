@@ -60,6 +60,8 @@ import { performAutoCommit } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
+import { runVerification, formatVerificationErrors } from './verification.js';
+import { DEFAULT_VERIFICATION_CONFIG } from '../config/types.js';
 
 /**
  * Pattern to detect completion signal in agent output
@@ -145,7 +147,8 @@ function toMemorySafeAgentResult(agentResult: AgentExecutionResult): AgentExecut
 async function buildPrompt(
   task: TrackerTask,
   config: RalphConfig,
-  tracker?: TrackerPlugin
+  tracker?: TrackerPlugin,
+  verificationErrors?: string
 ): Promise<string> {
   // Load recent progress for context (last 5 iterations)
   const recentProgress = await getRecentProgressSummary(config.cwd, 5);
@@ -165,6 +168,7 @@ async function buildPrompt(
     recentProgress,
     codebasePatterns,
     prd: prdContext ?? undefined,
+    verificationErrors: verificationErrors ?? '',
   };
 
   // Use the template system (tracker template used if no custom/user override)
@@ -242,6 +246,10 @@ export class ExecutionEngine {
   private forcedTask: TrackerTask | null = null;
   /** Track if the forced task has been processed (prevents infinite loop on skip/fail) */
   private forcedTaskProcessed = false;
+  /** Verification errors from the most recent failed verification (injected into next retry prompt) */
+  private lastVerificationErrors: string = '';
+  /** Track verification retry count per task */
+  private verificationRetryMap: Map<string, number> = new Map();
 
   constructor(config: RalphConfig) {
     this.config = config;
@@ -760,6 +768,7 @@ export class ExecutionEngine {
           this.emitSkipEvent(task, skipReason);
           this.skippedTasks.add(task.id);
           this.retryCountMap.delete(task.id);
+          this.verificationRetryMap.delete(task.id);
           // Mark forced task as processed to prevent infinite loop
           if (this.forcedTask?.id === task.id) {
             this.forcedTaskProcessed = true;
@@ -780,6 +789,7 @@ export class ExecutionEngine {
         });
         this.emitSkipEvent(task, errorMessage);
         this.skippedTasks.add(task.id);
+        this.verificationRetryMap.delete(task.id);
         // Mark forced task as processed to prevent infinite loop
         if (this.forcedTask?.id === task.id) {
           this.forcedTaskProcessed = true;
@@ -797,6 +807,7 @@ export class ExecutionEngine {
           task,
           action: 'abort',
         });
+        this.verificationRetryMap.delete(task.id);
         // Mark forced task as processed to prevent infinite loop
         if (this.forcedTask?.id === task.id) {
           this.forcedTaskProcessed = true;
@@ -927,6 +938,12 @@ export class ExecutionEngine {
     // Reset agent switch tracking for this iteration
     this.currentIterationAgentSwitches = [];
 
+    // Clear verification errors if this task has no pending verification retries
+    // (i.e., this is a fresh start or a new task, not a verification retry)
+    if (!this.verificationRetryMap.has(task.id)) {
+      this.lastVerificationErrors = '';
+    }
+
     const startedAt = new Date();
     const iteration = this.state.currentIteration;
 
@@ -956,8 +973,8 @@ export class ExecutionEngine {
       iteration,
     });
 
-    // Build prompt (includes recent progress context + tracker-owned template)
-    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined);
+    // Build prompt (includes recent progress context + tracker-owned template + verification errors)
+    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined, this.lastVerificationErrors || undefined);
 
     // Build agent flags
     const flags: string[] = [];
@@ -1307,7 +1324,57 @@ export class ExecutionEngine {
       // Exit code 0 alone does NOT indicate task completion - an agent may exit
       // cleanly after asking clarification questions or hitting a blocker.
       // See: https://github.com/subsy/ralph-tui/issues/259
-      const taskCompleted = promiseComplete;
+      let taskCompleted = promiseComplete;
+
+      // Run verification gate if task appears complete and verification is enabled
+      if (taskCompleted && this.config.verification?.enabled) {
+        const verifyConfig = { ...DEFAULT_VERIFICATION_CONFIG, ...this.config.verification };
+        const verificationRetries = this.verificationRetryMap.get(task.id) ?? 0;
+
+        this.emit({
+          type: 'verification:started',
+          timestamp: new Date().toISOString(),
+          task,
+          commands: verifyConfig.commands,
+        });
+
+        const verifyResult = await runVerification(this.config.cwd, verifyConfig);
+
+        if (verifyResult.passed) {
+          this.emit({
+            type: 'verification:passed',
+            timestamp: new Date().toISOString(),
+            task,
+            durationMs: verifyResult.durationMs,
+          });
+          // Clear verification state on success
+          this.lastVerificationErrors = '';
+          this.verificationRetryMap.delete(task.id);
+        } else {
+          const retriesRemaining = verifyConfig.maxRetries - verificationRetries;
+          this.emit({
+            type: 'verification:failed',
+            timestamp: new Date().toISOString(),
+            task,
+            failures: verifyResult.results.filter(r => !r.passed).map(r => r.command),
+            retriesRemaining,
+          });
+
+          if (verificationRetries >= verifyConfig.maxRetries) {
+            // Exhausted verification retries — skip the verification gate and mark done
+            this.lastVerificationErrors = '';
+            this.verificationRetryMap.delete(task.id);
+          } else {
+            // Store errors for injection into next retry prompt and suppress completion
+            this.lastVerificationErrors = formatVerificationErrors(verifyResult);
+            this.verificationRetryMap.set(task.id, verificationRetries + 1);
+            taskCompleted = false;
+          }
+        }
+      } else if (!promiseComplete) {
+        // Agent did not signal completion — clear any stale verification state
+        this.lastVerificationErrors = '';
+      }
 
       // Update tracker if task completed
       // In worker mode (forcedTask set), skip tracker update — the ParallelExecutor

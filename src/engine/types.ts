@@ -244,7 +244,10 @@ export type EngineEventType =
   | 'parallel:group-started'
   | 'parallel:group-completed'
   | 'parallel:completed'
-  | 'parallel:failed';
+  | 'parallel:failed'
+  | 'verification:started'
+  | 'verification:passed'
+  | 'verification:failed';
 
 /**
  * Base engine event
@@ -619,6 +622,34 @@ export interface TasksRefreshedEvent extends EngineEventBase {
 }
 
 /**
+ * Verification started event - emitted when post-completion verification begins
+ */
+export interface VerificationStartedEvent extends EngineEventBase {
+  type: 'verification:started';
+  task: TrackerTask;
+  commands: string[];
+}
+
+/**
+ * Verification passed event - emitted when all verification commands succeed
+ */
+export interface VerificationPassedEvent extends EngineEventBase {
+  type: 'verification:passed';
+  task: TrackerTask;
+  durationMs: number;
+}
+
+/**
+ * Verification failed event - emitted when any verification command fails
+ */
+export interface VerificationFailedEvent extends EngineEventBase {
+  type: 'verification:failed';
+  task: TrackerTask;
+  failures: string[];
+  retriesRemaining: number;
+}
+
+/**
  * Union of all engine events
  */
 export type EngineEvent =
@@ -648,7 +679,10 @@ export type EngineEvent =
   | AllAgentsLimitedEvent
   | AgentRecoveryAttemptedEvent
   | AllCompleteEvent
-  | TasksRefreshedEvent;
+  | TasksRefreshedEvent
+  | VerificationStartedEvent
+  | VerificationPassedEvent
+  | VerificationFailedEvent;
 
 /**
  * Event listener function type

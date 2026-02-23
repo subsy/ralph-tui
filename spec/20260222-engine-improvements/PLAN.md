@@ -4,9 +4,9 @@
 Eight improvements to the ralph-tui engine that collectively add verification, cost awareness, smarter model selection, and better completion detection. The theme: Ralph trusts the agent too much — these changes add "trust but verify" guardrails without sacrificing speed.
 
 ## Status
-⬜ Not Started
+🟡 In Progress
 
-**Progress:** 0/8 steps
+**Progress:** 1/8 steps
 **Branch:** feat/engine-improvements
 **Depends on:** None
 
@@ -60,7 +60,7 @@ Step 8 (parallel first-class) ── independent
 
 | # | Step | Status | Dependencies | Complexity |
 |---|------|--------|--------------|------------|
-| 1 | Verification gates | ⬜ | None | M |
+| 1 | Verification gates | ✅ | None | M |
 | 2 | Auto-commit defaults | ⬜ | None | S |
 | 3 | Model escalation strategy | ⬜ | None | M |
 | 4 | Cross-iteration context | ⬜ | None | M |
@@ -145,3 +145,4 @@ Step 8 (parallel first-class) ── independent
 ## Completion Log
 | Step | Completed | Summary |
 |------|-----------|---------|
+| 1 | 2026-02-22 | Verification gates: configurable commands run post-completion, retry with error injection |

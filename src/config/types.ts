@@ -336,6 +336,9 @@ export interface StoredConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Post-completion verification commands configuration */
+  verification?: VerificationConfig;
 }
 
 /**
@@ -398,6 +401,9 @@ export interface RalphConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Post-completion verification commands configuration */
+  verification?: VerificationConfig;
 }
 
 /**
@@ -413,6 +419,31 @@ export interface ConfigValidationResult {
   /** Warning messages (non-fatal) */
   warnings: string[];
 }
+
+/**
+ * Configuration for post-completion verification commands.
+ * Commands run after agent signals completion but before task is marked done.
+ */
+export interface VerificationConfig {
+  /** Whether verification is enabled (default: false) */
+  enabled?: boolean;
+
+  /** Shell commands to run for verification. All must pass (exit code 0). */
+  commands?: string[];
+
+  /** Timeout per command in milliseconds (default: 60000) */
+  timeoutMs?: number;
+
+  /** Maximum verification retries before skipping task (default: 2) */
+  maxRetries?: number;
+}
+
+export const DEFAULT_VERIFICATION_CONFIG: Required<VerificationConfig> = {
+  enabled: false,
+  commands: [],
+  timeoutMs: 60_000, // Valid range: 1000-600000ms
+  maxRetries: 2,
+};
 
 /**
  * Default error handling configuration

@@ -100,6 +100,9 @@ export interface TemplateVariables {
 
   /** Why this task was selected (for beads-bv, includes PageRank info) */
   selectionReason: string;
+
+  /** Verification errors from previous attempt (empty string if none) */
+  verificationErrors: string;
 }
 
 /**

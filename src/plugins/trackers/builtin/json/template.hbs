@@ -47,6 +47,15 @@ We are working in a project to implement the following Product Requirements Docu
 {{recentProgress}}
 {{/if}}
 
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the PRD context above to understand the bigger picture
 2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
