@@ -7,6 +7,7 @@ import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { AgentExecutionResult } from '../plugins/agents/types.js';
 import type { SubagentState as ParserSubagentState } from '../plugins/agents/tracing/types.js';
 import type { TokenUsageSummary } from '../plugins/agents/usage.js';
+import type { DiffSummary } from './diff-summarizer.js';
 
 /**
  * Reason why an agent is currently active.
@@ -189,6 +190,9 @@ export interface IterationResult {
 
   /** Timestamp when iteration ended (ISO 8601) */
   endedAt: string;
+
+  /** Diff summary of changes made during this iteration (captured before auto-commit) */
+  diffSummary?: DiffSummary;
 }
 
 /**

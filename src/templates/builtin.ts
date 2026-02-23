@@ -367,6 +367,13 @@ export const JSON_TEMPLATE = `{{!-- Full PRD for project context (agent studies 
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
 {{#if verificationErrors}}
 
 ## Previous Verification Failures

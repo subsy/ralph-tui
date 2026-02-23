@@ -9,6 +9,7 @@ import type {
   ErrorHandlingConfig,
   ErrorHandlingStrategy,
 } from "../engine/types.js";
+import type { CompletionStrategyName } from "../engine/completion-strategies.js";
 
 /**
  * Rate limit handling configuration for agents.
@@ -351,6 +352,9 @@ export interface StoredConfig {
 
   /** Model escalation configuration */
   modelEscalation?: ModelEscalationConfig;
+
+  /** Completion detection strategy configuration */
+  completion?: CompletionConfig;
 }
 
 /**
@@ -419,6 +423,9 @@ export interface RalphConfig {
 
   /** Model escalation configuration */
   modelEscalation?: ModelEscalationConfig;
+
+  /** Completion detection strategy configuration */
+  completion?: CompletionConfig;
 }
 
 /**
@@ -484,6 +491,14 @@ export const DEFAULT_MODEL_ESCALATION: Required<ModelEscalationConfig> = {
   escalateModel: 'opus',
   escalateAfter: 1,
 };
+
+/**
+ * Completion detection strategy configuration.
+ */
+export interface CompletionConfig {
+  /** Ordered list of strategies to try (default: ['promise-tag']) */
+  strategies?: CompletionStrategyName[];
+}
 
 /**
  * Default error handling configuration

@@ -70,11 +70,9 @@ import { renderPrompt } from '../templates/index.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
 import { runVerification, formatVerificationErrors } from './verification.js';
 import { DEFAULT_VERIFICATION_CONFIG } from '../config/types.js';
-
-/**
- * Pattern to detect completion signal in agent output
- */
-const PROMISE_COMPLETE_PATTERN = /<promise>\s*COMPLETE\s*<\/promise>/i;
+import { generateDiffSummary, formatDiffContext } from './diff-summarizer.js';
+import type { DiffSummary } from './diff-summarizer.js';
+import { detectCompletion } from './completion-strategies.js';
 
 /**
  * Timeout for primary agent recovery test (5 seconds).
@@ -156,7 +154,8 @@ async function buildPrompt(
   task: TrackerTask,
   config: RalphConfig,
   tracker?: TrackerPlugin,
-  verificationErrors?: string
+  verificationErrors?: string,
+  diffContext?: string
 ): Promise<string> {
   // Load recent progress for context (last 5 iterations)
   const recentProgress = await getRecentProgressSummary(config.cwd, 5);
@@ -177,6 +176,7 @@ async function buildPrompt(
     codebasePatterns,
     prd: prdContext ?? undefined,
     verificationErrors: verificationErrors ?? '',
+    diffContext: diffContext ?? '',
   };
 
   // Use the template system (tracker template used if no custom/user override)
@@ -260,6 +260,8 @@ export class ExecutionEngine {
   private verificationRetryMap: Map<string, number> = new Map();
   /** Model escalation state - tracks per-task attempt counts */
   private escalationState: ModelEscalationState = createEscalationState();
+  /** Rolling window of diff summaries from completed iterations (last 5) */
+  private recentDiffSummaries: DiffSummary[] = [];
 
   constructor(config: RalphConfig) {
     this.config = config;
@@ -984,8 +986,9 @@ export class ExecutionEngine {
       iteration,
     });
 
-    // Build prompt (includes recent progress context + tracker-owned template + verification errors)
-    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined, this.lastVerificationErrors || undefined);
+    // Build prompt (includes recent progress context + tracker-owned template + verification errors + diff context)
+    const diffContext = formatDiffContext(this.recentDiffSummaries);
+    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined, this.lastVerificationErrors || undefined, diffContext || undefined);
 
     // Build agent flags
     const flags: string[] = [];
@@ -1352,7 +1355,11 @@ export class ExecutionEngine {
       const durationMs = endedAt.getTime() - startedAt.getTime();
 
       // Check for completion signal
-      const promiseComplete = PROMISE_COMPLETE_PATTERN.test(agentResult.stdout);
+      const completionResult = detectCompletion(
+        agentResult,
+        this.config.completion?.strategies ?? ['promise-tag'],
+      );
+      const promiseComplete = completionResult.completed;
 
       // Determine if task was completed
       // IMPORTANT: Only use the explicit <promise>COMPLETE</promise> signal.
@@ -1441,6 +1448,19 @@ export class ExecutionEngine {
         }
       }
 
+      // Capture diff summary before auto-commit (which stages and commits)
+      let diffSummary: DiffSummary | null = null;
+      if (taskCompleted) {
+        diffSummary = await generateDiffSummary(this.config.cwd);
+        if (diffSummary) {
+          // Maintain rolling window of last 5 diff summaries
+          this.recentDiffSummaries.push(diffSummary);
+          if (this.recentDiffSummaries.length > 5) {
+            this.recentDiffSummaries.shift();
+          }
+        }
+      }
+
       // Auto-commit after task completion (before iteration log is saved)
       if (taskCompleted && this.config.autoCommit) {
         await this.handleAutoCommit(task, iteration);
@@ -1469,6 +1489,7 @@ export class ExecutionEngine {
           : summarizeTokenUsageFromOutput(agentResult.stdout),
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
+        diffSummary: diffSummary ?? undefined,
       };
 
       // Save iteration output to .ralph-tui/iterations/ directory

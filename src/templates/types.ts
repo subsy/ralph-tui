@@ -103,6 +103,9 @@ export interface TemplateVariables {
 
   /** Verification errors from previous attempt (empty string if none) */
   verificationErrors: string;
+
+  /** Structured diff context from previous iterations (files changed/added/deleted) */
+  diffContext: string;
 }
 
 /**

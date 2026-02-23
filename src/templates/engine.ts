@@ -298,6 +298,9 @@ export interface ExtendedTemplateContext {
 
   /** Verification errors from previous attempt (if verification failed) */
   verificationErrors?: string;
+
+  /** Structured diff context from previous iterations */
+  diffContext?: string;
 }
 
 /**
@@ -324,6 +327,7 @@ export function buildTemplateVariables(
   let prdTotalCount = '0';
   let selectionReason = '';
   let verificationErrors = '';
+  let diffContext = '';
 
   if (typeof extended === 'string') {
     recentProgress = extended;
@@ -332,6 +336,7 @@ export function buildTemplateVariables(
     codebasePatterns = extended.codebasePatterns ?? '';
     selectionReason = extended.selectionReason ?? '';
     verificationErrors = extended.verificationErrors ?? '';
+    diffContext = extended.diffContext ?? '';
 
     if (extended.prd) {
       prdName = extended.prd.name;
@@ -387,6 +392,8 @@ export function buildTemplateVariables(
     selectionReason,
     // Verification errors from previous failed verification attempt
     verificationErrors,
+    // Diff context from previous iterations (structured change summary)
+    diffContext,
   };
 }
 
