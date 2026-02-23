@@ -465,6 +465,59 @@ describe('BeadsRustTrackerPlugin', () => {
       expect(tasks[0]?.priority).toBe(4);
     });
 
+    test('sorts tasks in ascending numeric order by id', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'proj-12', title: 'Twelve', status: 'open', priority: 2 },
+            { id: 'proj-2', title: 'Two', status: 'open', priority: 2 },
+            { id: 'proj-1', title: 'One', status: 'open', priority: 2 },
+            { id: 'proj-20', title: 'Twenty', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks();
+
+      expect(tasks.map((t) => t.id)).toEqual(['proj-1', 'proj-2', 'proj-12', 'proj-20']);
+    });
+
+    test('sorts dotted child IDs numerically, not lexicographically', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'epic-5.12', title: 'Child 12', status: 'open', priority: 2 },
+            { id: 'epic-5.2', title: 'Child 2', status: 'open', priority: 2 },
+            { id: 'epic-5.1', title: 'Child 1', status: 'open', priority: 2 },
+            { id: 'epic-5.9', title: 'Child 9', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks();
+
+      // Lexicographic would produce: epic-5.1, epic-5.12, epic-5.2, epic-5.9
+      // Numeric should produce: epic-5.1, epic-5.2, epic-5.9, epic-5.12
+      expect(tasks.map((t) => t.id)).toEqual([
+        'epic-5.1',
+        'epic-5.2',
+        'epic-5.9',
+        'epic-5.12',
+      ]);
+    });
+
     test('enriches dependencies only for tasks that remain after parent filtering', async () => {
       mockSpawnResponses = [
         { exitCode: 0, stdout: 'br version 0.4.1\n' },

@@ -380,7 +380,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
 
     let tasks = tasksJson.map(brTaskToTask);
 
-    // sort so that child issues of form <project>-<parentId>.<issueNumber> will appear in order starting from
+    // sort so that child issues of form <project>-<parentId>.<issueNumber> will appear in ascending numeric order
     tasks.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: "base" }));
 
     // Filter by parent (br list doesn't support --parent)
