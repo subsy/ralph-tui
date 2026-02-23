@@ -306,8 +306,8 @@ export class MergeEngine {
 
     validateGitRef(operation.backupTag, 'backupTag');
     this.git(['reset', '--hard', operation.backupTag]);
-    // Clean untracked files that may have been introduced during the merge
-    this.git(['clean', '-fd']);
+    // Intentionally avoid `git clean -fd` here to prevent deleting untracked
+    // project artifacts such as PRD/task files.
     this.updateStatus(operation, 'rolled-back');
 
     this.emit({
@@ -330,8 +330,8 @@ export class MergeEngine {
 
     validateGitRef(this.sessionStartTag, 'sessionStartTag');
     this.git(['reset', '--hard', this.sessionStartTag]);
-    // Clean untracked files that may have been introduced during merges
-    this.git(['clean', '-fd']);
+    // Intentionally avoid `git clean -fd` here to prevent deleting untracked
+    // project artifacts such as PRD/task files.
 
     // Mark all completed merges as rolled back
     for (const op of this.queue) {
@@ -448,9 +448,9 @@ export class MergeEngine {
       // Abort the merge for now — conflict resolver handles this separately
       this.git(['merge', '--abort']);
 
-      // Rollback to backup and clean any untracked files from the merge attempt
+      // Rollback to backup tag. Avoid `git clean -fd` so untracked project files
+      // (for example tasks/prd.json) are never removed.
       this.git(['reset', '--hard', operation.backupTag]);
-      this.git(['clean', '-fd']);
 
       this.emit({
         type: 'conflict:detected',
@@ -496,12 +496,10 @@ export class MergeEngine {
       startTime
     );
 
-    // Rollback - reset tracked files AND remove any untracked files that were
-    // introduced by the failed merge attempt
+    // Rollback tracked files only. Avoid `git clean -fd` to prevent removing
+    // unrelated untracked artifacts in the repository.
     try {
       this.git(['reset', '--hard', operation.backupTag]);
-      // Remove untracked files that might have been placed during merge
-      this.git(['clean', '-fd']);
     } catch {
       // Best effort rollback
     }

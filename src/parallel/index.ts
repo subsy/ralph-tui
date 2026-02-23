@@ -20,6 +20,7 @@ import type {
   ParallelExecutorState,
   ParallelExecutorStatus,
   TaskGraphAnalysis,
+  WorktreeInfo,
   WorkerDisplayState,
   WorkerResult,
 } from './types.js';
@@ -87,6 +88,12 @@ export class ParallelExecutor {
 
   /** Worker result associated with pending conflict (for re-processing) */
   private pendingConflictWorkerResult: WorkerResult | null = null;
+
+  /**
+   * Worktrees intentionally preserved on cleanup for manual recovery.
+   * These correspond to branches with failed or unmerged results.
+   */
+  private preservedRecoveryWorktrees: WorktreeInfo[] = [];
 
   constructor(
     baseConfig: RalphConfig,
@@ -242,6 +249,7 @@ export class ParallelExecutor {
     this.sessionId = `parallel-${Date.now()}`;
     this.pendingConflictOperation = null;
     this.pendingConflictWorkerResult = null;
+    this.preservedRecoveryWorktrees = [];
   }
 
   /**
@@ -419,6 +427,13 @@ export class ParallelExecutor {
    */
   getOriginalBranch(): string | null {
     return this.mergeEngine.getOriginalBranch();
+  }
+
+  /**
+   * Get worktrees that were intentionally preserved for manual recovery.
+   */
+  getPreservedRecoveryWorktrees(): WorktreeInfo[] {
+    return [...this.preservedRecoveryWorktrees];
   }
 
   /**
@@ -750,10 +765,14 @@ export class ParallelExecutor {
    * Clean up all resources.
    */
   private async cleanup(): Promise<void> {
+    const branchesToPreserve = this.getBranchesToPreserveForRecovery();
     try {
-      await this.worktreeManager.cleanupAll();
+      this.preservedRecoveryWorktrees = await this.worktreeManager.cleanupAll({
+        preserveBranches: branchesToPreserve,
+      });
     } catch {
       // Best effort cleanup
+      this.preservedRecoveryWorktrees = [];
     }
 
     try {
@@ -772,6 +791,39 @@ export class ParallelExecutor {
         // Best effort — user may need to checkout manually
       }
     }
+  }
+
+  /**
+   * Determine which worker branches should be preserved for manual recovery.
+   * Keep any branch that did not merge successfully and contains potentially
+   * useful work (failed execution or unmerged commits).
+   */
+  private getBranchesToPreserveForRecovery(): Set<string> {
+    const mergedBranches = new Set(
+      this.mergeEngine
+        .getQueue()
+        .filter((operation) => operation.status === 'completed')
+        .map((operation) => operation.sourceBranch)
+    );
+
+    const preserveBranches = new Set(
+      this.mergeEngine
+        .getQueue()
+        .filter((operation) => operation.status !== 'completed')
+        .map((operation) => operation.sourceBranch)
+    );
+
+    for (const result of this.completedResults) {
+      if (mergedBranches.has(result.branchName)) {
+        continue;
+      }
+
+      if (!result.success || result.commitCount > 0) {
+        preserveBranches.add(result.branchName);
+      }
+    }
+
+    return preserveBranches;
   }
 
   /**
