@@ -465,7 +465,7 @@ describe('BeadsRustTrackerPlugin', () => {
       expect(tasks[0]?.priority).toBe(4);
     });
 
-    test('sorts tasks in ascending numeric order by id', async () => {
+    test('preserves original order for IDs not matching child ID pattern', async () => {
       mockSpawnResponses = [
         { exitCode: 0, stdout: 'br version 0.4.1\n' },
         {
@@ -473,8 +473,8 @@ describe('BeadsRustTrackerPlugin', () => {
           stdout: JSON.stringify([
             { id: 'proj-12', title: 'Twelve', status: 'open', priority: 2 },
             { id: 'proj-2', title: 'Two', status: 'open', priority: 2 },
-            { id: 'proj-1', title: 'One', status: 'open', priority: 2 },
-            { id: 'proj-20', title: 'Twenty', status: 'open', priority: 2 },
+            { id: 'thing.xyz', title: 'Dotted non-numeric', status: 'open', priority: 2 },
+            { id: 'thing.abj', title: 'Another dotted', status: 'open', priority: 2 },
           ]),
         },
       ];
@@ -485,7 +485,8 @@ describe('BeadsRustTrackerPlugin', () => {
 
       const tasks = await plugin.getTasks();
 
-      expect(tasks.map((t) => t.id)).toEqual(['proj-1', 'proj-2', 'proj-12', 'proj-20']);
+      // Non-child IDs (including dots with non-numeric suffixes) keep original CLI order
+      expect(tasks.map((t) => t.id)).toEqual(['proj-12', 'proj-2', 'thing.xyz', 'thing.abj']);
     });
 
     test('sorts dotted child IDs numerically, not lexicographically', async () => {
