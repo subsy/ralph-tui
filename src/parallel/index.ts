@@ -40,6 +40,11 @@ const DEFAULT_PARALLEL_CONFIG: ParallelExecutorConfig = {
   maxRequeueCount: 1,
 };
 
+interface PendingConflictEntry {
+  operation: MergeOperation;
+  workerResult: WorkerResult;
+}
+
 /**
  * Coordinates parallel execution of independent tasks using git worktrees.
  *
@@ -83,11 +88,8 @@ export class ParallelExecutor {
   /** Track re-queue counts per task to prevent infinite loops */
   private requeueCounts = new Map<string, number>();
 
-  /** Track the operation with pending conflicts for retry/skip */
-  private pendingConflictOperation: MergeOperation | null = null;
-
-  /** Worker result associated with pending conflict (for re-processing) */
-  private pendingConflictWorkerResult: WorkerResult | null = null;
+  /** Pending conflicts that need user-driven retry/skip actions */
+  private pendingConflicts: PendingConflictEntry[] = [];
 
   /**
    * Worktrees intentionally preserved on cleanup for manual recovery.
@@ -162,8 +164,9 @@ export class ParallelExecutor {
    * Returns true if retry was initiated, false if no pending conflict.
    */
   async retryConflictResolution(): Promise<boolean> {
-    const operation = this.pendingConflictOperation;
-    const workerResult = this.pendingConflictWorkerResult;
+    const pending = this.pendingConflicts[0];
+    const operation = pending?.operation;
+    const workerResult = pending?.workerResult;
 
     if (!operation || !workerResult) {
       return false;
@@ -178,9 +181,8 @@ export class ParallelExecutor {
       const allResolved = resolutions.every((r) => r.success);
 
       if (allResolved) {
-        // Success! Clear pending state and mark task as complete
-        this.pendingConflictOperation = null;
-        this.pendingConflictWorkerResult = null;
+        // Success! Remove the resolved pending entry and mark task as complete.
+        this.removePendingConflictByOperationId(operation.id);
 
         try {
           await this.tracker.completeTask(workerResult.task.id);
@@ -191,6 +193,7 @@ export class ParallelExecutor {
         await this.mergeProgressFile(workerResult);
         this.totalConflictsResolved += resolutions.length;
         this.totalMergesCompleted++;
+        this.emitNextPendingConflictIfAny();
         return true;
       }
 
@@ -207,26 +210,33 @@ export class ParallelExecutor {
    * The task's merge will be abandoned (task remains incomplete).
    */
   skipFailedConflict(): void {
-    if (this.pendingConflictOperation) {
-      // Emit an event so the TUI knows to close the conflict panel
-      this.emitParallel({
-        type: 'conflict:resolved',
-        timestamp: new Date().toISOString(),
-        operationId: this.pendingConflictOperation.id,
-        taskId: this.pendingConflictOperation.workerResult.task.id,
-        results: [], // Empty results indicates skip
-      });
+    const pending = this.pendingConflicts.shift();
+    if (!pending) {
+      return;
     }
 
-    this.pendingConflictOperation = null;
-    this.pendingConflictWorkerResult = null;
+    this.markConflictOperationRolledBack(
+      pending.operation.id,
+      'Skipped by user after failed conflict resolution'
+    );
+
+    // Emit an event so the TUI knows to close the conflict panel.
+    this.emitParallel({
+      type: 'conflict:resolved',
+      timestamp: new Date().toISOString(),
+      operationId: pending.operation.id,
+      taskId: pending.workerResult.task.id,
+      results: [],
+    });
+
+    this.emitNextPendingConflictIfAny();
   }
 
   /**
    * Check if there's a pending conflict operation.
    */
   hasPendingConflict(): boolean {
-    return this.pendingConflictOperation !== null;
+    return this.pendingConflicts.length > 0;
   }
 
   /**
@@ -247,8 +257,7 @@ export class ParallelExecutor {
     this.startedAt = null;
     this.requeueCounts.clear();
     this.sessionId = `parallel-${Date.now()}`;
-    this.pendingConflictOperation = null;
-    this.pendingConflictWorkerResult = null;
+    this.pendingConflicts = [];
     this.preservedRecoveryWorktrees = [];
   }
 
@@ -550,10 +559,14 @@ export class ParallelExecutor {
       // Phase 2: Resolve all collected conflicts after all merges attempted
       if (pendingConflicts.length > 0) {
         if (this.shouldStop) {
-          for (const { workerResult } of pendingConflicts) {
+          for (const { operation, workerResult } of pendingConflicts) {
             groupTasksFailed++;
             this.totalTasksFailed++;
             groupMergesFailed++;
+            this.markConflictOperationRolledBack(
+              operation.id,
+              'Parallel execution stopped before conflict resolution'
+            );
             await this.resetTaskToOpen(workerResult.task.id);
           }
           continue;
@@ -564,6 +577,10 @@ export class ParallelExecutor {
             groupTasksFailed++;
             this.totalTasksFailed++;
             groupMergesFailed++;
+            this.markConflictOperationRolledBack(
+              operation.id,
+              'Parallel execution stopped before conflict resolution'
+            );
             await this.resetTaskToOpen(workerResult.task.id);
             continue;
           }
@@ -584,14 +601,7 @@ export class ParallelExecutor {
 
           if (allResolved) {
             // Conflict resolution succeeded - mark task as complete
-            // Only clear pending state if it refers to this conflict (not a different failed one)
-            if (
-              !this.pendingConflictWorkerResult ||
-              this.pendingConflictWorkerResult.task.id === workerResult.task.id
-            ) {
-              this.pendingConflictOperation = null;
-              this.pendingConflictWorkerResult = null;
-            }
+            this.removePendingConflictByOperationId(operation.id);
             try {
               await this.tracker.completeTask(workerResult.task.id);
             } catch {
@@ -606,12 +616,11 @@ export class ParallelExecutor {
             this.totalMergesCompleted++;
           } else {
             // Conflict resolution failed - track for retry/skip
-            this.pendingConflictOperation = operation;
-            this.pendingConflictWorkerResult = workerResult;
+            this.enqueuePendingConflict(operation, workerResult);
             groupTasksFailed++;
             this.totalTasksFailed++;
             groupMergesFailed++;
-            await this.handleMergeFailure(workerResult);
+            await this.handleMergeFailure(workerResult, operation);
           }
         }
       }
@@ -727,12 +736,22 @@ export class ParallelExecutor {
   /**
    * Handle a merge failure by tracking retries and resetting the task to open.
    */
-  private async handleMergeFailure(result: WorkerResult): Promise<void> {
+  private async handleMergeFailure(
+    result: WorkerResult,
+    operation?: MergeOperation
+  ): Promise<void> {
     const taskId = result.task.id;
     const currentCount = this.requeueCounts.get(taskId) ?? 0;
 
     if (currentCount < this.config.maxRequeueCount) {
       this.requeueCounts.set(taskId, currentCount + 1);
+    }
+
+    if (operation?.status === 'conflicted') {
+      this.markConflictOperationRolledBack(
+        operation.id,
+        'Conflict resolution failed; task reset to open'
+      );
     }
 
     await this.resetTaskToOpen(taskId);
@@ -790,6 +809,55 @@ export class ParallelExecutor {
       } catch {
         // Best effort — user may need to checkout manually
       }
+    }
+  }
+
+  private enqueuePendingConflict(
+    operation: MergeOperation,
+    workerResult: WorkerResult
+  ): void {
+    if (this.pendingConflicts.some((entry) => entry.operation.id === operation.id)) {
+      return;
+    }
+    this.pendingConflicts.push({ operation, workerResult });
+  }
+
+  private removePendingConflictByOperationId(operationId: string): void {
+    this.pendingConflicts = this.pendingConflicts.filter(
+      (entry) => entry.operation.id !== operationId
+    );
+  }
+
+  private emitNextPendingConflictIfAny(): void {
+    const next = this.pendingConflicts[0];
+    if (!next) {
+      return;
+    }
+
+    const conflictedFiles = next.operation.conflictedFiles ?? [];
+    this.emitParallel({
+      type: 'conflict:detected',
+      timestamp: new Date().toISOString(),
+      operationId: next.operation.id,
+      taskId: next.workerResult.task.id,
+      conflicts: conflictedFiles.map((filePath) => ({
+        filePath,
+        oursContent: '',
+        theirsContent: '',
+        baseContent: '',
+        conflictMarkers: '',
+      })),
+    });
+  }
+
+  private markConflictOperationRolledBack(
+    operationId: string,
+    reason: string
+  ): void {
+    try {
+      this.mergeEngine.markOperationRolledBack(operationId, reason);
+    } catch {
+      // Best effort state sync.
     }
   }
 

@@ -13,7 +13,7 @@ import type { TrackerTask, TrackerPlugin } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
 import type { ParallelEvent } from './events.js';
 import type { AiResolverCallback } from './conflict-resolver.js';
-import type { WorkerResult, TaskGraphAnalysis } from './types.js';
+import type { MergeOperation, WorkerResult, TaskGraphAnalysis } from './types.js';
 
 /**
  * Helper to create a minimal TrackerTask.
@@ -187,6 +187,25 @@ function createWorkerResult(task: TrackerTask, overrides: Partial<WorkerResult> 
     durationMs: 1000,
     branchName: `ralph-parallel/${task.id}`,
     commitCount: 1,
+    ...overrides,
+  };
+}
+
+/** Create a merge operation for targeted conflict-queue tests. */
+function createMergeOperation(
+  id: string,
+  workerResult: WorkerResult,
+  overrides: Partial<MergeOperation> = {}
+): MergeOperation {
+  return {
+    id,
+    workerResult,
+    status: 'conflicted',
+    backupTag: `ralph/pre-merge/${workerResult.task.id}/${id}`,
+    sourceBranch: workerResult.branchName,
+    commitMessage: `feat(${workerResult.task.id}): ${workerResult.task.title}`,
+    queuedAt: new Date().toISOString(),
+    conflictedFiles: ['src/conflict.ts'],
     ...overrides,
   };
 }
@@ -579,6 +598,97 @@ describe('ParallelExecutor class', () => {
       expect((executor as any).totalTasksCompleted).toBe(0);
       expect((executor as any).totalTasksFailed).toBe(1);
       expect(statusUpdates).toContainEqual({ taskId: 'A', status: 'open' });
+    });
+
+    test('retryConflictResolution processes pending conflicts in FIFO order', async () => {
+      const tracker = createMockTracker();
+      const completedTaskIds: string[] = [];
+      tracker.completeTask = async (taskId) => {
+        completedTaskIds.push(taskId);
+        return { success: true, message: 'Task completed' };
+      };
+
+      const executor = new ParallelExecutor(createMockConfig(), tracker);
+      const events: ParallelEvent[] = [];
+      executor.on((event) => events.push(event));
+
+      const resultA = createWorkerResult(task('A'));
+      const resultB = createWorkerResult(task('B'));
+      const opA = createMergeOperation('op-a', resultA);
+      const opB = createMergeOperation('op-b', resultB);
+
+      (executor as any).pendingConflicts = [
+        { operation: opA, workerResult: resultA },
+        { operation: opB, workerResult: resultB },
+      ];
+      (executor as any).saveTrackerState = async () => new Map();
+      (executor as any).restoreTrackerState = async () => {};
+      (executor as any).mergeProgressFile = async () => {};
+      (executor as any).conflictResolver = {
+        resolveConflicts: async () => [
+          {
+            filePath: 'src/conflict.ts',
+            success: true,
+            method: 'ai',
+            resolvedContent: 'resolved',
+          },
+        ],
+      };
+
+      const retried = await executor.retryConflictResolution();
+
+      expect(retried).toBe(true);
+      expect(completedTaskIds).toEqual(['A']);
+      expect((executor as any).pendingConflicts).toHaveLength(1);
+      expect((executor as any).pendingConflicts[0].operation.id).toBe('op-b');
+      const detectedEvent = events.find(
+        (event) =>
+          event.type === 'conflict:detected' &&
+          event.operationId === 'op-b'
+      );
+      expect(detectedEvent?.type).toBe('conflict:detected');
+    });
+
+    test('skipFailedConflict marks current conflict rolled back and advances queue', () => {
+      const executor = new ParallelExecutor(createMockConfig(), createMockTracker());
+      const events: ParallelEvent[] = [];
+      executor.on((event) => events.push(event));
+
+      const resultA = createWorkerResult(task('A'));
+      const resultB = createWorkerResult(task('B'));
+      const opA = createMergeOperation('op-a', resultA);
+      const opB = createMergeOperation('op-b', resultB);
+
+      (executor as any).pendingConflicts = [
+        { operation: opA, workerResult: resultA },
+        { operation: opB, workerResult: resultB },
+      ];
+
+      const rolledBackOperationIds: string[] = [];
+      (executor as any).mergeEngine = {
+        markOperationRolledBack: (operationId: string) => {
+          rolledBackOperationIds.push(operationId);
+          return true;
+        },
+      };
+
+      executor.skipFailedConflict();
+
+      expect(rolledBackOperationIds).toEqual(['op-a']);
+      expect((executor as any).pendingConflicts).toHaveLength(1);
+      expect((executor as any).pendingConflicts[0].operation.id).toBe('op-b');
+      const resolvedEvent = events.find(
+        (event) =>
+          event.type === 'conflict:resolved' &&
+          event.operationId === 'op-a'
+      );
+      expect(resolvedEvent?.type).toBe('conflict:resolved');
+      const detectedEvent = events.find(
+        (event) =>
+          event.type === 'conflict:detected' &&
+          event.operationId === 'op-b'
+      );
+      expect(detectedEvent?.type).toBe('conflict:detected');
     });
   });
 });

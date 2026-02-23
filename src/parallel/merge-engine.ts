@@ -321,6 +321,34 @@ export class MergeEngine {
   }
 
   /**
+   * Mark a merge operation as rolled back without touching git state.
+   * Use this when the merge attempt was already reset/aborted earlier.
+   *
+   * @returns true when an operation was updated, false when no update was needed
+   */
+  markOperationRolledBack(operationId: string, reason: string): boolean {
+    const operation = this.queue.find((op) => op.id === operationId);
+    if (!operation) {
+      return false;
+    }
+
+    if (operation.status === 'completed' || operation.status === 'rolled-back') {
+      return false;
+    }
+
+    this.updateStatus(operation, 'rolled-back');
+    this.emit({
+      type: 'merge:rolled-back',
+      timestamp: new Date().toISOString(),
+      operationId: operation.id,
+      taskId: operation.workerResult.task.id,
+      backupTag: operation.backupTag,
+      reason,
+    });
+    return true;
+  }
+
+  /**
    * Rollback all merges in this session to the session start point.
    */
   rollbackSession(): void {
