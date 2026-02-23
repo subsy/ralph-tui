@@ -154,7 +154,7 @@ Description:
     - Creates an epic bead for the feature
     - Creates child beads for each user story
     - Sets up dependencies based on story order or explicit deps
-    - Applies the 'ralph' label plus any configured/CLI labels
+    - Applies any configured/CLI labels to created beads
     - Runs bd sync after creation
     - Displays all created bead IDs
 
@@ -239,9 +239,7 @@ async function convertToBeads(
 ): Promise<BeadsConversionResult> {
   const storyIds: string[] = [];
 
-  // Ensure 'ralph' label is always included
-  const allLabels = ['ralph', ...labels.filter((l) => l !== 'ralph')];
-  const labelsStr = allLabels.join(',');
+  const labelsStr = labels.join(',');
 
   // Step 1: Create the epic bead
   printInfo('Creating epic bead...');
@@ -250,7 +248,7 @@ async function convertToBeads(
     '--type', 'epic',
     '--title', parsed.name,
     '--description', parsed.description,
-    '--labels', labelsStr,
+    ...(labelsStr ? ['--labels', labelsStr] : []),
     '--priority', '1',
     '--silent',
   ];
@@ -298,7 +296,7 @@ async function convertToBeads(
       '--type', 'task',
       '--title', `${story.id}: ${story.title}`,
       '--description', description,
-      '--labels', labelsStr,
+      ...(labelsStr ? ['--labels', labelsStr] : []),
       '--priority', String(story.priority),
       '--parent', epicId,
       '--silent',

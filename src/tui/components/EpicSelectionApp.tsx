@@ -37,13 +37,7 @@ export function EpicSelectionApp({
   const [error, setError] = useState<string | undefined>();
 
   // Extract configured labels from tracker if available (for empty state guidance)
-  const configuredLabels = (() => {
-    const trackerWithLabels = tracker as { getConfiguredLabels?: () => string[] };
-    if (typeof trackerWithLabels.getConfiguredLabels === 'function') {
-      return trackerWithLabels.getConfiguredLabels();
-    }
-    return [];
-  })();
+  const configuredLabels = tracker.getConfiguredLabels?.() ?? [];
 
   // Load epics on mount
   useEffect(() => {

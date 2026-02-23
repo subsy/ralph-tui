@@ -384,6 +384,13 @@ export interface TrackerPlugin {
   } | null>;
 
   /**
+   * Get the labels configured for this tracker instance.
+   * Used by the UI to display label filter context.
+   * @returns Array of configured label strings, or empty array if none
+   */
+  getConfiguredLabels?(): string[];
+
+  /**
    * Get paths to state files that should be preserved during git merges.
    * Used by parallel execution to prevent worker branches from overwriting
    * tracker state (e.g., task completion status) during merge operations.

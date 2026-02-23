@@ -377,9 +377,9 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
       // Apply label filter if configured
       const labels = this.getLabels();
       if (filter?.labels && filter.labels.length > 0) {
-        args.push('--label', filter.labels[0]!);
+        args.push('--label', filter.labels.join(','));
       } else if (labels.length > 0) {
-        args.push('--label', labels[0]!);
+        args.push('--label', labels.join(','));
       }
 
       const { stdout, exitCode, stderr } = await execBv(args, this.getWorkingDir());
@@ -516,7 +516,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     const args = ['--robot-triage'];
     const labels = this.getLabels();
     if (labels.length > 0) {
-      args.push('--label', labels[0]!);
+      args.push('--label', labels.join(','));
     }
 
     const { stdout, exitCode } = await execBv(args, this.getWorkingDir());

@@ -832,6 +832,13 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
   }
 
   /**
+   * Get the labels configured for this tracker instance.
+   */
+  getConfiguredLabels(): string[] {
+    return this.labels;
+  }
+
+  /**
    * Get the prompt template for the beads-rust tracker.
    * Returns the embedded template to avoid path resolution issues in bundled environments.
    * See: https://github.com/subsy/ralph-tui/issues/248

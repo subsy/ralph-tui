@@ -210,23 +210,24 @@ Transform any complex PRD structure (phases, milestones, etc.) into a FLAT list 
 
 /**
  * Build the labels instruction appended to the beads skill prompt.
- * Deduplicates labels case-insensitively and always includes 'ralph'.
+ * Deduplicates labels case-insensitively, preserving first occurrence casing.
  * Returns an empty string when no labels are configured.
  * @internal Exported for testing
  */
 export function buildBeadsLabelsInstruction(trackerLabels?: string[]): string {
   if (!trackerLabels || trackerLabels.length === 0) return '';
 
-  const seen = new Set<string>(['ralph']);
-  const allLabels = ['ralph'];
+  const seen = new Set<string>();
+  const uniqueLabels: string[] = [];
   for (const l of trackerLabels) {
     const key = l.toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
-      allLabels.push(l);
+      uniqueLabels.push(l);
     }
   }
-  const labelsStr = allLabels.join(',');
+  if (uniqueLabels.length === 0) return '';
+  const labelsStr = uniqueLabels.join(',');
   return `
 
 IMPORTANT: Apply these labels to EVERY issue created (epic and all child tasks):

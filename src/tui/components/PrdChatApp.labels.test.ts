@@ -18,33 +18,22 @@ describe('buildBeadsLabelsInstruction', () => {
     expect(buildBeadsLabelsInstruction([])).toBe('');
   });
 
-  test('always includes ralph as first label', () => {
+  test('uses only configured labels without auto-inserting extras', () => {
     const result = buildBeadsLabelsInstruction(['frontend']);
-    expect(result).toContain('--labels "ralph,frontend"');
-  });
-
-  test('deduplicates ralph case-insensitively', () => {
-    const result = buildBeadsLabelsInstruction(['Ralph', 'frontend']);
-    expect(result).toContain('--labels "ralph,frontend"');
-    expect(result).not.toContain('Ralph');
-  });
-
-  test('deduplicates RALPH uppercase variant', () => {
-    const result = buildBeadsLabelsInstruction(['RALPH', 'backend']);
-    expect(result).toContain('--labels "ralph,backend"');
-    expect(result).not.toContain('RALPH');
+    expect(result).toContain('--labels "frontend"');
   });
 
   test('deduplicates among user labels case-insensitively', () => {
     const result = buildBeadsLabelsInstruction(['Frontend', 'frontend', 'FRONTEND']);
-    expect(result).toContain('--labels "ralph,Frontend"');
+    expect(result).toContain('--labels "Frontend"');
     // Only the first occurrence is kept
     expect(result.match(/frontend/gi)?.length).toBe(1);
   });
 
   test('preserves original casing of first occurrence', () => {
     const result = buildBeadsLabelsInstruction(['MyLabel', 'mylabel']);
-    expect(result).toContain('ralph,MyLabel');
+    expect(result).toContain('MyLabel');
+    expect(result.match(/mylabel/gi)?.length).toBe(1);
   });
 
   test('includes instruction text for bd/br create', () => {
@@ -55,11 +44,11 @@ describe('buildBeadsLabelsInstruction', () => {
 
   test('handles multiple unique labels', () => {
     const result = buildBeadsLabelsInstruction(['frontend', 'backend', 'sprint-1']);
-    expect(result).toContain('--labels "ralph,frontend,backend,sprint-1"');
+    expect(result).toContain('--labels "frontend,backend,sprint-1"');
   });
 
-  test('handles label that is exactly ralph (lowercase)', () => {
-    const result = buildBeadsLabelsInstruction(['ralph', 'other']);
+  test('handles duplicate labels with different casing', () => {
+    const result = buildBeadsLabelsInstruction(['ralph', 'Ralph', 'other']);
     expect(result).toContain('--labels "ralph,other"');
     // ralph should appear exactly once in the labels string
     const match = result.match(/--labels "([^"]+)"/);

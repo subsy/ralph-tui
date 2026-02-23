@@ -1402,4 +1402,24 @@ describe('BeadsRustTrackerPlugin', () => {
       ]);
     });
   });
+
+  // ── getConfiguredLabels ────────────────────────────────────────────
+
+  describe('getConfiguredLabels', () => {
+    test('returns configured labels', async () => {
+      mockSpawnResponses = [{ exitCode: 0, stdout: 'br version 0.4.1\n' }];
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test', labels: 'a,b,c' });
+
+      expect(plugin.getConfiguredLabels()).toEqual(['a', 'b', 'c']);
+    });
+
+    test('returns empty array when no labels configured', async () => {
+      mockSpawnResponses = [{ exitCode: 0, stdout: 'br version 0.4.1\n' }];
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+
+      expect(plugin.getConfiguredLabels()).toEqual([]);
+    });
+  });
 });
