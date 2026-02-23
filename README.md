@@ -119,6 +119,13 @@ ralph-tui run --sandbox
 
 # Use a bundled color theme by name
 ralph-tui run --theme dracula
+
+# Model escalation: start cheap, escalate on failure
+ralph-tui run --start-model sonnet --escalate-model opus
+
+# Auto-commit control (auto-commit is on by default)
+ralph-tui run --no-auto-commit   # disable auto-commit
+ralph-tui run --auto-commit      # explicitly enable (default)
 ```
 
 ### Create PRD Options
@@ -168,6 +175,74 @@ ralph-tui create-prd --output ./docs
 - Remote connection info (when viewing remote tabs)
 
 See the [full CLI reference](https://ralph-tui.com/docs/cli/overview) for all options.
+
+## Advanced Configuration
+
+Configure these options in `.ralph-tui/config.toml` or `~/.config/ralph-tui/config.toml`.
+
+### Post-Completion Verification
+
+Run shell commands after the agent signals completion. If a command fails, Ralph injects the error into the next retry prompt.
+
+```toml
+[verification]
+enabled = true
+commands = ["bun run typecheck", "bun test"]
+timeoutMs = 60000   # per command (default: 60s)
+maxRetries = 2      # before skipping task (default: 2)
+```
+
+### Model Escalation
+
+Start with a cheaper model and automatically escalate to a more capable one after failures.
+
+```toml
+[modelEscalation]
+enabled = true
+startModel = "sonnet"    # initial model
+escalateModel = "opus"   # used after escalateAfter failures
+escalateAfter = 1        # failed attempts before escalating (default: 1)
+```
+
+Or via CLI: `ralph-tui run --start-model sonnet --escalate-model opus`
+
+### Completion Detection Strategies
+
+Control how Ralph detects when an agent has finished a task.
+
+```toml
+[completion]
+# Ordered list: first strategy that matches wins
+# Options: "promise-tag" | "relaxed-tag" | "heuristic"
+strategies = ["promise-tag", "relaxed-tag"]
+```
+
+### Cost Tracking
+
+Track token usage per session. Optionally configure model pricing (in USD per 1M tokens) to enable dollar-cost estimates. **No pricing is built in** — you supply values so they stay current.
+
+```toml
+[cost]
+enabled = true
+alertThreshold = 5.0   # pause if session cost exceeds $5 (default: 0 = no limit)
+
+[cost.pricing]
+"claude-opus-4-6"    = { inputPer1M = 5.0,  outputPer1M = 25.0 }
+"claude-sonnet-4-6"  = { inputPer1M = 3.0,  outputPer1M = 15.0 }
+"claude-haiku-4-5"   = { inputPer1M = 0.80, outputPer1M = 4.0  }
+```
+
+Token counts are always tracked regardless of whether pricing is configured.
+
+### Auto-Commit
+
+Auto-commit changed files after each successful task (enabled by default as of this version).
+
+```toml
+autoCommit = true   # default; set to false to disable
+```
+
+> **Migration note:** `autoCommit` defaults to `true` starting from this version (previously `false`). If your workflow depends on committing manually, add `autoCommit = false` to your config, or use `--no-auto-commit` on the CLI.
 
 ### Custom Themes
 

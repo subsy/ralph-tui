@@ -63,6 +63,9 @@ function shellEscape(s: string): string {
   return s.replace(/'/g, "'\\''");
 }
 
+/** Shell metacharacters that could enable command injection. */
+const SHELL_METACHAR_RE = /[;&|><`$\\{}()!]/;
+
 /**
  * Convert executable AC into verification commands.
  */
@@ -70,6 +73,10 @@ export function acToVerificationCommands(acs: ExecutableAC[]): string[] {
   return acs.map(ac => {
     switch (ac.type) {
       case 'command':
+        // Reject commands containing shell metacharacters to prevent injection.
+        // Acceptance criteria come from user-authored task files but may be
+        // processed by AI agents, so we enforce a conservative allowlist.
+        if (SHELL_METACHAR_RE.test(ac.assertion)) return '';
         return ac.assertion;
       case 'file-exists':
         return `test -e '${shellEscape(ac.assertion)}'`;

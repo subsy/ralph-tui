@@ -265,10 +265,11 @@ export class ExecutionEngine {
   /** Rolling window of diff summaries from completed iterations (last 5) */
   private recentDiffSummaries: DiffSummary[] = [];
   /** Cost tracker for cumulative session cost estimation */
-  private costTracker: CostTracker = new CostTracker();
+  private costTracker: CostTracker;
 
   constructor(config: RalphConfig) {
     this.config = config;
+    this.costTracker = new CostTracker(config.cost?.pricing);
     this.state = {
       status: 'idle',
       currentIteration: 0,

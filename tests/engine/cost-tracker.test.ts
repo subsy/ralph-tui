@@ -1,22 +1,32 @@
 /**
  * ABOUTME: Tests for the CostTracker class.
- * Verifies model-aware pricing, accumulation, threshold detection, and formatting.
+ * Verifies user-supplied pricing, accumulation, threshold detection, and formatting.
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { CostTracker } from '../../src/engine/cost-tracker.js';
+import { CostTracker, type ModelPricing } from '../../src/engine/cost-tracker.js';
+
+// Example pricing — mirrors what a user would configure in ralph.config.toml
+const TEST_PRICING: Record<string, ModelPricing> = {
+  'opus': { inputPer1M: 5.0, outputPer1M: 25.0 },
+  'claude-opus-4-6': { inputPer1M: 5.0, outputPer1M: 25.0 },
+  'sonnet': { inputPer1M: 3.0, outputPer1M: 15.0 },
+  'claude-sonnet-4-6': { inputPer1M: 3.0, outputPer1M: 15.0 },
+  'haiku': { inputPer1M: 0.80, outputPer1M: 4.0 },
+  'claude-haiku-4-5': { inputPer1M: 0.80, outputPer1M: 4.0 },
+};
 
 describe('CostTracker', () => {
   let tracker: CostTracker;
 
   beforeEach(() => {
-    tracker = new CostTracker();
+    tracker = new CostTracker(TEST_PRICING);
   });
 
-  it('opus pricing: 1M input tokens = $15.00', () => {
+  it('opus pricing: 1M input tokens = $5.00', () => {
     tracker.addIteration(1_000_000, 0, 'claude-opus-4-6');
     const snapshot = tracker.getSnapshot();
-    expect(snapshot.inputCost).toBeCloseTo(15.0);
+    expect(snapshot.inputCost).toBeCloseTo(5.0);
   });
 
   it('sonnet pricing: 1M input tokens = $3.00', () => {
@@ -31,17 +41,27 @@ describe('CostTracker', () => {
     expect(snapshot.inputCost).toBeCloseTo(0.8);
   });
 
-  it('unknown model falls back to sonnet pricing', () => {
+  it('unknown model returns zero cost when no matching pricing entry', () => {
     tracker.addIteration(1_000_000, 0, 'unknown-model-xyz');
     const snapshot = tracker.getSnapshot();
-    // Sonnet input: $3.00 per 1M
-    expect(snapshot.inputCost).toBeCloseTo(3.0);
+    expect(snapshot.inputCost).toBe(0);
+    expect(snapshot.totalCost).toBe(0);
   });
 
-  it('undefined model falls back to sonnet pricing', () => {
+  it('undefined model returns zero cost', () => {
     tracker.addIteration(1_000_000, 0, undefined);
     const snapshot = tracker.getSnapshot();
-    expect(snapshot.inputCost).toBeCloseTo(3.0);
+    expect(snapshot.inputCost).toBe(0);
+    expect(snapshot.totalCost).toBe(0);
+  });
+
+  it('no pricing configured: all costs are zero, tokens still tracked', () => {
+    const unpricedTracker = new CostTracker();
+    unpricedTracker.addIteration(100_000, 50_000, 'claude-opus-4-6');
+    const snapshot = unpricedTracker.getSnapshot();
+    expect(snapshot.totalCost).toBe(0);
+    expect(snapshot.totalInputTokens).toBe(100_000);
+    expect(snapshot.totalOutputTokens).toBe(50_000);
   });
 
   it('multiple iterations accumulate correctly', () => {
@@ -74,10 +94,10 @@ describe('CostTracker', () => {
     expect(tracker.getSnapshot().totalCost).toBe(0);
   });
 
-  it('matches prefix model identifiers (e.g. "opus" prefix matches opus pricing)', () => {
+  it('matches substring model identifiers (e.g. "opus" in model name)', () => {
     tracker.addIteration(1_000_000, 0, 'opus');
     const snapshot = tracker.getSnapshot();
-    expect(snapshot.inputCost).toBeCloseTo(15.0);
+    expect(snapshot.inputCost).toBeCloseTo(5.0);
   });
 
   it('snapshot is a copy (mutation does not affect tracker state)', () => {

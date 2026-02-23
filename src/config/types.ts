@@ -506,6 +506,17 @@ export interface CostConfig {
   enabled?: boolean;
   /** Cost threshold in USD that triggers a pause (default: 0 = no limit) */
   alertThreshold?: number;
+  /**
+   * Model pricing in USD per 1M tokens. No built-in defaults are provided —
+   * configure this to enable dollar-cost estimation. Token counts are always tracked.
+   *
+   * @example
+   * [cost.pricing]
+   * "claude-opus-4-6" = { inputPer1M = 5.0, outputPer1M = 25.0 }
+   * "claude-sonnet-4-6" = { inputPer1M = 3.0, outputPer1M = 15.0 }
+   * "claude-haiku-4-5" = { inputPer1M = 0.80, outputPer1M = 4.0 }
+   */
+  pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
 }
 
 /**

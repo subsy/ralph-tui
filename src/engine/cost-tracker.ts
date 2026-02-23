@@ -1,22 +1,13 @@
 /**
  * ABOUTME: Tracks cumulative token cost per session.
- * Uses model pricing lookup to estimate costs from token usage.
+ * Accepts user-supplied model pricing to estimate costs from token usage.
+ * No built-in pricing table — configure via CostConfig.pricing to avoid stale data.
  */
 
 export interface ModelPricing {
   inputPer1M: number;
   outputPer1M: number;
 }
-
-// Pricing in USD per 1M tokens (update as needed)
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  'opus': { inputPer1M: 15.0, outputPer1M: 75.0 },
-  'claude-opus-4-6': { inputPer1M: 15.0, outputPer1M: 75.0 },
-  'sonnet': { inputPer1M: 3.0, outputPer1M: 15.0 },
-  'claude-sonnet-4-6': { inputPer1M: 3.0, outputPer1M: 15.0 },
-  'haiku': { inputPer1M: 0.80, outputPer1M: 4.0 },
-  'claude-haiku-4-5': { inputPer1M: 0.80, outputPer1M: 4.0 },
-};
 
 export interface CostSnapshot {
   totalCost: number;
@@ -28,6 +19,7 @@ export interface CostSnapshot {
 }
 
 export class CostTracker {
+  private pricing: Record<string, ModelPricing>;
   private snapshot: CostSnapshot = {
     totalCost: 0,
     inputCost: 0,
@@ -37,10 +29,19 @@ export class CostTracker {
     iterationCosts: [],
   };
 
+  /**
+   * @param pricing Optional model pricing map. When omitted, token counts are
+   *   tracked but dollar costs remain 0. Configure via `cost.pricing` in your
+   *   ralph.config.toml to enable cost estimation.
+   */
+  constructor(pricing: Record<string, ModelPricing> = {}) {
+    this.pricing = pricing;
+  }
+
   addIteration(inputTokens: number, outputTokens: number, model?: string): number {
     const pricing = this.getPricing(model);
-    const inputCost = (inputTokens / 1_000_000) * pricing.inputPer1M;
-    const outputCost = (outputTokens / 1_000_000) * pricing.outputPer1M;
+    const inputCost = pricing ? (inputTokens / 1_000_000) * pricing.inputPer1M : 0;
+    const outputCost = pricing ? (outputTokens / 1_000_000) * pricing.outputPer1M : 0;
     const iterationCost = inputCost + outputCost;
 
     this.snapshot.totalCost += iterationCost;
@@ -61,12 +62,12 @@ export class CostTracker {
     return `$${this.snapshot.totalCost.toFixed(4)}`;
   }
 
-  private getPricing(model?: string): ModelPricing {
-    if (!model) return MODEL_PRICING['sonnet']; // safe default
-    // Try exact match, then prefix match
-    const key = Object.keys(MODEL_PRICING).find(
-      k => model === k || model.startsWith(k) || model.includes(k)
-    );
-    return key ? MODEL_PRICING[key] : MODEL_PRICING['sonnet'];
+  private getPricing(model?: string): ModelPricing | null {
+    if (!model || Object.keys(this.pricing).length === 0) return null;
+    // Exact match first
+    if (this.pricing[model]) return this.pricing[model];
+    // Substring match: find a key whose name appears in the model string
+    const key = Object.keys(this.pricing).find(k => model.includes(k));
+    return key ? this.pricing[key] : null;
   }
 }

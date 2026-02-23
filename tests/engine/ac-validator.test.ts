@@ -78,7 +78,7 @@ describe('acToVerificationCommands', () => {
 
   it('converts file-exists type to test -e shell command', () => {
     const acs = [{ original: '', type: 'file-exists' as const, assertion: 'src/__tests__/' }];
-    expect(acToVerificationCommands(acs)).toEqual(['test -e "src/__tests__/"']);
+    expect(acToVerificationCommands(acs)).toEqual(["test -e 'src/__tests__/'"]);
   });
 
   it('filters out empty strings', () => {
@@ -118,5 +118,18 @@ describe('getAcVerificationCommands', () => {
     };
     const result = getAcVerificationCommands(metadata);
     expect(result).toEqual(['bun test']);
+  });
+});
+
+describe('acToVerificationCommands - security', () => {
+  it('rejects commands containing shell metacharacters (injection prevention)', () => {
+    const acs = [
+      { original: '', type: 'command' as const, assertion: 'bun test; rm -rf /' },
+      { original: '', type: 'command' as const, assertion: 'bun test && evil' },
+      { original: '', type: 'command' as const, assertion: 'bun test | tee /dev/null' },
+      { original: '', type: 'command' as const, assertion: 'bun test' }, // safe
+    ];
+    const result = acToVerificationCommands(acs);
+    expect(result).toEqual(['bun test']); // only the safe command passes through
   });
 });
