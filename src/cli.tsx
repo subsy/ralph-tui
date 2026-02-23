@@ -23,17 +23,17 @@ import {
   executeSkillsCommand,
   executeRemoteCommand,
 } from './commands/index.js';
-import { compareSemverStrings } from './setup/migration.js';
+import { checkBunVersion } from './utils/validation.js';
 
 /** Minimum bun version required to run ralph-tui. */
 const MIN_BUN_VERSION = '1.3.6';
 
-if (typeof Bun !== 'undefined' && compareSemverStrings(Bun.version, MIN_BUN_VERSION) < 0) {
-  console.error(
-    `ralph-tui requires Bun >= ${MIN_BUN_VERSION}, but you are running Bun ${Bun.version}.\n` +
-      `Please upgrade: https://bun.sh/docs/installation`,
-  );
-  process.exit(1);
+if (typeof Bun !== 'undefined') {
+  const versionError = checkBunVersion(Bun.version, MIN_BUN_VERSION);
+  if (versionError) {
+    console.error(versionError);
+    process.exit(1);
+  }
 }
 
 /**
