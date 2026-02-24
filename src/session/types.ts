@@ -104,6 +104,9 @@ export interface SessionCheckResult {
  * Options for creating a new session
  */
 export interface CreateSessionOptions {
+  /** Optional pre-generated session identifier */
+  sessionId?: string;
+
   /** Agent plugin being used */
   agentPlugin: string;
 
@@ -124,4 +127,10 @@ export interface CreateSessionOptions {
 
   /** Working directory */
   cwd: string;
+
+  /**
+   * Skip lock acquisition inside createSession.
+   * Used when lock was already acquired by a higher-level orchestrator.
+   */
+  lockAlreadyAcquired?: boolean;
 }

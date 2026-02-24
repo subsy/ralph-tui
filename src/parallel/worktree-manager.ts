@@ -10,6 +10,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { WorktreeInfo, WorktreeManagerConfig } from './types.js';
 
+export interface CleanupAllOptions {
+  /**
+   * Branches that should be preserved for manual recovery.
+   * Matching worktrees are left intact on disk and their branches are not deleted.
+   */
+  preserveBranches?: ReadonlySet<string>;
+}
+
 /**
  * Sanitize a task ID into a valid git branch name.
  * Removes/replaces invalid characters and ensures the result is safe for git.
@@ -228,10 +236,17 @@ export class WorktreeManager {
    * Remove all worktrees and their branches.
    * Called at session end or during cleanup.
    */
-  async cleanupAll(): Promise<void> {
+  async cleanupAll(options?: CleanupAllOptions): Promise<WorktreeInfo[]> {
     const errors: string[] = [];
+    const preserved: WorktreeInfo[] = [];
+    const preserveBranches = options?.preserveBranches ?? new Set<string>();
 
-    for (const [id, info] of this.worktrees) {
+    for (const [id, info] of this.worktrees.entries()) {
+      if (preserveBranches.has(info.branch)) {
+        preserved.push(info);
+        continue;
+      }
+
       try {
         await this.removeWorktree(info);
       } catch (err) {
@@ -262,6 +277,8 @@ export class WorktreeManager {
         `Worktree cleanup had ${errors.length} error(s):\n${errors.join('\n')}`
       );
     }
+
+    return preserved;
   }
 
   /**

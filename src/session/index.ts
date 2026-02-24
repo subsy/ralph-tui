@@ -8,11 +8,12 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   readFile,
-  writeFile,
   unlink,
   mkdir,
   access,
   constants,
+  open,
+  type FileHandle,
 } from 'node:fs/promises';
 import type {
   LockFile,
@@ -21,6 +22,7 @@ import type {
   CreateSessionOptions,
   SessionStatus,
 } from './types.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 /**
  * Directory for session data (relative to cwd)
@@ -167,7 +169,7 @@ export async function acquireLock(
     return false;
   }
 
-  // Write our lock file
+  // Write our lock file (atomic via O_EXCL).
   const lock: LockFile = {
     pid: process.pid,
     sessionId,
@@ -176,8 +178,38 @@ export async function acquireLock(
     hostname: hostname(),
   };
 
-  await writeFile(lockPath, JSON.stringify(lock, null, 2));
-  return true;
+  let handle: FileHandle | null = null;
+  let shouldCleanupPartialLock = false;
+  let writeError: unknown = null;
+  try {
+    handle = await open(lockPath, 'wx');
+    await handle.writeFile(JSON.stringify(lock, null, 2), 'utf-8');
+    await handle.sync();
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      return false;
+    }
+    shouldCleanupPartialLock = handle !== null;
+    writeError = error;
+  } finally {
+    if (handle) {
+      await handle.close();
+    }
+    if (shouldCleanupPartialLock) {
+      try {
+        await unlink(lockPath);
+      } catch {
+        // Best effort cleanup for partial lock file.
+      }
+    }
+  }
+
+  if (writeError) {
+    throw writeError;
+  }
+
+  return false;
 }
 
 /**
@@ -219,7 +251,7 @@ export async function createSession(
 
   const now = new Date().toISOString();
   const session: SessionMetadata = {
-    id: randomUUID(),
+    id: options.sessionId ?? randomUUID(),
     status: 'running',
     startedAt: now,
     updatedAt: now,
@@ -234,10 +266,28 @@ export async function createSession(
     cwd: options.cwd,
   };
 
-  await saveSession(session);
+  // Acquire lock unless caller already acquired it at a higher level.
+  let lockAcquiredHere = false;
+  if (!options.lockAlreadyAcquired) {
+    const acquired = await acquireLock(options.cwd, session.id);
+    if (!acquired) {
+      throw new Error('Unable to acquire session lock');
+    }
+    lockAcquiredHere = true;
+  }
 
-  // Acquire lock
-  await acquireLock(options.cwd, session.id);
+  try {
+    await saveSession(session);
+  } catch (error) {
+    if (lockAcquiredHere) {
+      try {
+        await releaseLock(options.cwd);
+      } catch {
+        // Best effort cleanup for lock acquired in this function.
+      }
+    }
+    throw error;
+  }
 
   return session;
 }
@@ -254,7 +304,7 @@ export async function saveSession(session: SessionMetadata): Promise<void> {
     updatedAt: new Date().toISOString(),
   };
 
-  await writeFile(sessionPath, JSON.stringify(updated, null, 2));
+  await writeJsonAtomic(sessionPath, updated);
 }
 
 /**

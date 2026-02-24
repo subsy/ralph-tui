@@ -325,6 +325,12 @@ export interface ParallelExecutorConfig {
   directMerge?: boolean;
 
   /**
+   * Optional explicit branch name to create for session-based parallel merges.
+   * Ignored when directMerge is true.
+   */
+  sessionBranchName?: string;
+
+  /**
    * Optional list of task IDs to execute. When provided, only tasks with these
    * IDs will be executed, filtering out any others returned by the tracker.
    * Used for --task-range filtering.
@@ -336,6 +342,7 @@ export interface ParallelExecutorConfig {
  * Status of the overall parallel executor.
  * - 'idle': Not started
  * - 'analyzing': Running task graph analysis
+ * - 'paused': Execution paused between scheduling steps
  * - 'executing': Workers are running
  * - 'merging': Merging completed workers back to main
  * - 'completed': All groups finished
@@ -345,6 +352,7 @@ export interface ParallelExecutorConfig {
 export type ParallelExecutorStatus =
   | 'idle'
   | 'analyzing'
+  | 'paused'
   | 'executing'
   | 'merging'
   | 'completed'
