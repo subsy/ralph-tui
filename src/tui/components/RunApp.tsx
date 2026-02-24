@@ -634,6 +634,8 @@ export function RunApp({
   const [conflictSelectedIndex, setConflictSelectedIndex] = useState(0);
   // Show/hide closed tasks filter (default: show closed tasks)
   const [showClosedTasks, setShowClosedTasks] = useState(true);
+  // Track prior summary-line count so auto-open only happens on empty -> non-empty transition.
+  const prevParallelSummaryLinesCountRef = useRef(0);
   // Cache for historical iteration output loaded from disk (taskId -> { output, timing, agent, model })
   const [historicalOutputCache, setHistoricalOutputCache] = useState<
     Map<string, {
@@ -1387,17 +1389,22 @@ export function RunApp({
 
   // Auto-show completion summary overlay once summary lines are available.
   useEffect(() => {
+    const currentCount = parallelCompletionSummaryLines?.length ?? 0;
+    const previousCount = prevParallelSummaryLinesCountRef.current;
+
     if (!isParallelMode) {
       setShowParallelSummaryOverlay(false);
+      prevParallelSummaryLinesCountRef.current = 0;
       return;
     }
 
-    if (parallelCompletionSummaryLines && parallelCompletionSummaryLines.length > 0) {
+    if (currentCount === 0) {
+      setShowParallelSummaryOverlay(false);
+    } else if (previousCount === 0) {
       setShowParallelSummaryOverlay(true);
-      return;
     }
 
-    setShowParallelSummaryOverlay(false);
+    prevParallelSummaryLinesCountRef.current = currentCount;
   }, [isParallelMode, parallelCompletionSummaryLines]);
 
   // Clamp selectedIndex when displayedTasks shrinks (e.g., when hiding closed tasks)
@@ -2665,8 +2672,17 @@ export function RunApp({
     height - layout.header.height - layout.footer.height - dashboardHeight - tabBarHeight
   );
   const isCompact = width < 80;
-  const parallelSummaryOverlayWidth = Math.max(72, Math.min(width - 4, 140));
-  const parallelSummaryContentWidth = Math.max(20, parallelSummaryOverlayWidth - 4);
+  const availableWidth = Math.max(0, width - 4);
+  const parallelSummaryOverlayWidth = availableWidth < 72
+    ? availableWidth
+    : Math.min(140, availableWidth);
+  const parallelSummaryContentWidth = Math.max(
+    1,
+    Math.min(
+      Math.max(0, availableWidth - 4),
+      Math.max(1, parallelSummaryOverlayWidth - 4)
+    )
+  );
   const parallelSummaryOverlayLines = useMemo(() => {
     if (!parallelCompletionSummaryLines || parallelCompletionSummaryLines.length === 0) {
       return [];

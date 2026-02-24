@@ -502,9 +502,12 @@ export function createSequentialRunSummary(params: {
   maxIterations: number;
 }): SequentialRunSummary {
   const finishedAt = params.finishedAt ?? new Date().toISOString();
-  const durationMs = params.startedAt
-    ? Math.max(0, Date.now() - new Date(params.startedAt).getTime())
-    : 0;
+  const startedAtMs = params.startedAt ? new Date(params.startedAt).getTime() : NaN;
+  const finishedAtMs = new Date(finishedAt).getTime();
+  const durationMs =
+    Number.isFinite(startedAtMs) && Number.isFinite(finishedAtMs)
+      ? Math.max(0, finishedAtMs - startedAtMs)
+      : 0;
 
   return {
     sessionId: params.sessionId,

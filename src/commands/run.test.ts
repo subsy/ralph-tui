@@ -1,6 +1,7 @@
 /**
  * ABOUTME: Tests for the run command utilities.
- * Covers task range filtering, conflict resolution helpers, and related utilities.
+ * Covers task range filtering, --target-branch parsing, conflict resolution helpers,
+ * parallel/sequential run summary helpers, and WorktreeInfo-backed summary mocks.
  */
 
 import { describe, test, expect } from 'bun:test';
@@ -393,6 +394,7 @@ describe('printRunHelp', () => {
       expect(fullOutput).toContain('ralph-tui run');
       expect(fullOutput).toContain('--task-range');
       expect(fullOutput).toContain('--parallel');
+      expect(fullOutput).toContain('--target-branch');
     } finally {
       console.log = originalLog;
     }
@@ -572,9 +574,12 @@ describe('sequential summary helpers', () => {
       maxIterations: 10,
     });
 
+    expect(summary.durationMs).toBe(300000);
+
     const output = formatSequentialRunSummary(summary);
     expect(output).toContain('Sequential Run Summary');
     expect(output).toContain('Status:                 INTERRUPTED');
+    expect(output).toContain('Duration:               5m');
     expect(output).toContain('Tasks:                  3/5 completed');
     expect(output).toContain('Iterations:             4/10');
   });
