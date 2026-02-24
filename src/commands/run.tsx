@@ -359,6 +359,9 @@ export function createParallelRunSummary(params: {
     preservedRecoveryWorktrees,
   } = params;
 
+  // Fallback metrics are approximate when completionMetrics is unavailable:
+  // treat "not completed" as pending/unknown (not definitive failures), and
+  // use completed-task count as a best-effort proxy for merges.
   const metrics = completionMetrics ?? {
     totalTasksCompleted: executorState.totalTasksCompleted,
     totalTasksFailed: Math.max(

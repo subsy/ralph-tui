@@ -160,7 +160,6 @@ export class MergeEngine {
     let branchName: string;
     if (explicitBranchName) {
       branchName = explicitBranchName.trim();
-      validateGitRef(branchName, 'sessionBranch');
       if (this.branchExists(branchName)) {
         throw new Error(
           `Target branch already exists: ${branchName}. ` +

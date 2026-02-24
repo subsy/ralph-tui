@@ -5,6 +5,7 @@
  */
 
 import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { mkdir, open, rename, unlink, type FileHandle } from 'node:fs/promises';
 
 /** Default restrictive permissions for session metadata and lock files. */
@@ -19,7 +20,7 @@ export async function writeFileAtomic(
   mode: number = DEFAULT_MODE
 ): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomBytes(4).toString('hex')}.tmp`;
 
   let handle: FileHandle | null = null;
   try {

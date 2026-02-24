@@ -4,13 +4,12 @@
  * iteration history, and tracker state to .ralph-tui/session.json.
  */
 
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import {
   readFile,
   unlink,
   access,
   constants,
-  mkdir,
 } from 'node:fs/promises';
 import type { TrackerTask, TrackerTaskStatus } from '../plugins/trackers/types.js';
 import type { IterationResult } from '../engine/types.js';
@@ -266,9 +265,6 @@ export async function savePersistedSession(
   state: PersistedSessionState
 ): Promise<void> {
   const filePath = getSessionFilePath(state.cwd);
-
-  // Ensure directory exists
-  await mkdir(dirname(filePath), { recursive: true });
 
   // Update timestamp
   const updatedState: PersistedSessionState = {

@@ -659,7 +659,6 @@ export class ParallelExecutor {
 
           if (allResolved) {
             // Conflict resolution succeeded - mark task as complete
-            this.removePendingConflictByOperationId(operation.id);
             try {
               await this.tracker.completeTask(workerResult.task.id);
             } catch {
@@ -861,13 +860,17 @@ export class ParallelExecutor {
    */
   private async cleanup(): Promise<void> {
     const branchesToPreserve = this.getBranchesToPreserveForRecovery();
+    this.preservedRecoveryWorktrees = this.worktreeManager
+      .getAllWorktrees()
+      .filter((info) => branchesToPreserve.has(info.branch))
+      .map((info) => ({ ...info }));
     try {
-      this.preservedRecoveryWorktrees = await this.worktreeManager.cleanupAll({
+      const preserved = await this.worktreeManager.cleanupAll({
         preserveBranches: branchesToPreserve,
       });
+      this.preservedRecoveryWorktrees = preserved.map((info) => ({ ...info }));
     } catch {
       // Best effort cleanup
-      this.preservedRecoveryWorktrees = [];
     }
 
     try {
@@ -967,11 +970,7 @@ export class ParallelExecutor {
     operationId: string,
     reason: string
   ): void {
-    try {
-      this.mergeEngine.markOperationRolledBack(operationId, reason);
-    } catch {
-      // Best effort state sync.
-    }
+    this.mergeEngine.markOperationRolledBack(operationId, reason);
   }
 
   /**

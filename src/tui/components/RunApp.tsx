@@ -2705,16 +2705,16 @@ export function RunApp({
 
       while (remaining.length > 0) {
         const prefix = isFirstLine ? '' : continuationIndent;
-        const availableWidth = Math.max(1, maxLineWidth - prefix.length);
+        const wrapWidth = Math.max(1, maxLineWidth - prefix.length);
 
-        if (remaining.length <= availableWidth) {
+        if (remaining.length <= wrapWidth) {
           wrapped.push(`${prefix}${remaining}`.padEnd(maxLineWidth, ' '));
           break;
         }
 
-        let breakAt = remaining.lastIndexOf(' ', availableWidth);
-        if (breakAt <= 0 || breakAt < Math.floor(availableWidth * 0.5)) {
-          breakAt = availableWidth;
+        let breakAt = remaining.lastIndexOf(' ', wrapWidth);
+        if (breakAt <= 0 || breakAt < Math.floor(wrapWidth * 0.5)) {
+          breakAt = wrapWidth;
         }
 
         const chunk = remaining.slice(0, breakAt).trimEnd();
@@ -2746,9 +2746,26 @@ export function RunApp({
     parallelSummaryContentWidth,
   ]);
   const parallelSummaryMaxVisibleLines = Math.max(6, height - 14);
-  const visibleParallelSummaryLines = parallelSummaryOverlayLines.slice(
-    -parallelSummaryMaxVisibleLines
-  );
+  const visibleParallelSummaryLines = useMemo(() => {
+    if (parallelSummaryOverlayLines.length <= parallelSummaryMaxVisibleLines) {
+      return parallelSummaryOverlayLines;
+    }
+
+    const headCount = Math.min(
+      3,
+      parallelSummaryMaxVisibleLines,
+      parallelSummaryOverlayLines.length
+    );
+    const tailCount = Math.max(0, parallelSummaryMaxVisibleLines - headCount);
+    if (tailCount === 0) {
+      return parallelSummaryOverlayLines.slice(0, headCount);
+    }
+
+    return [
+      ...parallelSummaryOverlayLines.slice(0, headCount),
+      ...parallelSummaryOverlayLines.slice(-tailCount),
+    ];
+  }, [parallelSummaryOverlayLines, parallelSummaryMaxVisibleLines]);
 
   // Calculate completed tasks (counting both 'done' and 'closed' as completed)
   // 'done' = completed in current session, 'closed' = historically completed

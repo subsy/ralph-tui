@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { WorktreeInfo, WorktreeManagerConfig } from './types.js';
 
-interface CleanupAllOptions {
+export interface CleanupAllOptions {
   /**
    * Branches that should be preserved for manual recovery.
    * Matching worktrees are left intact on disk and their branches are not deleted.

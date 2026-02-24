@@ -158,8 +158,23 @@ async function writeLockFile(cwd: string, sessionId: string): Promise<void> {
   try {
     // 'wx' enforces O_CREAT|O_EXCL so lock creation is atomic across processes.
     handle = await open(lockPath, 'wx');
-    await handle.writeFile(JSON.stringify(lock, null, 2), 'utf-8');
-    await handle.sync();
+    try {
+      await handle.writeFile(JSON.stringify(lock, null, 2), 'utf-8');
+      await handle.sync();
+    } catch (error) {
+      try {
+        await handle.close();
+      } catch {
+        // Best effort close before removing partial file.
+      }
+      handle = null;
+      try {
+        await unlink(lockPath);
+      } catch {
+        // Best effort cleanup for partial lock file.
+      }
+      throw error;
+    }
   } finally {
     if (handle) {
       await handle.close();

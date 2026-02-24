@@ -179,6 +179,8 @@ export async function acquireLock(
   };
 
   let handle: FileHandle | null = null;
+  let shouldCleanupPartialLock = false;
+  let writeError: unknown = null;
   try {
     handle = await open(lockPath, 'wx');
     await handle.writeFile(JSON.stringify(lock, null, 2), 'utf-8');
@@ -188,12 +190,26 @@ export async function acquireLock(
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
       return false;
     }
-    throw error;
+    shouldCleanupPartialLock = handle !== null;
+    writeError = error;
   } finally {
     if (handle) {
       await handle.close();
     }
+    if (shouldCleanupPartialLock) {
+      try {
+        await unlink(lockPath);
+      } catch {
+        // Best effort cleanup for partial lock file.
+      }
+    }
   }
+
+  if (writeError) {
+    throw writeError;
+  }
+
+  return false;
 }
 
 /**
@@ -250,14 +266,27 @@ export async function createSession(
     cwd: options.cwd,
   };
 
-  await saveSession(session);
-
   // Acquire lock unless caller already acquired it at a higher level.
+  let lockAcquiredHere = false;
   if (!options.lockAlreadyAcquired) {
     const acquired = await acquireLock(options.cwd, session.id);
     if (!acquired) {
       throw new Error('Unable to acquire session lock');
     }
+    lockAcquiredHere = true;
+  }
+
+  try {
+    await saveSession(session);
+  } catch (error) {
+    if (lockAcquiredHere) {
+      try {
+        await releaseLock(options.cwd);
+      } catch {
+        // Best effort cleanup for lock acquired in this function.
+      }
+    }
+    throw error;
   }
 
   return session;

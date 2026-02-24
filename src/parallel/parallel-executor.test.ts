@@ -227,6 +227,10 @@ function createSingleGroupAnalysis(task: TrackerTask): TaskGraphAnalysis {
   };
 }
 
+async function waitForShortDelay(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
 describe('ParallelExecutor class', () => {
   describe('constructor', () => {
     test('creates instance with config and tracker', () => {
@@ -373,7 +377,7 @@ describe('ParallelExecutor class', () => {
         released = true;
       });
 
-      await Promise.resolve();
+      await waitForShortDelay();
       expect(released).toBe(false);
 
       executor.resume();
@@ -393,7 +397,7 @@ describe('ParallelExecutor class', () => {
         released = true;
       });
 
-      await Promise.resolve();
+      await waitForShortDelay();
       expect(released).toBe(false);
 
       await executor.stop();
@@ -754,6 +758,7 @@ describe('ParallelExecutor class', () => {
       (executor as any).mergeEngine = {
         enqueue: () => {},
         getQueue: () => [conflictOperation],
+        markOperationRolledBack: () => true,
         processNext: async () => {
           mergeCalls++;
           if (mergeCalls === 1) {

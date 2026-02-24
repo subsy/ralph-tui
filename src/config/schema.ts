@@ -82,7 +82,11 @@ export const ParallelConfigSchema = z.object({
   worktreeDir: z.string().optional(),
   /** Merge directly to the current branch instead of creating a session branch */
   directMerge: z.boolean().optional(),
-  /** Explicit session branch name for parallel runs */
+  /**
+   * Explicit session branch name for parallel runs.
+   * Maps to ParallelExecutorConfig.sessionBranchName, which is passed to
+   * MergeEngine.initializeSessionBranch(explicitBranchName).
+   */
   targetBranch: z.string().min(1).optional(),
 });
 
