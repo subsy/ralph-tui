@@ -2673,14 +2673,44 @@ export function RunApp({
     }
 
     const maxLineWidth = parallelSummaryContentWidth;
-    const truncateForOverlay = (line: string): string => {
+    const wrapLineForOverlay = (line: string): string[] => {
+      if (line.length === 0) {
+        return [''.padEnd(maxLineWidth, ' ')];
+      }
       if (line.length <= maxLineWidth) {
-        return line.padEnd(maxLineWidth, ' ');
+        return [line.padEnd(maxLineWidth, ' ')];
       }
-      if (maxLineWidth <= 3) {
-        return line.slice(0, maxLineWidth).padEnd(maxLineWidth, ' ');
+
+      const leadingIndent = line.match(/^\s*/)?.[0] ?? '';
+      const continuationIndent = leadingIndent.length > 0 ? leadingIndent : '  ';
+      const wrapped: string[] = [];
+      let remaining = line;
+      let isFirstLine = true;
+
+      while (remaining.length > 0) {
+        const prefix = isFirstLine ? '' : continuationIndent;
+        const availableWidth = Math.max(1, maxLineWidth - prefix.length);
+
+        if (remaining.length <= availableWidth) {
+          wrapped.push(`${prefix}${remaining}`.padEnd(maxLineWidth, ' '));
+          break;
+        }
+
+        let breakAt = remaining.lastIndexOf(' ', availableWidth);
+        if (breakAt <= 0 || breakAt < Math.floor(availableWidth * 0.5)) {
+          breakAt = availableWidth;
+        }
+
+        const chunk = remaining.slice(0, breakAt).trimEnd();
+        wrapped.push(`${prefix}${chunk}`.padEnd(maxLineWidth, ' '));
+        remaining = remaining.slice(breakAt);
+        if (remaining.startsWith(' ')) {
+          remaining = remaining.slice(1);
+        }
+        isFirstLine = false;
       }
-      return `${line.slice(0, maxLineWidth - 3)}...`.padEnd(maxLineWidth, ' ');
+
+      return wrapped;
     };
 
     const lines = [...parallelCompletionSummaryLines];
@@ -2692,7 +2722,7 @@ export function RunApp({
       lines.push(`Summary write warning: ${parallelCompletionSummaryWriteError}`);
     }
 
-    return lines.map((line) => truncateForOverlay(line));
+    return lines.flatMap((line) => wrapLineForOverlay(line));
   }, [
     parallelCompletionSummaryLines,
     parallelCompletionSummaryPath,
