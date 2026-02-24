@@ -37,8 +37,9 @@ interface BvRecommendation {
   action?: string;
   reasons: string[];
   unblocks?: number;
-  blocked_by?: string[];
 }
+
+const TRIAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
 
 /**
  * Output from bv --robot-next when an actionable task exists.
@@ -246,6 +247,8 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
   private bvAvailable = false;
   private lastTriageOutput: BvTriageOutput | null = null;
   private taskReasoningCache: Map<string, TaskReasoning> = new Map();
+  private triageRefreshInFlight: Promise<void> | null = null;
+  private lastTriageRefreshAt = 0;
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
     // Initialize base beads plugin
@@ -349,6 +352,20 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     }
 
     try {
+      const statusFilter = this.normalizeStatusFilter(filter?.status);
+
+      // --robot-next only returns actionable tasks (open/in_progress).
+      // If a caller asks for only non-actionable statuses, there is no
+      // valid --robot-next result by definition.
+      if (
+        statusFilter &&
+        !statusFilter.some(
+          (status) => status === 'open' || status === 'in_progress'
+        )
+      ) {
+        return undefined;
+      }
+
       // Use --robot-next for task selection: guaranteed to return only
       // an unblocked task, unlike --robot-triage which includes blocked
       // tasks in its recommendations array.
@@ -398,21 +415,33 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
         }
       }
 
-      // Refresh triage data in background for metadata enrichment
-      // (getTasks, cacheTaskReasoning, getTriageStats still use triage data)
-      void this.refreshTriage();
+      // Refresh triage data in background for metadata enrichment.
+      this.scheduleTriageRefresh();
+
+      const cachedBreakdown = this.getCachedBreakdown(nextOutput.id);
 
       // Get full task details from bd for complete information
       const fullTask = await this.getTask(nextOutput.id);
       if (fullTask) {
+        if (statusFilter && !statusFilter.includes(fullTask.status)) {
+          return undefined;
+        }
+
         // Augment with bv metadata from --robot-next
         fullTask.metadata = {
           ...fullTask.metadata,
           bvScore: nextOutput.score,
           bvReasons: nextOutput.reasons,
           bvUnblocks: nextOutput.unblocks,
+          // --robot-next does not include breakdown details, so reuse cached
+          // triage breakdown when available for metadata compatibility.
+          bvBreakdown: cachedBreakdown,
         };
         return fullTask;
+      }
+
+      if (statusFilter && !statusFilter.includes('open')) {
+        return undefined;
       }
 
       // Fallback: construct task from --robot-next output
@@ -426,6 +455,9 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
           bvScore: nextOutput.score,
           bvReasons: nextOutput.reasons,
           bvUnblocks: nextOutput.unblocks,
+          // --robot-next does not include breakdown details, so reuse cached
+          // triage breakdown when available for metadata compatibility.
+          bvBreakdown: cachedBreakdown,
         },
       };
     } catch (err) {
@@ -505,6 +537,8 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
         // Ignore parse errors
       }
     }
+
+    this.lastTriageRefreshAt = Date.now();
   }
 
   /**
@@ -553,7 +587,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     // Refresh triage data asynchronously
     if (result.success && this.bvAvailable) {
       // Don't await - let it refresh in background
-      void this.refreshTriage();
+      this.scheduleTriageRefresh(true);
     }
 
     return result;
@@ -570,7 +604,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
 
     // Refresh triage data asynchronously
     if (result && this.bvAvailable) {
-      void this.refreshTriage();
+      this.scheduleTriageRefresh(true);
     }
 
     return result;
@@ -676,6 +710,47 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
    */
   override getTemplate(): string {
     return BEADS_BV_TEMPLATE;
+  }
+
+  private normalizeStatusFilter(
+    statusFilter: TaskFilter['status']
+  ): TrackerTaskStatus[] | undefined {
+    if (statusFilter === undefined) {
+      return undefined;
+    }
+
+    return Array.isArray(statusFilter) ? statusFilter : [statusFilter];
+  }
+
+  private getCachedBreakdown(
+    taskId: string
+  ): Record<string, number | string | Record<string, unknown>> | undefined {
+    return this.lastTriageOutput?.triage.recommendations.find(
+      (rec) => rec.id === taskId
+    )?.breakdown;
+  }
+
+  private scheduleTriageRefresh(force = false): void {
+    if (!this.bvAvailable) {
+      return;
+    }
+
+    if (this.triageRefreshInFlight) {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      !force &&
+      this.lastTriageRefreshAt > 0 &&
+      now - this.lastTriageRefreshAt < TRIAGE_REFRESH_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    this.triageRefreshInFlight = this.refreshTriage().finally(() => {
+      this.triageRefreshInFlight = null;
+    });
   }
 }
 
