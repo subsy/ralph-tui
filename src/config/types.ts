@@ -138,6 +138,12 @@ export interface ParallelConfig {
    * of merging directly to the current branch.
    */
   directMerge?: boolean;
+
+  /**
+   * Optional explicit session branch name for parallel runs.
+   * When set, Ralph creates this branch instead of auto-generating ralph-session/*.
+   */
+  targetBranch?: string;
 }
 
 /**

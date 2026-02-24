@@ -4,18 +4,17 @@
  * iteration history, and tracker state to .ralph-tui/session.json.
  */
 
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import {
   readFile,
-  writeFile,
   unlink,
   access,
   constants,
-  mkdir,
 } from 'node:fs/promises';
 import type { TrackerTask, TrackerTaskStatus } from '../plugins/trackers/types.js';
 import type { IterationResult } from '../engine/types.js';
 import type { SessionStatus } from './types.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 /**
  * Session file path relative to cwd (inside .ralph-tui directory)
@@ -267,16 +266,13 @@ export async function savePersistedSession(
 ): Promise<void> {
   const filePath = getSessionFilePath(state.cwd);
 
-  // Ensure directory exists
-  await mkdir(dirname(filePath), { recursive: true });
-
   // Update timestamp
   const updatedState: PersistedSessionState = {
     ...state,
     updatedAt: new Date().toISOString(),
   };
 
-  await writeFile(filePath, JSON.stringify(updatedState, null, 2));
+  await writeJsonAtomic(filePath, updatedState);
 }
 
 /**

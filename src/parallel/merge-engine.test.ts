@@ -283,6 +283,32 @@ describe('MergeEngine', () => {
     });
   });
 
+  describe('initializeSessionBranch', () => {
+    test('creates an explicit target branch when provided', () => {
+      const originalBranch = git(repoDir, 'branch --show-current').trim();
+      const result = engine.initializeSessionBranch(
+        'parallel-session-123',
+        'feature/parallel-out'
+      );
+
+      expect(result.branch).toBe('feature/parallel-out');
+      expect(result.original).toBe(originalBranch);
+      expect(engine.getSessionBranch()).toBe('feature/parallel-out');
+      expect(git(repoDir, 'branch --show-current').trim()).toBe('feature/parallel-out');
+    });
+
+    test('throws when explicit target branch already exists', () => {
+      git(repoDir, 'branch "feature/existing-target"');
+
+      expect(() =>
+        engine.initializeSessionBranch(
+          'parallel-session-123',
+          'feature/existing-target'
+        )
+      ).toThrow('Target branch already exists');
+    });
+  });
+
   describe('rollbackMerge', () => {
     test('rolls back a specific merge to its backup tag', async () => {
       const branchName = 'ralph-parallel/RB1';
@@ -307,6 +333,49 @@ describe('MergeEngine', () => {
       expect(() => engine.rollbackMerge('nonexistent')).toThrow(
         'not found'
       );
+    });
+  });
+
+  describe('markOperationRolledBack', () => {
+    test('marks conflicted operations as rolled-back without git reset', () => {
+      const events: ParallelEvent[] = [];
+      engine.on((event) => events.push(event));
+
+      const task = mockTask('MRB1');
+      const operation = engine.enqueue(
+        mockWorkerResult(task, 'ralph-parallel/MRB1')
+      );
+      operation.status = 'conflicted';
+
+      const updated = engine.markOperationRolledBack(
+        operation.id,
+        'Conflict skipped by user'
+      );
+
+      expect(updated).toBe(true);
+      expect(engine.getQueue()[0]?.status).toBe('rolled-back');
+      const rolledBackEvent = events.find(
+        (event) =>
+          event.type === 'merge:rolled-back' &&
+          event.operationId === operation.id
+      );
+      expect(rolledBackEvent?.type).toBe('merge:rolled-back');
+    });
+
+    test('returns false when operation is already completed', () => {
+      const task = mockTask('MRB2');
+      const operation = engine.enqueue(
+        mockWorkerResult(task, 'ralph-parallel/MRB2')
+      );
+      operation.status = 'completed';
+
+      const updated = engine.markOperationRolledBack(
+        operation.id,
+        'No-op'
+      );
+
+      expect(updated).toBe(false);
+      expect(operation.status).toBe('completed');
     });
   });
 

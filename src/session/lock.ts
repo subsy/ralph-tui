@@ -8,11 +8,12 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   readFile,
-  writeFile,
   unlink,
   mkdir,
   access,
   constants,
+  open,
+  type FileHandle,
 } from 'node:fs/promises';
 import { promptBoolean } from '../setup/prompts.js';
 import type { LockFile } from './types.js';
@@ -153,7 +154,59 @@ async function writeLockFile(cwd: string, sessionId: string): Promise<void> {
     hostname: hostname(),
   };
 
-  await writeFile(lockPath, JSON.stringify(lock, null, 2));
+  let handle: FileHandle | null = null;
+  try {
+    // 'wx' enforces O_CREAT|O_EXCL so lock creation is atomic across processes.
+    handle = await open(lockPath, 'wx');
+    try {
+      await handle.writeFile(JSON.stringify(lock, null, 2), 'utf-8');
+      await handle.sync();
+    } catch (error) {
+      try {
+        await handle.close();
+      } catch {
+        // Best effort close before removing partial file.
+      }
+      handle = null;
+      try {
+        await unlink(lockPath);
+      } catch {
+        // Best effort cleanup for partial lock file.
+      }
+      throw error;
+    }
+  } finally {
+    if (handle) {
+      await handle.close();
+    }
+  }
+}
+
+/**
+ * Attempt to atomically create a lock file.
+ * Returns a structured conflict result when another process wins the race.
+ */
+async function tryWriteLockFile(
+  cwd: string,
+  sessionId: string
+): Promise<LockAcquisitionResult> {
+  try {
+    await writeLockFile(cwd, sessionId);
+    return { acquired: true };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      const refreshed = await checkLock(cwd);
+      const existingPid = refreshed.lock?.pid;
+      return {
+        acquired: false,
+        error: existingPid
+          ? `Ralph already running in this repo (PID: ${existingPid})`
+          : 'Ralph lock already exists in this repo',
+        existingPid,
+      };
+    }
+    throw error;
+  }
 }
 
 /**
@@ -230,8 +283,7 @@ export async function acquireLockWithPrompt(
 
   // No lock exists - acquire immediately
   if (!lockStatus.lock) {
-    await writeLockFile(cwd, sessionId);
-    return { acquired: true };
+    return tryWriteLockFile(cwd, sessionId);
   }
 
   // Lock exists and is held by a running process
@@ -250,8 +302,7 @@ export async function acquireLockWithPrompt(
       // In non-interactive mode, warn and auto-clean
       console.log(`Warning: Removing stale lock (PID: ${lockStatus.lock.pid})`);
       await deleteLockFile(cwd);
-      await writeLockFile(cwd, sessionId);
-      return { acquired: true };
+      return tryWriteLockFile(cwd, sessionId);
     }
 
     // Interactive mode - prompt user
@@ -265,16 +316,14 @@ export async function acquireLockWithPrompt(
     }
 
     await deleteLockFile(cwd);
-    await writeLockFile(cwd, sessionId);
-    return { acquired: true };
+    return tryWriteLockFile(cwd, sessionId);
   }
 
   // Force flag set - override the lock
   if (force) {
     console.log(`Warning: Forcing lock acquisition (previous PID: ${lockStatus.lock.pid})`);
     await deleteLockFile(cwd);
-    await writeLockFile(cwd, sessionId);
-    return { acquired: true };
+    return tryWriteLockFile(cwd, sessionId);
   }
 
   // Should not reach here, but handle gracefully

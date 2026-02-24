@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { ParallelSessionState, TaskGraphAnalysis } from './types.js';
+import { writeJsonAtomic } from '../session/atomic-write.js';
 
 /** File name for persisted parallel session state */
 const SESSION_FILE = '.ralph-tui/parallel-session.json';
@@ -58,9 +59,6 @@ export async function saveParallelSession(
   state: ParallelSessionState
 ): Promise<void> {
   const filePath = path.join(cwd, SESSION_FILE);
-  const dir = path.dirname(filePath);
-
-  fs.mkdirSync(dir, { recursive: true });
 
   // Convert Map to array for JSON serialization
   const serializable = {
@@ -68,7 +66,7 @@ export async function saveParallelSession(
     taskGraph: serializeTaskGraph(state.taskGraph),
   };
 
-  fs.writeFileSync(filePath, JSON.stringify(serializable, null, 2), 'utf-8');
+  await writeJsonAtomic(filePath, serializable);
 }
 
 /**

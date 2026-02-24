@@ -23,6 +23,22 @@ import {
   executeSkillsCommand,
   executeRemoteCommand,
 } from './commands/index.js';
+import { checkBunVersion } from './utils/validation.js';
+import pkg from '../package.json' with { type: 'json' };
+
+/**
+ * Minimum bun version required to run ralph-tui.
+ * Derived from the engines.bun field in package.json (single source of truth).
+ */
+const MIN_BUN_VERSION = pkg.engines.bun.replace(/^[^\d]*/, '');
+
+if (typeof Bun !== 'undefined') {
+  const versionError = checkBunVersion(Bun.version, MIN_BUN_VERSION);
+  if (versionError) {
+    console.error(versionError);
+    process.exit(1);
+  }
+}
 
 /**
  * Show CLI help message.
@@ -139,9 +155,7 @@ async function handleSubcommand(args: string[]): Promise<boolean> {
 
   // Version command
   if (command === 'version' || command === '--version' || command === '-v') {
-    // Dynamic import to get version from package.json
-    const pkg = await import('../package.json', { with: { type: 'json' } });
-    console.log(`ralph-tui ${pkg.default.version}`);
+    console.log(`ralph-tui ${pkg.version}`);
     return true;
   }
 

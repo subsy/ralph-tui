@@ -13,6 +13,7 @@ import {
   applyParallelCompletionState,
   isParallelExecutionComplete,
   applyConflictResolvedTaskTracking,
+  propagateSettingsToEngine,
 } from '../../src/commands/run.jsx';
 
 describe('run command', () => {
@@ -299,6 +300,7 @@ describe('run command', () => {
           '--delay', '1000',
           '--headless',
           '--notify',
+          '--target-branch', 'feature/parallel-out',
         ]);
 
         expect(result.epicId).toBe('my-epic');
@@ -310,6 +312,7 @@ describe('run command', () => {
         expect(result.iterationDelay).toBe(1000);
         expect(result.headless).toBe(true);
         expect(result.notify).toBe(true);
+        expect(result.targetBranch).toBe('feature/parallel-out');
       });
 
       test('returns empty object for no arguments', () => {
@@ -357,6 +360,7 @@ describe('run command', () => {
       expect(output).toContain('--model');
       expect(output).toContain('--variant');
       expect(output).toContain('--delay');
+      expect(output).toContain('--target-branch');
       expect(output).toContain('--cwd');
       expect(output).toContain('--resume');
       expect(output).toContain('--force');
@@ -722,6 +726,36 @@ describe('run command', () => {
         // true is not nullish, so it does not fall through to task count check
         expect(isSessionComplete(true, 0, 5)).toBe(true);
       });
+    });
+  });
+
+  describe('propagateSettingsToEngine', () => {
+    test('calls setAutoCommit when autoCommit is true', () => {
+      const mockEngine = { setAutoCommit: mock(() => {}) } as any;
+      propagateSettingsToEngine(mockEngine, { autoCommit: true });
+      expect(mockEngine.setAutoCommit).toHaveBeenCalledWith(true);
+    });
+
+    test('calls setAutoCommit when autoCommit is false', () => {
+      const mockEngine = { setAutoCommit: mock(() => {}) } as any;
+      propagateSettingsToEngine(mockEngine, { autoCommit: false });
+      expect(mockEngine.setAutoCommit).toHaveBeenCalledWith(false);
+    });
+
+    test('does not call setAutoCommit when autoCommit is undefined', () => {
+      const mockEngine = { setAutoCommit: mock(() => {}) } as any;
+      propagateSettingsToEngine(mockEngine, {});
+      expect(mockEngine.setAutoCommit).not.toHaveBeenCalled();
+    });
+
+    test('does nothing when engine is null', () => {
+      // Should not throw
+      propagateSettingsToEngine(null, { autoCommit: true });
+    });
+
+    test('does nothing when engine is undefined', () => {
+      // Should not throw
+      propagateSettingsToEngine(undefined, { autoCommit: true });
     });
   });
 });

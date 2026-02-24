@@ -199,6 +199,12 @@ export interface RunAppProps {
   totalWorkerCount?: number;
   /** Failure message for parallel execution */
   parallelFailureMessage?: string;
+  /** Preformatted completion summary lines for parallel runs */
+  parallelCompletionSummaryLines?: string[];
+  /** Path to the persisted completion summary file (if written) */
+  parallelCompletionSummaryPath?: string;
+  /** Error writing the summary file (if any) */
+  parallelCompletionSummaryWriteError?: string;
   /** Callback to pause parallel execution */
   onParallelPause?: () => void;
   /** Callback to resume parallel execution */
@@ -529,6 +535,9 @@ export function RunApp({
   parallelAutoCommitSkippedTaskIds: _parallelAutoCommitSkippedTaskIds, // Reserved for future status bar warning
   parallelMergedTaskIds,
   parallelFailureMessage,
+  parallelCompletionSummaryLines,
+  parallelCompletionSummaryPath,
+  parallelCompletionSummaryWriteError,
   activeWorkerCount,
   totalWorkerCount,
   onParallelPause,
@@ -617,12 +626,16 @@ export function RunApp({
   const [showQuitDialog, setShowQuitDialog] = useState(false);
   // Kill confirmation dialog state (parallel mode: immediately terminate all workers)
   const [showKillDialog, setShowKillDialog] = useState(false);
+  // Parallel completion summary overlay state (shown when summary lines are provided)
+  const [showParallelSummaryOverlay, setShowParallelSummaryOverlay] = useState(false);
   // Parallel mode state
   const [selectedWorkerIndex, setSelectedWorkerIndex] = useState(0);
   const [showConflictPanel, setShowConflictPanel] = useState(false);
   const [conflictSelectedIndex, setConflictSelectedIndex] = useState(0);
   // Show/hide closed tasks filter (default: show closed tasks)
   const [showClosedTasks, setShowClosedTasks] = useState(true);
+  // Track prior summary-line count so auto-open only happens on empty -> non-empty transition.
+  const prevParallelSummaryLinesCountRef = useRef(0);
   // Cache for historical iteration output loaded from disk (taskId -> { output, timing, agent, model })
   const [historicalOutputCache, setHistoricalOutputCache] = useState<
     Map<string, {
@@ -1374,6 +1387,26 @@ export function RunApp({
     return 'idle';
   }, [isParallelMode, parallelWorkers]);
 
+  // Auto-show completion summary overlay once summary lines are available.
+  useEffect(() => {
+    const currentCount = parallelCompletionSummaryLines?.length ?? 0;
+    const previousCount = prevParallelSummaryLinesCountRef.current;
+
+    if (!isParallelMode) {
+      setShowParallelSummaryOverlay(false);
+      prevParallelSummaryLinesCountRef.current = 0;
+      return;
+    }
+
+    if (currentCount === 0) {
+      setShowParallelSummaryOverlay(false);
+    } else if (previousCount === 0) {
+      setShowParallelSummaryOverlay(true);
+    }
+
+    prevParallelSummaryLinesCountRef.current = currentCount;
+  }, [isParallelMode, parallelCompletionSummaryLines]);
+
   // Clamp selectedIndex when displayedTasks shrinks (e.g., when hiding closed tasks)
   useEffect(() => {
     if (displayedTasks.length > 0 && selectedIndex >= displayedTasks.length) {
@@ -2003,6 +2036,22 @@ export function RunApp({
         return; // Don't process other keys when dialog is showing
       }
 
+      // When parallel summary overlay is showing, handle close keys only.
+      if (showParallelSummaryOverlay) {
+        switch (key.name) {
+          case 'return':
+          case 'enter':
+          case 'escape':
+            setShowParallelSummaryOverlay(false);
+            break;
+          case 'q':
+            setShowParallelSummaryOverlay(false);
+            setShowQuitDialog(true);
+            break;
+        }
+        return;
+      }
+
       // When help overlay is showing, ? or Esc closes it
       if (showHelp) {
         if (key.name === '?' || key.name === 'escape') {
@@ -2610,7 +2659,7 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showParallelSummaryOverlay, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus]
   );
 
   useKeyboard(handleKeyboard);
@@ -2623,6 +2672,100 @@ export function RunApp({
     height - layout.header.height - layout.footer.height - dashboardHeight - tabBarHeight
   );
   const isCompact = width < 80;
+  const availableWidth = Math.max(0, width - 4);
+  const parallelSummaryOverlayWidth = availableWidth < 72
+    ? availableWidth
+    : Math.min(140, availableWidth);
+  const parallelSummaryContentWidth = Math.max(
+    1,
+    Math.min(
+      Math.max(0, availableWidth - 4),
+      Math.max(1, parallelSummaryOverlayWidth - 4)
+    )
+  );
+  const parallelSummaryOverlayLines = useMemo(() => {
+    if (!parallelCompletionSummaryLines || parallelCompletionSummaryLines.length === 0) {
+      return [];
+    }
+
+    const maxLineWidth = parallelSummaryContentWidth;
+    const wrapLineForOverlay = (line: string): string[] => {
+      if (line.length === 0) {
+        return [''.padEnd(maxLineWidth, ' ')];
+      }
+      if (line.length <= maxLineWidth) {
+        return [line.padEnd(maxLineWidth, ' ')];
+      }
+
+      const leadingIndent = line.match(/^\s*/)?.[0] ?? '';
+      const continuationIndent = leadingIndent.length > 0 ? leadingIndent : '  ';
+      const wrapped: string[] = [];
+      let remaining = line;
+      let isFirstLine = true;
+
+      while (remaining.length > 0) {
+        const prefix = isFirstLine ? '' : continuationIndent;
+        const wrapWidth = Math.max(1, maxLineWidth - prefix.length);
+
+        if (remaining.length <= wrapWidth) {
+          wrapped.push(`${prefix}${remaining}`.padEnd(maxLineWidth, ' '));
+          break;
+        }
+
+        let breakAt = remaining.lastIndexOf(' ', wrapWidth);
+        if (breakAt <= 0 || breakAt < Math.floor(wrapWidth * 0.5)) {
+          breakAt = wrapWidth;
+        }
+
+        const chunk = remaining.slice(0, breakAt).trimEnd();
+        wrapped.push(`${prefix}${chunk}`.padEnd(maxLineWidth, ' '));
+        remaining = remaining.slice(breakAt);
+        if (remaining.startsWith(' ')) {
+          remaining = remaining.slice(1);
+        }
+        isFirstLine = false;
+      }
+
+      return wrapped;
+    };
+
+    const lines = [...parallelCompletionSummaryLines];
+    if (parallelCompletionSummaryPath) {
+      lines.push('');
+      lines.push(`Summary file: ${parallelCompletionSummaryPath}`);
+    }
+    if (parallelCompletionSummaryWriteError) {
+      lines.push(`Summary write warning: ${parallelCompletionSummaryWriteError}`);
+    }
+
+    return lines.flatMap((line) => wrapLineForOverlay(line));
+  }, [
+    parallelCompletionSummaryLines,
+    parallelCompletionSummaryPath,
+    parallelCompletionSummaryWriteError,
+    parallelSummaryContentWidth,
+  ]);
+  const parallelSummaryMaxVisibleLines = Math.max(6, height - 14);
+  const visibleParallelSummaryLines = useMemo(() => {
+    if (parallelSummaryOverlayLines.length <= parallelSummaryMaxVisibleLines) {
+      return parallelSummaryOverlayLines;
+    }
+
+    const headCount = Math.min(
+      3,
+      parallelSummaryMaxVisibleLines,
+      parallelSummaryOverlayLines.length
+    );
+    const tailCount = Math.max(0, parallelSummaryMaxVisibleLines - headCount);
+    if (tailCount === 0) {
+      return parallelSummaryOverlayLines.slice(0, headCount);
+    }
+
+    return [
+      ...parallelSummaryOverlayLines.slice(0, headCount),
+      ...parallelSummaryOverlayLines.slice(-tailCount),
+    ];
+  }, [parallelSummaryOverlayLines, parallelSummaryMaxVisibleLines]);
 
   // Calculate completed tasks (counting both 'done' and 'closed' as completed)
   // 'done' = completed in current session, 'closed' = historically completed
@@ -3515,6 +3658,43 @@ export function RunApp({
           bottom={6}
           right={2}
         />
+      )}
+
+      {/* Parallel completion summary overlay */}
+      {showParallelSummaryOverlay && visibleParallelSummaryLines.length > 0 && (
+        <box
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <box
+            style={{
+              width: parallelSummaryOverlayWidth,
+              height: Math.max(12, Math.min(height - 4, visibleParallelSummaryLines.length + 4)),
+              backgroundColor: colors.bg.secondary,
+              border: true,
+              borderColor: colors.status.info,
+              flexDirection: 'column',
+              padding: 1,
+            }}
+          >
+            {visibleParallelSummaryLines.map((line, index) => (
+              <box key={`parallel-summary-line-${index}`} style={{ width: parallelSummaryContentWidth }}>
+                <text fg={colors.fg.primary}>
+                  {line}
+                </text>
+              </box>
+            ))}
+            <box style={{ height: 1 }} />
+            <text fg={colors.fg.muted}>[Enter/Esc] Close  [q] Quit</text>
+          </box>
+        </box>
       )}
 
       {/* Interrupt Confirmation Dialog */}
