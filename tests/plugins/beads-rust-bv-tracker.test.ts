@@ -31,6 +31,7 @@ interface MockSpawnResponse {
 }
 
 const spawnResponses: MockSpawnResponse[] = [];
+const capturedSpawns: { command: string; args: string[] }[] = [];
 
 function queueSpawnResponse(response: MockSpawnResponse): void {
     spawnResponses.push(response);
@@ -39,7 +40,8 @@ function queueSpawnResponse(response: MockSpawnResponse): void {
 describe('BeadsRustBvTrackerPlugin', () => {
     beforeAll(async () => {
         mock.module('node:child_process', () => ({
-            spawn: (command: string) => {
+            spawn: (command: string, args: string[] = []) => {
+                capturedSpawns.push({ command, args });
                 const proc = new EventEmitter() as EventEmitter & {
                     stdout: EventEmitter;
                     stderr: EventEmitter;
@@ -86,6 +88,7 @@ describe('BeadsRustBvTrackerPlugin', () => {
 
     beforeEach(() => {
         spawnResponses.length = 0;
+        capturedSpawns.length = 0;
     });
 
     // ---------------------------------------------------------------------------
@@ -334,7 +337,6 @@ describe('BeadsRustBvTrackerPlugin', () => {
 
         test('forwards label filter to bv', async () => {
             const plugin = makePlugin(true);
-            const capturedArgs: string[][] = [];
 
             // Override execBv by intercepting spawn
             queueSpawnResponse({
@@ -347,9 +349,12 @@ describe('BeadsRustBvTrackerPlugin', () => {
                 async () => undefined;
 
             await plugin.getNextTask({ labels: ['backend'] });
-            // The test passes as long as no error is thrown with labels; the mock
-            // always responds and the fallback to delegate occurs cleanly.
-            expect(true).toBe(true);
+
+            // Assert that bv was spawned with the correct arguments
+            const bvSpawn = capturedSpawns.find(s => s.command === 'bv' && s.args.includes('--robot-next'));
+            expect(bvSpawn).toBeDefined();
+            expect(bvSpawn?.args).toContain('--label');
+            expect(bvSpawn?.args).toContain('backend');
         });
     });
 

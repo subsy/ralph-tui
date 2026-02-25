@@ -14,35 +14,46 @@ When `bv` is available, it uses `bv --robot-next` to select the task that maximi
 <Steps>
 <Step>Install the `br` (beads-rust) CLI — see the [Beads-Rust tracker docs](/docs/plugins/trackers/beads-rust) for platform-specific installation instructions.</Step>
 
-<Step>Create and initialise a Beads project with `br`:
+<Step>
+
+Create and initialise a Beads project with `br`:
 
 ```bash
 br init
 ```
+
 </Step>
 
-<Step>Install the `bv` (beads-viewer) CLI for smart task selection:
+<Step>
+
+Install the `bv` (beads-viewer) CLI for smart task selection:
 
 ```bash
 cargo install bv
 # or via the project's install script
 curl -fsSL https://get.beads.sh/bv | sh
 ```
+
 </Step>
 
-<Step>Verify both tools are on your `PATH`:
+<Step>
+
+Verify both tools are on your `PATH`:
 
 ```bash
 br --version   # e.g. br 1.0.0
 bv --version   # e.g. bv 0.5.0
 ```
+
 </Step>
 </Steps>
 
 ## Basic Usage
 
 <Steps>
-<Step>Create an epic and child tasks using `br`:
+<Step>
+
+Create an epic and child tasks using `br`:
 
 ```bash
 br new epic "Implement authentication" --label auth
@@ -50,23 +61,30 @@ br new task "Add login form" --parent auth-1 --label auth
 br new task "Add JWT middleware" --parent auth-1 --label auth
 br new task "Write auth tests" --parent auth-1 --depends-on auth-1.2
 ```
+
 </Step>
 
-<Step>Link dependencies so `bv` can analyse them:
+<Step>
+
+Link dependencies so `bv` can analyse them:
 
 ```bash
 br link auth-1.2 blockedby auth-1.1
 br link auth-1.3 blockedby auth-1.2
 ```
+
 </Step>
 
-<Step>Run Ralph TUI with the `beads-rust-bv` tracker:
+<Step>
+
+Run Ralph TUI with the `beads-rust-bv` tracker:
 
 ```bash
 ralph run --tracker beads-rust-bv
 ```
 
 On each iteration, Ralph uses `bv --robot-next` to select the highest-value, unblocked task based on its dependency graph score.
+
 </Step>
 </Steps>
 

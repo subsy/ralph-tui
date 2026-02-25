@@ -225,7 +225,12 @@ export class BeadsRustBvTrackerPlugin extends BaseTrackerPlugin {
         const tasks = await this.delegate.getTasks(filter);
 
         // Decorate with bv score metadata when triage data is available.
-        if (this.bvAvailable && this.lastTriageOutput) {
+        if (
+            this.bvAvailable &&
+            this.lastTriageOutput &&
+            this.lastTriageOutput.triage &&
+            Array.isArray(this.lastTriageOutput.triage.recommendations)
+        ) {
             const recMap = new Map<string, BvTriageRecommendation>();
             for (const rec of this.lastTriageOutput.triage.recommendations) {
                 recMap.set(rec.id, rec);
@@ -463,10 +468,22 @@ export class BeadsRustBvTrackerPlugin extends BaseTrackerPlugin {
 
         if (exitCode === 0) {
             try {
-                this.lastTriageOutput = JSON.parse(stdout) as BvTriageOutput;
+                const parsed = JSON.parse(stdout) as BvTriageOutput;
+                if (
+                    parsed &&
+                    typeof parsed === 'object' &&
+                    parsed.triage &&
+                    typeof parsed.triage === 'object' &&
+                    Array.isArray(parsed.triage.recommendations)
+                ) {
+                    this.lastTriageOutput = parsed;
+                } else {
+                    this.lastTriageOutput = { triage: { recommendations: [] } };
+                }
                 this.lastTriageRefreshAt = Date.now();
             } catch {
                 // Ignore parse errors.
+                this.lastTriageOutput = { triage: { recommendations: [] } };
             }
         }
     }
