@@ -96,6 +96,7 @@ export const docsNavigation: NavItem[] = [
           { title: 'Beads', href: '/docs/plugins/trackers/beads' },
           { title: 'Beads-Rust', href: '/docs/plugins/trackers/beads-rust', label: 'New' },
           { title: 'Beads-BV', href: '/docs/plugins/trackers/beads-bv' },
+          { title: 'Beads-Rust-BV', href: '/docs/plugins/trackers/beads-rust-bv', label: 'New' },
         ],
       },
     ],

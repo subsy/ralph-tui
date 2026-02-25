@@ -21,6 +21,7 @@ import {
   BEADS_TEMPLATE,
   BEADS_RUST_TEMPLATE,
   BEADS_BV_TEMPLATE,
+  BEADS_RUST_BV_TEMPLATE,
   JSON_TEMPLATE,
 } from './builtin.js';
 
@@ -42,6 +43,8 @@ export function getBuiltinTemplate(trackerType: BuiltinTemplateType): string {
       return BEADS_RUST_TEMPLATE;
     case 'beads-bv':
       return BEADS_BV_TEMPLATE;
+    case 'beads-rust-bv':
+      return BEADS_RUST_BV_TEMPLATE;
     case 'json':
       return JSON_TEMPLATE;
     case 'default':
@@ -56,6 +59,9 @@ export function getBuiltinTemplate(trackerType: BuiltinTemplateType): string {
  * @returns The matching built-in template type
  */
 export function getTemplateTypeFromPlugin(pluginName: string): BuiltinTemplateType {
+  if (pluginName.includes('beads-rust-bv')) {
+    return 'beads-rust-bv';
+  }
   if (pluginName.includes('beads-bv')) {
     return 'beads-bv';
   }
@@ -643,6 +649,7 @@ export function installBuiltinTemplates(force = false): {
     'default': DEFAULT_TEMPLATE,
     'beads': BEADS_TEMPLATE,
     'beads-bv': BEADS_BV_TEMPLATE,
+    'beads-rust-bv': BEADS_RUST_BV_TEMPLATE,
     'json': JSON_TEMPLATE,
   };
 
