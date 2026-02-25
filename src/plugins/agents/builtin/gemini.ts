@@ -1,11 +1,11 @@
 /**
- * ABOUTME: Gemini CLI agent plugin for Google's gemini command.
+ * ABOUTME: Gemini CLI agent plugin for Google's Gemini command.
  * Integrates with Gemini CLI for AI-assisted coding.
  * Supports: non-interactive mode, JSONL streaming, model selection, yolo mode.
  */
 
 import { spawn } from 'node:child_process';
-import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
+import { BaseAgentPlugin, quoteForWindowsShell } from '../base.js';
 import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
 import { extractErrorMessage } from '../utils.js';
 import type {
@@ -94,7 +94,7 @@ export function parseGeminiOutputToEvents(data: string): AgentDisplayEvent[] {
 
 /**
  * Gemini CLI agent plugin implementation.
- * Uses the `gemini` CLI to execute AI coding tasks.
+ * Uses the `gemini-cli` CLI to execute AI coding tasks.
  */
 export class GeminiAgentPlugin extends BaseAgentPlugin {
   readonly meta: AgentPluginMeta = {
@@ -103,7 +103,8 @@ export class GeminiAgentPlugin extends BaseAgentPlugin {
     description: 'Google Gemini CLI for AI-assisted coding',
     version: '1.0.0',
     author: 'Google',
-    defaultCommand: 'gemini',
+    defaultCommand: 'gemini-cli',
+    commandAliases: ['gemini'],
     supportsStreaming: true,
     supportsInterrupt: true,
     supportsFileContext: false,
@@ -136,34 +137,39 @@ export class GeminiAgentPlugin extends BaseAgentPlugin {
   }
 
   override async detect(): Promise<AgentDetectResult> {
-    const command = this.commandPath ?? this.meta.defaultCommand;
-    const findResult = await findCommandPath(command);
+    const resolvedCommand = await this.resolveCommandPath();
 
-    if (!findResult.found) {
+    if (!resolvedCommand) {
       return {
         available: false,
-        error: `Gemini CLI not found in PATH. Install from: https://github.com/google-gemini/gemini-cli`,
+        error: this.getCommandNotFoundMessage(),
       };
     }
 
-    const versionResult = await this.runVersion(findResult.path);
+    const commandPath = resolvedCommand.executablePath;
+    const versionResult = await this.runVersion(commandPath);
 
     if (!versionResult.success) {
       return {
         available: false,
-        executablePath: findResult.path,
+        executablePath: commandPath,
         error: versionResult.error,
       };
     }
 
     // Store the detected path for use in execute()
-    this.commandPath = findResult.path;
+    this.commandPath = commandPath;
 
     return {
       available: true,
       version: versionResult.version,
-      executablePath: findResult.path,
+      executablePath: commandPath,
     };
+  }
+
+  protected override getCommandNotFoundMessage(): string {
+    return `Gemini CLI not found in PATH. Install from: https://github.com/google-gemini/gemini-cli` +
+      ' Expected one of `gemini-cli`, `gemini` (legacy alias)';
   }
 
   private runVersion(

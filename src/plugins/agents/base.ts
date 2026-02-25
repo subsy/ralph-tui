@@ -123,6 +123,11 @@ import { SandboxWrapper, detectSandboxMode } from '../../sandbox/index.js';
 import type { SandboxConfig } from '../../sandbox/types.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../../utils/buffer-limits.js';
 
+type ResolvedCommand = {
+  command: string;
+  executablePath: string;
+};
+
 /**
  * Internal representation of a running execution.
  */
@@ -390,16 +395,105 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   }
 
   /**
+   * Build the ordered command candidate list for auto-detection.
+   * The configured command path always has highest priority and is not included here.
+   */
+  protected getCommandCandidates(): string[] {
+    return [
+      this.meta.defaultCommand,
+      ...(this.meta.commandAliases ?? []),
+    ]
+      .map((command) => command.trim())
+      .filter((command): command is string => command.length > 0);
+  }
+
+  /**
+   * Format a human-readable list of acceptable command names.
+   */
+  protected getExpectedCommandNames(): string {
+    const candidates = this.getCommandCandidates();
+    if (candidates.length === 0) {
+      return 'no configured command';
+    }
+
+    return candidates.map((command) => `\`${command}\``).join(', ');
+  }
+
+  /**
+   * Resolve a command path by checking explicit override first, then command candidates.
+   * Returns the first discovered command path.
+   */
+  protected async resolveCommandPath(): Promise<ResolvedCommand | null> {
+    if (this.commandPath) {
+      const trimmedCommand = this.commandPath.trim();
+      if (!trimmedCommand) {
+        this.commandPath = undefined;
+      } else {
+        const findResult = await findCommandPath(trimmedCommand);
+        if (!findResult.found) {
+          return null;
+        }
+
+        return {
+          command: trimmedCommand,
+          executablePath: findResult.path,
+        };
+      }
+    }
+
+    const candidates = this.getCommandCandidates();
+    const resolvedCommands = new Set<string>();
+    const uniqueCandidates = candidates.filter((command) => {
+      if (resolvedCommands.has(command)) {
+        return false;
+      }
+      resolvedCommands.add(command);
+      return true;
+    });
+
+    for (const command of uniqueCandidates) {
+      const findResult = await findCommandPath(command);
+      if (findResult.found) {
+        this.commandPath = findResult.path;
+        return {
+          command,
+          executablePath: findResult.path,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Build the standard error text for command resolution failures.
+   * Override in plugin implementations to include install-specific links.
+   */
+  protected getCommandNotFoundMessage(): string {
+    return `${this.meta.name} not found in PATH. Expected one of ${this.getExpectedCommandNames()}`;
+  }
+
+  /**
    * Detect if the agent CLI is available.
    * Default implementation tries to run the command with --version.
    * Subclasses can override for custom detection logic.
    */
   async detect(): Promise<AgentDetectResult> {
-    const command = this.commandPath ?? this.meta.defaultCommand;
+    const resolvedCommand = await this.resolveCommandPath();
+
+    if (!resolvedCommand) {
+      return {
+        available: false,
+        error: this.getCommandNotFoundMessage(),
+      };
+    }
+
+    const command = resolvedCommand.command;
+    const commandPath = resolvedCommand.executablePath;
 
     return new Promise((resolve) => {
       const isWindows = platform() === 'win32';
-      const spawnCmd = isWindows ? quoteForWindowsShell(command) : command;
+      const spawnCmd = isWindows ? quoteForWindowsShell(commandPath) : commandPath;
       const proc = spawn(spawnCmd, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: true,
@@ -430,12 +524,12 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
           resolve({
             available: true,
             version: versionMatch?.[1],
-            executablePath: command,
+            executablePath: commandPath,
           });
         } else {
           resolve({
             available: false,
-            error: stderr || `${command} exited with code ${code}`,
+            error: stderr || `${commandPath} exited with code ${code}`,
           });
         }
       });
@@ -445,7 +539,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
         proc.kill();
         resolve({
           available: false,
-          error: `Timeout waiting for ${command} --version`,
+          error: `Timeout waiting for ${commandPath} --version`,
         });
       }, 15000);
     });
@@ -670,16 +764,51 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     };
 
     void resolveSandboxConfig()
-      .then((sandboxConfig) => {
+      .then(async (sandboxConfig) => {
         let spawnCommand = command;
         let spawnArgs = allArgs;
+
+        if (!this.commandPath) {
+          const resolvedCommand = await this.resolveCommandPath();
+          if (!resolvedCommand) {
+            const failedCommandError = this.getCommandNotFoundMessage();
+            const endedAt = new Date();
+            const result = {
+              executionId,
+              status: 'failed' as const,
+              exitCode: undefined,
+              stdout: '',
+              stderr: failedCommandError,
+              durationMs: endedAt.getTime() - startedAt.getTime(),
+              error: failedCommandError,
+              interrupted: false,
+              startedAt: startedAt.toISOString(),
+              endedAt: endedAt.toISOString(),
+            };
+
+            if (options?.onEnd) {
+              try {
+                options.onEnd(result);
+              } catch (err) {
+                if (process.env.RALPH_DEBUG) {
+                  debugLog(`[DEBUG] onEnd hook threw error: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }
+            }
+
+            resolvePromise!(result);
+            return;
+          }
+
+          spawnCommand = resolvedCommand.executablePath;
+        }
 
         if (sandboxConfig) {
           const wrapper = new SandboxWrapper(
             sandboxConfig,
             this.getSandboxRequirements()
           );
-          const wrapped = wrapper.wrapCommand(command, allArgs, {
+          const wrapped = wrapper.wrapCommand(spawnCommand, allArgs, {
             cwd: options?.cwd,
           });
           spawnCommand = wrapped.command;

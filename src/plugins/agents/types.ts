@@ -315,6 +315,9 @@ export interface AgentPluginMeta {
   /** Default command name for the agent CLI */
   defaultCommand: string;
 
+  /** Optional alternate command names used for auto-detection */
+  commandAliases?: string[];
+
   /** Whether the agent supports streaming output */
   supportsStreaming: boolean;
 
