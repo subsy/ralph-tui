@@ -233,7 +233,14 @@ export class BeadsRustBvTrackerPlugin extends BaseTrackerPlugin {
         ) {
             const recMap = new Map<string, BvTriageRecommendation>();
             for (const rec of this.lastTriageOutput.triage.recommendations) {
-                recMap.set(rec.id, rec);
+                if (
+                    typeof rec === 'object' &&
+                    rec !== null &&
+                    'id' in rec &&
+                    typeof (rec as BvTriageRecommendation).id === 'string'
+                ) {
+                    recMap.set((rec as BvTriageRecommendation).id, rec as BvTriageRecommendation);
+                }
             }
             for (const task of tasks) {
                 const rec = recMap.get(task.id);
@@ -476,16 +483,30 @@ export class BeadsRustBvTrackerPlugin extends BaseTrackerPlugin {
                     typeof parsed.triage === 'object' &&
                     Array.isArray(parsed.triage.recommendations)
                 ) {
+                    // Filter out any malformed items within the recommendations array.
+                    parsed.triage.recommendations = parsed.triage.recommendations.filter(
+                        (rec): rec is BvTriageRecommendation =>
+                            typeof rec === 'object' &&
+                            rec !== null &&
+                            'id' in rec &&
+                            typeof (rec as BvTriageRecommendation).id === 'string'
+                    );
                     this.lastTriageOutput = parsed;
                 } else {
                     this.lastTriageOutput = { triage: { recommendations: [] } };
                 }
-                this.lastTriageRefreshAt = Date.now();
             } catch {
-                // Ignore parse errors.
+                // Ignore parse errors — fall back to empty recommendations.
                 this.lastTriageOutput = { triage: { recommendations: [] } };
             }
+        } else {
+            // Non-zero exit: treat as empty to avoid stale data.
+            this.lastTriageOutput = { triage: { recommendations: [] } };
         }
+
+        // Always update the timestamp so scheduleTriageRefresh's 30-second
+        // debounce is respected even when bv fails, preventing rapid retries.
+        this.lastTriageRefreshAt = Date.now();
     }
 
     override getTemplate(): string {

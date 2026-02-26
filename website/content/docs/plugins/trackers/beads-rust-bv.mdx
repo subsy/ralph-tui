@@ -107,7 +107,7 @@ plugin = "beads-rust-bv"
 
 [tracker.options]
 epicId    = "auth-1"       # optional: filter to a specific epic
-labels    = "auth"         # optional: filter by label
+labels    = "auth,backend" # optional: comma-separated string OR array (e.g. ["auth", "backend"])
 workingDir = "./workspace" # optional: path to br project root
 beadsDir  = ".beads"       # optional: beads storage directory (default: .beads)
 ```
@@ -117,7 +117,7 @@ beadsDir  = ".beads"       # optional: beads storage directory (default: .beads)
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `epicId` | string | `""` | Restrict task selection to this epic's children. |
-| `labels` | string | `""` | Comma-separated label filter (e.g. `"auth,backend"`). |
+| `labels` | `string \| string[]` | `""` | Label filter. Accepts a comma-separated string (e.g. `"auth,backend"`) or a string array (e.g. `["auth", "backend"]`). |
 | `workingDir` | string | `cwd` | Path to the project root where `.beads/` lives. |
 | `beadsDir` | string | `".beads"` | Custom Beads storage directory name. |
 
