@@ -746,6 +746,15 @@ export async function validateConfig(
     }
   }
 
+  if (config.tracker.plugin === "linear") {
+    if (!config.epicId) {
+      errors.push(
+        "Linear tracker requires --epic <issue-key-or-uuid> to specify the parent issue. " +
+          "Example: ralph-tui run --tracker linear --epic ENG-123",
+      );
+    }
+  }
+
   if (config.tracker.plugin === "json") {
     if (!config.prdPath) {
       // No error - TUI will show file prompt dialog to let user select a file
