@@ -1,0 +1,215 @@
+---
+title: Beads-Rust-BV Tracker
+description: Smart task selection using bv graph analysis (PageRank, critical path) with the br CLI for high-performance Beads tracking.
+---
+
+# Beads-Rust-BV Tracker
+
+The **Beads-Rust-BV** tracker combines the high-performance Rust backend (`br`) with intelligent, graph-aware task ordering from the `bv` tool. It is the recommended choice for teams already using `beads-rust` who want optimal task sequencing based on dependency graph analysis.
+
+When `bv` is available, it uses `bv --robot-next` to select the task that maximises throughput (accounting for PageRank, critical path, and unblock potential). If `bv` is not installed, it seamlessly falls back to standard `beads-rust` behaviour (`br ready`).
+
+## Prerequisites
+
+<Steps>
+<Step>Install the `br` (beads-rust) CLI — see the [Beads-Rust tracker docs](/docs/plugins/trackers/beads-rust) for platform-specific installation instructions.</Step>
+
+<Step>
+
+Create and initialise a Beads project with `br`:
+
+```bash
+br init
+```
+
+</Step>
+
+<Step>
+
+Install the `bv` (beads-viewer) CLI for smart task selection:
+
+```bash
+cargo install bv
+# or via the project's install script
+curl -fsSL https://get.beads.sh/bv | sh
+```
+
+</Step>
+
+<Step>
+
+Verify both tools are on your `PATH`:
+
+```bash
+br --version   # e.g. br 1.0.0
+bv --version   # e.g. bv 0.5.0
+```
+
+</Step>
+</Steps>
+
+## Basic Usage
+
+<Steps>
+<Step>
+
+Create an epic and child tasks using `br`:
+
+```bash
+br new epic "Implement authentication" --label auth
+br new task "Add login form" --parent auth-1 --label auth
+br new task "Add JWT middleware" --parent auth-1 --label auth
+br new task "Write auth tests" --parent auth-1 --depends-on auth-1.2
+```
+
+</Step>
+
+<Step>
+
+Link dependencies so `bv` can analyse them:
+
+```bash
+br link auth-1.2 blockedby auth-1.1
+br link auth-1.3 blockedby auth-1.2
+```
+
+</Step>
+
+<Step>
+
+Run Ralph TUI with the `beads-rust-bv` tracker:
+
+```bash
+ralph run --tracker beads-rust-bv
+```
+
+On each iteration, Ralph uses `bv --robot-next` to select the highest-value, unblocked task based on its dependency graph score.
+
+</Step>
+</Steps>
+
+## Configuration
+
+### CLI Flags
+
+```bash
+ralph run \
+  --tracker beads-rust-bv \
+  --tracker-option epicId=auth-1 \
+  --tracker-option labels=auth
+```
+
+### Config File (TOML)
+
+```toml
+[tracker]
+plugin = "beads-rust-bv"
+
+[tracker.options]
+epicId    = "auth-1"       # optional: filter to a specific epic
+labels    = "auth,backend" # optional: comma-separated string OR array (e.g. ["auth", "backend"])
+workingDir = "./workspace" # optional: path to br project root
+beadsDir  = ".beads"       # optional: beads storage directory (default: .beads)
+```
+
+## Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `epicId` | string | `""` | Restrict task selection to this epic's children. |
+| `labels` | `string \| string[]` | `""` | Label filter. Accepts a comma-separated string (e.g. `"auth,backend"`) or a string array (e.g. `["auth", "backend"]`). |
+| `workingDir` | string | `cwd` | Path to the project root where `.beads/` lives. |
+| `beadsDir` | string | `".beads"` | Custom Beads storage directory name. |
+
+## How It Works
+
+On each task cycle, the plugin follows this sequence:
+
+```
+Initialise
+  └─ detect() → Check br binary + .beads/ dir
+  └─ detect() → Check bv binary (sets bvAvailable flag)
+
+getNextTask()
+  ├─ bvAvailable = false → br ready (same as beads-rust)
+  └─ bvAvailable = true
+       └─ bv --robot-next [--label <label>]
+            ├─ exitCode ≠ 0    → fallback to br ready
+            ├─ invalid JSON    → fallback to br ready
+            ├─ { message }     → no items, fallback to br ready
+            ├─ epic mismatch   → task outside filter, fallback to br ready
+            └─ success         → augment task with bvScore/bvReasons/bvUnblocks
+                                  → schedule background triage refresh
+                                  → return augmented task
+```
+
+After each `completeTask()` or `updateTaskStatus()` call, a background `bv --robot-triage` refresh is triggered (debounced to 30 seconds) so future `getTasks()` calls can display bv scores alongside every task.
+
+## Fallback Behaviour
+
+If `bv` is not installed or is not on your `PATH`, the plugin automatically falls back to `br ready` for task selection (identical to using the plain `beads-rust` tracker). No configuration change is required — the plugin detects `bv` availability on startup and adjusts accordingly.
+
+A warning is printed during `ralph setup --validate`:
+
+```
+Warning: bv binary not found. Smart task selection will fall back to br behavior.
+```
+
+## Comparison
+
+| Feature | `beads-rust` | `beads-rust-bv` |
+|---------|-------------|-----------------|
+| Backend CLI | `br` | `br` (+ `bv`) |
+| Task selection | `br ready` | `bv --robot-next` → `br ready` fallback |
+| Graph-aware ordering | ✗ | ✓ |
+| PageRank / critical path | ✗ | ✓ |
+| bv score in task list | ✗ | ✓ |
+| PRD context injection | ✓ | ✓ |
+| Dependency enrichment | ✓ | ✓ |
+| Bidirectional sync | ✓ | ✓ |
+| Works without `bv` | ✓ (native) | ✓ (graceful fallback) |
+
+## Troubleshooting
+
+### `br not found` or `.beads directory not found`
+
+```
+Plugin is not ready: br binary not found or .beads directory missing.
+```
+
+Ensure `br` is installed and you have run `br init` in the project directory. See the [Beads-Rust tracker docs](/docs/plugins/trackers/beads-rust) for details.
+
+### `bv not found` (but `br` works fine)
+
+The plugin falls back to `br ready` automatically. To enable smart selection:
+
+```bash
+cargo install bv
+```
+
+Then re-run `ralph run` — no config changes needed.
+
+### No tasks returned
+
+If `bv --robot-next` returns `No actionable items available`, all tasks may be blocked (no unresolved dependency-free tasks). Check your dependency graph:
+
+```bash
+bv show          # human-readable status
+bv --robot-triage  # ranked recommendations (includes blocked tasks)
+```
+
+### Wrong task selected
+
+If `bv` returns a task that doesn't match your epic filter, the plugin falls back to `br ready` with parent filtering. To debug:
+
+```bash
+bv --robot-next
+# inspect the selected id and compare to your epic's children:
+br list --parent <epicId> --json
+```
+
+## Next Steps
+
+- [Beads-Rust tracker](/docs/plugins/trackers/beads-rust) — the pure Rust backend without graph ordering
+- [Beads-BV tracker](/docs/plugins/trackers/beads-bv) — the same smart selection on top of the original Go `bd` CLI
+- [Beads tracker](/docs/plugins/trackers/beads) — the original Go-based beads tracker
