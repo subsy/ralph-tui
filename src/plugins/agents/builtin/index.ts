@@ -13,6 +13,7 @@ import createKiroAgent from './kiro.js';
 import createCursorAgent from './cursor.js';
 import createGithubCopilotAgent from './github-copilot.js';
 import createKimiAgent from './kimi.js';
+import createPiAgent from './pi.js';
 
 /**
  * Register all built-in agent plugins with the registry.
@@ -31,6 +32,7 @@ export function registerBuiltinAgents(): void {
   registry.registerBuiltin(createCursorAgent);
   registry.registerBuiltin(createGithubCopilotAgent);
   registry.registerBuiltin(createKimiAgent);
+  registry.registerBuiltin(createPiAgent);
 }
 
 // Export the factory functions for direct use
@@ -44,6 +46,7 @@ export {
   createCursorAgent,
   createGithubCopilotAgent,
   createKimiAgent,
+  createPiAgent,
 };
 
 // Export Claude JSONL parsing types and utilities
@@ -57,3 +60,4 @@ export { KiroAgentPlugin } from './kiro.js';
 export { CursorAgentPlugin } from './cursor.js';
 export { GithubCopilotAgentPlugin } from './github-copilot.js';
 export { KimiAgentPlugin } from './kimi.js';
+export { PiAgentPlugin } from './pi.js';

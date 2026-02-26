@@ -22,6 +22,7 @@ export const AGENT_ID_MAP: Record<string, string> = {
   kiro: 'kiro',
   cursor: 'cursor',
   'github-copilot': 'github-copilot',
+  pi: 'pi',
 };
 
 /**
