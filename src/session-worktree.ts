@@ -235,8 +235,11 @@ function copyBeadsDir(cwd: string, worktreePath: string): void {
     if (stat.isFile()) {
       fs.copyFileSync(sourcePath, targetPath);
     } else if (stat.isDirectory()) {
-      // Recursively copy subdirectories (unlikely for .beads/ but handle gracefully)
-      fs.cpSync(sourcePath, targetPath, { recursive: true });
+      // Recursively copy subdirectories, applying the same exclusion patterns
+      fs.cpSync(sourcePath, targetPath, {
+        recursive: true,
+        filter: (src) => !isBeadsExcluded(path.basename(src)),
+      });
     }
   }
 }
@@ -429,11 +432,18 @@ export async function createSessionWorktree(
     }
   }
 
-  // Clean up stale branch if it exists
-  try {
+  // Clean up stale branch if it exists, but only if no active worktree uses it
+  if (branchExists(cwd, branchName)) {
+    const worktreeOutput = git(cwd, ['worktree', 'list', '--porcelain']);
+    const worktrees = parseWorktreeList(worktreeOutput);
+    const inUse = worktrees.some((wt) => wt.branch === branchName);
+    if (inUse) {
+      throw new Error(
+        `Branch "${branchName}" is currently in use by another worktree. ` +
+        `Use a different --worktree name or remove the existing worktree first.`
+      );
+    }
     git(cwd, ['branch', '-D', branchName]);
-  } catch {
-    // Branch may not exist
   }
 
   // Create the worktree with a new branch from HEAD
@@ -561,6 +571,24 @@ export async function mergeSessionWorktree(
     return {
       success: false,
       message: `Original branch is the session branch (${branchName}). Worktree preserved at: ${worktreePath}`,
+    };
+  }
+
+  // Check for uncommitted changes that would cause merge to fail
+  try {
+    git(cwd, ['diff', '--quiet']);
+    git(cwd, ['diff', '--cached', '--quiet']);
+  } catch {
+    return {
+      success: false,
+      message: [
+        'Cannot merge: the main working tree has uncommitted changes.',
+        `  Worktree: ${worktreePath}`,
+        `  Branch:   ${branchName}`,
+        'Commit or stash your changes, then merge manually:',
+        `  cd ${cwd}`,
+        `  git merge ${branchName}`,
+      ].join('\n'),
     };
   }
 

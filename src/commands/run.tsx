@@ -3358,6 +3358,9 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         copiedJsonPrdIsExternal = copyResult.jsonPrdIsExternal ?? false;
       }
 
+      // Session metadata must stay in the original project directory
+      config.sessionCwd = lifecycleCwd;
+
       // Redirect the execution engine to run inside the worktree
       config.cwd = result.worktreePath;
 
@@ -4059,7 +4062,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
     // Preserve session worktree on failure so user can inspect/recover
     if (sessionWorktreeInfo) {
-      preserveIterationLogs(cwd, sessionWorktreeInfo.worktreePath);
+      preserveIterationLogs(lifecycleCwd, sessionWorktreeInfo.worktreePath);
       printWorktreePreservedMessage(
         sessionWorktreeInfo.worktreePath,
         sessionWorktreeInfo.branchName,
@@ -4115,7 +4118,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
     // Preserve session worktree on incomplete session so user can inspect/recover
     if (sessionWorktreeInfo) {
-      preserveIterationLogs(cwd, sessionWorktreeInfo.worktreePath);
+      preserveIterationLogs(lifecycleCwd, sessionWorktreeInfo.worktreePath);
       printWorktreePreservedMessage(
         sessionWorktreeInfo.worktreePath,
         sessionWorktreeInfo.branchName,

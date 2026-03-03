@@ -278,6 +278,11 @@ export class ExecutionEngine {
     };
   }
 
+  /** Directory for session metadata — falls back to execution cwd when not set. */
+  private get sessionCwd(): string {
+    return this.config.sessionCwd ?? this.config.cwd;
+  }
+
   /**
    * Initialize the engine with plugins.
    *
@@ -620,7 +625,7 @@ export class ExecutionEngine {
 
       // Update session
       await updateSessionIteration(
-        this.config.cwd,
+        this.sessionCwd,
         this.state.currentIteration,
         this.state.tasksCompleted
       );
@@ -1438,7 +1443,7 @@ export class ExecutionEngine {
     }
 
     // Update session status
-    await updateSessionStatus(this.config.cwd, 'interrupted');
+    await updateSessionStatus(this.sessionCwd, 'interrupted');
 
     this.emit({
       type: 'engine:stopped',
@@ -1523,7 +1528,7 @@ export class ExecutionEngine {
     this.config.maxIterations = newMax;
 
     // Persist to session
-    await updateSessionMaxIterations(this.config.cwd, newMax);
+    await updateSessionMaxIterations(this.sessionCwd, newMax);
 
     // Emit event
     this.emit({
@@ -1568,7 +1573,7 @@ export class ExecutionEngine {
     this.config.maxIterations = newMax;
 
     // Persist to session
-    await updateSessionMaxIterations(this.config.cwd, newMax);
+    await updateSessionMaxIterations(this.sessionCwd, newMax);
 
     // Emit event
     this.emit({

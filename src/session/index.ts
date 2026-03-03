@@ -380,7 +380,13 @@ export async function endSession(
 }
 
 /**
- * Resume an existing session
+ * Resume an existing session.
+ *
+ * NOTE: The `executeRunCommand` flow in `run.tsx` acquires the lock
+ * separately via `acquireLockWithPrompt` and then calls
+ * `updateSessionStatus` directly, so this function is not used there.
+ * It is retained as a convenience for external callers and tests that
+ * need the combined lock-acquire-and-resume workflow.
  */
 export async function resumeSession(
   cwd: string

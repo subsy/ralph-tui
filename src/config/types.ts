@@ -410,6 +410,15 @@ export interface RalphConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /**
+   * Directory used for session lifecycle operations (session metadata, locks).
+   * When --worktree is active, `cwd` is redirected to the worktree while
+   * `sessionCwd` remains the original project directory so session state
+   * is read/written in a single canonical location.
+   * Defaults to `cwd` when not set.
+   */
+  sessionCwd?: string;
 }
 
 /**
