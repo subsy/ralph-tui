@@ -195,6 +195,16 @@ describe('skills install command (spawn)', () => {
     expect(mockSpawnArgs[0].args).toContain('claude-code');
   });
 
+  test('maps kiro agent ID to kiro-cli for add-skill', async () => {
+    mockSpawnStdout = 'Found 4 skills\nInstallation complete\n';
+    mockSpawnExitCode = 0;
+
+    await executeSkillsCommand(['install', '--agent', 'kiro']);
+
+    expect(mockSpawnArgs[0].args).toContain('-a');
+    expect(mockSpawnArgs[0].args).toContain('kiro-cli');
+  });
+
   test('passes skill flag when --skill specified', async () => {
     mockSpawnStdout = 'Found 1 skill\nInstallation complete\n';
     mockSpawnExitCode = 0;
@@ -212,6 +222,15 @@ describe('skills install command (spawn)', () => {
     await executeSkillsCommand(['install', '--local']);
 
     expect(mockSpawnArgs[0].args).not.toContain('-g');
+  });
+
+  test('passes --copy flag through to add-skill when requested', async () => {
+    mockSpawnStdout = 'Found 4 skills\nInstallation complete\n';
+    mockSpawnExitCode = 0;
+
+    await executeSkillsCommand(['install', '--copy']);
+
+    expect(mockSpawnArgs[0].args).toContain('--copy');
   });
 
   test('shows verify hint after install', async () => {

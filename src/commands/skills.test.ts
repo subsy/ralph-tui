@@ -86,6 +86,7 @@ describe('printSkillsHelp', () => {
     expect(output).toContain('--agent');
     expect(output).toContain('--global');
     expect(output).toContain('--local');
+    expect(output).toContain('--copy');
   });
 
   test('includes examples in help', () => {
@@ -233,6 +234,7 @@ describe('parseInstallArgs', () => {
     const result = parseInstallArgs([]);
     expect(result.global).toBe(true);
     expect(result.local).toBe(false);
+    expect(result.copy).toBe(false);
   });
 
   test('parses --local flag', () => {
@@ -249,6 +251,11 @@ describe('parseInstallArgs', () => {
   test('parses --global flag', () => {
     const result = parseInstallArgs(['--global']);
     expect(result.global).toBe(true);
+  });
+
+  test('parses --copy flag', () => {
+    const result = parseInstallArgs(['--copy']);
+    expect(result.copy).toBe(true);
   });
 
   test('parses -g shorthand', () => {
@@ -367,6 +374,18 @@ describe('buildAddSkillArgs', () => {
       '-a', 'claude-code',
       '-g', '-y',
     ]);
+  });
+
+  test('adds --copy flag when requested', () => {
+    const args = buildAddSkillArgs({
+      skillName: null,
+      agentId: 'kiro',
+      local: false,
+      global: true,
+      copy: true,
+    });
+    expect(args).toContain('--copy');
+    expect(args).toContain('kiro-cli');
   });
 });
 
