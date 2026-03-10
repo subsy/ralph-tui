@@ -134,7 +134,9 @@ describe('skills install command (spawn)', () => {
 
     await executeSkillsCommand(['install', '--copy']);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    const logOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    const errorOutput = consoleErrorSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    const allOutput = `${logOutput}\n${errorOutput}`;
     expect(allOutput).toContain('symlinks');
     expect(allOutput).not.toContain('ralph-tui skills install --copy');
   });
@@ -213,8 +215,10 @@ describe('skills install command (spawn)', () => {
 
     await executeSkillsCommand(['install', '--agent', 'kiro']);
 
-    expect(mockSpawnArgs[0].args).toContain('-a');
-    expect(mockSpawnArgs[0].args).toContain('kiro-cli');
+    const agentFlagIndex = mockSpawnArgs[0].args.indexOf('-a');
+    expect(agentFlagIndex).toBeGreaterThanOrEqual(0);
+    expect(mockSpawnArgs[0].args[agentFlagIndex + 1]).toBe('kiro-cli');
+    expect(mockSpawnArgs[0].args).not.toContain('kiro');
   });
 
   test('passes skill flag when --skill specified', async () => {
