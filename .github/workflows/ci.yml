@@ -114,9 +114,24 @@ jobs:
           bun test src/plugins/trackers/builtin/beads/index.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/beads.lcov
 
-          echo "=== Running src/plugins/ (excluding beads-bv and beads-rust) ===" | tee -a coverage-output.txt
+          echo "=== Running src/plugins/ (excluding beads-bv, beads-rust, and linear) ===" | tee -a coverage-output.txt
           bun test src/plugins/agents/ src/plugins/trackers/builtin/beads.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt || true
           cp coverage/lcov.info coverage-parts/plugins.lcov || true
+
+          # Linear tracker tests: client.test.ts and index.test.ts both use mock.module()
+          # (client mocks @linear/sdk, index mocks ./client.js) so they must run in separate processes.
+          # body.test.ts is pure functions with no mocks and can batch with convert.test.ts.
+          echo "=== Running linear body.test.ts + convert.test.ts ===" | tee -a coverage-output.txt
+          bun test src/plugins/trackers/builtin/linear/body.test.ts src/commands/convert.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/linear-body.lcov
+
+          echo "=== Running linear client.test.ts (isolated) ===" | tee -a coverage-output.txt
+          bun test src/plugins/trackers/builtin/linear/client.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/linear-client.lcov
+
+          echo "=== Running linear index.test.ts (isolated) ===" | tee -a coverage-output.txt
+          bun test src/plugins/trackers/builtin/linear/index.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/linear-index.lcov
 
           echo "=== Running src/session/ ===" | tee -a coverage-output.txt
           bun test src/session/ --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
@@ -207,7 +222,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           # Upload all batch coverage files - Codecov will merge them correctly
-          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-beads-rust-bv.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/beads.lcov,./coverage-parts/plugins.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
+          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-beads-rust-bv.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/beads.lcov,./coverage-parts/plugins.lcov,./coverage-parts/linear-body.lcov,./coverage-parts/linear-client.lcov,./coverage-parts/linear-index.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
           fail_ci_if_error: false
           verbose: true
         env:
