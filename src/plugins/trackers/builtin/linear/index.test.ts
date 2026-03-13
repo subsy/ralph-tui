@@ -419,6 +419,43 @@ describe('LinearTrackerPlugin', () => {
 
       expect(tasks[0].dependsOn).toBeUndefined();
     });
+
+    test('getTask resolves dependencies without prior getTasks call', async () => {
+      const child1 = createMockIssue({
+        id: 'uuid-1',
+        identifier: 'ENG-10',
+        title: 'First',
+        parentIdentifier: 'ENG-1',
+      });
+      const child2 = createMockIssue({
+        id: 'uuid-2',
+        identifier: 'ENG-11',
+        title: 'Second (depends on First)',
+        parentIdentifier: 'ENG-1',
+      });
+
+      // getChildIssues returns both children so ensureIssueIdMap populates the map
+      mockResponses.getChildIssues = () => [child1, child2];
+      // getIssue returns the specific issue being requested
+      mockResponses.getIssue = (idOrKey: string) => {
+        if (idOrKey === 'ENG-11' || idOrKey === 'uuid-2') return child2;
+        if (idOrKey === 'ENG-1' || idOrKey === 'uuid-epic') {
+          return createMockIssue({ id: 'uuid-epic', identifier: 'ENG-1', title: 'Epic' });
+        }
+        return child1;
+      };
+      mockResponses.getBlockingIssueIds = (issueId: string) => {
+        if (issueId === 'uuid-2') return ['uuid-1'];
+        return [];
+      };
+
+      // Call getTask directly without calling getTasks first
+      const plugin = await createInitializedPlugin();
+      const task = await plugin.getTask('ENG-11');
+
+      expect(task).toBeDefined();
+      expect(task!.dependsOn).toEqual(['ENG-10']);
+    });
   });
 
   describe('next-task ordering by ralphPriority', () => {

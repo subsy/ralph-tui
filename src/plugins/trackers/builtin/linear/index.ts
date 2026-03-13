@@ -203,6 +203,22 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     return this.epicId;
   }
 
+  /**
+   * Ensure the issueIdMap is populated from the epic's children.
+   * Shared by getTasks and getTask so dependency resolution works
+   * regardless of call order.
+   */
+  private async ensureIssueIdMap(): Promise<void> {
+    if (this.issueIdMap.size > 0 || !this.epicId) {
+      return;
+    }
+
+    const childIssues = await this.client.getChildIssues(this.epicId);
+    for (const issue of childIssues) {
+      this.issueIdMap.set(issue.id, issue.identifier);
+    }
+  }
+
   override async getTasks(filter?: TaskFilter): Promise<TrackerTask[]> {
     const parentId = filter?.parentId ?? this.epicId;
     if (!parentId) {
@@ -211,7 +227,7 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
 
     const childIssues = await this.client.getChildIssues(parentId);
 
-    // Build UUID → identifier map for dependency resolution
+    // Rebuild UUID → identifier map for dependency resolution
     this.issueIdMap.clear();
     for (const issue of childIssues) {
       this.issueIdMap.set(issue.id, issue.identifier);
@@ -235,26 +251,15 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
 
   override async getTask(id: string): Promise<TrackerTask | undefined> {
     try {
+      // Ensure the map is populated so blocking UUIDs can be resolved
+      await this.ensureIssueIdMap();
+
       const issue = await this.client.getIssue(id);
 
       const blockingUuids = await this.client.getBlockingIssueIds(issue.id);
-      const blockingIdentifiers: string[] = [];
-
-      for (const uuid of blockingUuids) {
-        let identifier = this.issueIdMap.get(uuid);
-        if (!identifier) {
-          // Cache miss — resolve the identifier from the API
-          try {
-            const blockerIssue = await this.client.getIssue(uuid);
-            identifier = blockerIssue.identifier;
-            this.issueIdMap.set(uuid, identifier);
-          } catch {
-            // Skip unresolvable dependencies rather than dropping silently
-            continue;
-          }
-        }
-        blockingIdentifiers.push(identifier);
-      }
+      const blockingIdentifiers = blockingUuids
+        .map((uuid) => this.issueIdMap.get(uuid))
+        .filter((identifier): identifier is string => identifier !== undefined);
 
       return await linearIssueToTask(issue, blockingIdentifiers);
     } catch (err) {

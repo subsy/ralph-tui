@@ -139,18 +139,12 @@ beforeEach(() => {
 describe('resolveApiKey', () => {
   const originalEnv = process.env.LINEAR_API_KEY;
 
-  afterEach(() => {
+  function restoreEnv(): void {
     if (originalEnv !== undefined) {
       process.env.LINEAR_API_KEY = originalEnv;
     } else {
       delete process.env.LINEAR_API_KEY;
     }
-  });
-
-  function afterEach(fn: () => void) {
-    // bun:test doesn't have afterEach at describe level, use beforeEach to reset
-    // We handle cleanup in-test instead
-    void fn;
   }
 
   test('returns config apiKey when provided', () => {
@@ -159,62 +153,56 @@ describe('resolveApiKey', () => {
   });
 
   test('config apiKey takes precedence over env var', () => {
-    process.env.LINEAR_API_KEY = 'lin_api_env';
-    const key = resolveApiKey({ apiKey: 'lin_api_config' });
-    expect(key).toBe('lin_api_config');
-    // Restore
-    if (originalEnv !== undefined) {
-      process.env.LINEAR_API_KEY = originalEnv;
-    } else {
-      delete process.env.LINEAR_API_KEY;
+    try {
+      process.env.LINEAR_API_KEY = 'lin_api_env';
+      const key = resolveApiKey({ apiKey: 'lin_api_config' });
+      expect(key).toBe('lin_api_config');
+    } finally {
+      restoreEnv();
     }
   });
 
   test('falls back to LINEAR_API_KEY env var', () => {
-    process.env.LINEAR_API_KEY = 'lin_api_env';
-    const key = resolveApiKey({});
-    expect(key).toBe('lin_api_env');
-    // Restore
-    if (originalEnv !== undefined) {
-      process.env.LINEAR_API_KEY = originalEnv;
-    } else {
-      delete process.env.LINEAR_API_KEY;
+    try {
+      process.env.LINEAR_API_KEY = 'lin_api_env';
+      const key = resolveApiKey({});
+      expect(key).toBe('lin_api_env');
+    } finally {
+      restoreEnv();
     }
   });
 
   test('falls back to env var when config is undefined', () => {
-    process.env.LINEAR_API_KEY = 'lin_api_env';
-    const key = resolveApiKey();
-    expect(key).toBe('lin_api_env');
-    // Restore
-    if (originalEnv !== undefined) {
-      process.env.LINEAR_API_KEY = originalEnv;
-    } else {
-      delete process.env.LINEAR_API_KEY;
+    try {
+      process.env.LINEAR_API_KEY = 'lin_api_env';
+      const key = resolveApiKey();
+      expect(key).toBe('lin_api_env');
+    } finally {
+      restoreEnv();
     }
   });
 
   test('throws LinearApiError when no key is available', () => {
-    delete process.env.LINEAR_API_KEY;
-    expect(() => resolveApiKey({})).toThrow(LinearApiError);
-    // Restore
-    if (originalEnv !== undefined) {
-      process.env.LINEAR_API_KEY = originalEnv;
+    try {
+      delete process.env.LINEAR_API_KEY;
+      expect(() => resolveApiKey({})).toThrow(LinearApiError);
+    } finally {
+      restoreEnv();
     }
   });
 
   test('thrown error has auth kind', () => {
-    delete process.env.LINEAR_API_KEY;
     try {
-      resolveApiKey({});
-      expect(true).toBe(false); // Should not reach
-    } catch (err) {
-      expect(err).toBeInstanceOf(LinearApiError);
-      expect((err as LinearApiError).kind).toBe('auth');
-    }
-    // Restore
-    if (originalEnv !== undefined) {
-      process.env.LINEAR_API_KEY = originalEnv;
+      delete process.env.LINEAR_API_KEY;
+      try {
+        resolveApiKey({});
+        expect(true).toBe(false); // Should not reach
+      } catch (err) {
+        expect(err).toBeInstanceOf(LinearApiError);
+        expect((err as LinearApiError).kind).toBe('auth');
+      }
+    } finally {
+      restoreEnv();
     }
   });
 });
@@ -337,23 +325,27 @@ describe('RalphLinearClient', () => {
   });
 
   describe('getChildIssues', () => {
-    test('returns children with pagination', async () => {
-      let callCount = 0;
+    test('returns children with cursor-based pagination', async () => {
       mockSdkResponses.issue = () => ({
         id: 'parent-uuid',
         identifier: 'ENG-1',
-        children: () => {
-          callCount++;
-          if (callCount === 1) {
+        children: (opts: { first: number; after?: string }) => {
+          if (!opts.after) {
+            // First page
             return Promise.resolve({
               nodes: [{ id: 'child-1' }, { id: 'child-2' }],
               pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
             });
           }
-          return Promise.resolve({
-            nodes: [{ id: 'child-3' }],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          });
+          if (opts.after === 'cursor-1') {
+            // Second page, matching endCursor from first page
+            return Promise.resolve({
+              nodes: [{ id: 'child-3' }],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            });
+          }
+          // Unexpected cursor — fail the test
+          throw new Error(`Unexpected pagination cursor: ${opts.after}`);
         },
       });
 
