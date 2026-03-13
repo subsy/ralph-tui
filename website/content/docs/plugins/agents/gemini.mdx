@@ -5,7 +5,7 @@ description: Integrate Google's Gemini CLI with Ralph TUI for AI-assisted coding
 
 ## Gemini Agent
 
-The Gemini agent plugin integrates with Google's `gemini` CLI to execute AI coding tasks. It supports YOLO mode for autonomous operation and streaming JSONL output for subagent tracing.
+The Gemini agent plugin integrates with Google's `gemini-cli` CLI to execute AI coding tasks. It supports YOLO mode for autonomous operation and streaming JSONL output for subagent tracing.
 
 <Callout type="tip">
 Gemini supports **subagent tracing** via stream-json output - Ralph TUI can show tool calls in real-time as Gemini works.
@@ -22,7 +22,7 @@ npm install -g @google/gemini-cli
 Verify installation:
 
 ```bash
-gemini --version
+gemini-cli --version
 ```
 
 ## Basic Usage
@@ -77,7 +77,7 @@ For advanced control:
 name = "my-gemini"
 plugin = "gemini"
 default = true
-command = "gemini"
+command = "gemini-cli"
 timeout = 300000
 
 [agents.options]
@@ -92,7 +92,7 @@ yoloMode = true
 | `model` | string | - | Gemini model: `gemini-2.5-pro`, `gemini-2.5-flash` |
 | `yoloMode` | boolean | `true` | Skip approval prompts for autonomous operation |
 | `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
-| `command` | string | `"gemini"` | Path to Gemini CLI executable |
+| `command` | string | `"gemini-cli"` | Path to Gemini CLI executable |
 
 ## Models
 
@@ -149,7 +149,7 @@ Or toggle in TUI:
 
 When Ralph TUI executes a task with Gemini:
 
-1. **Build command**: Constructs `gemini [options]`
+1. **Build command**: Constructs `gemini-cli [options]`
 2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
 3. **Stream output**: Captures stdout/stderr in real-time
 4. **Parse JSONL**: Extracts structured tool call data (always enabled)
@@ -161,7 +161,7 @@ When Ralph TUI executes a task with Gemini:
 Ralph TUI builds these arguments:
 
 ```bash
-gemini \
+gemini-cli \
   --output-format stream-json \    # Always used for structured output
   -m gemini-2.5-pro \              # If model specified
   --yolo \                         # When yoloMode enabled
@@ -189,12 +189,14 @@ Gemini agent validates that model names start with `gemini-`:
 Ensure Gemini is installed and in your PATH:
 
 ```bash
-which gemini
-# Should output: /path/to/gemini
+which gemini-cli
+# Should output: /path/to/gemini-cli
 
 # If not found, install:
 npm install -g @google/gemini-cli
 ```
+
+If you still use a legacy `gemini` binary, Ralph TUI accepts it as a fallback alias.
 
 ### "Invalid model"
 

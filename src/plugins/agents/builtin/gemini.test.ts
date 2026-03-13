@@ -32,7 +32,11 @@ describe('GeminiAgentPlugin', () => {
     });
 
     test('has correct default command', () => {
-      expect(plugin.meta.defaultCommand).toBe('gemini');
+      expect(plugin.meta.defaultCommand).toBe('gemini-cli');
+    });
+
+    test('supports legacy gemini alias', () => {
+      expect(plugin.meta.commandAliases).toEqual(['gemini']);
     });
 
     test('supports streaming', () => {

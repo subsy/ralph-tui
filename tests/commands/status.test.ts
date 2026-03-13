@@ -531,6 +531,25 @@ describe('status command', () => {
     });
   });
 
+  describe('progress bar rendering', () => {
+    test('clamps invalid percent values to avoid RangeError', () => {
+      const { __test__ } = require('../../src/commands/status.js');
+      const { createProgressBar } = __test__ as { createProgressBar: (percent: number, width: number) => string };
+
+      expect(createProgressBar(-10, 10)).toBe('[░░░░░░░░░░]');
+      expect(createProgressBar(150, 10)).toBe('[██████████]');
+      expect(createProgressBar(Number.NaN, 10)).toBe('[░░░░░░░░░░]');
+    });
+
+    test('handles non-finite width safely', () => {
+      const { __test__ } = require('../../src/commands/status.js');
+      const { createProgressBar } = __test__ as { createProgressBar: (percent: number, width: number) => string };
+
+      expect(createProgressBar(50, Number.NaN)).toBe('[]');
+      expect(createProgressBar(50, Number.POSITIVE_INFINITY)).toBe('[]');
+    });
+  });
+
   describe('progress calculation', () => {
     test('calculates progress percentage correctly', () => {
       const calculateProgress = (completed: number, total: number): number => {
