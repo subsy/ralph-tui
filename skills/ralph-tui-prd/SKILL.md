@@ -51,6 +51,8 @@ Ask questions one set at a time. Each answer should inform your next questions. 
 
 This lets users respond with "1A, 2C" for quick iteration.
 
+If you are Claude Code, you may use the AskUserQuestion tool.
+
 ### Quality Gates Question (REQUIRED)
 
 Always ask about quality gates - these are project-specific:
