@@ -165,20 +165,11 @@ Use `"passes": false` for incomplete stories, `"passes": true` for completed.
 
 ## Story Size: The #1 Rule
 
-**Each story must be completable in ONE ralph-tui iteration (~one agent context window).**
+Each story must be completable in ONE ralph-tui iteration (~one agent context window). Ralph-tui spawns a fresh agent per iteration with no memory of previous work.
 
-Ralph-tui spawns a fresh agent instance per iteration with no memory of previous work. If a story is too big, the agent runs out of context before finishing.
+**Right-sized:** Add a database column + migration. Add a UI component. Update a server action. Add a filter dropdown.
 
-### Right-sized stories:
-- Add a database column + migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
-
-### Too big (split these):
-- "Build the entire dashboard" → Split into: schema, queries, UI components, filters
-- "Add authentication" → Split into: schema, middleware, login UI, session handling
-- "Refactor the API" → Split into one story per endpoint or pattern
+**Too big (split these):** "Build the entire dashboard" → schema, queries, UI, filters. "Add authentication" → schema, middleware, login UI, sessions.
 
 **Rule of thumb:** If you can't describe the change in 2-3 sentences, it's too big.
 
@@ -186,46 +177,26 @@ Ralph-tui spawns a fresh agent instance per iteration with no memory of previous
 
 ## Dependencies with `dependsOn`
 
-Use the `dependsOn` array to specify which stories must complete first:
+Use the `dependsOn` array to specify which stories must complete first. Ralph-tui will show stories as "blocked" until dependencies complete.
 
 ```json
 {
   "id": "US-002",
   "title": "Create API endpoints",
-  "dependsOn": ["US-001"],  // Won't be selected until US-001 passes
+  "dependsOn": ["US-001"],
   ...
 }
 ```
 
-Ralph-tui will:
-- Show US-002 as "blocked" until US-001 completes
-- Never select US-002 for execution while US-001 is open
-- Include "Prerequisites: US-001" in the prompt when working on US-002
-
-**Correct dependency order:**
-1. Schema/database changes (no dependencies)
-2. Backend logic (depends on schema)
-3. UI components (depends on backend)
-4. Integration/polish (depends on UI)
+**Correct dependency order:** Schema/database → backend → UI → integration.
 
 ---
 
 ## Acceptance Criteria: Quality Gates + Story-Specific
 
-Each story's acceptance criteria should include:
-1. **Story-specific criteria** from the PRD (what this story accomplishes)
-2. **Quality gates** from the PRD's Quality Gates section (appended at the end)
+Each story's acceptance criteria should include story-specific criteria from the PRD, plus quality gates appended from the Quality Gates section.
 
-### Good criteria (verifiable):
-- "Add `status` column to tasks table with default 'open'"
-- "Filter dropdown has options: All, Open, Closed"
-- "Clicking delete shows confirmation dialog"
-
-### Bad criteria (vague):
-- ❌ "Works correctly"
-- ❌ "User can do X easily"
-- ❌ "Good UX"
-- ❌ "Handles edge cases"
+Criteria must be verifiable: "Add `status` column with default 'open'" is good. "Works correctly" or "Good UX" is bad.
 
 ---
 
@@ -364,23 +335,13 @@ After creating prd.json:
 ralph-tui run --prd ./tasks/prd.json
 ```
 
-Ralph-tui will:
-1. Load stories from prd.json
-2. Select the highest-priority story with `passes: false` and no blocking dependencies
-3. Generate a prompt with story details + acceptance criteria
-4. Run the agent to implement the story
-5. Mark `passes: true` on completion
-6. Repeat until all stories pass
-
 ---
 
 ## Checklist Before Saving
 
-- [ ] Extracted Quality Gates from PRD (or asked user if missing)
+- [ ] Extracted Quality Gates from PRD
 - [ ] Each story completable in one iteration
 - [ ] Stories ordered by dependency (schema → backend → UI)
 - [ ] `dependsOn` correctly set for each story
 - [ ] Quality gates appended to every story's acceptance criteria
-- [ ] UI stories have browser verification (if specified in Quality Gates)
-- [ ] Acceptance criteria are verifiable (not vague)
 - [ ] No circular dependencies
