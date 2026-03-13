@@ -659,8 +659,8 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   targetBranch?: string;
   /** Filter tasks by index range (e.g., 1-5, 3-, -10) */
   taskRange?: TaskRangeFilter;
-  /** Explicitly clear progress file on new session start */
-  clearProgress?: boolean;
+  /** Preserve progress file across new sessions instead of clearing */
+  keepProgress?: boolean;
 }
 
 /**
@@ -818,8 +818,8 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         }
         break;
 
-      case '--clear-progress':
-        options.clearProgress = true;
+      case '--keep-progress':
+        options.keepProgress = true;
         break;
 
       case '--notify':
@@ -952,7 +952,7 @@ Options:
   --prompt <path>     Custom prompt file (default: based on tracker mode)
   --output-dir <path> Directory for iteration logs (default: .ralph-tui/iterations)
   --progress-file <path> Progress file for cross-iteration context (default: .ralph-tui/progress.md)
-  --clear-progress   Clear progress file on new session start (default: preserve)
+  --keep-progress    Preserve progress file across new sessions (default: clear)
   --theme <name|path> Theme name (bright, catppuccin, dracula, high-contrast, solarized-light) or path to custom JSON theme file
   --iterations <n>    Maximum iterations (0 = unlimited)
   --delay <ms>        Delay between iterations in milliseconds
@@ -3292,9 +3292,11 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     // Create new session (task count will be updated after tracker init)
     // Note: Lock already acquired above, so createSession won't re-acquire
 
-    // Only clear progress file when explicitly requested via --clear-progress.
-    // By default, preserve accumulated learnings across sessions.
-    if (options.clearProgress) {
+    // Clear progress file for fresh start unless --keep-progress is set.
+    // Different sessions typically work on different tasks, so stale progress
+    // would bloat context with irrelevant info. Use --keep-progress for
+    // multi-session workflows on the same work (e.g., sequential PRD runs).
+    if (!options.keepProgress) {
       await clearProgress(config.cwd);
     }
 

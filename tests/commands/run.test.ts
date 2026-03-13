@@ -271,15 +271,15 @@ describe('run command', () => {
       });
     });
 
-    describe('clear-progress option', () => {
-      test('parses --clear-progress flag', () => {
-        const result = parseRunArgs(['--clear-progress']);
-        expect(result.clearProgress).toBe(true);
+    describe('keep-progress option', () => {
+      test('parses --keep-progress flag', () => {
+        const result = parseRunArgs(['--keep-progress']);
+        expect(result.keepProgress).toBe(true);
       });
 
-      test('clearProgress is undefined when not specified', () => {
+      test('keepProgress is undefined when not specified', () => {
         const result = parseRunArgs([]);
-        expect(result.clearProgress).toBeUndefined();
+        expect(result.keepProgress).toBeUndefined();
       });
     });
 
