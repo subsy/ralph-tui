@@ -271,6 +271,18 @@ describe('run command', () => {
       });
     });
 
+    describe('clear-progress option', () => {
+      test('parses --clear-progress flag', () => {
+        const result = parseRunArgs(['--clear-progress']);
+        expect(result.clearProgress).toBe(true);
+      });
+
+      test('clearProgress is undefined when not specified', () => {
+        const result = parseRunArgs([]);
+        expect(result.clearProgress).toBeUndefined();
+      });
+    });
+
     describe('notify options', () => {
       test('parses --notify flag', () => {
         const result = parseRunArgs(['--notify']);
