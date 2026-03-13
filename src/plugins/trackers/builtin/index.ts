@@ -10,6 +10,7 @@ import createBeadsTracker from './beads/index.js';
 import createBeadsBvTracker from './beads-bv/index.js';
 import createBeadsRustTracker from './beads-rust/index.js';
 import createBeadsRustBvTracker from './beads-rust-bv/index.js';
+import createLinearTracker from './linear/index.js';
 
 /**
  * All built-in tracker plugin factories.
@@ -20,6 +21,7 @@ export const builtinTrackers = {
   'beads-bv': createBeadsBvTracker,
   'beads-rust': createBeadsRustTracker,
   'beads-rust-bv': createBeadsRustBvTracker,
+  linear: createLinearTracker,
 } as const;
 
 /**
@@ -40,4 +42,5 @@ export {
   createBeadsBvTracker,
   createBeadsRustTracker,
   createBeadsRustBvTracker,
+  createLinearTracker,
 };

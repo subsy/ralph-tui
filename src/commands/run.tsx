@@ -937,12 +937,12 @@ ralph-tui run - Start Ralph execution
 Usage: ralph-tui run [options]
 
 Options:
-  --epic <id>         Epic ID for beads tracker (if omitted, shows epic selection)
+  --epic <id>         Epic/parent issue ID for beads or linear tracker
   --prd <path>        PRD file path (auto-switches to json tracker)
   --agent <name>      Override agent plugin (e.g., claude, opencode)
   --model <name>      Override model (e.g., opus, sonnet)
   --variant <level>   Model variant/reasoning effort (minimal, high, max)
-  --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json)
+  --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json, linear)
   --prompt <path>     Custom prompt file (default: based on tracker mode)
   --output-dir <path> Directory for iteration logs (default: .ralph-tui/iterations)
   --progress-file <path> Progress file for cross-iteration context (default: .ralph-tui/progress.md)
@@ -991,6 +991,7 @@ Examples:
   ralph-tui run --prd ./prd.json             # Run with PRD file
   ralph-tui run --agent claude --model opus  # Override agent settings
   ralph-tui run --tracker beads-bv           # Use beads-bv tracker
+  ralph-tui run --tracker linear --epic ENG-123  # Run from Linear parent issue
   ralph-tui run --iterations 20              # Limit to 20 iterations
   ralph-tui run --resume                     # Resume previous session
   ralph-tui run --no-tui                     # Run headless for CI/scripts
