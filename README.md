@@ -197,10 +197,14 @@ bunx add-skill subsy/ralph-tui --all
 
 # Install to a specific agent
 bunx add-skill subsy/ralph-tui -a claude-code -g -y
+bunx add-skill subsy/ralph-tui -a kiro-cli -g -y
 
 # Or use the ralph-tui wrapper (maps agent IDs automatically)
 ralph-tui skills install
 ralph-tui skills install --agent claude
+ralph-tui skills install --agent kiro
+# If symlinked installs are problematic, copy files instead:
+ralph-tui skills install --copy
 ```
 
 Use these slash commands in your agent:

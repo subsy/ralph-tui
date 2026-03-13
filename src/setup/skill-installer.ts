@@ -19,9 +19,10 @@ export const AGENT_ID_MAP: Record<string, string> = {
   codex: 'codex',
   gemini: 'gemini',
   kimi: 'kimi-cli',
-  kiro: 'kiro',
+  kiro: 'kiro-cli',
   cursor: 'cursor',
   'github-copilot': 'github-copilot',
+  pi: 'pi',
 };
 
 /**
@@ -48,6 +49,8 @@ export interface AddSkillInstallOptions {
   skillName?: string;
   /** Install globally (default: true) */
   global?: boolean;
+  /** Copy skills instead of symlinking (recommended when symlinks fail) */
+  copy?: boolean;
 }
 
 /**
@@ -206,6 +209,11 @@ export function buildAddSkillInstallArgs(options: AddSkillInstallOptions): strin
   // Global vs local
   if (options.global !== false) {
     args.push('-g');
+  }
+
+  // Copy mode (disable symlink install strategy)
+  if (options.copy) {
+    args.push('--copy');
   }
 
   // Non-interactive

@@ -854,6 +854,79 @@ describe('validateConfig', () => {
     expect(result.valid).toBe(true);
     expect(result.warnings.some((w) => w.includes('PRD') || w.includes('prd'))).toBe(true);
   });
+
+  test('reports error for linear tracker without epic', async () => {
+    const config: RalphConfig = {
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      tracker: { name: 'linear', plugin: 'linear', options: {} },
+      maxIterations: 10,
+      iterationDelay: 1000,
+      cwd: process.cwd(),
+      outputDir: '.ralph-tui/iterations',
+      progressFile: '.ralph-tui/progress.md',
+      showTui: true,
+      errorHandling: {
+        strategy: 'skip',
+        maxRetries: 3,
+        retryDelayMs: 5000,
+        continueOnNonZeroExit: false,
+      },
+    };
+
+    const result = await validateConfig(config);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('Linear'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('--epic'))).toBe(true);
+  });
+
+  test('linear tracker with epic passes validation', async () => {
+    const config: RalphConfig = {
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      tracker: { name: 'linear', plugin: 'linear', options: {} },
+      maxIterations: 10,
+      iterationDelay: 1000,
+      cwd: process.cwd(),
+      outputDir: '.ralph-tui/iterations',
+      progressFile: '.ralph-tui/progress.md',
+      showTui: true,
+      epicId: 'ENG-123',
+      errorHandling: {
+        strategy: 'skip',
+        maxRetries: 3,
+        retryDelayMs: 5000,
+        continueOnNonZeroExit: false,
+      },
+    };
+
+    const result = await validateConfig(config);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('linear tracker error includes example usage', async () => {
+    const config: RalphConfig = {
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      tracker: { name: 'linear', plugin: 'linear', options: {} },
+      maxIterations: 10,
+      iterationDelay: 1000,
+      cwd: process.cwd(),
+      outputDir: '.ralph-tui/iterations',
+      progressFile: '.ralph-tui/progress.md',
+      showTui: true,
+      errorHandling: {
+        strategy: 'skip',
+        maxRetries: 3,
+        retryDelayMs: 5000,
+        continueOnNonZeroExit: false,
+      },
+    };
+
+    const result = await validateConfig(config);
+    expect(result.valid).toBe(false);
+    // Error message should include actionable example
+    expect(result.errors.some((e) => e.includes('ralph-tui run'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('ENG-123'))).toBe(true);
+  });
 });
 
 describe('buildConfig - command shorthand', () => {
