@@ -76,44 +76,13 @@ EOF
 
 ## Story Size: The #1 Rule
 
-**Each story must be completable in ONE ralph-tui iteration (~one agent context window).**
-
-ralph-tui spawns a fresh agent instance per iteration with no memory of previous work. If a story is too big, the agent runs out of context before finishing.
-
-### Right-sized stories:
-- Add a database column + migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
-
-### Too big (split these):
-- "Build the entire dashboard" → Split into: schema, queries, UI components, filters
-- "Add authentication" → Split into: schema, middleware, login UI, session handling
-- "Refactor the API" → Split into one story per endpoint or pattern
-
-**Rule of thumb:** If you can't describe the change in 2-3 sentences, it's too big.
-
----
-
-## Story Ordering: Dependencies First
-
-Stories execute in dependency order. Earlier stories must not depend on later ones.
-
-**Correct order:**
-1. Schema/database changes (migrations)
-2. Server actions / backend logic
-3. UI components that use the backend
-4. Dashboard/summary views that aggregate data
-
-**Wrong order:**
-1. ❌ UI component (depends on schema that doesn't exist yet)
-2. ❌ Schema change
+Each story must be completable in ONE ralph-tui iteration. Right-sized: single column/component/endpoint. Too big: entire dashboard/auth system (split these).
 
 ---
 
 ## Dependencies with `bd dep add`
 
-Use the `bd dep add` command to specify which beads must complete first:
+Stories execute in dependency order (schema → backend → UI). Use `bd dep add` to specify which beads must complete first:
 
 ```bash
 # Create the beads first
@@ -128,35 +97,13 @@ bd dep add ralph-tui-003 ralph-tui-002  # US-003 depends on US-002
 
 **Syntax:** `bd dep add <issue> <depends-on>` — the issue depends on (is blocked by) depends-on.
 
-ralph-tui will:
-- Show blocked beads as "blocked" until dependencies complete
-- Never select a bead for execution while its dependencies are open
-- Include dependency context in the prompt when working on a bead
-
-**Correct dependency order:**
-1. Schema/database changes (no dependencies)
-2. Backend logic (depends on schema)
-3. UI components (depends on backend)
-4. Integration/polish (depends on UI)
+ralph-tui will show blocked beads as "blocked" until dependencies complete and include dependency context in the prompt when working on a bead.
 
 ---
 
 ## Acceptance Criteria: Quality Gates + Story-Specific
 
-Each bead's description should include acceptance criteria with:
-1. **Story-specific criteria** from the PRD (what this story accomplishes)
-2. **Quality gates** from the PRD's Quality Gates section (appended at the end)
-
-### Good criteria (verifiable):
-- "Add `investorType` column to investor table with default 'cold'"
-- "Filter dropdown has options: All, Cold, Friend"
-- "Clicking toggle shows confirmation dialog"
-
-### Bad criteria (vague):
-- ❌ "Works correctly"
-- ❌ "User can do X easily"
-- ❌ "Good UX"
-- ❌ "Handles edge cases"
+Each bead's description should include story-specific acceptance criteria from the PRD, plus quality gates appended from the Quality Gates section.
 
 ---
 
@@ -164,12 +111,11 @@ Each bead's description should include acceptance criteria with:
 
 1. **Extract Quality Gates** from PRD first
 2. **Each user story → one bead**
-3. **First story**: No dependencies (creates foundation)
-4. **Subsequent stories**: Depend on their predecessors (UI depends on backend, etc.)
-5. **Priority**: Based on dependency order, then document order (0=critical, 2=medium, 4=backlog)
-6. **All stories**: `status: "open"`
-7. **Acceptance criteria**: Story criteria + quality gates appended
-8. **UI stories**: Also append UI-specific gates (browser verification)
+3. **Dependencies**: Schema/database → backend → UI → integration (use `bd dep add` after creating beads)
+4. **Priority**: Based on dependency order, then document order (0=critical, 2=medium, 4=backlog)
+5. **All stories**: `status: "open"`
+6. **Acceptance criteria**: Story criteria + quality gates appended
+7. **UI stories**: Also append UI-specific gates (browser verification)
 
 ---
 
@@ -196,111 +142,7 @@ Each is one focused change that can be completed and verified independently.
 
 ## Example
 
-**Input PRD:**
-```markdown
-# PRD: Friends Outreach
-
-Add ability to mark investors as "friends" for warm outreach.
-
-## Quality Gates
-
-These commands must pass for every user story:
-- `pnpm typecheck` - Type checking
-- `pnpm lint` - Linting
-
-For UI stories, also include:
-- Verify in browser using dev-browser skill
-
-## User Stories
-
-### US-001: Add investorType field to investor table
-**Description:** As a developer, I need to categorize investors as 'cold' or 'friend'.
-
-**Acceptance Criteria:**
-- [ ] Add investorType column: 'cold' | 'friend' (default 'cold')
-- [ ] Generate and run migration successfully
-
-### US-002: Add type toggle to investor list rows
-**Description:** As Ryan, I want to toggle investor type directly from the list.
-
-**Acceptance Criteria:**
-- [ ] Each row has Cold | Friend toggle
-- [ ] Switching shows confirmation dialog
-- [ ] On confirm: updates type in database
-
-### US-003: Filter investors by type
-**Description:** As Ryan, I want to filter the list to see just friends or cold.
-
-**Acceptance Criteria:**
-- [ ] Filter dropdown: All | Cold | Friend
-- [ ] Filter persists in URL params
-```
-
-**Output beads:**
-```bash
-# Create epic (link back to source PRD)
-bd create --type=epic \
-  --title="Friends Outreach Track" \
-  --description="$(cat <<'EOF'
-Warm outreach for deck feedback
-EOF
-)" \
-  --external-ref="prd:./tasks/friends-outreach-prd.md"
-
-# US-001: No deps (first - creates schema)
-bd create --parent=ralph-tui-abc \
-  --title="US-001: Add investorType field to investor table" \
-  --description="$(cat <<'EOF'
-As a developer, I need to categorize investors as 'cold' or 'friend'.
-
-## Acceptance Criteria
-- [ ] Add investorType column: 'cold' | 'friend' (default 'cold')
-- [ ] Generate and run migration successfully
-- [ ] pnpm typecheck passes
-- [ ] pnpm lint passes
-EOF
-)" \
-  --priority=1
-
-# US-002: UI story (gets browser verification too)
-bd create --parent=ralph-tui-abc \
-  --title="US-002: Add type toggle to investor list rows" \
-  --description="$(cat <<'EOF'
-As Ryan, I want to toggle investor type directly from the list.
-
-## Acceptance Criteria
-- [ ] Each row has Cold | Friend toggle
-- [ ] Switching shows confirmation dialog
-- [ ] On confirm: updates type in database
-- [ ] pnpm typecheck passes
-- [ ] pnpm lint passes
-- [ ] Verify in browser using dev-browser skill
-EOF
-)" \
-  --priority=2
-
-# Add dependency: US-002 depends on US-001
-bd dep add ralph-tui-002 ralph-tui-001
-
-# US-003: UI story
-bd create --parent=ralph-tui-abc \
-  --title="US-003: Filter investors by type" \
-  --description="$(cat <<'EOF'
-As Ryan, I want to filter the list to see just friends or cold.
-
-## Acceptance Criteria
-- [ ] Filter dropdown: All | Cold | Friend
-- [ ] Filter persists in URL params
-- [ ] pnpm typecheck passes
-- [ ] pnpm lint passes
-- [ ] Verify in browser using dev-browser skill
-EOF
-)" \
-  --priority=3
-
-# Add dependency: US-003 depends on US-002
-bd dep add ralph-tui-003 ralph-tui-002
-```
+See [EXAMPLES.md](EXAMPLES.md) for a complete PRD-to-beads conversion.
 
 ---
 
@@ -327,11 +169,6 @@ ralph-tui will:
 
 ## Checklist Before Creating Beads
 
-- [ ] Extracted Quality Gates from PRD (or asked user if missing)
-- [ ] Each story is completable in one iteration (small enough)
-- [ ] Stories are ordered by dependency (schema → backend → UI)
-- [ ] Quality gates appended to every bead's acceptance criteria
-- [ ] UI stories have browser verification (if specified in Quality Gates)
-- [ ] Acceptance criteria are verifiable (not vague)
-- [ ] No story depends on a later story (only earlier stories)
+- [ ] Extracted Quality Gates from PRD
+- [ ] Stories ordered by dependency (schema → backend → UI)
 - [ ] Dependencies added with `bd dep add` after creating beads
