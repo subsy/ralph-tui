@@ -76,44 +76,19 @@ EOF
 
 ## Story Size: The #1 Rule
 
-**Each story must be completable in ONE ralph-tui iteration (~one agent context window).**
+Each story must be completable in ONE ralph-tui iteration (~one agent context window). ralph-tui spawns a fresh agent per iteration with no memory of previous work.
 
-ralph-tui spawns a fresh agent instance per iteration with no memory of previous work. If a story is too big, the agent runs out of context before finishing.
+**Right-sized:** Add a database column + migration. Add a UI component. Update a server action. Add a filter dropdown.
 
-### Right-sized stories:
-- Add a database column + migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
-
-### Too big (split these):
-- "Build the entire dashboard" → Split into: schema, queries, UI components, filters
-- "Add authentication" → Split into: schema, middleware, login UI, session handling
-- "Refactor the API" → Split into one story per endpoint or pattern
+**Too big (split these):** "Build the entire dashboard" → schema, queries, UI, filters. "Add authentication" → schema, middleware, login UI, sessions.
 
 **Rule of thumb:** If you can't describe the change in 2-3 sentences, it's too big.
 
 ---
 
-## Story Ordering: Dependencies First
-
-Stories execute in dependency order. Earlier stories must not depend on later ones.
-
-**Correct order:**
-1. Schema/database changes (migrations)
-2. Server actions / backend logic
-3. UI components that use the backend
-4. Dashboard/summary views that aggregate data
-
-**Wrong order:**
-1. ❌ UI component (depends on schema that doesn't exist yet)
-2. ❌ Schema change
-
----
-
 ## Dependencies with `bd dep add`
 
-Use the `bd dep add` command to specify which beads must complete first:
+Stories execute in dependency order (schema → backend → UI → integration). Use `bd dep add` to specify which beads must complete first:
 
 ```bash
 # Create the beads first
@@ -128,35 +103,15 @@ bd dep add ralph-tui-003 ralph-tui-002  # US-003 depends on US-002
 
 **Syntax:** `bd dep add <issue> <depends-on>` — the issue depends on (is blocked by) depends-on.
 
-ralph-tui will:
-- Show blocked beads as "blocked" until dependencies complete
-- Never select a bead for execution while its dependencies are open
-- Include dependency context in the prompt when working on a bead
-
-**Correct dependency order:**
-1. Schema/database changes (no dependencies)
-2. Backend logic (depends on schema)
-3. UI components (depends on backend)
-4. Integration/polish (depends on UI)
+ralph-tui will show blocked beads as "blocked" until dependencies complete, and include dependency context in the prompt when working on a bead.
 
 ---
 
 ## Acceptance Criteria: Quality Gates + Story-Specific
 
-Each bead's description should include acceptance criteria with:
-1. **Story-specific criteria** from the PRD (what this story accomplishes)
-2. **Quality gates** from the PRD's Quality Gates section (appended at the end)
+Each bead's description should include story-specific acceptance criteria from the PRD, plus quality gates appended from the Quality Gates section.
 
-### Good criteria (verifiable):
-- "Add `investorType` column to investor table with default 'cold'"
-- "Filter dropdown has options: All, Cold, Friend"
-- "Clicking toggle shows confirmation dialog"
-
-### Bad criteria (vague):
-- ❌ "Works correctly"
-- ❌ "User can do X easily"
-- ❌ "Good UX"
-- ❌ "Handles edge cases"
+Criteria must be verifiable: "Add `investorType` column with default 'cold'" is good. "Works correctly" or "Good UX" is bad.
 
 ---
 
@@ -164,12 +119,11 @@ Each bead's description should include acceptance criteria with:
 
 1. **Extract Quality Gates** from PRD first
 2. **Each user story → one bead**
-3. **First story**: No dependencies (creates foundation)
-4. **Subsequent stories**: Depend on their predecessors (UI depends on backend, etc.)
-5. **Priority**: Based on dependency order, then document order (0=critical, 2=medium, 4=backlog)
-6. **All stories**: `status: "open"`
-7. **Acceptance criteria**: Story criteria + quality gates appended
-8. **UI stories**: Also append UI-specific gates (browser verification)
+3. **Dependencies**: Schema/database → backend → UI → integration (use `bd dep add` after creating beads)
+4. **Priority**: Based on dependency order, then document order (0=critical, 2=medium, 4=backlog)
+5. **All stories**: `status: "open"`
+6. **Acceptance criteria**: Story criteria + quality gates appended
+7. **UI stories**: Also append UI-specific gates (browser verification)
 
 ---
 
@@ -317,21 +271,14 @@ ralph-tui run --tracker beads --epic ralph-tui-abc
 ralph-tui run --tracker beads
 ```
 
-ralph-tui will:
-1. Work on beads within the specified epic (or select the best available task)
-2. Close each bead when complete
-3. Close the epic when all children are done
-4. Output `<promise>COMPLETE</promise>` when epic is done
+ralph-tui will work on beads, close each when complete, and output `<promise>COMPLETE</promise>` when the epic is done.
 
 ---
 
 ## Checklist Before Creating Beads
 
-- [ ] Extracted Quality Gates from PRD (or asked user if missing)
-- [ ] Each story is completable in one iteration (small enough)
-- [ ] Stories are ordered by dependency (schema → backend → UI)
+- [ ] Extracted Quality Gates from PRD
+- [ ] Each story is completable in one iteration
+- [ ] Stories ordered by dependency (schema → backend → UI)
 - [ ] Quality gates appended to every bead's acceptance criteria
-- [ ] UI stories have browser verification (if specified in Quality Gates)
-- [ ] Acceptance criteria are verifiable (not vague)
-- [ ] No story depends on a later story (only earlier stories)
 - [ ] Dependencies added with `bd dep add` after creating beads
