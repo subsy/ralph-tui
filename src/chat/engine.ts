@@ -29,6 +29,7 @@ Follow these guidelines:
 2. Ask questions one set at a time, adapting based on previous answers
 3. When you have enough context, generate the complete PRD
 4. IMPORTANT: Wrap the final PRD in [PRD]...[/PRD] markers
+5. IMPORTANT: Do NOT start implementing. Your job is ONLY to create the PRD document.
 
 The user can respond with shorthand like "1A, 2C" for quick iteration.
 `;

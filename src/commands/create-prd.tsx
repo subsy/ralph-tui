@@ -238,6 +238,13 @@ async function runChatMode(
     if (bundledSkill) {
       parsedArgs.prdSkillSource = bundledSkill;
       console.log("✓ Loaded ralph-tui-prd skill");
+    } else {
+      console.warn(
+        "⚠ ralph-tui-prd skill not found. PRD quality may be reduced.",
+      );
+      console.warn(
+        '  Run "ralph-tui setup" to install skills, or use --prd-skill to specify one.',
+      );
     }
   }
 
