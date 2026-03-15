@@ -122,6 +122,8 @@ export class ParallelExecutor {
       cwd: this.config.cwd,
       worktreeDir: this.config.worktreeDir,
       maxWorktrees: this.config.maxWorkers * 2, // Buffer for re-queued tasks
+      setupCommand: this.config.setupCommand,
+      setupTimeoutMs: this.config.setupTimeoutMs,
     });
 
     this.mergeEngine = new MergeEngine(this.config.cwd);

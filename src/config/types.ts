@@ -119,6 +119,17 @@ export const DEFAULT_SANDBOX_CONFIG: Required<
 };
 
 /**
+ * Configuration for worktree setup (shared between parallel and serial modes).
+ */
+export interface WorktreeConfig {
+  /** Shell command to run after worktree creation (e.g., "bun install") */
+  setupCommand?: string;
+
+  /** Timeout in milliseconds for the setup command (default: 300000) */
+  setupTimeoutMs?: number;
+}
+
+/**
  * Configuration for parallel execution behavior.
  */
 export interface ParallelConfig {
@@ -336,6 +347,9 @@ export interface StoredConfig {
 
   /** Image attachment configuration */
   images?: ImageConfig;
+
+  /** Worktree configuration (setup scripts for post-creation initialization) */
+  worktree?: WorktreeConfig;
 
   /** Parallel execution configuration */
   parallel?: ParallelConfig;

@@ -12,6 +12,7 @@ import {
   RateLimitHandlingConfigSchema,
   NotificationSoundModeSchema,
   NotificationsConfigSchema,
+  WorktreeConfigSchema,
   ParallelModeSchema,
   ParallelConfigSchema,
   AgentPluginConfigSchema,
@@ -694,5 +695,47 @@ describe('formatConfigErrors', () => {
   test('handles empty error array', () => {
     const formatted = formatConfigErrors([], '/config.toml');
     expect(formatted).toContain('Configuration error in /config.toml');
+  });
+});
+
+describe('WorktreeConfigSchema', () => {
+  test('accepts valid setup command', () => {
+    const result = WorktreeConfigSchema.parse({ setupCommand: 'bun install' });
+    expect(result.setupCommand).toBe('bun install');
+  });
+
+  test('accepts setup command with timeout', () => {
+    const result = WorktreeConfigSchema.parse({
+      setupCommand: 'npm ci && npm run build:deps',
+      setupTimeoutMs: 60000,
+    });
+    expect(result.setupCommand).toBe('npm ci && npm run build:deps');
+    expect(result.setupTimeoutMs).toBe(60000);
+  });
+
+  test('accepts empty object (all fields optional)', () => {
+    const result = WorktreeConfigSchema.parse({});
+    expect(result.setupCommand).toBeUndefined();
+    expect(result.setupTimeoutMs).toBeUndefined();
+  });
+
+  test('rejects empty string for setupCommand', () => {
+    expect(() => WorktreeConfigSchema.parse({ setupCommand: '' })).toThrow();
+  });
+
+  test('rejects setupTimeoutMs below minimum (1000)', () => {
+    expect(() => WorktreeConfigSchema.parse({ setupTimeoutMs: 500 })).toThrow();
+  });
+
+  test('rejects setupTimeoutMs above maximum (1800000)', () => {
+    expect(() => WorktreeConfigSchema.parse({ setupTimeoutMs: 2000000 })).toThrow();
+  });
+
+  test('works in StoredConfigSchema', () => {
+    const result = StoredConfigSchema.parse({
+      worktree: { setupCommand: 'bun install', setupTimeoutMs: 120000 },
+    });
+    expect(result.worktree?.setupCommand).toBe('bun install');
+    expect(result.worktree?.setupTimeoutMs).toBe(120000);
   });
 });

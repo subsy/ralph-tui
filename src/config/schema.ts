@@ -66,6 +66,16 @@ export const NotificationsConfigSchema = z.object({
 });
 
 /**
+ * Worktree configuration schema (shared between parallel and serial modes)
+ */
+export const WorktreeConfigSchema = z.object({
+  /** Shell command to run in worktree after creation (e.g., "bun install") */
+  setupCommand: z.string().min(1).optional(),
+  /** Timeout in milliseconds for the setup command (default: 300000) */
+  setupTimeoutMs: z.number().int().min(1000).max(1800000).optional(),
+});
+
+/**
  * Parallel execution mode schema
  */
 export const ParallelModeSchema = z.enum(['auto', 'always', 'never']);
@@ -218,6 +228,9 @@ export const StoredConfigSchema = z
 
     // Progress file path for cross-iteration context
     progressFile: z.string().optional(),
+
+    // Worktree configuration (setup scripts, shared between parallel and serial modes)
+    worktree: WorktreeConfigSchema.optional(),
 
     // Parallel execution configuration
     parallel: ParallelConfigSchema.optional(),

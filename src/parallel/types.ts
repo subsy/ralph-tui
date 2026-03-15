@@ -159,6 +159,12 @@ export interface WorktreeManagerConfig {
 
   /** Minimum free disk space in bytes before creating a worktree */
   minFreeDiskSpace: number;
+
+  /** Shell command to run in worktree after creation (e.g., "bun install") */
+  setupCommand?: string;
+
+  /** Timeout in milliseconds for the setup command (default: 300000) */
+  setupTimeoutMs?: number;
 }
 
 // ─── Merge Types ───────────────────────────────────────────────────────────────
@@ -336,6 +342,12 @@ export interface ParallelExecutorConfig {
    * Used for --task-range filtering.
    */
   filteredTaskIds?: string[];
+
+  /** Shell command to run in worktree after creation (e.g., "bun install") */
+  setupCommand?: string;
+
+  /** Timeout in milliseconds for the setup command (default: 300000) */
+  setupTimeoutMs?: number;
 }
 
 /**

@@ -5,7 +5,7 @@
  * independently without filesystem conflicts.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { WorktreeInfo, WorktreeManagerConfig } from './types.js';
@@ -57,6 +57,9 @@ function sanitizeBranchName(taskId: string): string {
 /** Default minimum free disk space (500 MB) before creating a worktree */
 const DEFAULT_MIN_FREE_DISK_SPACE = 500 * 1024 * 1024;
 
+/** Default timeout for worktree setup commands (5 minutes) */
+const DEFAULT_SETUP_TIMEOUT_MS = 300_000;
+
 /**
  * Compute a worktree base directory as a SIBLING of the project.
  *
@@ -103,6 +106,8 @@ export class WorktreeManager {
       cwd: config.cwd,
       maxWorktrees: config.maxWorktrees ?? 8,
       minFreeDiskSpace: config.minFreeDiskSpace ?? DEFAULT_MIN_FREE_DISK_SPACE,
+      setupCommand: config.setupCommand,
+      setupTimeoutMs: config.setupTimeoutMs,
     };
   }
 
@@ -144,6 +149,9 @@ export class WorktreeManager {
 
     // Copy ralph-tui config into the worktree so the agent has project context
     await this.copyConfig(worktreePath);
+
+    // Run repo-specific setup (e.g., dependency installation)
+    this.runSetupCommand(worktreePath);
 
     const info: WorktreeInfo = {
       id: worktreeId,
@@ -402,6 +410,32 @@ export class WorktreeManager {
         fs.mkdirSync(targetDir, { recursive: true });
         fs.copyFileSync(yamlConfig, path.join(targetDir, `config.${ext}`));
       }
+    }
+  }
+
+  /**
+   * Run the configured setup command in a worktree.
+   * Used for repo-specific initialization like dependency installation.
+   * @throws If the setup command exits with a non-zero status or times out
+   */
+  private runSetupCommand(worktreePath: string): void {
+    const command = this.config.setupCommand;
+    if (!command) return;
+
+    const timeout = this.config.setupTimeoutMs ?? DEFAULT_SETUP_TIMEOUT_MS;
+
+    try {
+      execSync(command, {
+        cwd: worktreePath,
+        timeout,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Worktree setup command failed in ${worktreePath}: ${message}`
+      );
     }
   }
 

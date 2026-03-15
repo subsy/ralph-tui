@@ -345,4 +345,57 @@ describe('WorktreeManager', () => {
       expect(defaultManager).toBeTruthy();
     });
   });
+
+  describe('setup command', () => {
+    test('runs setup command after worktree creation', async () => {
+      const setupManager = new WorktreeManager({
+        cwd: repoDir,
+        maxWorktrees: 4,
+        setupCommand: 'touch .setup-done',
+      });
+
+      const info = await setupManager.acquire('1', 'setup-test');
+      expect(fs.existsSync(path.join(info.path, '.setup-done'))).toBe(true);
+
+      await setupManager.cleanupAll();
+    });
+
+    test('throws on setup command failure', async () => {
+      const setupManager = new WorktreeManager({
+        cwd: repoDir,
+        maxWorktrees: 4,
+        setupCommand: 'exit 1',
+      });
+
+      await expect(setupManager.acquire('1', 'fail-test')).rejects.toThrow(
+        /Worktree setup command failed/
+      );
+
+      await setupManager.cleanupAll();
+    });
+
+    test('respects setup timeout', async () => {
+      const setupManager = new WorktreeManager({
+        cwd: repoDir,
+        maxWorktrees: 4,
+        setupCommand: 'sleep 10',
+        setupTimeoutMs: 100,
+      });
+
+      await expect(setupManager.acquire('1', 'timeout-test')).rejects.toThrow(
+        /Worktree setup command failed/
+      );
+
+      await setupManager.cleanupAll();
+    });
+
+    test('no-op when setupCommand is undefined', async () => {
+      // Default manager has no setupCommand — acquire should succeed as before
+      const info = await manager.acquire('1', 'no-setup-test');
+      expect(info.path).toBeTruthy();
+      expect(info.active).toBe(true);
+
+      await manager.cleanupAll();
+    });
+  });
 });

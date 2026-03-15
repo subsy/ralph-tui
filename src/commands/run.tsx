@@ -3612,6 +3612,8 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         directMerge,
         sessionBranchName: targetBranch,
         filteredTaskIds,
+        setupCommand: storedConfig?.worktree?.setupCommand,
+        setupTimeoutMs: storedConfig?.worktree?.setupTimeoutMs,
       });
 
       // Wire up AI conflict resolution if enabled (default: true)
