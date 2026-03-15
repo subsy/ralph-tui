@@ -224,6 +224,9 @@ export const StoredConfigSchema = z
 
     // Conflict resolution configuration for parallel execution
     conflictResolution: ConflictResolutionConfigSchema.optional(),
+
+    // Run serial execution in an isolated git worktree
+    worktree: z.boolean().optional(),
   })
   .strict();
 

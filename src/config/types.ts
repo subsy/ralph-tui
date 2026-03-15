@@ -228,6 +228,9 @@ export interface RuntimeOptions {
 
   /** Enable parallel execution, optionally with worker count (--parallel [N]) */
   parallel?: number | boolean;
+
+  /** Run serial execution in an isolated git worktree (--worktree) */
+  worktree?: boolean;
 }
 
 /**
@@ -342,6 +345,9 @@ export interface StoredConfig {
 
   /** Conflict resolution configuration for parallel execution */
   conflictResolution?: ConflictResolutionConfig;
+
+  /** Run serial execution in an isolated git worktree */
+  worktree?: boolean;
 }
 
 /**

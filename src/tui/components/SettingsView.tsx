@@ -127,6 +127,18 @@ function buildSettingDefinitions(
       requiresRestart: false,
     },
     {
+      key: 'worktree',
+      label: 'Worktree',
+      type: 'boolean',
+      description: 'Run serial execution in an isolated git worktree',
+      getValue: (config) => config.worktree,
+      setValue: (config, value) => ({
+        ...config,
+        worktree: value as boolean,
+      }),
+      requiresRestart: true,
+    },
+    {
       key: 'subagentTracingDetail',
       label: 'Subagent Detail',
       type: 'select',

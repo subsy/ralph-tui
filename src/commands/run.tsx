@@ -44,6 +44,7 @@ import {
 import { ExecutionEngine } from '../engine/index.js';
 import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel, recommendParallelism } from '../parallel/index.js';
 import { createAiResolver } from '../parallel/ai-resolver.js';
+import { WorktreeManager } from '../parallel/worktree-manager.js';
 import type {
   WorkerDisplayState,
   MergeOperation,
@@ -82,7 +83,7 @@ import {
 } from '../remote/index.js';
 import { initializeTheme } from '../tui/theme.js';
 import type { ConnectionToastMessage } from '../tui/components/Toast.js';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { getEnvExclusionReport, formatEnvExclusionReport } from '../plugins/agents/base.js';
 import { writeFileAtomic } from '../session/atomic-write.js';
@@ -631,6 +632,177 @@ function checkParallelGitPreflight(cwd: string): ParallelGitPreflightResult {
 }
 
 /**
+ * State for serial worktree mode, used for cleanup after execution.
+ */
+interface SerialWorktreeState {
+  /** WorktreeManager instance for cleanup */
+  manager: WorktreeManager;
+  /** Worktree info returned from acquire() */
+  worktreeInfo: WorktreeInfo;
+  /** Session branch name (e.g., ralph-session/abc12345) */
+  sessionBranch: string;
+  /** Original branch before session branch was created */
+  originalBranch: string;
+}
+
+/**
+ * Helper to run a git command in a directory, returning stdout.
+ * Uses execFileSync with argument array to prevent shell injection.
+ */
+function gitInDir(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf-8',
+    timeout: 30000,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+/**
+ * Set up a git worktree and session branch for serial execution.
+ *
+ * Flow:
+ * 1. Run git preflight checks (same as parallel mode)
+ * 2. Create a session branch from the current branch
+ * 3. Create a worktree on a worker branch off the session branch
+ * 4. Return state needed for cleanup
+ *
+ * The worktree gets a dedicated branch (ralph-serial/{sessionId}) branched from
+ * the session branch. After execution, commits are merged into the session branch.
+ */
+async function setupSerialWorktree(
+  cwd: string,
+  sessionId: string,
+  worktreeDir?: string,
+): Promise<SerialWorktreeState> {
+  // Preflight: ensure clean git state
+  const preflight = checkParallelGitPreflight(cwd);
+  if (!preflight.ok) {
+    const details = preflight.errors.map((error) => `- ${error}`).join('\n');
+    throw new Error(
+      `Worktree preflight failed:\n${details}\nFix git state and retry, or run without --worktree.`
+    );
+  }
+
+  // Record original branch before any checkout
+  const originalBranch = gitInDir(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+
+  // Create session branch (ralph-session/{shortId})
+  const shortId = sessionId.slice(0, 8);
+  let sessionBranch = `ralph-session/${shortId}`;
+  let counter = 1;
+  while (true) {
+    try {
+      gitInDir(cwd, ['rev-parse', '--verify', sessionBranch]);
+      // Branch exists, try next suffix
+      counter++;
+      sessionBranch = `ralph-session/${shortId}-${counter}`;
+    } catch {
+      // Branch doesn't exist, good to use
+      break;
+    }
+  }
+  gitInDir(cwd, ['checkout', '-b', sessionBranch]);
+
+  // Create WorktreeManager and acquire a worktree
+  const manager = new WorktreeManager({
+    cwd,
+    ...(worktreeDir ? { worktreeDir } : {}),
+  });
+
+  const worktreeInfo = await manager.acquire('serial', sessionId);
+
+  return {
+    manager,
+    worktreeInfo,
+    sessionBranch,
+    originalBranch,
+  };
+}
+
+/**
+ * Tear down a serial worktree after execution completes.
+ *
+ * Flow:
+ * 1. If the worktree has commits, merge them into the session branch
+ * 2. Return to the original branch
+ * 3. Clean up worktree
+ * 4. Print completion guidance (same UX as parallel mode)
+ */
+async function teardownSerialWorktree(
+  state: SerialWorktreeState,
+  cwd: string,
+): Promise<void> {
+  const { manager, worktreeInfo, sessionBranch, originalBranch } = state;
+
+  // Merge worktree branch into session branch
+  // First, checkout session branch in main repo
+  try {
+    gitInDir(cwd, ['checkout', sessionBranch]);
+  } catch (err) {
+    console.warn(`Warning: Failed to checkout session branch ${sessionBranch}: ${err}`);
+  }
+
+  // Check if worktree branch has any commits ahead
+  try {
+    const log = gitInDir(cwd, [
+      'log', '--oneline', worktreeInfo.branch, '--not', sessionBranch,
+    ]);
+    if (log.trim().length > 0) {
+      // Merge worktree branch into session branch
+      gitInDir(cwd, ['merge', '--no-ff', worktreeInfo.branch, '-m',
+        `Merge serial worktree execution into ${sessionBranch}`]);
+    }
+  } catch (err) {
+    console.warn(`Warning: Failed to merge worktree branch: ${err}`);
+  }
+
+  // Return to original branch
+  let returnToOriginalError: string | null = null;
+  try {
+    gitInDir(cwd, ['checkout', originalBranch]);
+  } catch (err) {
+    returnToOriginalError = err instanceof Error ? err.message : String(err);
+  }
+
+  // Clean up worktree and branch
+  try {
+    await manager.cleanupAll();
+  } catch (err) {
+    console.warn(`Warning: Worktree cleanup had errors: ${err}`);
+  }
+
+  // Print completion guidance (same UX as parallel mode)
+  console.log('');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('                   Session Complete!                            ');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('');
+  console.log(`  Changes are on branch: ${sessionBranch}`);
+  if (returnToOriginalError) {
+    console.log(
+      `  You are still on branch: ${sessionBranch} (checkout to ${originalBranch} failed).`
+    );
+  } else {
+    console.log(`  You are now on branch: ${originalBranch}`);
+  }
+  console.log('');
+  console.log('  Next steps:');
+  console.log('');
+  console.log(`    To merge to ${originalBranch}:`);
+  console.log(`      git merge ${sessionBranch}`);
+  console.log('');
+  console.log('    To create a PR:');
+  console.log(`      git push -u origin ${sessionBranch}`);
+  console.log(`      gh pr create --head ${sessionBranch}`);
+  console.log('');
+  console.log('    To discard all changes:');
+  console.log(`      git branch -D ${sessionBranch}`);
+  console.log('');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('');
+}
+
+/**
  * Task range filter for --task-range flag.
  * Allows filtering tasks by 1-indexed position (e.g., 1-5, 3-, -10).
  */
@@ -859,6 +1031,10 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         options.serial = true;
         break;
 
+      case '--worktree':
+        options.worktree = true;
+        break;
+
       case '--parallel': {
         // --parallel or --parallel N
         if (nextArg && !nextArg.startsWith('-')) {
@@ -965,6 +1141,7 @@ Options:
   --no-network        Disable network access in sandbox
   --serial            Force sequential execution (default behavior)
   --sequential        Alias for --serial
+  --worktree          Run serial execution in an isolated git worktree (session branch)
   --parallel [N]      Force parallel execution with optional max workers (default workers: 3)
   --direct-merge      Merge directly to current branch (skip session branch creation)
   --target-branch <name> Create/use explicit session branch name for parallel mode
@@ -997,6 +1174,18 @@ Examples:
   ralph-tui run --no-tui                     # Run headless for CI/scripts
   ralph-tui run --listen --prd ./prd.json    # Run with remote listener enabled
 `);
+}
+
+/**
+ * Resolve whether serial execution should use an isolated git worktree.
+ * CLI --worktree flag takes precedence over stored config.
+ */
+function resolveSerialWorktree(
+  options: ExtendedRuntimeOptions,
+  storedConfig?: StoredConfig | null
+): boolean {
+  if (options.worktree !== undefined) return options.worktree;
+  return storedConfig?.worktree ?? false;
 }
 
 /**
@@ -3536,6 +3725,40 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Track parallel completion state for final check (set inside useParallel block)
   let parallelAllComplete: boolean | null = null;
 
+  // Set up serial worktree if enabled and not using parallel mode
+  const useSerialWorktree = !useParallel && resolveSerialWorktree(options, storedConfig);
+  let serialWorktreeState: SerialWorktreeState | null = null;
+  const originalCwd = config.cwd;
+
+  if (useSerialWorktree) {
+    try {
+      serialWorktreeState = await setupSerialWorktree(
+        config.cwd,
+        session.id,
+        storedConfig?.parallel?.worktreeDir,
+      );
+
+      // Redirect engine to run inside the worktree
+      config.cwd = serialWorktreeState.worktreeInfo.path;
+      config.outputDir = `${serialWorktreeState.worktreeInfo.path}/.ralph-tui/iterations`;
+      config.progressFile = `${serialWorktreeState.worktreeInfo.path}/.ralph-tui/progress.md`;
+
+      if (!config.showTui) {
+        console.log(`Serial worktree mode: executing in ${serialWorktreeState.worktreeInfo.path}`);
+        console.log(`Session branch: ${serialWorktreeState.sessionBranch}`);
+      }
+    } catch (error) {
+      console.error(
+        'Failed to set up serial worktree:',
+        error instanceof Error ? error.message : error
+      );
+      await endSession(config.cwd, 'failed');
+      await releaseLockNew(config.cwd);
+      cleanupLockHandlers();
+      process.exit(1);
+    }
+  }
+
   // Run parallel or sequential execution
   try {
     if (useParallel) {
@@ -3922,6 +4145,15 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       'Execution error:',
       error instanceof Error ? error.message : error
     );
+    // Clean up serial worktree on error before exiting
+    if (serialWorktreeState) {
+      try {
+        await teardownSerialWorktree(serialWorktreeState, originalCwd);
+      } catch (cleanupErr) {
+        console.warn(`Warning: Serial worktree cleanup failed: ${cleanupErr}`);
+      }
+      config.cwd = originalCwd;
+    }
     // Save failed state
     persistedState = failSession(persistedState);
     await savePersistedSession(persistedState);
@@ -3931,6 +4163,17 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     await releaseLockNew(config.cwd);
     cleanupLockHandlers();
     process.exit(1);
+  }
+
+  // Tear down serial worktree after execution (merge to session branch)
+  if (serialWorktreeState) {
+    try {
+      await teardownSerialWorktree(serialWorktreeState, originalCwd);
+    } catch (err) {
+      console.warn(`Warning: Serial worktree teardown had errors: ${err}`);
+    }
+    // Restore original cwd for session cleanup
+    config.cwd = originalCwd;
   }
 
   // Check if all tasks completed successfully
