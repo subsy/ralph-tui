@@ -461,4 +461,61 @@ describe('ExecutionEngine', () => {
       expect(result?.id).toBe('task-1');
     });
   });
+
+  describe('refreshTasks', () => {
+    test('emits tasks:refreshed event with fresh tasks', async () => {
+      const tasks = [
+        createMockTask({ id: 'task-1', status: 'open', title: 'Task 1' }),
+        createMockTask({ id: 'task-2', status: 'in_progress', title: 'Task 2' }),
+      ];
+      const mockTracker = createMockTracker(tasks);
+      const engine = new ExecutionEngine(createMockConfig());
+      (engine as unknown as { tracker: TrackerPlugin }).tracker = mockTracker;
+
+      const events: Array<{ type: string; tasks?: TrackerTask[] }> = [];
+      engine.on((event) => {
+        if (event.type === 'tasks:refreshed') {
+          events.push({ type: event.type, tasks: event.tasks });
+        }
+      });
+
+      await engine.refreshTasks();
+
+      expect(events).toHaveLength(1);
+      expect(events[0]!.type).toBe('tasks:refreshed');
+      expect(events[0]!.tasks).toHaveLength(2);
+      expect(events[0]!.tasks![0]!.id).toBe('task-1');
+    });
+
+    test('updates totalTasks count with open/in_progress only', async () => {
+      const tasks = [
+        createMockTask({ id: 'task-1', status: 'open' }),
+        createMockTask({ id: 'task-2', status: 'in_progress' }),
+        createMockTask({ id: 'task-3', status: 'completed' }),
+      ];
+      const mockTracker = createMockTracker(tasks);
+      const engine = new ExecutionEngine(createMockConfig());
+      (engine as unknown as { tracker: TrackerPlugin }).tracker = mockTracker;
+
+      await engine.refreshTasks();
+
+      const state = engine.getState();
+      expect(state.totalTasks).toBe(2);
+    });
+
+    test('is a no-op when no tracker', async () => {
+      const engine = new ExecutionEngine(createMockConfig());
+      // Ensure tracker is null (default state before initialize)
+
+      const events: Array<{ type: string }> = [];
+      engine.on((event) => events.push({ type: event.type }));
+
+      // Should not throw
+      await engine.refreshTasks();
+
+      // Should not emit any events
+      const refreshEvents = events.filter((e) => e.type === 'tasks:refreshed');
+      expect(refreshEvents).toHaveLength(0);
+    });
+  });
 });

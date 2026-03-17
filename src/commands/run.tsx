@@ -1499,6 +1499,10 @@ interface RunAppWrapperProps {
   onConflictRetry?: () => Promise<void>;
   /** Callback when user requests to skip a failed merge */
   onConflictSkip?: () => void;
+  /** Refreshed tasks from tracker (parallel mode auto-refresh) */
+  parallelRefreshedTasks?: TrackerTask[];
+  /** Callback to manually refresh tasks in parallel mode (for 'r' key) */
+  onRefreshTasks?: () => void;
 }
 
 /**
@@ -1554,6 +1558,8 @@ function RunAppWrapper({
   onParallelStart,
   onConflictRetry,
   onConflictSkip,
+  parallelRefreshedTasks,
+  onRefreshTasks,
 }: RunAppWrapperProps) {
   const [showInterruptDialog, setShowInterruptDialog] = useState(false);
   const [storedConfig, setStoredConfig] = useState<StoredConfig | undefined>(initialStoredConfig);
@@ -1781,6 +1787,8 @@ function RunAppWrapper({
       onParallelStart={onParallelStart}
       onConflictRetry={onConflictRetry}
       onConflictSkip={onConflictSkip}
+      parallelRefreshedTasks={parallelRefreshedTasks}
+      onRefreshTasks={onRefreshTasks}
     />
   );
 }
@@ -2125,6 +2133,7 @@ async function runParallelWithTui(
   initialTasks: TrackerTask[],
   directMerge: boolean,
   storedConfig?: StoredConfig,
+  tracker?: TrackerPlugin,
 ): Promise<ParallelTuiRunResult> {
   let currentState = persistedState;
   let resolveQuitPromise: (() => void) | null = null;
@@ -2168,6 +2177,8 @@ async function runParallelWithTui(
     sessionBranch: null as string | null,
     /** Original branch before session branch was created */
     originalBranch: null as string | null,
+    /** Refreshed tasks from tracker (set after worker/merge completion) */
+    refreshedTasks: undefined as TrackerTask[] | undefined,
     /** Completion summary lines for in-TUI display */
     completionSummaryLines: undefined as string[] | undefined,
     /** Summary file path for in-TUI display */
@@ -2182,6 +2193,22 @@ async function runParallelWithTui(
   let triggerRerender: (() => void) | null = null;
   let executionPromise: Promise<void> | null = null;
   let shutdownPromise: Promise<void> | null = null;
+
+  // Debounced tracker refresh — avoids hammering tracker when multiple workers finish simultaneously
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleTrackerRefresh = (): void => {
+    if (!tracker) return;
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      try {
+        const freshTasks = await tracker.getTasks({ status: ['open', 'in_progress', 'completed'] });
+        parallelState.refreshedTasks = freshTasks;
+        triggerRerender?.();
+      } catch {
+        // Tracker refresh is best-effort; don't crash the TUI
+      }
+    }, 2000);
+  };
 
   const resetParallelStateForRestart = (): void => {
     parallelState.failureMessage = null;
@@ -2350,6 +2377,8 @@ async function runParallelWithTui(
           event.result.taskCompleted,
           event.result.commitCount
         );
+        // Refresh task list to pick up any new beads created by the agent
+        scheduleTrackerRefresh();
         break;
 
       case 'worker:failed':
@@ -2379,6 +2408,8 @@ async function runParallelWithTui(
           ...parallelState.mergedTaskIds,
           event.taskId,
         ]);
+        // Refresh task list to pick up any new beads created by the agent
+        scheduleTrackerRefresh();
         break;
       }
 
@@ -2683,6 +2714,8 @@ async function runParallelWithTui(
           clearConflictState(parallelState);
           triggerRerender?.();
         }}
+        parallelRefreshedTasks={parallelState.refreshedTasks}
+        onRefreshTasks={() => scheduleTrackerRefresh()}
       />
     );
   }
@@ -3649,7 +3682,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       if (config.showTui) {
         // Parallel TUI mode — visualize workers, merges, and conflicts
         const parallelTuiResult = await runParallelWithTui(
-          parallelExecutor, persistedState, config, tasks, directMerge, storedConfig
+          parallelExecutor, persistedState, config, tasks, directMerge, storedConfig, tracker
         );
         persistedState = parallelTuiResult.state;
         parallelSummaryForGuidance = parallelTuiResult.summary;

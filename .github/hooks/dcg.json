@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "/Users/mat/.local/bin/dcg",
+        "powershell": "/Users/mat/.local/bin/dcg",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
