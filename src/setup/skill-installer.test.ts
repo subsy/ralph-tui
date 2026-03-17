@@ -279,8 +279,8 @@ describe('AGENT_ID_MAP', () => {
     expect(AGENT_ID_MAP['gemini']).toBe('gemini');
   });
 
-  test('maps kiro to kiro', () => {
-    expect(AGENT_ID_MAP['kiro']).toBe('kiro');
+  test('maps kiro to kiro-cli', () => {
+    expect(AGENT_ID_MAP['kiro']).toBe('kiro-cli');
   });
 });
 
@@ -336,6 +336,16 @@ describe('buildAddSkillInstallArgs', () => {
     });
     expect(args).toContain('-a');
     expect(args).toContain('cursor');
+  });
+
+  test('adds --copy when copy mode is enabled', () => {
+    const args = buildAddSkillInstallArgs({
+      agentId: 'kiro',
+      global: true,
+      copy: true,
+    });
+    expect(args).toContain('--copy');
+    expect(args).toContain('kiro-cli');
   });
 });
 

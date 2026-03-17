@@ -160,11 +160,19 @@ async function buildPrompt(
   // Get PRD context if the tracker supports it
   const prdContext = await tracker?.getPrdContext?.();
 
+  // Build selection reason from bv metadata (if present)
+  const bvReasons = task.metadata?.bvReasons;
+  const selectionReason =
+    Array.isArray(bvReasons) && bvReasons.length > 0
+      ? bvReasons.join('\n')
+      : undefined;
+
   // Build extended template context with PRD data and patterns
   const extendedContext = {
     recentProgress,
     codebasePatterns,
     prd: prdContext ?? undefined,
+    selectionReason,
   };
 
   // Use the template system (tracker template used if no custom/user override)

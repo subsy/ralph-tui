@@ -130,6 +130,7 @@ ${BOLD}Install Options:${RESET}
   ${DIM}--agent <id>${RESET}       Install only to specific agent (claude, opencode, codex, gemini, kiro)
   ${DIM}--local${RESET}            Install to project-local directory
   ${DIM}--global${RESET}           Install to personal/global directory (default)
+  ${DIM}--copy${RESET}             Copy skills instead of symlinking (useful if symlink install fails)
 
 ${BOLD}Examples:${RESET}
   ralph-tui skills list                    # List all skills per agent
@@ -219,11 +220,13 @@ export function parseInstallArgs(args: string[]): {
   agentId: string | null;
   local: boolean;
   global: boolean;
+  copy: boolean;
 } {
   let skillName: string | null = null;
   let agentId: string | null = null;
   let local = false;
   let global = false;
+  let copy = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -232,6 +235,8 @@ export function parseInstallArgs(args: string[]): {
       local = true;
     } else if (arg === '--global' || arg === '-g') {
       global = true;
+    } else if (arg === '--copy') {
+      copy = true;
     } else if (arg === '--all' || arg === '-a') {
       // Accepted for backwards compat but is now the default
     } else if (arg === '--force' || arg === '-f') {
@@ -252,7 +257,7 @@ export function parseInstallArgs(args: string[]): {
     global = true;
   }
 
-  return { skillName, agentId, local, global };
+  return { skillName, agentId, local, global, copy };
 }
 
 /**
@@ -263,6 +268,7 @@ export function buildAddSkillArgs(options: {
   agentId: string | null;
   local: boolean;
   global: boolean;
+  copy?: boolean;
 }): string[] {
   const args = ['add-skill', 'subsy/ralph-tui'];
 
@@ -279,6 +285,11 @@ export function buildAddSkillArgs(options: {
   // Global vs local
   if (options.global) {
     args.push('-g');
+  }
+
+  // Copy mode avoids symlink strategy for environments where symlinks are problematic
+  if (options.copy) {
+    args.push('--copy');
   }
 
   // Non-interactive
@@ -344,7 +355,8 @@ async function handleInstallSkills(args: string[]): Promise<void> {
     ? `to ${CYAN}${options.agentId}${RESET}`
     : 'to all detected agents';
   const locationText = options.local ? 'local (project)' : 'global';
-  console.log(`${BOLD}Installing ${skillText} ${agentText} [${locationText}]${RESET}`);
+  const modeText = options.copy ? ', copy mode' : ', symlink mode';
+  console.log(`${BOLD}Installing ${skillText} ${agentText} [${locationText}${modeText}]${RESET}`);
   console.log(`${DIM}$ bunx ${addSkillArgs.join(' ')}${RESET}\n`);
 
   // Spawn bunx add-skill with piped output
@@ -397,6 +409,9 @@ async function handleInstallSkills(args: string[]): Promise<void> {
     }
     if (result.eloopOnly) {
       console.log(`  ${DIM}(Some agents share skill directories via symlinks — skills already accessible)${RESET}`);
+      if (!options.copy) {
+        console.log(`  ${DIM}(If you need physical files instead, rerun with: ralph-tui skills install --copy)${RESET}`);
+      }
     }
   } else if (exitCode !== 0) {
     console.error(`${RED}✗${RESET} Installation failed`);

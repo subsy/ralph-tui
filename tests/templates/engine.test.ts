@@ -786,17 +786,17 @@ describe('Template Engine - Installation', () => {
       mock.restore();
     });
 
-    test('installs all four builtin templates', () => {
+    test('installs all five builtin templates', () => {
       // Use fresh import to bypass mock pollution from migration-install.test.ts
       // Note: Cannot use sandboxed testDir here because fresh import uses real getUserConfigDir
       const result = freshInstallBuiltinTemplates(false);
 
-      // The function returns results for all four templates (not undefined)
-      // Templates: default, beads, beads-bv, json
+      // The function returns results for all five templates (not undefined)
+      // Templates: default, beads, beads-bv, beads-rust-bv, json
       // Note: beads-rust template exists but is not included in installBuiltinTemplates yet
       expect(result).toBeDefined();
       expect(result.results).toBeDefined();
-      expect(result.results.length).toBe(4);
+      expect(result.results.length).toBe(5);
       expect(result.templatesDir).toContain('.config/ralph-tui/templates');
       // Verify templates were actually created or skipped (both are valid outcomes)
       expect(result.results.every(r => r.created || r.skipped)).toBe(true);

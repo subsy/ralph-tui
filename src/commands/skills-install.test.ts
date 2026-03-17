@@ -127,6 +127,20 @@ describe('skills install command (spawn)', () => {
     expect(allOutput).toContain('symlinks');
   });
 
+  test('does not suggest --copy again when copy mode is already active', async () => {
+    mockSpawnStdout = 'Found 4 skills\nDetected 1 agent\nInstalling to: Kiro CLI\nInstallation complete\nFailed to install 1\n';
+    mockSpawnStderr = 'ELOOP: too many symbolic links encountered\n';
+    mockSpawnExitCode = 1;
+
+    await executeSkillsCommand(['install', '--copy']);
+
+    const logOutput = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    const errorOutput = consoleErrorSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n');
+    const allOutput = `${logOutput}\n${errorOutput}`;
+    expect(allOutput).toContain('symlinks');
+    expect(allOutput).not.toContain('ralph-tui skills install --copy');
+  });
+
   test('falls back to parsed installing list count when detected count is missing', async () => {
     mockSpawnStdout = 'Found 4 skills\nInstalling to: OpenCode [global]\nInstallation complete\n';
     mockSpawnExitCode = 0;
@@ -195,6 +209,18 @@ describe('skills install command (spawn)', () => {
     expect(mockSpawnArgs[0].args).toContain('claude-code');
   });
 
+  test('maps kiro agent ID to kiro-cli for add-skill', async () => {
+    mockSpawnStdout = 'Found 4 skills\nInstallation complete\n';
+    mockSpawnExitCode = 0;
+
+    await executeSkillsCommand(['install', '--agent', 'kiro']);
+
+    const agentFlagIndex = mockSpawnArgs[0].args.indexOf('-a');
+    expect(agentFlagIndex).toBeGreaterThanOrEqual(0);
+    expect(mockSpawnArgs[0].args[agentFlagIndex + 1]).toBe('kiro-cli');
+    expect(mockSpawnArgs[0].args).not.toContain('kiro');
+  });
+
   test('passes skill flag when --skill specified', async () => {
     mockSpawnStdout = 'Found 1 skill\nInstallation complete\n';
     mockSpawnExitCode = 0;
@@ -212,6 +238,15 @@ describe('skills install command (spawn)', () => {
     await executeSkillsCommand(['install', '--local']);
 
     expect(mockSpawnArgs[0].args).not.toContain('-g');
+  });
+
+  test('passes --copy flag through to add-skill when requested', async () => {
+    mockSpawnStdout = 'Found 4 skills\nInstallation complete\n';
+    mockSpawnExitCode = 0;
+
+    await executeSkillsCommand(['install', '--copy']);
+
+    expect(mockSpawnArgs[0].args).toContain('--copy');
   });
 
   test('shows verify hint after install', async () => {

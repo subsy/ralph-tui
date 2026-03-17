@@ -176,6 +176,7 @@ Ralph TUI includes bundled skills for PRD creation and task conversion. Skills a
 |-------|-----------------|
 | Claude Code | `~/.claude/skills/` |
 | OpenCode | `~/.config/opencode/skills/` |
+| Kiro CLI | `~/.kiro/skills/` |
 | Factory Droid | `~/.factory/skills/` |
 
 **Local (project)** - Takes precedence, version-controllable:
@@ -184,6 +185,7 @@ Ralph TUI includes bundled skills for PRD creation and task conversion. Skills a
 |-------|-----------------|
 | Claude Code | `.claude/skills/` |
 | OpenCode | `.opencode/skills/` |
+| Kiro CLI | `.kiro/skills/` |
 | Factory Droid | `.factory/skills/` |
 
 <Callout type="tip">
@@ -202,12 +204,16 @@ ralph-tui skills install
 # Install skills to local project directory
 ralph-tui skills install --local
 
+# Copy files instead of symlinking (useful if symlink install fails)
+ralph-tui skills install --copy
+
 # Force reinstall (overwrite existing)
 ralph-tui skills install --force
 
 # Install to a specific agent only
 ralph-tui skills install --agent claude
 ralph-tui skills install --agent opencode
+ralph-tui skills install --agent kiro
 ralph-tui skills install --agent droid
 
 # Install a specific skill

@@ -87,6 +87,7 @@ export const docsNavigation: NavItem[] = [
           { title: 'GitHub Copilot', href: '/docs/plugins/agents/github-copilot', label: 'New' },
           { title: 'Kimi', href: '/docs/plugins/agents/kimi', label: 'New' },
           { title: 'Kiro', href: '/docs/plugins/agents/kiro', label: 'New' },
+          { title: 'Pi', href: '/docs/plugins/agents/pi', label: 'New' },
         ],
       },
       {
@@ -96,6 +97,7 @@ export const docsNavigation: NavItem[] = [
           { title: 'Beads', href: '/docs/plugins/trackers/beads' },
           { title: 'Beads-Rust', href: '/docs/plugins/trackers/beads-rust', label: 'New' },
           { title: 'Beads-BV', href: '/docs/plugins/trackers/beads-bv' },
+          { title: 'Beads-Rust-BV', href: '/docs/plugins/trackers/beads-rust-bv', label: 'New' },
         ],
       },
     ],
