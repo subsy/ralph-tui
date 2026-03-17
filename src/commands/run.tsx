@@ -2617,6 +2617,10 @@ async function runParallelWithTui(
       return () => {
         triggerRerender = null;
         clearInterval(pollInterval);
+        if (refreshTimer) {
+          clearTimeout(refreshTimer);
+          refreshTimer = null;
+        }
       };
     }, []);
 

@@ -1338,7 +1338,14 @@ export class ExecutionEngine {
       // Refresh task list to pick up any new beads created by the agent.
       // Skip in worker mode (forcedTask) since workers don't own the TUI.
       if (taskCompleted && !this.forcedTask) {
-        await this.refreshTasks();
+        try {
+          await this.refreshTasks();
+        } catch (error) {
+          console.warn(
+            `[tasks] Refresh failed after completion for task ${task.id}:`,
+            error
+          );
+        }
       }
 
       // Determine iteration status
