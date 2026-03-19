@@ -143,8 +143,8 @@ export interface ToolInputFormatters {
 
 /**
  * Extract a fallback display string from tool input when no known fields matched.
- * Looks for the first short string value that looks useful (file paths, names, etc.).
- * Skips very long values (like file content or patch bodies) to keep output clean.
+ * Looks for the first string value that looks useful (file paths, names, etc.).
+ * Long values are truncated to 120 chars for display.
  */
 function extractFallbackDisplay(input: Record<string, unknown>): string | undefined {
   // Priority: look for path-like values first, then any short string
@@ -153,8 +153,6 @@ function extractFallbackDisplay(input: Record<string, unknown>): string | undefi
 
   for (const [, value] of Object.entries(input)) {
     if (typeof value !== 'string' || value.length === 0) continue;
-    // Skip very long values (file content, patch bodies, etc.)
-    if (value.length > 200) continue;
 
     // Path-like values get priority
     if (value.startsWith('/') || value.startsWith('./') || value.startsWith('~')) {
