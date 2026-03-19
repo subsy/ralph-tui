@@ -13,6 +13,8 @@ import {
   formatPattern,
   formatUrl,
   formatToolCall,
+  formatToolCallSegments,
+  segmentsToPlainText,
   processAgentEvents,
 } from './output-formatting.js';
 
@@ -248,6 +250,27 @@ describe('formatToolCall', () => {
     expect(result).toContain('$ npm run build');
   });
 
+  test('falls back to first useful string for unknown fields', () => {
+    // Simulates apply_patch or tools with non-standard param names
+    const result = formatToolCall('apply_patch', { patch: '--- a/file.ts\n+++ b/file.ts' } as unknown as Parameters<typeof formatToolCall>[1]);
+    expect(result).toContain('[apply_patch]');
+    expect(result).toContain('--- a/file.ts');
+  });
+
+  test('fallback prioritizes path-like values', () => {
+    const result = formatToolCall('read', { filename: '/src/index.ts', other: 'noise' } as unknown as Parameters<typeof formatToolCall>[1]);
+    expect(result).toContain('[read]');
+    expect(result).toContain('/src/index.ts');
+  });
+
+  test('fallback skips very long values', () => {
+    const longContent = 'x'.repeat(300);
+    const result = formatToolCall('write', { body: longContent } as unknown as Parameters<typeof formatToolCall>[1]);
+    expect(result).toContain('[write]');
+    // Long value should be skipped, only tool name shown
+    expect(result).not.toContain('xxx');
+  });
+
   test('combines all supported fields', () => {
     const result = formatToolCall('complex', {
       description: 'Test',
@@ -364,5 +387,30 @@ describe('processAgentEvents', () => {
     const result = processAgentEvents(events);
     // Non-empty text gets trailing newline
     expect(result).toBe('visible\n');
+  });
+});
+
+describe('formatToolCallSegments fallback', () => {
+  test('shows fallback for unknown field names', () => {
+    const segments = formatToolCallSegments('apply_patch', { patch: '--- a/file.ts' } as Record<string, unknown>);
+    const text = segmentsToPlainText(segments);
+    expect(text).toContain('[apply_patch]');
+    expect(text).toContain('--- a/file.ts');
+  });
+
+  test('fallback prioritizes path-like values', () => {
+    const segments = formatToolCallSegments('read', { filename: '/src/index.ts', mode: 'utf8' } as Record<string, unknown>);
+    const text = segmentsToPlainText(segments);
+    expect(text).toContain('[read]');
+    expect(text).toContain('/src/index.ts');
+  });
+
+  test('no fallback when known fields present', () => {
+    const segments = formatToolCallSegments('read', { file_path: '/src/index.ts' });
+    const text = segmentsToPlainText(segments);
+    expect(text).toContain('/src/index.ts');
+    // file_path is a known field, should use normal formatting (purple color) not fallback (muted)
+    const muted = segments.filter(s => s.color === 'muted');
+    expect(muted.length).toBe(0);
   });
 });

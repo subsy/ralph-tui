@@ -124,9 +124,10 @@ function parseOpenCodeJsonLine(jsonLine: string): AgentDisplayEvent[] {
 
       case 'tool_use': {
         // Tool being called - show name and relevant details
-        // opencode structure: event.part.state.input contains tool arguments
+        // opencode structure: event.part.state.input contains tool arguments,
+        // but some tools may have input at event.part.input directly
         const toolName = event.part?.tool || event.part?.name || 'unknown';
-        const toolInput = event.part?.state?.input;
+        const toolInput = event.part?.state?.input ?? event.part?.input;
         events.push({ type: 'tool_use', name: toolName, input: toolInput });
         break;
       }
