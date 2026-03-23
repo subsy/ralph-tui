@@ -1343,6 +1343,19 @@ export class ExecutionEngine {
         await this.handleAutoCommit(task, iteration);
       }
 
+      // Refresh task list to pick up any new beads created by the agent.
+      // Skip in worker mode (forcedTask) since workers don't own the TUI.
+      if (taskCompleted && !this.forcedTask) {
+        try {
+          await this.refreshTasks();
+        } catch (error) {
+          console.warn(
+            `[tasks] Refresh failed after completion for task ${task.id}:`,
+            error
+          );
+        }
+      }
+
       // Determine iteration status
       let status: IterationStatus;
       if (agentResult.interrupted) {

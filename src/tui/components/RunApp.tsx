@@ -217,6 +217,10 @@ export interface RunAppProps {
   onConflictRetry?: () => void;
   /** Callback when user requests to skip a failed merge (s key in failure state) */
   onConflictSkip?: () => void;
+  /** Refreshed tasks from tracker (parallel mode auto-refresh after worker/merge completion) */
+  parallelRefreshedTasks?: TrackerTask[];
+  /** Callback to manually refresh tasks in parallel mode (for 'r' key when no engine) */
+  onRefreshTasks?: () => void;
 }
 
 /**
@@ -546,6 +550,8 @@ export function RunApp({
   onParallelStart,
   onConflictRetry,
   onConflictSkip,
+  parallelRefreshedTasks,
+  onRefreshTasks,
 }: RunAppProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
@@ -565,6 +571,13 @@ export function RunApp({
     }
     return [];
   });
+  // Update task list when parallel mode provides refreshed tasks from tracker
+  useEffect(() => {
+    if (parallelRefreshedTasks) {
+      setTasks(convertTasksWithDependencyStatus(parallelRefreshedTasks));
+    }
+  }, [parallelRefreshedTasks]);
+
   const [selectedIndex, setSelectedIndex] = useState(0);
   // Start in 'ready' state if we have onStart callback (waiting for user to start)
   const [status, setStatus] = useState<RalphStatus>(onStart ? 'ready' : 'running');
@@ -2344,6 +2357,8 @@ export function RunApp({
             instanceManager.sendRemoteCommand('refreshTasks');
           } else if (engine) {
             engine.refreshTasks();
+          } else if (onRefreshTasks) {
+            onRefreshTasks();
           }
           break;
 
@@ -2659,7 +2674,7 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showParallelSummaryOverlay, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showParallelSummaryOverlay, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus, onRefreshTasks]
   );
 
   useKeyboard(handleKeyboard);
