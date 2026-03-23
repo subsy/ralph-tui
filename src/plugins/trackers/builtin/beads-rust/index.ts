@@ -159,6 +159,20 @@ function isTombstone(brStatus: string): boolean {
 }
 
 /**
+ * Unwrap br JSON output which may be a bare array or an envelope object
+ * with an `issues` key (br ≥ recent versions).
+ */
+function unwrapBrJson(parsed: unknown): BrTaskJson[] {
+  if (Array.isArray(parsed)) {
+    return parsed as BrTaskJson[];
+  }
+  if (parsed && typeof parsed === 'object' && 'issues' in parsed && Array.isArray((parsed as Record<string, unknown>).issues)) {
+    return (parsed as Record<string, unknown>).issues as BrTaskJson[];
+  }
+  return [];
+}
+
+/**
  * Convert TrackerTaskStatus back to br status.
  */
 function mapStatusToBr(status: TrackerTaskStatus): string {
@@ -370,7 +384,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
 
     let tasksJson: BrTaskJson[];
     try {
-      tasksJson = JSON.parse(stdout) as BrTaskJson[];
+      tasksJson = unwrapBrJson(JSON.parse(stdout));
     } catch (err) {
       console.error('Failed to parse br list output:', err);
       return [];
@@ -424,7 +438,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
 
     let tasksJson: BrTaskJson[];
     try {
-      tasksJson = JSON.parse(stdout) as BrTaskJson[];
+      tasksJson = unwrapBrJson(JSON.parse(stdout));
     } catch (err) {
       console.error('Failed to parse br list --type epic output:', err);
       return [];
@@ -636,7 +650,7 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
 
     let tasksJson: BrTaskJson[];
     try {
-      tasksJson = JSON.parse(stdout) as BrTaskJson[];
+      tasksJson = unwrapBrJson(JSON.parse(stdout));
     } catch (err) {
       console.error('Failed to parse br ready output:', err);
       return undefined;
