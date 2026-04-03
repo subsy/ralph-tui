@@ -177,13 +177,22 @@ export interface JiraTransition {
 }
 
 /**
- * Jira search response (paginated).
+ * Jira search response (paginated via /rest/api/3/search/jql).
  */
 export interface JiraSearchResponse {
   issues: JiraIssue[];
-  startAt: number;
-  maxResults: number;
   total: number;
+  /** Token for fetching the next page of results. Absent on the last page. */
+  nextPageToken?: string;
+}
+
+/**
+ * Jira project summary from /rest/api/3/project/search.
+ */
+export interface JiraProject {
+  id: string;
+  key: string;
+  name: string;
 }
 
 // ─── Atlassian Document Format (ADF) types ────────────────────────────────
@@ -233,6 +242,8 @@ export interface JiraTrackerOptions {
   email?: string;
   /** Jira API token */
   apiToken?: string;
+  /** Jira project key for epic discovery (e.g., "SNSP") */
+  projectKey?: string;
   /** Custom status name → TrackerTaskStatus mapping */
   statusMapping?: StatusMapping;
   /** How to extract acceptance criteria: "description" | "custom_field" | "subtasks" */

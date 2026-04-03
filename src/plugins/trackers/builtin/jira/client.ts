@@ -10,6 +10,7 @@ import type {
   JiraIssue,
   JiraTransition,
   JiraSearchResponse,
+  JiraProject,
 } from './types.js';
 import { JiraApiError } from './types.js';
 import { textToAdf } from './adf.js';
@@ -219,33 +220,38 @@ export class RalphJiraClient {
 
   /**
    * Search for issues using JQL with pagination.
+   * Uses the /rest/api/3/search/jql endpoint (the POST /search endpoint was deprecated).
    * Returns all matching issues across multiple pages.
    */
   async searchIssues(jql: string, maxTotal?: number): Promise<JiraIssue[]> {
     const allIssues: JiraIssue[] = [];
-    let startAt = 0;
+    let nextPageToken: string | undefined;
     const limit = maxTotal ?? Infinity;
 
     while (allIssues.length < limit) {
+      const maxResults = Math.min(MAX_RESULTS_PER_PAGE, limit - allIssues.length);
+      const params = new URLSearchParams({
+        jql,
+        fields: ISSUE_FIELDS,
+        maxResults: String(maxResults),
+      });
+      if (nextPageToken) {
+        params.set('nextPageToken', nextPageToken);
+      }
+
       const response = await this.request<JiraSearchResponse>(
-        'POST',
-        '/rest/api/3/search',
-        {
-          jql,
-          fields: ISSUE_FIELDS.split(','),
-          startAt,
-          maxResults: Math.min(MAX_RESULTS_PER_PAGE, limit - allIssues.length),
-        },
+        'GET',
+        `/rest/api/3/search/jql?${params.toString()}`,
       );
 
       allIssues.push(...response.issues);
 
       // Check if there are more pages
-      if (allIssues.length >= response.total || response.issues.length === 0) {
+      if (!response.nextPageToken || response.issues.length === 0) {
         break;
       }
 
-      startAt += response.issues.length;
+      nextPageToken = response.nextPageToken;
     }
 
     return allIssues;
@@ -308,6 +314,32 @@ export class RalphJiraClient {
       `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`,
       { body: adfBody },
     );
+  }
+
+  /**
+   * List accessible projects.
+   * Returns projects the authenticated user can see, optionally filtered by query.
+   */
+  async listProjects(query?: string): Promise<JiraProject[]> {
+    const params = new URLSearchParams({ maxResults: '50', orderBy: 'name' });
+    if (query) {
+      params.set('query', query);
+    }
+
+    const response = await this.request<{ values: JiraProject[] }>(
+      'GET',
+      `/rest/api/3/project/search?${params.toString()}`,
+    );
+    return response.values;
+  }
+
+  /**
+   * List epics in a project.
+   * Returns all issues with type "Epic" in the given project.
+   */
+  async listEpics(projectKey: string): Promise<JiraIssue[]> {
+    const jql = `project = ${projectKey} AND issuetype = Epic ORDER BY created DESC`;
+    return this.searchIssues(jql);
   }
 
   /**

@@ -490,22 +490,57 @@ export class JiraTrackerPlugin extends BaseTrackerPlugin {
   }
 
   override async getEpics(): Promise<TrackerTask[]> {
-    if (!this.epicId) {
+    // If we have a specific epic configured, return it with child stats
+    if (this.epicId) {
+      try {
+        const issue = await this.client.getIssue(this.epicId);
+        const hierarchyModel = this.options.hierarchyModel ?? 'auto';
+        const children = await this.client.getEpicChildren(this.epicId, hierarchyModel);
+        const completedCount = children.filter(
+          (child) => child.fields.status.statusCategory.key === 'done',
+        ).length;
+
+        const descriptionMarkdown = adfToMarkdown(issue.fields.description);
+        const baseUrl = this.options.baseUrl ?? process.env.JIRA_BASE_URL ?? '';
+
+        return [
+          {
+            id: issue.key,
+            title: issue.fields.summary,
+            status: resolveStatus(
+              issue.fields.status.name,
+              issue.fields.status.statusCategory.key,
+              this.options.statusMapping,
+            ),
+            priority: 0 as TaskPriority,
+            description: descriptionMarkdown || undefined,
+            type: 'epic',
+            metadata: {
+              jiraKey: issue.key,
+              jiraUrl: `${baseUrl}/browse/${issue.key}`,
+              totalCount: children.length,
+              completedCount,
+            },
+          },
+        ];
+      } catch {
+        return [];
+      }
+    }
+
+    // No specific epic — discover all epics in the project
+    const projectKey = this.options.projectKey;
+    if (!projectKey) {
       return [];
     }
 
     try {
-      const issue = await this.client.getIssue(this.epicId);
-      const hierarchyModel = this.options.hierarchyModel ?? 'auto';
-      const children = await this.client.getEpicChildren(this.epicId, hierarchyModel);
-      const completedCount = children.filter(
-        (child) => child.fields.status.statusCategory.key === 'done',
-      ).length;
+      const epics = await this.client.listEpics(projectKey);
+      const baseUrl = this.options.baseUrl ?? process.env.JIRA_BASE_URL ?? '';
 
-      const descriptionMarkdown = adfToMarkdown(issue.fields.description);
-
-      return [
-        {
+      return epics.map((issue) => {
+        const descriptionMarkdown = adfToMarkdown(issue.fields.description);
+        return {
           id: issue.key,
           title: issue.fields.summary,
           status: resolveStatus(
@@ -513,17 +548,15 @@ export class JiraTrackerPlugin extends BaseTrackerPlugin {
             issue.fields.status.statusCategory.key,
             this.options.statusMapping,
           ),
-          priority: 0 as TaskPriority,
+          priority: mapPriority(issue.fields.priority?.name),
           description: descriptionMarkdown || undefined,
           type: 'epic',
           metadata: {
             jiraKey: issue.key,
-            jiraUrl: `${this.options.baseUrl ?? process.env.JIRA_BASE_URL}/browse/${issue.key}`,
-            totalCount: children.length,
-            completedCount,
+            jiraUrl: `${baseUrl}/browse/${issue.key}`,
           },
-        },
-      ];
+        };
+      });
     } catch {
       return [];
     }

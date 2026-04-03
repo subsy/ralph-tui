@@ -102,7 +102,7 @@ describe('RalphJiraClient', () => {
         statusText: response.status === 200 ? 'OK' : 'Error',
         json: () => Promise.resolve(response.body ?? {}),
       } as Response),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
   }
 
   it('getIssue returns parsed issue', async () => {
@@ -188,26 +188,95 @@ describe('RalphJiraClient', () => {
     await client.transitionIssue('TEST-1', '2');
   });
 
-  it('searchIssues handles pagination', async () => {
+  it('searchIssues handles pagination with nextPageToken', async () => {
     let callCount = 0;
     globalThis.fetch = mock(() => {
       callCount++;
-      const issues = callCount === 1
-        ? [{ key: 'TEST-1' }, { key: 'TEST-2' }]
-        : [{ key: 'TEST-3' }];
+      if (callCount === 1) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            issues: [{ key: 'TEST-1' }, { key: 'TEST-2' }],
+            total: 3,
+            nextPageToken: 'page2token',
+          }),
+        } as Response);
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
         json: () => Promise.resolve({
-          issues,
-          startAt: callCount === 1 ? 0 : 2,
-          maxResults: 2,
+          issues: [{ key: 'TEST-3' }],
           total: 3,
         }),
       } as Response);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const issues = await client.searchIssues('project = TEST');
     expect(issues).toHaveLength(3);
+  });
+
+  it('searchIssues uses GET /search/jql endpoint', async () => {
+    let capturedUrl = '';
+    globalThis.fetch = mock((url: string) => {
+      capturedUrl = url;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ issues: [], total: 0 }),
+      } as Response);
+    }) as unknown as typeof fetch;
+
+    await client.searchIssues('project = TEST');
+    expect(capturedUrl).toContain('/rest/api/3/search/jql');
+    expect(capturedUrl).not.toContain('/rest/api/3/search?');
+  });
+
+  it('listProjects returns project list', async () => {
+    mockFetch({
+      status: 200,
+      body: {
+        values: [
+          { id: '1', key: 'SNSP', name: 'SaNS Portal' },
+          { id: '2', key: 'MYN', name: 'myNuspire' },
+        ],
+      },
+    });
+
+    const projects = await client.listProjects();
+    expect(projects).toHaveLength(2);
+    expect(projects[0]?.key).toBe('SNSP');
+  });
+
+  it('listEpics returns epics for a project', async () => {
+    mockFetch({
+      status: 200,
+      body: {
+        issues: [
+          {
+            key: 'SNSP-54',
+            id: '1',
+            fields: {
+              summary: 'Test Epic',
+              description: null,
+              status: { name: 'To Do', statusCategory: { key: 'new', name: 'To Do' } },
+              priority: { name: 'High', id: '1' },
+              issuetype: { name: 'Epic', subtask: false },
+              labels: [],
+              assignee: null,
+              created: '2026-01-01T00:00:00.000Z',
+              updated: '2026-01-01T00:00:00.000Z',
+              issuelinks: [],
+            },
+          },
+        ],
+        total: 1,
+      },
+    });
+
+    const epics = await client.listEpics('SNSP');
+    expect(epics).toHaveLength(1);
+    expect(epics[0]?.key).toBe('SNSP-54');
   });
 });
