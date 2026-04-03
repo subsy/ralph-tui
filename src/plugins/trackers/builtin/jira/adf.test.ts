@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { adfToMarkdown, textToAdf } from './adf.js';
+import { adfToMarkdown, textToAdf, buildCompletionAdf } from './adf.js';
 import type { AdfDocument } from './types.js';
 
 describe('adfToMarkdown', () => {
@@ -284,5 +284,71 @@ describe('textToAdf', () => {
     expect(result.content).toHaveLength(1);
     expect(result.content[0]?.type).toBe('paragraph');
     expect(result.content[0]?.content?.[0]?.text).toBe('Hello world');
+  });
+});
+
+describe('buildCompletionAdf', () => {
+  it('builds a basic completion comment', () => {
+    const result = buildCompletionAdf({
+      taskId: 'TEST-1',
+      taskTitle: 'Test task',
+    });
+    expect(result.version).toBe(1);
+    expect(result.type).toBe('doc');
+    // Should have at least the success panel
+    expect(result.content.length).toBeGreaterThanOrEqual(1);
+    expect(result.content[0]?.type).toBe('panel');
+  });
+
+  it('includes acceptance criteria as a checklist', () => {
+    const result = buildCompletionAdf({
+      taskId: 'TEST-1',
+      taskTitle: 'Test task',
+      acceptanceCriteria: ['Criterion A', 'Criterion B'],
+    });
+    const json = JSON.stringify(result);
+    expect(json).toContain('Acceptance Criteria');
+    expect(json).toContain('Criterion A');
+    expect(json).toContain('Criterion B');
+  });
+
+  it('includes reason when provided', () => {
+    const result = buildCompletionAdf({
+      taskId: 'TEST-1',
+      taskTitle: 'Test task',
+      reason: 'All tests passing',
+    });
+    const json = JSON.stringify(result);
+    expect(json).toContain('All tests passing');
+  });
+
+  it('skips generic reason', () => {
+    const result = buildCompletionAdf({
+      taskId: 'TEST-1',
+      taskTitle: 'Test task',
+      reason: 'Completed by agent',
+    });
+    const json = JSON.stringify(result);
+    expect(json).not.toContain('Completed by agent');
+  });
+
+  it('includes duration', () => {
+    const result = buildCompletionAdf({
+      taskId: 'TEST-1',
+      taskTitle: 'Test task',
+      durationMs: 90000,
+    });
+    const json = JSON.stringify(result);
+    expect(json).toContain('1m 30s');
+  });
+
+  it('formats duration in seconds for short tasks', () => {
+    const result = buildCompletionAdf({
+      taskId: 'TEST-1',
+      taskTitle: 'Test task',
+      durationMs: 15000,
+    });
+    const json = JSON.stringify(result);
+    expect(json).toContain('15s');
   });
 });

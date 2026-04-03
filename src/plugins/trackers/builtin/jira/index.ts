@@ -79,6 +79,7 @@ function mapPriority(priorityName: string | undefined): TaskPriority {
   if (!priorityName) return 2; // Default to medium
 
   switch (priorityName.toLowerCase()) {
+    // Standard Jira priorities
     case 'highest':
     case 'blocker':
     case 'critical':
@@ -92,6 +93,19 @@ function mapPriority(priorityName: string | undefined): TaskPriority {
     case 'lowest':
     case 'trivial':
       return 4;
+
+    // P1-P5 numeric priorities (common in many Jira instances)
+    case 'p1':
+      return 0;
+    case 'p2':
+      return 1;
+    case 'p3':
+      return 2;
+    case 'p4':
+      return 3;
+    case 'p5':
+      return 4;
+
     default:
       return 2;
   }
