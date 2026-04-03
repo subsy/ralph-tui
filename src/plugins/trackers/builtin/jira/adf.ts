@@ -357,3 +357,85 @@ export function textToAdf(text: string): AdfDocument {
     ],
   };
 }
+
+/**
+ * Build a rich ADF completion comment for a Jira story.
+ * Includes a status panel, acceptance criteria checklist, and optional notes.
+ */
+export function buildCompletionAdf(options: {
+  taskId: string;
+  taskTitle: string;
+  acceptanceCriteria?: string[];
+  reason?: string;
+  durationMs?: number;
+}): AdfDocument {
+  const content: AdfNode[] = [];
+
+  // Header panel
+  content.push({
+    type: 'panel',
+    attrs: { panelType: 'success' },
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '✅ Completed by Ralph TUI', marks: [{ type: 'strong' }] },
+        ],
+      },
+    ],
+  });
+
+  // Reason / summary
+  if (options.reason && options.reason !== 'Completed by agent') {
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Summary: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: options.reason },
+      ],
+    });
+  }
+
+  // Acceptance criteria checklist
+  if (options.acceptanceCriteria && options.acceptanceCriteria.length > 0) {
+    content.push({
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [{ type: 'text', text: 'Acceptance Criteria' }],
+    });
+
+    content.push({
+      type: 'bulletList',
+      content: options.acceptanceCriteria.map((criterion) => ({
+        type: 'listItem',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: `✅ ${criterion}` }],
+          },
+        ],
+      })),
+    });
+  }
+
+  // Duration
+  if (options.durationMs) {
+    const seconds = Math.round(options.durationMs / 1000);
+    const timeStr = seconds >= 60
+      ? `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+      : `${seconds}s`;
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Duration: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: timeStr },
+      ],
+    });
+  }
+
+  return {
+    version: 1,
+    type: 'doc',
+    content,
+  };
+}

@@ -7,7 +7,7 @@
 
 import { BaseTrackerPlugin } from '../../base.js';
 import { createJiraClient, type RalphJiraClient } from './client.js';
-import { adfToMarkdown } from './adf.js';
+import { adfToMarkdown, buildCompletionAdf } from './adf.js';
 import { JIRA_TEMPLATE } from '../../../../templates/builtin.js';
 import type {
   JiraIssue,
@@ -463,21 +463,27 @@ export class JiraTrackerPlugin extends BaseTrackerPlugin {
       // Execute transition
       await this.client.transitionIssue(id, doneTransition.id);
 
-      // Add completion comment
-      const commentBody = reason
-        ? `Completed by Ralph: ${reason}`
-        : 'Completed by Ralph';
-      await this.client.addComment(id, commentBody);
+      // Build rich completion comment with AC checklist
+      const task = await this.getTask(id);
+      const acceptanceCriteria = task?.metadata?.acceptanceCriteria as string[] | undefined;
+      const completionComment = buildCompletionAdf({
+        taskId: id,
+        taskTitle: task?.title ?? id,
+        acceptanceCriteria,
+        reason,
+      });
+      await this.client.addComment(id, completionComment);
 
       // Invalidate caches
       this.tasksCache = null;
 
-      const task = await this.getTask(id);
+      // Re-fetch for the return value (status should now be Done)
+      const updatedTask = await this.getTask(id);
 
       return {
         success: true,
         message: `Task ${id} completed`,
-        task,
+        task: updatedTask,
       };
     } catch (err) {
       const message = err instanceof JiraApiError ? err.message : String(err);

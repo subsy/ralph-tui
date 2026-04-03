@@ -13,6 +13,7 @@ import type {
   JiraProject,
 } from './types.js';
 import { JiraApiError } from './types.js';
+import type { AdfDocument } from './types.js';
 import { textToAdf } from './adf.js';
 
 /**
@@ -305,10 +306,10 @@ export class RalphJiraClient {
 
   /**
    * Add a comment to an issue.
-   * Comment body is sent in ADF format (required by REST API v3).
+   * Accepts either plain text (auto-wrapped in ADF) or a pre-built ADF document.
    */
-  async addComment(issueKey: string, text: string): Promise<void> {
-    const adfBody = textToAdf(text);
+  async addComment(issueKey: string, bodyOrText: string | AdfDocument): Promise<void> {
+    const adfBody = typeof bodyOrText === 'string' ? textToAdf(bodyOrText) : bodyOrText;
     await this.request<unknown>(
       'POST',
       `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`,
