@@ -1,0 +1,335 @@
+/**
+ * ABOUTME: Jira REST API v3 client wrapper for ralph-tui.
+ * Provides a typed, reusable client for all Jira API interactions used by
+ * the tracker plugin. Handles authentication, issue CRUD, transitions,
+ * comments, pagination, and error mapping.
+ */
+
+import type {
+  JiraClientConfig,
+  JiraIssue,
+  JiraTransition,
+  JiraSearchResponse,
+} from './types.js';
+import { JiraApiError } from './types.js';
+import { textToAdf } from './adf.js';
+
+/**
+ * Fields requested when fetching issues for efficiency.
+ * Only includes fields the tracker plugin actually uses.
+ */
+const ISSUE_FIELDS = [
+  'summary',
+  'description',
+  'status',
+  'priority',
+  'issuetype',
+  'labels',
+  'assignee',
+  'created',
+  'updated',
+  'issuelinks',
+  'parent',
+  'subtasks',
+].join(',');
+
+/**
+ * Maximum results per search page (Jira API limit is 100).
+ */
+const MAX_RESULTS_PER_PAGE = 100;
+
+/**
+ * Resolve Jira client config from explicit options or environment variables.
+ * Config fields take precedence over env vars.
+ */
+export function resolveConfig(options?: Record<string, unknown>): JiraClientConfig {
+  const baseUrl =
+    (typeof options?.baseUrl === 'string' ? options.baseUrl : undefined) ??
+    process.env.JIRA_BASE_URL;
+
+  const email =
+    (typeof options?.email === 'string' ? options.email : undefined) ??
+    process.env.JIRA_EMAIL;
+
+  const apiToken =
+    (typeof options?.apiToken === 'string' ? options.apiToken : undefined) ??
+    process.env.JIRA_API_TOKEN;
+
+  if (!baseUrl) {
+    throw new JiraApiError(
+      'Jira base URL not found. Set JIRA_BASE_URL environment variable or provide baseUrl in tracker config.',
+      'invalid_config',
+    );
+  }
+
+  if (!email) {
+    throw new JiraApiError(
+      'Jira email not found. Set JIRA_EMAIL environment variable or provide email in tracker config.',
+      'invalid_config',
+    );
+  }
+
+  if (!apiToken) {
+    throw new JiraApiError(
+      'Jira API token not found. Set JIRA_API_TOKEN environment variable or provide apiToken in tracker config.',
+      'invalid_config',
+    );
+  }
+
+  // Normalize base URL: remove trailing slash
+  const normalizedUrl = baseUrl.replace(/\/+$/, '');
+
+  return { baseUrl: normalizedUrl, email, apiToken };
+}
+
+/**
+ * Classify a raw error into a user-facing JiraApiError.
+ */
+function classifyError(err: unknown, statusCode?: number): JiraApiError {
+  if (err instanceof JiraApiError) {
+    return err;
+  }
+
+  const message = err instanceof Error ? err.message : String(err);
+  const lowerMessage = message.toLowerCase();
+
+  // HTTP status code classification
+  if (statusCode === 401 || statusCode === 403) {
+    return new JiraApiError(
+      'Jira authentication failed. Check your email and API token.',
+      'auth',
+      err,
+    );
+  }
+
+  if (statusCode === 404) {
+    return new JiraApiError(
+      `Jira resource not found: ${message}`,
+      'not_found',
+      err,
+    );
+  }
+
+  if (statusCode === 429) {
+    return new JiraApiError(
+      'Jira API rate limit exceeded. Please wait and try again.',
+      'rate_limit',
+      err,
+    );
+  }
+
+  // String-based classification for network errors
+  if (
+    lowerMessage.includes('fetch') ||
+    lowerMessage.includes('econnrefused') ||
+    lowerMessage.includes('enotfound') ||
+    lowerMessage.includes('etimedout') ||
+    lowerMessage.includes('network') ||
+    lowerMessage.includes('socket')
+  ) {
+    return new JiraApiError(
+      `Network error connecting to Jira: ${message}`,
+      'network',
+      err,
+    );
+  }
+
+  return new JiraApiError(
+    `Jira API error: ${message}`,
+    'unknown',
+    err,
+  );
+}
+
+/**
+ * Jira REST API v3 client.
+ * All public methods throw JiraApiError on failure.
+ */
+export class RalphJiraClient {
+  private baseUrl: string;
+  private authHeader: string;
+
+  constructor(config: JiraClientConfig) {
+    this.baseUrl = config.baseUrl;
+    // Basic auth: base64(email:apiToken)
+    const credentials = Buffer.from(`${config.email}:${config.apiToken}`).toString('base64');
+    this.authHeader = `Basic ${credentials}`;
+  }
+
+  /**
+   * Make an authenticated request to the Jira REST API.
+   */
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': this.authHeader,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      // Handle 204 No Content (e.g., successful transition)
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      if (!response.ok) {
+        let errorMessage: string;
+        try {
+          const errorBody = await response.json() as Record<string, unknown>;
+          const messages = errorBody.errorMessages as string[] | undefined;
+          const errors = errorBody.errors as Record<string, string> | undefined;
+          errorMessage = messages?.join(', ')
+            ?? (errors ? Object.values(errors).join(', ') : '')
+            ?? response.statusText;
+        } catch {
+          errorMessage = response.statusText;
+        }
+
+        throw classifyError(new Error(errorMessage), response.status);
+      }
+
+      return await response.json() as T;
+    } catch (err) {
+      if (err instanceof JiraApiError) {
+        throw err;
+      }
+      throw classifyError(err);
+    }
+  }
+
+  /**
+   * Get a single issue by key (e.g., "MYN-1234").
+   */
+  async getIssue(issueKey: string): Promise<JiraIssue> {
+    return this.request<JiraIssue>(
+      'GET',
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=${ISSUE_FIELDS}`,
+    );
+  }
+
+  /**
+   * Search for issues using JQL with pagination.
+   * Returns all matching issues across multiple pages.
+   */
+  async searchIssues(jql: string, maxTotal?: number): Promise<JiraIssue[]> {
+    const allIssues: JiraIssue[] = [];
+    let startAt = 0;
+    const limit = maxTotal ?? Infinity;
+
+    while (allIssues.length < limit) {
+      const response = await this.request<JiraSearchResponse>(
+        'POST',
+        '/rest/api/3/search',
+        {
+          jql,
+          fields: ISSUE_FIELDS.split(','),
+          startAt,
+          maxResults: Math.min(MAX_RESULTS_PER_PAGE, limit - allIssues.length),
+        },
+      );
+
+      allIssues.push(...response.issues);
+
+      // Check if there are more pages
+      if (allIssues.length >= response.total || response.issues.length === 0) {
+        break;
+      }
+
+      startAt += response.issues.length;
+    }
+
+    return allIssues;
+  }
+
+  /**
+   * Get child issues of an epic.
+   * Tries next-gen parent hierarchy first, falls back to classic Epic Link.
+   *
+   * @param epicKey - The epic issue key (e.g., "MYN-5000")
+   * @param model - Hierarchy model: "auto", "parent", or "epic-link"
+   */
+  async getEpicChildren(epicKey: string, model: string = 'auto'): Promise<JiraIssue[]> {
+    if (model === 'parent' || model === 'auto') {
+      // Try next-gen parent hierarchy
+      const parentJql = `parent = ${epicKey} ORDER BY priority ASC, key ASC`;
+      const children = await this.searchIssues(parentJql);
+
+      if (children.length > 0 || model === 'parent') {
+        return children;
+      }
+    }
+
+    // Fall back to classic Epic Link
+    // "Epic Link" is typically customfield_10014 but JQL uses the field name
+    const epicLinkJql = `"Epic Link" = ${epicKey} ORDER BY priority ASC, key ASC`;
+    return this.searchIssues(epicLinkJql);
+  }
+
+  /**
+   * Get available transitions for an issue.
+   */
+  async getTransitions(issueKey: string): Promise<JiraTransition[]> {
+    const response = await this.request<{ transitions: JiraTransition[] }>(
+      'GET',
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`,
+    );
+    return response.transitions;
+  }
+
+  /**
+   * Execute a workflow transition on an issue.
+   */
+  async transitionIssue(issueKey: string, transitionId: string): Promise<void> {
+    await this.request<void>(
+      'POST',
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`,
+      { transition: { id: transitionId } },
+    );
+  }
+
+  /**
+   * Add a comment to an issue.
+   * Comment body is sent in ADF format (required by REST API v3).
+   */
+  async addComment(issueKey: string, text: string): Promise<void> {
+    const adfBody = textToAdf(text);
+    await this.request<unknown>(
+      'POST',
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`,
+      { body: adfBody },
+    );
+  }
+
+  /**
+   * Validate that the client can authenticate and reach the Jira API.
+   */
+  async validateConnection(): Promise<void> {
+    try {
+      await this.request<unknown>('GET', '/rest/api/3/myself');
+    } catch (err) {
+      if (err instanceof JiraApiError) {
+        throw err;
+      }
+      throw classifyError(err);
+    }
+  }
+}
+
+/**
+ * Create a RalphJiraClient from tracker config options.
+ * Resolves auth from config options or environment variables.
+ */
+export function createJiraClient(options?: Record<string, unknown>): RalphJiraClient {
+  const config = resolveConfig(options);
+  return new RalphJiraClient(config);
+}
