@@ -634,6 +634,13 @@ export class JiraTrackerPlugin extends BaseTrackerPlugin {
         required: true,
         help: 'Generate at: id.atlassian.com/manage-profile/security/api-tokens',
       },
+      {
+        id: 'projectKey',
+        prompt: 'Jira project key (e.g., MYN, SNSP)',
+        type: 'text',
+        required: false,
+        help: 'Project key for epic discovery. Can also be set per-run with --epic.',
+      },
     ];
   }
 
