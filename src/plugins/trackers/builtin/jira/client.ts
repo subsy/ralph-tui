@@ -148,7 +148,7 @@ function classifyError(err: unknown, statusCode?: number): JiraApiError {
  * All public methods throw JiraApiError on failure.
  */
 export class RalphJiraClient {
-  private baseUrl: string;
+  readonly baseUrl: string;
   private authHeader: string;
 
   constructor(config: JiraClientConfig) {
@@ -161,7 +161,7 @@ export class RalphJiraClient {
   /**
    * Make an authenticated request to the Jira REST API.
    */
-  private async request<T>(
+  async request<T>(
     method: string,
     path: string,
     body?: unknown,
