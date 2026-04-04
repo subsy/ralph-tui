@@ -1,0 +1,88 @@
+{{!--
+  ABOUTME: Jira tracker prompt template (REFERENCE COPY).
+  Context-first structure: Epic → Patterns → Story → Workflow
+
+  NOTE: This file is for REFERENCE ONLY. The actual template used at runtime
+  is embedded in src/templates/builtin.ts as JIRA_TEMPLATE.
+
+  To customize this template, copy it to one of these locations:
+  - Project: .ralph-tui/templates/jira.hbs
+  - Global: ~/.config/ralph-tui/templates/jira.hbs
+--}}
+
+{{!-- Epic context for project understanding --}}
+{{#if prd}}
+## Epic: {{prd.name}}
+{{#if prd.description}}
+{{prd.description}}
+{{/if}}
+
+Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
+---
+{{/if}}
+
+{{!-- Learnings from previous iterations (patterns first) --}}
+{{#if codebasePatterns}}
+## Codebase Patterns (Study These First)
+{{codebasePatterns}}
+{{/if}}
+
+## Your Task: {{taskId}} - {{taskTitle}}
+
+{{#if taskDescription}}
+### Description
+{{taskDescription}}
+{{/if}}
+
+{{#if acceptanceCriteria}}
+### Acceptance Criteria
+{{acceptanceCriteria}}
+{{/if}}
+
+{{#if notes}}
+### Notes
+{{notes}}
+{{/if}}
+
+{{#if dependsOn}}
+**Prerequisites**: {{dependsOn}}
+{{/if}}
+
+{{#if recentProgress}}
+## Recent Progress
+{{recentProgress}}
+{{/if}}
+
+## Workflow
+1. Study the epic context above to understand the bigger picture
+2. Study `.ralph-tui/progress.md` for implementation patterns and learnings
+3. **BEFORE implementing**: Review relevant codebase to understand existing patterns
+4. Implement this story following acceptance criteria
+5. Run quality checks: typecheck, lint, test
+{{#if config.autoCommit}}
+6. Do NOT create git commits — auto-commit is enabled
+{{else}}
+6. Do NOT create git commits — leave changes uncommitted
+{{/if}}
+7. Document learnings (see below)
+8. Signal completion
+
+## Before Completing
+APPEND to `.ralph-tui/progress.md`:
+```
+## [Date] - {{taskId}}
+- What was implemented
+- Files changed
+- **Learnings:**
+  - Patterns discovered
+  - Gotchas encountered
+---
+```
+
+If you discovered a **reusable pattern**, also add it to the `## Codebase Patterns` section at the TOP of progress.md.
+
+## Stop Condition
+**IMPORTANT**: If the work is already complete, verify it meets acceptance criteria and signal completion immediately.
+
+When finished (or if already complete), signal completion with:
+<promise>COMPLETE</promise>
