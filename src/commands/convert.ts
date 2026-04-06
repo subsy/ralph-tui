@@ -1,6 +1,6 @@
 /**
  * ABOUTME: Convert command for ralph-tui.
- * Converts PRD markdown files to prd.json, Beads, or Linear format.
+ * Converts PRD markdown files to prd.json, Beads, Linear, or Jira format.
  */
 
 import { readFile, writeFile, access, constants, mkdir } from 'node:fs/promises';
@@ -30,11 +30,17 @@ import {
 } from '../plugins/trackers/builtin/linear/client.js';
 import type { RalphLinearClient, CreatedIssue, IssueCreateInput } from '../plugins/trackers/builtin/linear/client.js';
 import { buildStoryIssueBody } from '../plugins/trackers/builtin/linear/body.js';
+import {
+  createJiraClient,
+} from '../plugins/trackers/builtin/jira/client.js';
+import type { RalphJiraClient } from '../plugins/trackers/builtin/jira/client.js';
+import { JiraApiError } from '../plugins/trackers/builtin/jira/types.js';
+import type { AdfDocument, AdfNode } from '../plugins/trackers/builtin/jira/types.js';
 
 /**
  * Supported conversion target formats.
  */
-export type ConvertFormat = 'json' | 'beads' | 'linear';
+export type ConvertFormat = 'json' | 'beads' | 'linear' | 'jira';
 
 /**
  * Command-line arguments for the convert command.
@@ -91,11 +97,11 @@ export function parseConvertArgs(args: string[]): ConvertArgs | null {
 
     if (arg === '--to' || arg === '-t') {
       const format = args[++i];
-      if (format === 'json' || format === 'beads' || format === 'linear') {
+      if (format === 'json' || format === 'beads' || format === 'linear' || format === 'jira') {
         to = format;
       } else {
         console.error(`Unsupported format: ${format}`);
-        console.log('Supported formats: json, beads, linear');
+        console.log('Supported formats: json, beads, linear, jira');
         return null;
       }
     } else if (arg === '--output' || arg === '-o') {
@@ -174,6 +180,13 @@ export function parseConvertArgs(args: string[]): ConvertArgs | null {
     return null;
   }
 
+  // Validate Jira-specific requirements
+  if (to === 'jira' && !project) {
+    console.error('Error: --project <project-key> is required for Jira conversion');
+    console.log('Example: ralph-tui convert --to jira --project SNSP ./prd.md');
+    return null;
+  }
+
   return { to, input, output, branch, labels, force, verbose, team, project, parent };
 }
 
@@ -190,7 +203,7 @@ Arguments:
   <input-file>           Path to the PRD markdown file to convert
 
 Options:
-  --to, -t <format>      Target format (required): json, beads, linear
+  --to, -t <format>      Target format (required): json, beads, linear, jira
   --output, -o <path>    Output file path (default: ./prd.json, only for json format)
   --branch, -b <name>    Git branch name (prompts if not provided)
   --labels, -l <labels>  Labels to apply (comma-separated, for beads and linear formats)
@@ -202,8 +215,13 @@ Options:
 
 Linear-specific options:
   --team <key>           Linear team key (required for linear format)
-  --project <name>       Linear project name or ID (optional)
+  --project <name>       Linear project name or ID (optional for linear; required for jira)
   --parent <issue>       Parent issue key or UUID (optional; auto-creates parent if omitted)
+
+Jira-specific options:
+  --project <key>        Jira project key (required for jira format, e.g., SNSP)
+  --parent <issue>       Existing epic key (optional; auto-creates epic if omitted)
+  --labels <list>        Comma-separated labels to apply
 
 Description:
   The convert command parses a PRD markdown file and extracts:
@@ -244,6 +262,11 @@ Examples:
   ralph-tui convert --to linear --team ENG ./prd.md
   ralph-tui convert --to linear --team ENG --parent ENG-123 ./prd.md
   ralph-tui convert --to linear --team ENG --project "Q1 Sprint" --labels "backend,mvp" ./prd.md
+
+  # Convert to Jira format
+  ralph-tui convert --to jira --project SNSP ./prd.md
+  ralph-tui convert --to jira --project SNSP --parent SNSP-54 ./prd.md
+  ralph-tui convert --to jira --project MYN --labels "backend,sprint-1" ./prd.md
 `);
 }
 
@@ -482,7 +505,7 @@ export async function executeConvertCommand(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const formatLabels: Record<ConvertFormat, string> = { json: 'JSON', beads: 'Beads', linear: 'Linear' };
+  const formatLabels: Record<ConvertFormat, string> = { json: 'JSON', beads: 'Beads', linear: 'Linear', jira: 'Jira' };
   printSection(`PRD to ${formatLabels[to]} Conversion`);
 
   // Read input file
@@ -533,7 +556,9 @@ export async function executeConvertCommand(args: string[]): Promise<void> {
   }
 
   // Branch to format-specific handling
-  if (to === 'linear') {
+  if (to === 'jira') {
+    await executeJiraConversion(parsed, parsedArgs);
+  } else if (to === 'linear') {
     await executeLinearConversion(parsed, parsedArgs);
   } else if (to === 'beads') {
     await executeBeadsConversion(parsed, labels || [], verbose ?? false, input);
@@ -1020,4 +1045,312 @@ async function executeBeadsConversion(
   }
   console.log();
   printInfo(`Run with: ralph-tui run --epic ${result.epicId}`);
+}
+
+// ─── Jira conversion ────────────────────────────────────────────────────
+
+/**
+ * Build an ADF description for a Jira story from PRD data.
+ * Includes description text and acceptance criteria as a bullet list.
+ */
+function buildJiraStoryAdf(
+  story: import('../prd/parser.js').ParsedPrd['userStories'][0],
+): AdfDocument {
+  const content: AdfNode[] = [];
+
+  // Description
+  if (story.description) {
+    content.push({
+      type: 'paragraph',
+      content: [{ type: 'text', text: story.description }],
+    });
+  }
+
+  // Acceptance criteria
+  if (story.acceptanceCriteria.length > 0) {
+    content.push({
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [{ type: 'text', text: 'Acceptance Criteria' }],
+    });
+
+    content.push({
+      type: 'bulletList',
+      content: story.acceptanceCriteria.map((criterion) => ({
+        type: 'listItem',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: criterion }],
+          },
+        ],
+      })),
+    });
+  }
+
+  // Dependencies note
+  if (story.dependsOn && story.dependsOn.length > 0) {
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Depends on: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: story.dependsOn.join(', ') },
+      ],
+    });
+  }
+
+  return {
+    version: 1,
+    type: 'doc',
+    content: content.length > 0 ? content : [
+      { type: 'paragraph', content: [{ type: 'text', text: story.title }] },
+    ],
+  };
+}
+
+/**
+ * Created Jira issue reference.
+ */
+interface CreatedJiraIssue {
+  key: string;
+  id: string;
+  summary: string;
+  url: string;
+}
+
+/**
+ * Execute Jira format conversion.
+ * Creates an epic and child stories in Jira from parsed PRD.
+ */
+export async function executeJiraConversion(
+  parsed: import('../prd/parser.js').ParsedPrd,
+  args: ConvertArgs,
+): Promise<void> {
+  const projectKey = args.project;
+  if (!projectKey) {
+    printError('--project <key> is required for Jira conversion');
+    process.exit(1);
+  }
+
+  // Create Jira client
+  let client: RalphJiraClient;
+  try {
+    const storedConfig = await loadStoredConfig();
+    const jiraTracker = storedConfig.trackers?.find((t) => t.plugin === 'jira');
+    client = createJiraClient(jiraTracker?.options);
+  } catch (err) {
+    if (err instanceof JiraApiError) {
+      printError(err.message);
+    } else {
+      printError(`Failed to initialize Jira client: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(1);
+  }
+
+  // Validate connection
+  try {
+    printInfo('Validating Jira connection...');
+    await client.validateConnection();
+    printSuccess('Connected to Jira');
+  } catch (err) {
+    if (err instanceof JiraApiError) {
+      printError(err.message);
+    } else {
+      printError(`Jira connection failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(1);
+  }
+
+  // Resolve labels: CLI takes precedence, then config fallback
+  let labels = args.labels ?? [];
+  if (labels.length === 0) {
+    const storedConfig = await loadStoredConfig();
+    const configLabels = storedConfig.trackerOptions?.labels;
+    if (typeof configLabels === 'string') {
+      labels = configLabels.split(',').map((l: string) => l.trim()).filter(Boolean);
+    }
+  }
+
+  // Get issue types for the project to find Epic and Story type IDs
+  let epicTypeId: string | undefined;
+  let storyTypeId: string | undefined;
+  try {
+    printInfo(`Fetching issue types for project ${projectKey}...`);
+    // Fetch project metadata to get issue types
+    const response = await client.request<{ issueTypes: { id: string; name: string }[] }>('GET', `/rest/api/3/project/${encodeURIComponent(projectKey)}`);
+    for (const issueType of response.issueTypes) {
+      const typeName = issueType.name.trim().toLowerCase();
+      if (typeName === 'epic') epicTypeId = issueType.id;
+      if (typeName === 'story' || typeName === 'user story') storyTypeId = issueType.id;
+    }
+    if (!epicTypeId) {
+      printError(`No 'Epic' issue type found in project ${projectKey}`);
+      process.exit(1);
+    }
+    if (!storyTypeId) {
+      printError(`No 'Story' issue type found in project ${projectKey}`);
+      process.exit(1);
+    }
+    printSuccess(`Found Epic (${epicTypeId}) and Story (${storyTypeId}) issue types`);
+  } catch (err) {
+    printError(`Failed to fetch project issue types: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
+  // Resolve or create epic
+  let epicKey: string;
+  let epicUrl: string;
+
+  if (args.parent) {
+    // Use existing epic
+    printInfo(`Using existing epic: ${args.parent}`);
+    try {
+      const epic = await client.getIssue(args.parent);
+      epicKey = epic.key;
+      epicUrl = `${client.baseUrl}/browse/${epicKey}`;
+      printSuccess(`Epic: ${epicKey} - ${epic.fields.summary}`);
+    } catch (err) {
+      printError(`Failed to resolve epic ${args.parent}: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  } else {
+    // Create new epic
+    printInfo('Creating epic from PRD...');
+    try {
+      const epicDescription: AdfDocument = {
+        version: 1,
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: parsed.description }],
+          },
+        ],
+      };
+
+      const response = await client.request<{ key: string; id: string }>('POST', '/rest/api/3/issue', {
+        fields: {
+          project: { key: projectKey },
+          summary: parsed.name,
+          issuetype: { id: epicTypeId },
+          description: epicDescription,
+          labels,
+        },
+      });
+
+      epicKey = response.key;
+      epicUrl = `${client.baseUrl}/browse/${epicKey}`;
+      printSuccess(`Created epic: ${epicKey} - ${parsed.name}`);
+    } catch (err) {
+      printError(`Failed to create epic: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
+
+  // Create child stories
+  const createdStories: CreatedJiraIssue[] = [];
+  const storyKeyMap = new Map<string, string>(); // PRD story ID → Jira key
+
+  printInfo(`Creating ${parsed.userStories.length} stories...`);
+
+  for (const story of parsed.userStories) {
+    const title = `${story.id}: ${story.title}`;
+    const description = buildJiraStoryAdf(story);
+
+    try {
+      const response = await client.request<{ key: string; id: string }>('POST', '/rest/api/3/issue', {
+        fields: {
+          project: { key: projectKey },
+          parent: { key: epicKey },
+          summary: title,
+          issuetype: { id: storyTypeId },
+          description,
+          labels,
+        },
+      });
+
+      const baseUrl = client.baseUrl;
+      createdStories.push({
+        key: response.key,
+        id: response.id,
+        summary: title,
+        url: `${baseUrl}/browse/${response.key}`,
+      });
+      storyKeyMap.set(story.id, response.key);
+
+      if (args.verbose) {
+        printSuccess(`  Created: ${response.key} (${title})`);
+      }
+    } catch (err) {
+      printError(`Failed to create story ${story.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Small delay to avoid rate limits
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  // Create blocking links for dependencies
+  let linksCreated = 0;
+
+  const storiesWithDeps = parsed.userStories.filter((s) => s.dependsOn && s.dependsOn.length > 0);
+  if (storiesWithDeps.length > 0) {
+    printInfo('Setting up dependency links...');
+
+    for (const story of storiesWithDeps) {
+      const blockedKey = storyKeyMap.get(story.id);
+      if (!blockedKey) continue;
+
+      for (const depId of story.dependsOn ?? []) {
+        const blockingKey = storyKeyMap.get(depId);
+        if (!blockingKey) {
+          if (args.verbose) {
+            printInfo(`  Skipping: ${depId} not found for ${story.id}`);
+          }
+          continue;
+        }
+
+        try {
+          await client.request<unknown>('POST', '/rest/api/3/issueLink', {
+            type: { name: 'Blocks' },
+            inwardIssue: { key: blockedKey },
+            outwardIssue: { key: blockingKey },
+          });
+          linksCreated++;
+
+          if (args.verbose) {
+            console.log(`  ${blockingKey} blocks ${blockedKey}`);
+          }
+        } catch (err) {
+          printError(`  Failed to create link ${depId} → ${story.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    if (linksCreated > 0) {
+      printSuccess(`Created ${linksCreated} dependency links`);
+    }
+  }
+
+  // Summary
+  console.log();
+  if (createdStories.length === 0) {
+    printError('Conversion failed: no stories were created');
+    process.exit(1);
+  }
+  printSuccess('Jira conversion complete!');
+  console.log();
+  console.log('Summary:');
+  console.log(`  PRD: ${parsed.name}`);
+  console.log(`  Epic: ${epicKey}`);
+  console.log(`  URL: ${epicUrl}`);
+  console.log(`  Stories: ${createdStories.length}`);
+  console.log(`  Dependencies: ${linksCreated}`);
+  console.log();
+  console.log('Created issues:');
+  console.log(`  Epic:  ${epicKey}`);
+  for (const story of createdStories) {
+    console.log(`  Story: ${story.key} - ${story.summary}`);
+  }
+  console.log();
+  printInfo(`Run with: ralph-tui run --tracker jira --epic ${epicKey}`);
 }
