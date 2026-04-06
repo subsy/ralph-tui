@@ -17,10 +17,10 @@ import type { AdfDocument } from './types.js';
 import { textToAdf } from './adf.js';
 
 /**
- * Fields requested when fetching issues for efficiency.
+ * Base fields requested when fetching issues for efficiency.
  * Only includes fields the tracker plugin actually uses.
  */
-const ISSUE_FIELDS = [
+const BASE_ISSUE_FIELDS = [
   'summary',
   'description',
   'status',
@@ -33,7 +33,19 @@ const ISSUE_FIELDS = [
   'issuelinks',
   'parent',
   'subtasks',
-].join(',');
+];
+
+/**
+ * Build the fields list for Jira API requests.
+ * Dynamically includes custom field ID when AC source is 'custom_field'.
+ */
+function buildIssueFields(options?: { acceptanceCriteriaField?: string }): string {
+  const fields = [...BASE_ISSUE_FIELDS];
+  if (options?.acceptanceCriteriaField) {
+    fields.push(options.acceptanceCriteriaField);
+  }
+  return fields.join(',');
+}
 
 /**
  * Maximum results per search page (Jira API limit is 100).
@@ -209,13 +221,24 @@ export class RalphJiraClient {
     }
   }
 
+  private acceptanceCriteriaField?: string;
+
+  /**
+   * Set the custom field ID for acceptance criteria extraction.
+   * Should be called before getIssue/searchIssues when using custom_field AC source.
+   */
+  setAcceptanceCriteriaField(fieldId: string | undefined): void {
+    this.acceptanceCriteriaField = fieldId;
+  }
+
   /**
    * Get a single issue by key (e.g., "MYN-1234").
    */
   async getIssue(issueKey: string): Promise<JiraIssue> {
+    const fields = buildIssueFields({ acceptanceCriteriaField: this.acceptanceCriteriaField });
     return this.request<JiraIssue>(
       'GET',
-      `/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=${ISSUE_FIELDS}`,
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=${fields}`,
     );
   }
 
@@ -228,12 +251,13 @@ export class RalphJiraClient {
     const allIssues: JiraIssue[] = [];
     let nextPageToken: string | undefined;
     const limit = maxTotal ?? Infinity;
+    const fields = buildIssueFields({ acceptanceCriteriaField: this.acceptanceCriteriaField });
 
     while (allIssues.length < limit) {
       const maxResults = Math.min(MAX_RESULTS_PER_PAGE, limit - allIssues.length);
       const params = new URLSearchParams({
         jql,
-        fields: ISSUE_FIELDS,
+        fields,
         maxResults: String(maxResults),
       });
       if (nextPageToken) {

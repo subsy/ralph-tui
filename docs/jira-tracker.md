@@ -115,7 +115,7 @@ Ralph extracts acceptance criteria from stories to include in agent prompts. Thr
 
 Parses the story description for an "Acceptance Criteria" section:
 
-```
+```text
 ## Acceptance Criteria
 - Criterion 1
 - Criterion 2

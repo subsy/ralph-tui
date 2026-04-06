@@ -1321,6 +1321,10 @@ export async function executeJiraConversion(
 
   // Summary
   console.log();
+  if (createdStories.length === 0) {
+    printError('Conversion failed: no stories were created');
+    process.exit(1);
+  }
   printSuccess('Jira conversion complete!');
   console.log();
   console.log('Summary:');

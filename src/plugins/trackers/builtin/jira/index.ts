@@ -326,6 +326,10 @@ export class JiraTrackerPlugin extends BaseTrackerPlugin {
 
     try {
       this.client = createJiraClient(config);
+      // Configure custom field for AC extraction if needed
+      if (this.options.acceptanceCriteriaSource === 'custom_field' && this.options.acceptanceCriteriaField) {
+        this.client.setAcceptanceCriteriaField(this.options.acceptanceCriteriaField);
+      }
     } catch (err) {
       this.ready = false;
       if (err instanceof JiraApiError) {
@@ -434,11 +438,18 @@ export class JiraTrackerPlugin extends BaseTrackerPlugin {
     try {
       const targetCategoryKey = statusToJiraCategoryKey(status);
       const transitions = await this.getCachedTransitions(id);
-      const target = transitions.find((t) => t.categoryKey === targetCategoryKey);
+
+      // Prefer exact status name match, fall back to category match
+      const statusNameLower = status.replace('_', ' ').toLowerCase();
+      let target = transitions.find((t) => t.name.toLowerCase() === statusNameLower);
+
+      if (!target) {
+        target = transitions.find((t) => t.categoryKey === targetCategoryKey);
+      }
 
       if (!target) {
         console.error(
-          `Jira tracker: no transition to "${targetCategoryKey}" status available for ${id}`,
+          `Jira tracker: no transition to "${status}" status available for ${id}`,
         );
         return undefined;
       }
@@ -477,26 +488,36 @@ export class JiraTrackerPlugin extends BaseTrackerPlugin {
       // Execute transition
       await this.client.transitionIssue(id, doneTransition.id);
 
-      // Build rich completion comment with AC checklist
-      const task = await this.getTask(id);
-      const acceptanceCriteria = task?.metadata?.acceptanceCriteria as string[] | undefined;
-      const completionComment = buildCompletionAdf({
-        taskId: id,
-        taskTitle: task?.title ?? id,
-        acceptanceCriteria,
-        reason,
-      });
-      await this.client.addComment(id, completionComment);
-
-      // Invalidate caches
+      // Invalidate caches (do this before post-transition ops)
       this.tasksCache = null;
+
+      // Post-transition operations: add completion comment
+      // These are non-critical, so we wrap separately and return success with warning
+      let commentWarning: string | undefined;
+      try {
+        const task = await this.getTask(id);
+        const acceptanceCriteria = task?.metadata?.acceptanceCriteria as string[] | undefined;
+        const completionComment = buildCompletionAdf({
+          taskId: id,
+          taskTitle: task?.title ?? id,
+          acceptanceCriteria,
+          reason,
+        });
+        await this.client.addComment(id, completionComment);
+      } catch (commentErr) {
+        commentWarning = commentErr instanceof JiraApiError
+          ? commentErr.message
+          : String(commentErr);
+      }
 
       // Re-fetch for the return value (status should now be Done)
       const updatedTask = await this.getTask(id);
 
       return {
         success: true,
-        message: `Task ${id} completed`,
+        message: commentWarning
+          ? `Task ${id} completed (but comment failed: ${commentWarning})`
+          : `Task ${id} completed`,
         task: updatedTask,
       };
     } catch (err) {
