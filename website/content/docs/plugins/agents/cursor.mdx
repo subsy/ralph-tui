@@ -5,7 +5,7 @@ description: Integrate Cursor's CLI with Ralph TUI for AI-assisted coding.
 
 ## Cursor Agent
 
-The Cursor agent plugin integrates with Cursor's `cursor` CLI to execute AI coding tasks. It supports multiple execution modes, auto-approve for autonomous operation, and model selection.
+The Cursor agent plugin integrates with Cursor's `agent` CLI command to execute AI coding tasks. It supports multiple execution modes, auto-approve for autonomous operation, and model selection.
 
 <Callout type="tip">
 Cursor supports **subagent tracing** via JSONL output - Ralph TUI can show tool calls in real-time as Cursor works.
@@ -18,7 +18,7 @@ Install Cursor CLI from [docs.cursor.com/cli](https://docs.cursor.com/cli).
 Verify installation:
 
 ```bash
-cursor --version
+agent --version
 ```
 
 ## Basic Usage
@@ -73,7 +73,7 @@ For advanced control:
 name = "my-cursor"
 plugin = "cursor"
 default = true
-command = "cursor"
+command = "agent"
 timeout = 300000
 
 [agents.options]
@@ -90,7 +90,7 @@ mode = "agent"
 | `force` | boolean | `true` | Auto-approve file modifications for autonomous operation |
 | `mode` | string | `"agent"` | Execution mode: `agent`, `plan`, or `ask` |
 | `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
-| `command` | string | `"cursor"` | Path to Cursor CLI executable |
+| `command` | string | `"agent"` | Path to Cursor CLI executable |
 
 ## Execution Modes
 
@@ -143,7 +143,7 @@ Or toggle in TUI:
 
 When Ralph TUI executes a task with Cursor:
 
-1. **Build command**: Constructs `cursor [options]`
+1. **Build command**: Constructs `agent [options]`
 2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
 3. **Stream output**: Captures stdout/stderr in real-time
 4. **Parse JSONL**: Extracts structured tool call data (always enabled)
@@ -155,7 +155,7 @@ When Ralph TUI executes a task with Cursor:
 Ralph TUI builds these arguments:
 
 ```bash
-cursor \
+agent \
   --print \                        # Non-interactive output mode
   --force \                        # When force enabled (default)
   --output-format stream-json \    # Always used for structured output
@@ -171,8 +171,8 @@ cursor \
 Ensure Cursor is installed and in your PATH:
 
 ```bash
-which cursor
-# Should output: /path/to/cursor
+which agent
+# Should output: /path/to/agent
 
 # If not found, install from:
 # https://docs.cursor.com/cli

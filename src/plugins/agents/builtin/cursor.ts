@@ -117,7 +117,7 @@ export class CursorAgentPlugin extends BaseAgentPlugin {
     description: 'Cursor Agent CLI for AI-assisted coding',
     version: '1.0.0',
     author: 'Cursor',
-    defaultCommand: 'cursor',
+    defaultCommand: 'agent',
     supportsStreaming: true,
     supportsInterrupt: true,
     supportsFileContext: false,
@@ -476,8 +476,8 @@ export class CursorAgentPlugin extends BaseAgentPlugin {
   protected override getPreflightSuggestion(): string {
     return (
       'Common fixes for Cursor Agent:\n' +
-      '  1. Test Cursor directly: cursor --print "hello"\n' +
-      '  2. Check Cursor is installed: cursor --version\n' +
+      '  1. Test Cursor directly: agent --print "hello"\n' +
+      '  2. Check Cursor is installed: agent --version\n' +
       '  3. Install from: https://docs.cursor.com/cli\n' +
       '  4. Verify your model configuration if using a specific model'
     );

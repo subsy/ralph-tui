@@ -32,7 +32,7 @@ describe('CursorAgentPlugin', () => {
     });
 
     test('has correct default command', () => {
-      expect(plugin.meta.defaultCommand).toBe('cursor');
+      expect(plugin.meta.defaultCommand).toBe('agent');
     });
 
     test('supports streaming', () => {
