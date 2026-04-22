@@ -236,6 +236,22 @@ Add the --labels flag to every bd create / br create command.`;
 }
 
 /**
+ * Returns true when a submitted review-phase message should trigger a tracker action.
+ * @internal Exported for testing.
+ */
+export function isReviewPhaseShortcut(
+  phase: 'chat' | 'review',
+  trimmedMessage: string,
+): trimmedMessage is '1' | '2' | '3' {
+  return (
+    phase === 'review' &&
+    (trimmedMessage === '1' ||
+      trimmedMessage === '2' ||
+      trimmedMessage === '3')
+  );
+}
+
+/**
  * Classification result for pasted text.
  */
 export interface PasteClassification {
@@ -494,7 +510,7 @@ Would you like me to create tasks from this PRD?
 ${optionsText}
   [3] Done - I'll create tasks later
 
-Press a number key to select, or continue chatting.`,
+Send "1", "2", or "3" to choose an option, or continue chatting.`,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, reviewMessage]);
@@ -581,7 +597,7 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
             const doneMsg: ChatMessage = {
               role: 'assistant',
               content:
-                'Tasks created! Press [3] to finish or select another format.',
+                'Tasks created! Send "3" to finish or select another format.',
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, doneMsg]);
@@ -616,6 +632,36 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
 
       // Use the message as-is (no zero-width markers to clean)
       const userMessage = rawMessage;
+
+      // In review phase, a bare "1", "2", or "3" is handled on submit, not keydown,
+      // so in-progress typing like "3A" is never swallowed mid-entry.
+      if (isReviewPhaseShortcut(phase, userMessage)) {
+        setInputValue('');
+        if (userMessage === '1' || userMessage === '2') {
+          const option = trackerOptions.find(
+            (t) => t.key === userMessage && t.available,
+          );
+          if (option) {
+            void handleTrackerSelect(option);
+          }
+          return;
+        }
+        // userMessage === '3' → Done
+        if (prdPath && featureName) {
+          void onComplete({
+            prdPath,
+            featureName,
+            selectedTracker: selectedTrackerFormat,
+          }).catch((err) => {
+            const errorMessage =
+              'Failed to complete PRD workflow: ' +
+              (err instanceof Error ? err.message : String(err));
+            setError(errorMessage);
+            onError?.(errorMessage);
+          });
+        }
+        return;
+      }
 
       // Check for slash commands first
       if (isSlashCommand(userMessage)) {
@@ -712,6 +758,14 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
       attachedImages,
       clearImages,
       toast,
+      phase,
+      trackerOptions,
+      handleTrackerSelect,
+      prdPath,
+      featureName,
+      selectedTrackerFormat,
+      onComplete,
+      onError,
     ],
   );
 
@@ -773,8 +827,8 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
   }, [onCancel, reportCallbackError]);
 
   /**
-   * Handle keyboard input (only for non-input keys like Escape and review phase shortcuts)
-   * Text editing is handled by the native OpenTUI input component
+   * Handle keyboard input for non-text shortcuts like paste fallback and Escape.
+   * Text editing is handled by the native OpenTUI input component.
    */
   const handleKeyboard = useCallback(
     (key: KeyEvent) => {
@@ -850,31 +904,6 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
         return;
       }
 
-      // In review phase, handle number keys for tracker selection
-      if (phase === 'review' && key.sequence) {
-        const keyNum = key.sequence;
-        if (keyNum === '1' || keyNum === '2') {
-          const option = trackerOptions.find(
-            (t) => t.key === keyNum && t.available,
-          );
-          if (option) {
-            void handleTrackerSelect(option);
-            return;
-          }
-        }
-        if (keyNum === '3') {
-          // Done - complete and exit
-          if (prdPath && featureName) {
-            void runOnComplete({
-              prdPath,
-              featureName,
-              selectedTracker: selectedTrackerFormat,
-            });
-          }
-          return;
-        }
-      }
-
       // Handle escape key
       if (key.name === 'escape') {
         if (phase === 'review' && prdPath && featureName) {
@@ -894,11 +923,9 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
       showQuitConfirm,
       isLoading,
       phase,
-      trackerOptions,
       performClipboardPasteFallback,
       runOnComplete,
       runOnCancel,
-      handleTrackerSelect,
       prdPath,
       featureName,
       selectedTrackerFormat,
@@ -1007,7 +1034,7 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
   // Determine hint text based on phase
   const hint =
     phase === 'review'
-      ? '[1] JSON  [2] Beads  [3] Done  [Enter] Chat  [Esc] Finish'
+      ? 'Send "1"/"2"/"3" for JSON / Beads / Done, or any other message to continue  [Enter] Send  [Esc] Finish'
       : '[Enter] Send  [Shift+Enter/Ctrl+J] Newline  [Esc] Cancel';
 
   // In review phase, show split pane
