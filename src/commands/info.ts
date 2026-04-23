@@ -14,7 +14,7 @@ import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 import { getUserConfigDir } from '../templates/engine.js';
-import { listBundledSkills, resolveSkillsPath } from '../setup/skill-installer.js';
+import { getSkillSearchPaths, listBundledSkills, resolveSkillsPath } from '../setup/skill-installer.js';
 import { getEnvExclusionReport, formatEnvExclusionReport, type EnvExclusionReport } from '../plugins/agents/base.js';
 
 /**
@@ -181,6 +181,22 @@ async function listSkillsInDir(skillsDir: string): Promise<string[]> {
 }
 
 /**
+ * List installed skills across multiple candidate directories.
+ */
+async function listSkillsInDirs(skillsDirs: string[]): Promise<string[]> {
+  const installed = new Set<string>();
+
+  for (const skillsDir of skillsDirs) {
+    const skills = await listSkillsInDir(skillsDir);
+    for (const skill of skills) {
+      installed.add(skill);
+    }
+  }
+
+  return [...installed].sort();
+}
+
+/**
  * Collect skills information from all sources.
  */
 async function collectSkillsInfo(
@@ -225,15 +241,15 @@ async function collectSkillsInfo(
     }
 
     // Get installed skills in personal directory
-    const personalDir = resolveSkillsPath(meta.skillsPaths.personal);
-    const personalSkills = await listSkillsInDir(personalDir);
+    const searchPaths = getSkillSearchPaths(meta.skillsPaths, cwd, meta.id);
+    const personalSkills = await listSkillsInDirs(searchPaths.personal);
 
     agents.push({
       id: meta.id,
       name: meta.name,
       available,
-      personalDir,
-      repoDir: meta.skillsPaths.repo,
+      personalDir: searchPaths.personal.join(', '),
+      repoDir: searchPaths.repo.join(', '),
       personalSkills,
     });
   }

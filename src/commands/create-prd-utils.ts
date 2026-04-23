@@ -7,6 +7,7 @@ import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentPlugin } from "../plugins/agents/types.js";
+import { getSkillSearchPaths } from "../setup/skill-installer.js";
 
 /**
  * Command-line arguments for the create-prd command.
@@ -150,10 +151,10 @@ export async function loadBundledPrdSkill(
 ): Promise<string | undefined> {
   const skillsPaths = agent.meta.skillsPaths;
   if (!skillsPaths) return undefined;
+  const searchPaths = getSkillSearchPaths(skillsPaths, process.cwd(), agent.meta.id);
 
-  if (skillsPaths.personal) {
-    const personalPath = skillsPaths.personal.replace(/^~/, process.env.HOME || "");
-    const skillFile = join(personalPath, "ralph-tui-prd", "SKILL.md");
+  for (const dir of [...searchPaths.personal, ...searchPaths.repo]) {
+    const skillFile = join(dir, "ralph-tui-prd", "SKILL.md");
     try {
       await access(skillFile, constants.R_OK);
       const content = await readFile(skillFile, "utf-8");
@@ -161,25 +162,7 @@ export async function loadBundledPrdSkill(
         return content;
       }
     } catch {
-      // Not found in personal, try repo.
-    }
-  }
-
-  if (skillsPaths.repo) {
-    const skillFile = join(
-      process.cwd(),
-      skillsPaths.repo,
-      "ralph-tui-prd",
-      "SKILL.md",
-    );
-    try {
-      await access(skillFile, constants.R_OK);
-      const content = await readFile(skillFile, "utf-8");
-      if (content.trim()) {
-        return content;
-      }
-    } catch {
-      // Not found.
+      // Try the next discovery path.
     }
   }
 
