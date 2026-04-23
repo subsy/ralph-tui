@@ -71,12 +71,19 @@ export interface AddSkillInstallOptions {
  * Supports both POSIX (~/) and Windows (~\) style paths.
  */
 export function expandTilde(path: string): string {
+  const runtimeHome =
+    process.env.HOME ||
+    process.env.USERPROFILE ||
+    (process.env.HOMEDRIVE && process.env.HOMEPATH
+      ? join(process.env.HOMEDRIVE, process.env.HOMEPATH)
+      : homedir());
+
   // Handle ~/ (POSIX) and ~\ (Windows)
   if (path.startsWith('~/') || path.startsWith('~\\')) {
-    return join(homedir(), path.slice(2));
+    return join(runtimeHome, path.slice(2));
   }
   if (path === '~') {
-    return homedir();
+    return runtimeHome;
   }
   return path;
 }

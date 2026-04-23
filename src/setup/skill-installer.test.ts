@@ -188,6 +188,18 @@ describe('expandTilde', () => {
     const result = expandTilde('.claude/skills');
     expect(result).toBe('.claude/skills');
   });
+
+  test('uses runtime HOME overrides when expanding paths', () => {
+    const originalHome = process.env.HOME;
+    process.env.HOME = '/tmp/ralph-test-home';
+
+    try {
+      const result = expandTilde('~/.claude/skills');
+      expect(result).toBe('/tmp/ralph-test-home/.claude/skills');
+    } finally {
+      process.env.HOME = originalHome;
+    }
+  });
 });
 
 describe('resolveSkillsPath', () => {

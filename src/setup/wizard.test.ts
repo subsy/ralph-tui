@@ -118,7 +118,12 @@ describe('wizard', () => {
     mock.module('./skill-installer.js', () => ({
       listBundledSkills: () => Promise.resolve(mockBundledSkills),
       isSkillInstalledAt: () => Promise.resolve(false),
+      isSkillInstalledAtAnyPath: () => Promise.resolve(false),
       resolveSkillsPath: (p: string) => p.replace(/^~/, '/home/test'),
+      getSkillSearchPaths: (skillsPaths: { personal: string; repo: string }, cwd?: string) => ({
+        personal: [skillsPaths.personal.replace(/^~/, '/home/test')],
+        repo: [cwd ? `${cwd}/${skillsPaths.repo}` : skillsPaths.repo],
+      }),
       installViaAddSkill: () => Promise.resolve(mockInstallViaAddSkillResult),
       resolveAddSkillAgentId: (id: string) => (id === 'claude' ? 'claude-code' : id),
       buildAddSkillInstallArgs: () => [],
