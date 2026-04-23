@@ -6,7 +6,12 @@
  */
 
 import { spawn } from 'node:child_process';
-import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
+import {
+  BaseAgentPlugin,
+  findCommandPath,
+  quoteForWindowsShell,
+  shouldUseWindowsShell,
+} from '../base.js';
 import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
 import type {
   AgentPluginMeta,
@@ -94,6 +99,17 @@ export function createOpenCodeJsonlBuffer(
       }
     },
   };
+}
+
+/**
+ * Determine when OpenCode prompts should be sent via stdin instead of argv.
+ * Only Windows shell wrappers need stdin; native executables can accept positional args safely.
+ */
+export function shouldPassOpenCodePromptViaStdin(
+  commandPath: string | undefined,
+  currentPlatform: NodeJS.Platform = process.platform
+): boolean {
+  return shouldUseWindowsShell(commandPath ?? 'opencode', currentPlatform);
 }
 
 /**
@@ -303,7 +319,7 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
     command: string
   ): Promise<{ success: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
-      const useShell = process.platform === 'win32';
+      const useShell = shouldUseWindowsShell(command);
       const proc = spawn(useShell ? quoteForWindowsShell(command) : command, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: useShell,
@@ -396,7 +412,7 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
   }
 
   protected buildArgs(
-    _prompt: string,
+    prompt: string,
     files?: AgentFileContext[],
     _options?: AgentExecuteOptions
   ): string[] {
@@ -431,9 +447,9 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
       }
     }
 
-    // NOTE: Prompt is NOT added here - it's passed via stdin to avoid
-    // shell interpretation of special characters on Windows where shell: true
-    // is required for wrapper script execution.
+    if (!shouldPassOpenCodePromptViaStdin(this.commandPath)) {
+      args.push(prompt);
+    }
 
     return args;
   }
@@ -447,8 +463,11 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
     prompt: string,
     _files?: AgentFileContext[],
     _options?: AgentExecuteOptions
-  ): string {
-    return prompt;
+  ): string | undefined {
+    if (shouldPassOpenCodePromptViaStdin(this.commandPath)) {
+      return prompt;
+    }
+    return undefined;
   }
 
   /**
