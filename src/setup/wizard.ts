@@ -429,7 +429,7 @@ export async function runSetupWizard(
         const searchPaths = getSkillSearchPaths(skillsPaths, cwd, selectedAgent);
         const personalDir = searchPaths.personal.join(', ');
         printInfo('Ralph TUI includes AI skills that enhance agent capabilities.');
-        printInfo(`Skills will be installed to: ${personalDir}`);
+        printInfo(`Checking for already installed skills in: ${personalDir}`);
         console.log();
 
         for (const skill of bundledSkills) {

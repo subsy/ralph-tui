@@ -64,10 +64,10 @@ export interface AgentSkillsInfo {
   name: string;
   /** Whether the agent is available/detected */
   available: boolean;
-  /** Personal skills directory path */
-  personalDir: string;
-  /** Repo skills directory pattern */
-  repoDir: string;
+  /** Personal skills discovery directories */
+  personalDir: string[];
+  /** Repo skills discovery directories */
+  repoDir: string[];
   /** Skills installed in personal directory */
   personalSkills: string[];
 }
@@ -248,8 +248,8 @@ async function collectSkillsInfo(
       id: meta.id,
       name: meta.name,
       available,
-      personalDir: searchPaths.personal.join(', '),
-      repoDir: searchPaths.repo.join(', '),
+      personalDir: searchPaths.personal,
+      repoDir: searchPaths.repo,
       personalSkills,
     });
   }
@@ -445,7 +445,7 @@ export function formatSystemInfo(info: SystemInfo): string {
   for (const agent of info.skills.agents) {
     const status = agent.available ? '' : ' (not detected)';
     lines.push(`  ${agent.name}${status}:`);
-    lines.push(`    Path: ${agent.personalDir}`);
+    lines.push(`    Path${agent.personalDir.length === 1 ? '' : 's'}: ${agent.personalDir.join(', ')}`);
     lines.push(`    Installed: ${agent.personalSkills.length > 0 ? agent.personalSkills.join(', ') : '(none)'}`);
   }
 
