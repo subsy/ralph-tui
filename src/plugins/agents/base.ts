@@ -111,7 +111,7 @@ export function quoteForWindowsShell(commandPath: string): string {
  */
 export function shouldUseWindowsShell(
   commandPath: string,
-  currentPlatform: NodeJS.Platform = platform()
+  currentPlatform: NodeJS.Platform = process.platform
 ): boolean {
   if (currentPlatform !== 'win32') {
     return false;

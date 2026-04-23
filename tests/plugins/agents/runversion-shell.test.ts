@@ -150,7 +150,7 @@ describe('runVersion conditional shell behavior (PR #187)', () => {
       await plugin.dispose();
     });
 
-    test('uses shell: true on Windows platform', async () => {
+    test('uses shell: false for native Windows executables', async () => {
       // Mock platform as win32
       Object.defineProperty(process, 'platform', {
         value: 'win32',
@@ -341,13 +341,36 @@ describe('runVersion conditional shell behavior (PR #187)', () => {
 
       expect(spawnCalls.length).toBe(2);
 
-      // Verify the runVersion call (second call) uses shell: true on Windows
+      // Native .exe binaries can be spawned directly without cmd.exe.
+      const runVersionCall = spawnCalls[1];
+      expect(runVersionCall.args).toContain('--version');
+      expect(runVersionCall.options?.shell).toBe(false);
+      expect(runVersionCall.cmd).toBe('C:\\Program Files\\opencode\\opencode.exe');
+
+      await plugin.dispose();
+    });
+
+    test('uses shell: true for Windows wrapper scripts', async () => {
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
+
+      spawnResponses = [
+        { stdout: 'C:\\Program Files\\opencode\\opencode.cmd', exitCode: 0 },
+        { stdout: 'opencode 0.5.2', exitCode: 0 },
+      ];
+
+      const plugin = new OpenCodeAgentPlugin();
+      await plugin.initialize({});
+
+      await plugin.detect();
+
+      expect(spawnCalls.length).toBe(2);
       const runVersionCall = spawnCalls[1];
       expect(runVersionCall.args).toContain('--version');
       expect(runVersionCall.options?.shell).toBe(true);
-
-      // Verify path with spaces is quoted for Windows shell (issue #206)
-      expect(runVersionCall.cmd).toBe('"C:\\Program Files\\opencode\\opencode.exe"');
+      expect(runVersionCall.cmd).toBe('"C:\\Program Files\\opencode\\opencode.cmd"');
 
       await plugin.dispose();
     });
