@@ -118,7 +118,12 @@ describe('wizard', () => {
     mock.module('./skill-installer.js', () => ({
       listBundledSkills: () => Promise.resolve(mockBundledSkills),
       isSkillInstalledAt: () => Promise.resolve(false),
+      isSkillInstalledAtAnyPath: () => Promise.resolve(false),
       resolveSkillsPath: (p: string) => p.replace(/^~/, '/home/test'),
+      getSkillSearchPaths: (skillsPaths: { personal: string; repo: string }, cwd?: string) => ({
+        personal: [skillsPaths.personal.replace(/^~/, '/home/test')],
+        repo: [cwd ? `${cwd}/${skillsPaths.repo}` : skillsPaths.repo],
+      }),
       installViaAddSkill: () => Promise.resolve(mockInstallViaAddSkillResult),
       resolveAddSkillAgentId: (id: string) => (id === 'claude' ? 'claude-code' : id),
       buildAddSkillInstallArgs: () => [],
@@ -594,6 +599,25 @@ describe('wizard output messages', () => {
     const output = capturedOutput.join('\n');
     expect(output).toContain('Failed');
     expect(output).toContain('ENOENT');
+  });
+
+  test('describes skill discovery paths without implying install targets', async () => {
+    mockBundledSkills = [
+      { name: 'ralph-tui-prd', description: 'PRD generator', path: '/skills/ralph-tui-prd' },
+    ];
+
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('gemini');
+      return Promise.resolve('');
+    };
+    mockPromptBoolean = () => Promise.resolve(false);
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('Checking for already installed skills in:');
+    expect(output).not.toContain('Skills will be installed to:');
   });
 });
 

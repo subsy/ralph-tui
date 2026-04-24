@@ -15,7 +15,7 @@ import {
   beforeEach,
   afterEach,
 } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,6 +31,9 @@ const {
   computeSkillsPath,
   expandTilde,
   resolveSkillsPath,
+  getSkillSearchPaths,
+  getSkillStatusForAgent,
+  isSkillInstalledAtAnyPath,
   AGENT_ID_MAP,
   resolveAddSkillAgentId,
   buildAddSkillInstallArgs,
@@ -185,6 +188,18 @@ describe('expandTilde', () => {
     const result = expandTilde('.claude/skills');
     expect(result).toBe('.claude/skills');
   });
+
+  test('uses runtime HOME overrides when expanding paths', () => {
+    const originalHome = process.env.HOME;
+    process.env.HOME = '/tmp/ralph-test-home';
+
+    try {
+      const result = expandTilde('~/.claude/skills');
+      expect(result).toBe('/tmp/ralph-test-home/.claude/skills');
+    } finally {
+      process.env.HOME = originalHome;
+    }
+  });
 });
 
 describe('resolveSkillsPath', () => {
@@ -262,6 +277,84 @@ describe('isSkillInstalledAt', () => {
   });
 });
 
+describe('isSkillInstalledAtAnyPath', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ralph-tui-skill-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test('returns true when skill exists in any candidate directory', async () => {
+    const sharedDir = join(tempDir, '.agents', 'skills', 'ralph-tui-prd');
+    await mkdir(sharedDir, { recursive: true });
+
+    const result = await isSkillInstalledAtAnyPath('ralph-tui-prd', [
+      join(tempDir, '.codex', 'skills'),
+      join(tempDir, '.agents', 'skills'),
+    ]);
+
+    expect(result).toBe(true);
+  });
+});
+
+describe('getSkillSearchPaths', () => {
+  test('adds shared .agents aliases for codex', () => {
+    const result = getSkillSearchPaths(
+      { personal: '~/.codex/skills', repo: '.codex/skills' },
+      '/tmp/project',
+      'codex'
+    );
+
+    expect(result.personal).toEqual([
+      join(homedir(), '.agents/skills'),
+      join(homedir(), '.codex/skills'),
+    ]);
+    expect(result.repo).toEqual([
+      '/tmp/project/.agents/skills',
+      '/tmp/project/.codex/skills',
+    ]);
+  });
+
+  test('keeps native-only paths for claude', () => {
+    const result = getSkillSearchPaths(
+      { personal: '~/.claude/skills', repo: '.claude/skills' },
+      '/tmp/project',
+      'claude'
+    );
+
+    expect(result.personal).toEqual([join(homedir(), '.claude/skills')]);
+    expect(result.repo).toEqual(['/tmp/project/.claude/skills']);
+  });
+});
+
+describe('getSkillStatusForAgent', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ralph-tui-skill-status-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test('detects repo-installed skills in shared .agents alias paths', async () => {
+    await mkdir(join(tempDir, '.agents', 'skills', 'ralph-tui-prd'), { recursive: true });
+
+    const status = await getSkillStatusForAgent(
+      { personal: '~/.codex/skills', repo: '.codex/skills' },
+      tempDir,
+      'codex'
+    );
+
+    expect(status.get('ralph-tui-prd')?.repo).toBe(true);
+  });
+});
+
 describe('AGENT_ID_MAP', () => {
   test('maps claude to claude-code', () => {
     expect(AGENT_ID_MAP['claude']).toBe('claude-code');
@@ -275,8 +368,8 @@ describe('AGENT_ID_MAP', () => {
     expect(AGENT_ID_MAP['codex']).toBe('codex');
   });
 
-  test('maps gemini to gemini', () => {
-    expect(AGENT_ID_MAP['gemini']).toBe('gemini');
+  test('maps gemini to gemini-cli', () => {
+    expect(AGENT_ID_MAP['gemini']).toBe('gemini-cli');
   });
 
   test('maps kiro to kiro-cli', () => {
