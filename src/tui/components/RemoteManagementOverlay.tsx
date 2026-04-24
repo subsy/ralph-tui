@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
+import { buildRemoteWebSocketUrl } from '../../remote/url.js';
 
 /**
  * Mode determines which UI to show
@@ -21,6 +22,7 @@ export interface ExistingRemoteData {
   alias: string;
   host: string;
   port: number;
+  secure?: boolean;
   token: string;
 }
 
@@ -35,7 +37,7 @@ export interface RemoteManagementOverlayProps {
   /** Existing remote data for edit/delete modes */
   existingRemote?: ExistingRemoteData;
   /** Callback when saving (add or edit) */
-  onSave: (data: { alias: string; host: string; port: number; token: string }) => Promise<void>;
+  onSave: (data: { alias: string; host: string; port: number; secure: boolean; token: string }) => Promise<void>;
   /** Callback when deleting */
   onDelete: (alias: string) => Promise<void>;
   /** Callback when closing the overlay */
@@ -48,8 +50,9 @@ export interface RemoteManagementOverlayProps {
 const FIELD_ALIAS = 0;
 const FIELD_HOST = 1;
 const FIELD_PORT = 2;
-const FIELD_TOKEN = 3;
-const FIELD_COUNT = 4;
+const FIELD_SECURE = 3;
+const FIELD_TOKEN = 4;
+const FIELD_COUNT = 5;
 
 /**
  * Validate alias format
@@ -113,6 +116,7 @@ export function RemoteManagementOverlay({
   const [alias, setAlias] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('7890');
+  const [secure, setSecure] = useState(false);
   const [token, setToken] = useState('');
 
   // UI state
@@ -128,12 +132,14 @@ export function RemoteManagementOverlay({
         setAlias('');
         setHost('');
         setPort('7890');
+        setSecure(false);
         setToken('');
         setFocusedField(FIELD_ALIAS);
       } else if (existingRemote) {
         setAlias(existingRemote.alias);
         setHost(existingRemote.host);
         setPort(String(existingRemote.port));
+        setSecure(existingRemote.secure ?? existingRemote.port === 443);
         setToken(existingRemote.token);
         setFocusedField(FIELD_ALIAS);
       }
@@ -182,6 +188,7 @@ export function RemoteManagementOverlay({
         alias: alias.trim(),
         host: host.trim(),
         port: parseInt(port, 10),
+        secure,
         token: token.trim(),
       });
       // onClose will be called by parent after successful save
@@ -189,7 +196,7 @@ export function RemoteManagementOverlay({
       setError(err instanceof Error ? err.message : 'Failed to save remote');
       setSaving(false);
     }
-  }, [alias, host, port, token, onSave]);
+  }, [alias, host, port, secure, token, onSave]);
 
   // Handle delete confirmation
   const handleDelete = useCallback(async () => {
@@ -270,6 +277,12 @@ export function RemoteManagementOverlay({
             updateCurrentField((prev) => prev.slice(0, -1));
             break;
 
+          case 'space':
+            if (focusedField === FIELD_SECURE) {
+              setSecure((prev) => !prev);
+            }
+            break;
+
           default:
             // Toggle token visibility with '*'
             if (key.sequence === '*') {
@@ -280,7 +293,14 @@ export function RemoteManagementOverlay({
             // Append printable characters to current field
             if (key.sequence && key.sequence.length === 1) {
               // Only allow digits for port field
-              if (focusedField === FIELD_PORT) {
+              if (focusedField === FIELD_SECURE) {
+                const lowerSequence = key.sequence.toLowerCase();
+                if (lowerSequence === 'y' || lowerSequence === 't') {
+                  setSecure(true);
+                } else if (lowerSequence === 'n' || lowerSequence === 'f') {
+                  setSecure(false);
+                }
+              } else if (focusedField === FIELD_PORT) {
                 if (/^\d$/.test(key.sequence)) {
                   updateCurrentField((prev) => prev + key.sequence);
                 }
@@ -342,7 +362,7 @@ export function RemoteManagementOverlay({
           {/* Remote details */}
           <box style={{ marginBottom: 1 }}>
             <text fg={colors.fg.muted}>
-              Host: {existingRemote.host}:{existingRemote.port}
+              URL: {buildRemoteWebSocketUrl(existingRemote.host, existingRemote.port, existingRemote.secure)}
             </text>
           </box>
 
@@ -413,6 +433,11 @@ export function RemoteManagementOverlay({
           focused={focusedField === FIELD_PORT}
         />
         <FormField
+          label="Secure"
+          value={secure ? 'yes' : 'no'}
+          focused={focusedField === FIELD_SECURE}
+        />
+        <FormField
           label="Token"
           value={showToken ? token : '*'.repeat(token.length || 8)}
           focused={focusedField === FIELD_TOKEN}
@@ -421,7 +446,7 @@ export function RemoteManagementOverlay({
         {/* Token visibility hint */}
         <box style={{ paddingLeft: 10, marginBottom: 1 }}>
           <text fg={colors.fg.muted}>
-            Press * to {showToken ? 'hide' : 'show'} token
+            Press * to {showToken ? 'hide' : 'show'} token, Space to toggle secure
           </text>
         </box>
 

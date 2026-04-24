@@ -18,13 +18,14 @@ The `remote` command manages connections to ralph-tui instances running on other
 Add a new remote server configuration.
 
 ```bash
-ralph-tui remote add <alias> <host:port> --token <token>
+ralph-tui remote add <alias> <host:port> --token <token> [--secure]
 ```
 
 **Arguments:**
 - `<alias>` - A unique name for this remote (e.g., `prod`, `staging`, `dev`)
 - `<host:port>` - Server hostname and port (port defaults to 7890 if omitted)
 - `--token <token>` - Authentication token from the remote server
+- `--secure` - Use `wss://` for TLS-terminated remote connections
 
 **Examples:**
 
@@ -32,12 +33,17 @@ ralph-tui remote add <alias> <host:port> --token <token>
 # Add a remote server with explicit port
 ralph-tui remote add prod server.example.com:7890 --token OGQwNTcxMjM0NTY3...
 
+# Add a secure remote behind a TLS proxy
+ralph-tui remote add prod ralph.example.com:443 --secure --token OGQwNTcxMjM0NTY3...
+
 # Add with default port (7890)
 ralph-tui remote add staging staging.local --token YWJjZGVmMDEyMzQ1...
 
 # Add localhost for testing
 ralph-tui remote add local localhost --token dGVzdDEyMzQ1Njc4...
 ```
+
+Remotes marked with `--secure` connect with `wss://`. Port `443` also uses `wss://` automatically and is omitted from displayed URLs.
 
 **Alias naming rules:**
 - Must start with a letter
@@ -73,7 +79,7 @@ Configured Remotes
     Last:   1/19/2026, 3:30:00 PM
 
   ✗ staging
-    URL:    ws://staging.local:7890
+    URL:    wss://staging.local
     Status: Connection timed out (5s)
     Token:  YWJjZGVm...
 
@@ -196,10 +202,13 @@ lastConnected = "2026-01-19T15:30:00.000Z"
 
 [remotes.staging]
 host = "staging.local"
-port = 7890
+port = 443
+secure = true
 token = "YWJjZGVmMDEyMzQ1Njc4OTBhYmNkZWYwMTIzNDU2Nzg5"
 addedAt = "2026-01-18T10:00:00.000Z"
 ```
+
+Set `secure = true` when a remote is exposed through a TLS-terminating reverse proxy such as Caddy or nginx. Secure remotes use `wss://`; when the port is `443`, the port is omitted from the URL.
 
 ## Remote Parallel Orchestration
 
@@ -325,8 +334,9 @@ Tokens are stored in plain text in `remotes.toml`. Ensure appropriate file permi
 - Server is not running (`ralph-tui run --listen`)
 - Firewall blocking port 7890
 - Incorrect hostname or port
+- TLS reverse proxy requires a secure remote configuration
 
-**Solution:** Verify the server is running and the port is accessible.
+**Solution:** Verify the server is running and the port is accessible. For TLS-terminated remotes, add or edit the remote with `--secure` or `secure = true`.
 
 ### Authentication Failed
 

@@ -2639,6 +2639,7 @@ export function RunApp({
                     alias: tab.alias!,
                     host: config.host,
                     port: config.port,
+                    secure: config.secure,
                     token: config.token,
                   });
                   setRemoteManagementMode('edit');
@@ -2671,6 +2672,7 @@ export function RunApp({
                     alias: tab.alias!,
                     host: config.host,
                     port: config.port,
+                    secure: config.secure,
                     token: config.token,
                   });
                   setRemoteManagementMode('delete');
@@ -3848,12 +3850,12 @@ export function RunApp({
 
           if (remoteManagementMode === 'add') {
             // Add new remote to config
-            const result = await addRemote(data.alias, data.host, data.port, data.token);
+            const result = await addRemote(data.alias, data.host, data.port, data.token, data.secure);
             if (!result.success) {
               throw new Error(result.error || 'Failed to add remote');
             }
             // Connect to the new remote via InstanceManager
-            await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token);
+            await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token, data.secure);
             // Select the new tab
             const newIndex = instanceManager.getTabIndexByAlias(data.alias);
             if (newIndex !== -1 && onSelectTab) {
@@ -3868,20 +3870,20 @@ export function RunApp({
               // Remove old tab
               instanceManager.removeTab(editingRemote.alias);
               // Add new config
-              const result = await addRemote(data.alias, data.host, data.port, data.token);
+              const result = await addRemote(data.alias, data.host, data.port, data.token, data.secure);
               if (!result.success) {
                 throw new Error(result.error || 'Failed to add remote');
               }
               // Connect with new alias
-              await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token);
+              await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token, data.secure);
             } else {
               // Same alias - just update config and reconnect
               await removeRemote(data.alias);
-              const result = await addRemote(data.alias, data.host, data.port, data.token);
+              const result = await addRemote(data.alias, data.host, data.port, data.token, data.secure);
               if (!result.success) {
                 throw new Error(result.error || 'Failed to update remote');
               }
-              await instanceManager.reconnectRemote(data.alias, data.host, data.port, data.token);
+              await instanceManager.reconnectRemote(data.alias, data.host, data.port, data.token, data.secure);
             }
           }
           setShowRemoteManagement(false);
