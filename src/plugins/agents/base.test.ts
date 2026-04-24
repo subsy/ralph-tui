@@ -22,6 +22,7 @@ import {
   findCommandPath,
   getEnvExclusionReport,
   formatEnvExclusionReport,
+  shouldUseWindowsShell,
 } from './base.js';
 import type {
   AgentPluginMeta,
@@ -172,6 +173,24 @@ describe('BaseAgentPlugin', () => {
 
       expect(result.found).toBe(false);
       expect(result.path).toBe('');
+    });
+  });
+
+  describe('shouldUseWindowsShell', () => {
+    test('returns false for native Windows executables', () => {
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.exe', 'win32')).toBe(false);
+      expect(shouldUseWindowsShell('"C:\\Program Files\\OpenCode\\opencode.exe"', 'win32')).toBe(false);
+    });
+
+    test('returns true for Windows wrapper scripts', () => {
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.cmd', 'win32')).toBe(true);
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.bat', 'win32')).toBe(true);
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.ps1', 'win32')).toBe(true);
+    });
+
+    test('returns false outside Windows', () => {
+      expect(shouldUseWindowsShell('/usr/local/bin/opencode', 'linux')).toBe(false);
+      expect(shouldUseWindowsShell('/usr/local/bin/opencode', 'darwin')).toBe(false);
     });
   });
 

@@ -98,6 +98,18 @@ describe('collectSystemInfo', () => {
     expect(Array.isArray(info.skills.agents)).toBe(true)
   })
 
+  test('keeps agent skill discovery paths machine-readable in JSON output', async () => {
+    await writeConfig(tempDir, {
+      agent: 'claude',
+    })
+
+    const info = await collectSystemInfo(tempDir)
+    const claudeSkills = info.skills.agents.find((agent) => agent.id === 'claude')
+
+    expect(Array.isArray(claudeSkills?.personalDir)).toBe(true)
+    expect(Array.isArray(claudeSkills?.repoDir)).toBe(true)
+  })
+
   test('collects custom skills from symlinked skill directories', async () => {
     const customSkillsDir = join(tempDir, 'custom-skills')
     const realSkillDir = join(tempDir, 'real-skills', 'ralph-tui-prd')

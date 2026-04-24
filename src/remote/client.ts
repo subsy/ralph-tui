@@ -48,6 +48,7 @@ import type {
   RemoteOrchestrationState,
 } from './types.js';
 import { TOKEN_LIFETIMES } from './types.js';
+import { buildRemoteWebSocketUrl } from './url.js';
 import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { EngineEvent } from '../engine/types.js';
@@ -132,6 +133,9 @@ export interface InstanceTab {
   /** Port for remote connections */
   port?: number;
 
+  /** Use secure WebSocket connections */
+  secure?: boolean;
+
   /** Last error message (if status is disconnected due to error) */
   lastError?: string;
 
@@ -180,6 +184,7 @@ export class RemoteClient {
   private ws: WebSocket | null = null;
   private host: string;
   private port: number;
+  private secure: boolean;
   /** Server token for initial authentication (long-lived, 90 days) */
   private serverToken: string;
   private eventHandler: RemoteClientEventHandler;
@@ -217,10 +222,12 @@ export class RemoteClient {
     port: number,
     token: string,
     eventHandler: RemoteClientEventHandler,
-    reconnectConfig: Partial<ReconnectConfig> = {}
+    reconnectConfig: Partial<ReconnectConfig> = {},
+    secure = false
   ) {
     this.host = host;
     this.port = port;
+    this.secure = secure;
     this.serverToken = token;
     this.eventHandler = eventHandler;
     this.reconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, ...reconnectConfig };
@@ -271,7 +278,7 @@ export class RemoteClient {
 
     return new Promise<void>((resolve, reject) => {
       try {
-        const url = `ws://${this.host}:${this.port}`;
+        const url = buildRemoteWebSocketUrl(this.host, this.port, this.secure);
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
@@ -1090,7 +1097,7 @@ export class RemoteClient {
    */
   private async attemptReconnect(): Promise<void> {
     try {
-      const url = `ws://${this.host}:${this.port}`;
+      const url = buildRemoteWebSocketUrl(this.host, this.port, this.secure);
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
@@ -1239,7 +1246,8 @@ export function createLocalTab(): InstanceTab {
 export function createRemoteTab(
   alias: string,
   host: string,
-  port: number
+  port: number,
+  secure = false
 ): InstanceTab {
   return {
     id: `remote-${alias}`,
@@ -1249,5 +1257,6 @@ export function createRemoteTab(
     alias,
     host,
     port,
+    secure,
   };
 }

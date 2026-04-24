@@ -281,6 +281,16 @@ describe('MergeEngine', () => {
       const tags = git(repoDir, 'tag');
       expect(tags).toContain('ralph/session-start/session-123');
     });
+
+    test('creates session backup tag when git tag signing is enabled', () => {
+      git(repoDir, 'config tag.gpgSign true');
+
+      const tag = engine.createSessionBackup('signed-config-session');
+
+      expect(tag).toBe('ralph/session-start/signed-config-session');
+      const tags = git(repoDir, 'tag');
+      expect(tags).toContain('ralph/session-start/signed-config-session');
+    });
   });
 
   describe('initializeSessionBranch', () => {
@@ -428,6 +438,20 @@ describe('MergeEngine', () => {
       tags = git(repoDir, 'tag');
       expect(tags).not.toContain('ralph/session-start/cleanup-test');
       expect(tags).not.toContain('ralph/pre-merge/CL1');
+    });
+
+    test('creates pre-merge backup tag when git tag signing is enabled', async () => {
+      git(repoDir, 'config tag.gpgSign true');
+
+      const branchName = 'ralph-parallel/SIGNED';
+      createBranchWithCommit(repoDir, branchName, 'signed-backup.ts', 'content\n');
+      engine.enqueue(mockWorkerResult(mockTask('SIGNED'), branchName));
+
+      const result = await engine.processNext();
+
+      expect(result?.success).toBe(true);
+      const tags = git(repoDir, 'tag');
+      expect(tags).toContain('ralph/pre-merge/SIGNED/');
     });
   });
 

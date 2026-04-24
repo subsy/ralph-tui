@@ -124,7 +124,7 @@ export class MergeEngine {
   createSessionBackup(sessionId: string): string {
     const tag = `ralph/session-start/${sessionId}`;
     validateGitRef(tag, 'sessionBackupTag');
-    this.git(['tag', tag, 'HEAD']);
+    this.createBackupTag(tag);
     this.sessionStartTag = tag;
     return tag;
   }
@@ -433,7 +433,7 @@ export class MergeEngine {
     // Create backup tag
     try {
       validateGitRef(operation.backupTag, 'backupTag');
-      this.git(['tag', operation.backupTag, 'HEAD']);
+      this.createBackupTag(operation.backupTag);
     } catch (err) {
       const result = this.failMerge(
         operation,
@@ -697,6 +697,13 @@ export class MergeEngine {
   }
 
   /**
+   * Create a lightweight backup tag without invoking signing or editor flows.
+   */
+  private createBackupTag(tag: string): void {
+    this.git(['tag', '--no-sign', tag, 'HEAD']);
+  }
+
+  /**
    * Execute a git command in the main repository.
    * Uses execFileSync with argument array to prevent shell injection.
    * Pipes stdio so git output doesn't bleed through to the TUI.
@@ -706,6 +713,11 @@ export class MergeEngine {
       encoding: 'utf-8',
       timeout: 30000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_EDITOR: ':',
+      },
     });
   }
 }

@@ -19,6 +19,9 @@ export interface RemoteServerConfig {
   /** Server port */
   port: number;
 
+  /** Use secure WebSocket connections */
+  secure?: boolean;
+
   /** Authentication token for the remote server */
   token: string;
 
@@ -103,7 +106,8 @@ export async function addRemote(
   alias: string,
   host: string,
   port: number,
-  token: string
+  token: string,
+  secure = false
 ): Promise<{ success: boolean; error?: string }> {
   const config = await loadRemotesConfig();
 
@@ -124,6 +128,7 @@ export async function addRemote(
   config.remotes[alias] = {
     host,
     port,
+    ...(secure ? { secure } : {}),
     token,
     addedAt: new Date().toISOString(),
   };

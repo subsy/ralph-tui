@@ -68,7 +68,7 @@ export class InstanceManager {
     const remotes = await listRemotes();
     for (const [alias, config] of remotes) {
       this.remoteConfigs.set(alias, config);
-      const tab = createRemoteTab(alias, config.host, config.port);
+      const tab = createRemoteTab(alias, config.host, config.port, config.secure);
       this.tabs.push(tab);
     }
 
@@ -204,7 +204,7 @@ export class InstanceManager {
       this.remoteConfigs.set(alias, config);
       const existingTab = this.tabs.find((t) => t.alias === alias);
       if (!existingTab) {
-        const tab = createRemoteTab(alias, config.host, config.port);
+        const tab = createRemoteTab(alias, config.host, config.port, config.secure);
         this.tabs.push(tab);
       }
     }
@@ -242,7 +242,7 @@ export class InstanceManager {
     if (!client) {
       client = new RemoteClient(tab.host, tab.port, config.token, (event) => {
         this.handleClientEvent(tab.alias!, event);
-      });
+      }, {}, config.secure);
       this.clients.set(tab.alias, client);
     }
 
@@ -663,18 +663,19 @@ export class InstanceManager {
    * @param port The port number
    * @param token The authentication token
    */
-  async addAndConnectRemote(alias: string, host: string, port: number, token: string): Promise<void> {
+  async addAndConnectRemote(alias: string, host: string, port: number, token: string, secure = false): Promise<void> {
     // Store the config in memory
     const config: RemoteServerConfig = {
       host,
       port,
+      ...(secure ? { secure } : {}),
       token,
       addedAt: new Date().toISOString(),
     };
     this.remoteConfigs.set(alias, config);
 
     // Create and add the tab
-    const tab = createRemoteTab(alias, host, port);
+    const tab = createRemoteTab(alias, host, port, secure);
     this.tabs.push(tab);
 
     // Notify listeners of the new tab
@@ -741,7 +742,7 @@ export class InstanceManager {
    * @param port The new port number
    * @param token The new authentication token
    */
-  async reconnectRemote(alias: string, host: string, port: number, token: string): Promise<void> {
+  async reconnectRemote(alias: string, host: string, port: number, token: string, secure = false): Promise<void> {
     // Disconnect existing connection
     this.disconnectRemote(alias);
 
@@ -750,6 +751,7 @@ export class InstanceManager {
     const config: RemoteServerConfig = {
       host,
       port,
+      ...(secure ? { secure } : {}),
       token,
       addedAt: existingConfig?.addedAt ?? new Date().toISOString(),
       lastConnected: existingConfig?.lastConnected,
@@ -761,6 +763,7 @@ export class InstanceManager {
     if (tab) {
       tab.host = host;
       tab.port = port;
+      tab.secure = secure;
       tab.label = alias; // Keep the label as the alias
 
       // Reconnect

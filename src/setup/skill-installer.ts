@@ -17,13 +17,26 @@ export const AGENT_ID_MAP: Record<string, string> = {
   claude: 'claude-code',
   opencode: 'opencode',
   codex: 'codex',
-  gemini: 'gemini',
+  gemini: 'gemini-cli',
   kimi: 'kimi-cli',
   kiro: 'kiro-cli',
   cursor: 'cursor',
   'github-copilot': 'github-copilot',
   pi: 'pi',
 };
+
+/**
+ * Agents whose skills are also discovered from the shared .agents/skills locations.
+ * These aliases are used by the current upstream skills CLI during install/sync flows.
+ */
+const SHARED_SKILLS_AGENT_IDS = new Set([
+  'codex',
+  'cursor',
+  'gemini',
+  'github-copilot',
+  'kimi',
+  'opencode',
+]);
 
 /**
  * Information about an available skill.
@@ -58,12 +71,19 @@ export interface AddSkillInstallOptions {
  * Supports both POSIX (~/) and Windows (~\) style paths.
  */
 export function expandTilde(path: string): string {
+  const runtimeHome =
+    process.env.HOME ||
+    process.env.USERPROFILE ||
+    (process.env.HOMEDRIVE && process.env.HOMEPATH
+      ? join(process.env.HOMEDRIVE, process.env.HOMEPATH)
+      : homedir());
+
   // Handle ~/ (POSIX) and ~\ (Windows)
   if (path.startsWith('~/') || path.startsWith('~\\')) {
-    return join(homedir(), path.slice(2));
+    return join(runtimeHome, path.slice(2));
   }
   if (path === '~') {
-    return homedir();
+    return runtimeHome;
   }
   return path;
 }
@@ -90,6 +110,31 @@ export function resolveSkillsPath(skillsPath: string, cwd?: string): string {
     return join(cwd, skillsPath);
   }
   return join(process.cwd(), skillsPath);
+}
+
+/**
+ * Resolve every skills discovery path for an agent, including shared aliases.
+ * Shared aliases are checked first because upstream skills tooling gives them precedence.
+ */
+export function getSkillSearchPaths(
+  skillsPaths: { personal: string; repo: string },
+  cwd?: string,
+  agentId?: string
+): { personal: string[]; repo: string[] } {
+  const personalPaths = [
+    ...(agentId && SHARED_SKILLS_AGENT_IDS.has(agentId) ? ['~/.agents/skills'] : []),
+    skillsPaths.personal,
+  ].map((path) => resolveSkillsPath(path));
+
+  const repoPaths = [
+    ...(agentId && SHARED_SKILLS_AGENT_IDS.has(agentId) ? ['.agents/skills'] : []),
+    skillsPaths.repo,
+  ].map((path) => resolveSkillsPath(path, cwd));
+
+  return {
+    personal: [...new Set(personalPaths)],
+    repo: [...new Set(repoPaths)],
+  };
 }
 
 /**
@@ -181,6 +226,18 @@ export async function isSkillInstalledAt(skillName: string, targetDir: string): 
   } catch {
     return false;
   }
+}
+
+/**
+ * Check if a skill is installed in any of the given directories.
+ */
+export async function isSkillInstalledAtAnyPath(skillName: string, targetDirs: string[]): Promise<boolean> {
+  for (const targetDir of targetDirs) {
+    if (await isSkillInstalledAt(skillName, targetDir)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -286,17 +343,16 @@ export async function installViaAddSkill(options: AddSkillInstallOptions): Promi
  */
 export async function getSkillStatusForAgent(
   skillsPaths: { personal: string; repo: string },
-  cwd?: string
+  cwd?: string,
+  agentId?: string
 ): Promise<Map<string, { personal: boolean; repo: boolean }>> {
   const status = new Map<string, { personal: boolean; repo: boolean }>();
   const bundledSkills = await listBundledSkills();
-
-  const personalDir = resolveSkillsPath(skillsPaths.personal);
-  const repoDir = resolveSkillsPath(skillsPaths.repo, cwd);
+  const searchPaths = getSkillSearchPaths(skillsPaths, cwd, agentId);
 
   for (const skill of bundledSkills) {
-    const personalInstalled = await isSkillInstalledAt(skill.name, personalDir);
-    const repoInstalled = await isSkillInstalledAt(skill.name, repoDir);
+    const personalInstalled = await isSkillInstalledAtAnyPath(skill.name, searchPaths.personal);
+    const repoInstalled = await isSkillInstalledAtAnyPath(skill.name, searchPaths.repo);
     status.set(skill.name, { personal: personalInstalled, repo: repoInstalled });
   }
 

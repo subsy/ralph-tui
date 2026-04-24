@@ -9,6 +9,7 @@ import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:
 import {
   OpenCodeAgentPlugin,
   createOpenCodeJsonlBuffer,
+  shouldPassOpenCodePromptViaStdin,
 } from '../../src/plugins/agents/builtin/opencode.js';
 import type { AgentFileContext, AgentExecuteOptions, AgentExecutionResult } from '../../src/plugins/agents/types.js';
 
@@ -328,7 +329,22 @@ describe('OpenCodeAgentPlugin', () => {
     });
   });
 
-  describe('buildArgs (stdin input for Windows safety)', () => {
+  describe('shouldPassOpenCodePromptViaStdin', () => {
+    test('returns false for native Windows executables', () => {
+      expect(shouldPassOpenCodePromptViaStdin('C:\\Tools\\opencode.exe', 'win32')).toBe(false);
+    });
+
+    test('returns true for Windows shell wrappers', () => {
+      expect(shouldPassOpenCodePromptViaStdin('C:\\Tools\\opencode.cmd', 'win32')).toBe(true);
+      expect(shouldPassOpenCodePromptViaStdin('C:\\Tools\\opencode.bat', 'win32')).toBe(true);
+    });
+
+    test('returns false on non-Windows platforms', () => {
+      expect(shouldPassOpenCodePromptViaStdin('/usr/local/bin/opencode', 'linux')).toBe(false);
+    });
+  });
+
+  describe('buildArgs (prompt transport)', () => {
     let testablePlugin: TestableOpenCodePlugin;
 
     beforeEach(async () => {
@@ -340,30 +356,33 @@ describe('OpenCodeAgentPlugin', () => {
       await testablePlugin.dispose();
     });
 
-    test('does NOT include prompt in args (passed via stdin instead)', () => {
+    test('matches the current-platform prompt transport strategy', () => {
       const prompt = 'Hello world';
       const args = testablePlugin.testBuildArgs(prompt);
 
-      // The prompt should NOT be in args - it's passed via stdin
-      expect(args).not.toContain(prompt);
-      // Should still have basic args
+      if (shouldPassOpenCodePromptViaStdin(undefined)) {
+        expect(args).not.toContain(prompt);
+      } else {
+        expect(args).toContain(prompt);
+      }
       expect(args).toContain('run');
       expect(args).toContain('--format');
       expect(args).toContain('json');
     });
 
-    test('does NOT include prompt with special characters in args', () => {
-      // These characters would cause "syntax error" on Windows cmd.exe
+    test('keeps special characters out of argv only when stdin transport is active', () => {
       const prompt = 'feature with & special | characters > test "quoted"';
       const args = testablePlugin.testBuildArgs(prompt);
 
-      // The prompt with special chars should NOT be in args
-      expect(args).not.toContain(prompt);
-      // None of the special chars should appear in any arg
-      for (const arg of args) {
-        expect(arg).not.toContain('&');
-        expect(arg).not.toContain('|');
-        expect(arg).not.toContain('>');
+      if (shouldPassOpenCodePromptViaStdin(undefined)) {
+        expect(args).not.toContain(prompt);
+        for (const arg of args) {
+          expect(arg).not.toContain('&');
+          expect(arg).not.toContain('|');
+          expect(arg).not.toContain('>');
+        }
+      } else {
+        expect(args).toContain(prompt);
       }
     });
 
@@ -406,35 +425,49 @@ describe('OpenCodeAgentPlugin', () => {
       await testablePlugin.dispose();
     });
 
-    test('returns the prompt for stdin', () => {
+    test('matches the current-platform prompt transport strategy', () => {
       const prompt = 'Hello world';
       const stdinInput = testablePlugin.testGetStdinInput(prompt);
 
-      expect(stdinInput).toBe(prompt);
+      if (shouldPassOpenCodePromptViaStdin(undefined)) {
+        expect(stdinInput).toBe(prompt);
+      } else {
+        expect(stdinInput).toBeUndefined();
+      }
     });
 
-    test('returns prompt with special characters unchanged', () => {
-      // These characters would cause issues if passed as CLI args on Windows
+    test('returns special-character prompts only when stdin transport is active', () => {
       const prompt = 'feature with & special | characters > test "quoted"';
       const stdinInput = testablePlugin.testGetStdinInput(prompt);
 
-      // Stdin should contain the prompt exactly as-is (no escaping needed)
-      expect(stdinInput).toBe(prompt);
+      if (shouldPassOpenCodePromptViaStdin(undefined)) {
+        expect(stdinInput).toBe(prompt);
+      } else {
+        expect(stdinInput).toBeUndefined();
+      }
     });
 
-    test('returns prompt with newlines', () => {
+    test('returns multiline prompts only when stdin transport is active', () => {
       const prompt = 'Line 1\nLine 2\nLine 3';
       const stdinInput = testablePlugin.testGetStdinInput(prompt);
 
-      expect(stdinInput).toBe(prompt);
-      expect(stdinInput).toContain('\n');
+      if (shouldPassOpenCodePromptViaStdin(undefined)) {
+        expect(stdinInput).toBe(prompt);
+        expect(stdinInput).toContain('\n');
+      } else {
+        expect(stdinInput).toBeUndefined();
+      }
     });
 
-    test('returns prompt with unicode characters', () => {
+    test('returns unicode prompts only when stdin transport is active', () => {
       const prompt = 'Hello 世界 🎉 émojis';
       const stdinInput = testablePlugin.testGetStdinInput(prompt);
 
-      expect(stdinInput).toBe(prompt);
+      if (shouldPassOpenCodePromptViaStdin(undefined)) {
+        expect(stdinInput).toBe(prompt);
+      } else {
+        expect(stdinInput).toBeUndefined();
+      }
     });
   });
 

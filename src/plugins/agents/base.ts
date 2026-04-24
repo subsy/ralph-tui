@@ -105,6 +105,39 @@ export function quoteForWindowsShell(commandPath: string): string {
   return `"${commandPath}"`;
 }
 
+/**
+ * Determine whether a Windows command needs shell execution.
+ * Native executables can be spawned directly, while wrapper scripts require the shell.
+ */
+export function shouldUseWindowsShell(
+  commandPath: string,
+  currentPlatform: NodeJS.Platform = process.platform
+): boolean {
+  if (currentPlatform !== 'win32') {
+    return false;
+  }
+
+  const trimmedCommand = commandPath.trim();
+  const normalizedCommand = trimmedCommand.startsWith('"') && trimmedCommand.endsWith('"')
+    ? trimmedCommand.slice(1, -1)
+    : trimmedCommand;
+  const lowerCommand = normalizedCommand.toLowerCase();
+
+  if (lowerCommand.endsWith('.exe') || lowerCommand.endsWith('.com')) {
+    return false;
+  }
+
+  if (
+    lowerCommand.endsWith('.cmd') ||
+    lowerCommand.endsWith('.bat') ||
+    lowerCommand.endsWith('.ps1')
+  ) {
+    return true;
+  }
+
+  return true;
+}
+
 import { randomUUID } from 'node:crypto';
 import type {
   AgentPlugin,
@@ -492,11 +525,11 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     const commandPath = resolvedCommand.executablePath;
 
     return new Promise((resolve) => {
-      const isWindows = platform() === 'win32';
-      const spawnCmd = isWindows ? quoteForWindowsShell(commandPath) : commandPath;
+      const useShell = shouldUseWindowsShell(commandPath);
+      const spawnCmd = useShell ? quoteForWindowsShell(commandPath) : commandPath;
       const proc = spawn(spawnCmd, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
+        shell: useShell,
       });
 
       let stdout = '';
@@ -630,16 +663,16 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
     const startProcess = (spawnCommand: string, spawnArgs: string[]): void => {
       // Spawn the process
-      // Note: On Windows, we need shell: true to execute wrapper scripts (.cmd, .bat, .ps1)
-      // On Unix, shell: false avoids shell interpretation of special characters in args
+      // On Windows, only wrapper scripts need shell execution.
+      // Native executables can be spawned directly to avoid cmd.exe argument rewriting.
       // The prompt will be passed via stdin if getStdinInput returns content
-      const isWindows = platform() === 'win32';
-      const quotedCommand = isWindows ? quoteForWindowsShell(spawnCommand) : spawnCommand;
-      const proc = spawn(quotedCommand, spawnArgs, {
+      const useShell = shouldUseWindowsShell(spawnCommand);
+      const resolvedCommand = useShell ? quoteForWindowsShell(spawnCommand) : spawnCommand;
+      const proc = spawn(resolvedCommand, spawnArgs, {
         cwd: options?.cwd ?? process.cwd(),
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: isWindows,
+        shell: useShell,
       });
 
       // Write to stdin if subclass provides input (e.g., prompt content)

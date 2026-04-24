@@ -59,7 +59,9 @@ describe('skills install command (spawn)', () => {
     mock.module('../setup/skill-installer.js', () => ({
       listBundledSkills: realSkillInstaller.listBundledSkills,
       isSkillInstalledAt: realSkillInstaller.isSkillInstalledAt,
+      isSkillInstalledAtAnyPath: realSkillInstaller.isSkillInstalledAtAnyPath,
       resolveSkillsPath: realSkillInstaller.resolveSkillsPath,
+      getSkillSearchPaths: realSkillInstaller.getSkillSearchPaths,
       installViaAddSkill: realSkillInstaller.installViaAddSkill,
       resolveAddSkillAgentId: realSkillInstaller.resolveAddSkillAgentId,
       buildAddSkillInstallArgs: realSkillInstaller.buildAddSkillInstallArgs,

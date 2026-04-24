@@ -228,10 +228,15 @@ After starting with `--listen`, connect from another machine:
 # Add remote connection
 ralph-tui remote add prod server.example.com:7890 --token <token>
 
+# Add a TLS-terminated remote behind a reverse proxy
+ralph-tui remote add prod ralph.example.com:443 --secure --token <token>
+
 # View remote in TUI
 ralph-tui run
 # Then press number keys to switch between local and remote tabs
 ```
+
+Use `--secure` for remotes exposed through TLS-terminating proxies such as Caddy or nginx. Secure remotes connect with `wss://`; port `443` is omitted from displayed URLs.
 
 ### Security Model
 
