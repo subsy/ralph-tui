@@ -638,11 +638,15 @@ Read the PRD and create the appropriate tasks.${labelsInstruction}`;
       if (isReviewPhaseShortcut(phase, userMessage)) {
         setInputValue('');
         if (userMessage === '1' || userMessage === '2') {
-          const option = trackerOptions.find(
-            (t) => t.key === userMessage && t.available,
-          );
-          if (option) {
+          const option = trackerOptions.find((t) => t.key === userMessage);
+          if (option?.available) {
             void handleTrackerSelect(option);
+          } else {
+            const errorMessage = option
+              ? `${option.name} is not available in this project.`
+              : `Tracker option ${userMessage} is not available.`;
+            setError(errorMessage);
+            onError?.(errorMessage);
           }
           return;
         }
