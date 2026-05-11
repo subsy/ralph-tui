@@ -36,7 +36,50 @@ export type ChatStatus =
   | 'idle' // Ready for user input
   | 'processing' // Waiting for agent response
   | 'error' // An error occurred
-  | 'completed'; // Conversation has reached a terminal state
+  | 'completed' // Conversation has reached a terminal state
+  | 'timeout' // Request timed out, waiting for user action
+  | 'retrying'; // Retrying the request after timeout
+
+/**
+ * Timeout configuration for chat engine.
+ */
+export interface TimeoutConfig {
+  /** Initial timeout in milliseconds (default: 60000 = 1 minute) */
+  initialTimeout: number;
+  /** Maximum timeout in milliseconds (default: 300000 = 5 minutes) */
+  maxTimeout: number;
+  /** Timeout multiplier for each retry (default: 1.5) */
+  timeoutMultiplier: number;
+  /** Maximum number of retries (default: 3) */
+  maxRetries: number;
+  /** Whether retries are enabled (default: true) */
+  enableRetries: boolean;
+}
+
+/**
+ * Default timeout configuration.
+ */
+export const DEFAULT_TIMEOUT_CONFIG: TimeoutConfig = {
+  initialTimeout: 60000, // 1 minute
+  maxTimeout: 300000, // 5 minutes
+  timeoutMultiplier: 1.5,
+  maxRetries: 3,
+  enableRetries: true,
+};
+
+/**
+ * Timeout state for tracking retry progress.
+ */
+export interface TimeoutState {
+  /** Current retry count (0 = first attempt) */
+  retryCount: number;
+  /** Current timeout in milliseconds */
+  currentTimeout: number;
+  /** Whether a retry decision is pending (waiting for user input) */
+  retryPending: boolean;
+  /** Time when the current request started */
+  requestStartTime?: number;
+}
 
 /**
  * Configuration for the chat engine.
@@ -53,6 +96,9 @@ export interface ChatEngineConfig {
 
   /** Timeout for agent execution in milliseconds */
   timeout?: number;
+
+  /** Timeout configuration for retry behavior */
+  timeoutConfig?: Partial<TimeoutConfig>;
 
   /** Working directory for agent execution */
   cwd?: string;
@@ -73,6 +119,9 @@ export interface SendMessageOptions {
 
   /** Callback for progress status updates */
   onStatus?: (status: string) => void;
+
+  /** Callback when a timeout occurs, return true to retry, false to cancel */
+  onTimeout?: (state: TimeoutState) => Promise<boolean> | boolean;
 }
 
 /**
@@ -157,7 +206,9 @@ export type ChatEventType =
   | 'message:received' // Assistant message was received
   | 'status:changed' // Status changed
   | 'error:occurred' // An error occurred
-  | 'prd:detected'; // A complete PRD was detected in response
+  | 'prd:detected' // A complete PRD was detected in response
+  | 'timeout:occurred' // A timeout occurred
+  | 'retry:started'; // A retry has started
 
 /**
  * Base interface for chat events.
@@ -230,6 +281,26 @@ export interface ChatPrdDetectedEvent extends ChatEventBase {
 }
 
 /**
+ * Event emitted when a timeout occurs.
+ */
+export interface ChatTimeoutEvent extends ChatEventBase {
+  type: 'timeout:occurred';
+
+  /** Current timeout state */
+  timeoutState: TimeoutState;
+}
+
+/**
+ * Event emitted when a retry starts.
+ */
+export interface ChatRetryStartedEvent extends ChatEventBase {
+  type: 'retry:started';
+
+  /** Current timeout state */
+  timeoutState: TimeoutState;
+}
+
+/**
  * Union type of all chat events.
  */
 export type ChatEvent =
@@ -237,7 +308,9 @@ export type ChatEvent =
   | ChatMessageReceivedEvent
   | ChatStatusChangedEvent
   | ChatErrorEvent
-  | ChatPrdDetectedEvent;
+  | ChatPrdDetectedEvent
+  | ChatTimeoutEvent
+  | ChatRetryStartedEvent;
 
 /**
  * Listener function for chat events.

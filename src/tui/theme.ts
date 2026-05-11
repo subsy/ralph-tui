@@ -18,6 +18,7 @@ export interface ThemeColors {
     secondary: string;
     tertiary: string;
     highlight: string;
+    overlay: string;
   };
   fg: {
     primary: string;
@@ -63,6 +64,7 @@ export const defaultColors: ThemeColors = {
     secondary: '#24283b',
     tertiary: '#2f3449',
     highlight: '#3d4259',
+    overlay: '#0f0f12',
   },
   fg: {
     primary: '#c0caf5',
