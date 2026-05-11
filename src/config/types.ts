@@ -320,6 +320,9 @@ export interface StoredConfig {
    */
   envPassthrough?: string[];
 
+  /** Shorthand: preflight check timeout in milliseconds for the default agent (default: 30000) */
+  preflightTimeoutMs?: number;
+
   /** Whether to auto-commit after successful tasks */
   autoCommit?: boolean;
 

@@ -231,6 +231,9 @@ export interface AgentPluginConfig {
   /** Default timeout in milliseconds */
   timeout?: number;
 
+  /** Timeout in milliseconds for preflight checks (default: 30000) */
+  preflightTimeoutMs?: number;
+
   /** Plugin-specific configuration options */
   options: Record<string, unknown>;
 

@@ -441,6 +441,14 @@ export function getDefaultAgentConfig(
       };
     }
 
+    // Apply preflightTimeoutMs shorthand (only if not already set on agent config)
+    if (storedConfig.preflightTimeoutMs && !result.preflightTimeoutMs) {
+      result = {
+        ...result,
+        preflightTimeoutMs: storedConfig.preflightTimeoutMs,
+      };
+    }
+
     return result;
   };
 
