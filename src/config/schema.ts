@@ -154,6 +154,7 @@ export const StoredConfigSchema = z
     iterationDelay: z.number().int().min(0).max(300000).optional(),
     outputDir: z.string().optional(),
     autoCommit: z.boolean().optional(),
+    commitMessageTemplate: z.string().optional(),
 
     // Plugin configurations
     agents: z.array(AgentPluginConfigSchema).optional(),

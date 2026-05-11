@@ -25,6 +25,7 @@ These control basic execution behavior.
 | `outputDir` | string | `.ralph-tui/iterations` | Directory for iteration log files |
 | `progressFile` | string | `.ralph-tui/progress.md` | Progress file for cross-iteration context |
 | `autoCommit` | boolean | `false` | Ensures a git commit after each successful task. When `true`, ralph-tui stages and commits all uncommitted changes after task completion. When `false`, no automatic commit is made by ralph-tui, though the agent may still commit on its own if instructed by templates or CLAUDE.md. |
+| `commitMessageTemplate` | string | `"{{taskType}}: {{taskId}} {{taskTitle}}"` | Handlebars template used for the auto-commit subject when `autoCommit = true`. Available variables: `{{taskId}}`, `{{taskTitle}}`, `{{taskType}}` (falls back to `chore` when the tracker omits a type). If the rendered string is empty/whitespace or the template fails to compile, ralph-tui falls back to the default and logs a warning. |
 | `prompt_template` | string | - | Custom Handlebars template path |
 | `subagentTracingDetail` | string | `"off"` | Subagent visibility level |
 | `skills_dir` | string | - | Directory containing custom PRD skills |

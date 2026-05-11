@@ -326,6 +326,13 @@ export interface StoredConfig {
   /** Whether to auto-commit after successful tasks */
   autoCommit?: boolean;
 
+  /**
+   * Handlebars template for auto-commit subject lines. Available variables:
+   * `{{taskId}}`, `{{taskTitle}}`, `{{taskType}}` (falls back to `chore` when
+   * the tracker omits a type). Defaults to `"{{taskType}}: {{taskId}} {{taskTitle}}"`.
+   */
+  commitMessageTemplate?: string;
+
   /** Custom prompt template path (relative to cwd or absolute) */
   prompt_template?: string;
 
@@ -397,6 +404,13 @@ export interface RalphConfig {
 
   /** Whether to auto-commit after successful task completion (default: false) */
   autoCommit?: boolean;
+
+  /**
+   * Handlebars template for auto-commit subject lines. When omitted, the default
+   * `"{{taskType}}: {{taskId}} {{taskTitle}}"` is used (with `taskType` falling
+   * back to `chore` when the tracker omits a type).
+   */
+  commitMessageTemplate?: string;
 
   /**
    * Optional list of task IDs to execute. When provided, only tasks with these

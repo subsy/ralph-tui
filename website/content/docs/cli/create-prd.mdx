@@ -27,6 +27,8 @@ ralph-tui prime    # Same as create-prd
 |--------|-------------|
 | `--chat`, `--ai` | Use AI-powered chat mode (recommended) |
 | `--agent <name>` | Override agent for chat mode |
+| `--model <name>` | Override model (e.g., `opus`, `anthropic/claude-3-5-sonnet`) |
+| `--variant <level>` | Model variant / reasoning effort (e.g., `minimal`, `high`, `max`) |
 | `--prd-skill <name>` | Use custom PRD skill from `skills_dir` |
 | `--output, -o <dir>` | Output directory for PRD files (default: `./tasks`) |
 | `--stories, -n <count>` | Number of user stories (template mode only) |
@@ -44,6 +46,25 @@ ralph-tui create-prd --chat
 # Use a specific agent
 ralph-tui create-prd --chat --agent opencode
 ```
+
+### Selecting a Model or Variant
+
+`--model` and `--variant` work the same way they do for [`ralph-tui run`](/docs/cli/run). They let you pin the agent to a specific model or reasoning effort for the PRD conversation:
+
+```bash
+# Claude Code with the opus model
+ralph-tui create-prd --agent claude --model opus
+
+# OpenCode + OpenRouter (provider/model format)
+ralph-tui create-prd --agent opencode --model moonshotai/kimi-k2.6:siliconflow/fp8
+
+# Pair a model with a reasoning-effort variant
+ralph-tui create-prd --agent opencode --model google/gemini-2.5-pro --variant high
+```
+
+<Callout type="tip">
+The `--model` value is validated by the selected agent before the chat starts. If the agent doesn't recognize the model name, you'll get an error before the PRD session opens. `--variant` is forwarded to the agent CLI as-is (validation is delegated to the agent).
+</Callout>
 
 ### Template Mode
 

@@ -374,6 +374,15 @@ export class ChatEngine {
 }
 
 /**
+ * Build agent-execute flags for the chat engine.
+ * Mirrors run.tsx engine which injects --model at execute time.
+ */
+function buildAgentFlags(options: { model?: string }): string[] | undefined {
+  if (!options.model) return undefined;
+  return ['--model', options.model];
+}
+
+/**
  * Create a chat engine configured for PRD generation.
  */
 export function createPrdChatEngine(
@@ -383,6 +392,7 @@ export function createPrdChatEngine(
     timeout?: number;
     prdSkill?: string;
     prdSkillSource?: string;
+    model?: string;
   } = {}
 ): ChatEngine {
   const systemPrompt = options.prdSkillSource
@@ -391,11 +401,14 @@ export function createPrdChatEngine(
       ? buildPrdSystemPrompt(options.prdSkill)
       : PRD_SYSTEM_PROMPT;
 
+  const flags = buildAgentFlags(options);
+
   return new ChatEngine({
     agent,
     systemPrompt,
     cwd: options.cwd,
     timeout: options.timeout ?? 0,
+    ...(flags ? { agentOptions: { flags } } : {}),
   });
 }
 
@@ -404,13 +417,17 @@ export function createTaskChatEngine(
   options: {
     cwd?: string;
     timeout?: number;
+    model?: string;
   } = {}
 ): ChatEngine {
+  const flags = buildAgentFlags(options);
+
   return new ChatEngine({
     agent,
     systemPrompt: TASK_SYSTEM_PROMPT,
     cwd: options.cwd,
     timeout: options.timeout ?? 0,
+    ...(flags ? { agentOptions: { flags } } : {}),
   });
 }
 

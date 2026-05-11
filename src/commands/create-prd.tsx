@@ -109,7 +109,11 @@ async function loadPrdSkillSource(
 /**
  * Get the configured agent plugin.
  */
-async function getAgent(agentName?: string): Promise<AgentPlugin | null> {
+async function getAgent(options: {
+  agent?: string;
+  model?: string;
+  variant?: string;
+}): Promise<AgentPlugin | null> {
   try {
     const cwd = process.cwd();
     const storedConfig = await loadStoredConfig(cwd);
@@ -121,13 +125,24 @@ async function getAgent(agentName?: string): Promise<AgentPlugin | null> {
 
     // Determine target agent
     const targetAgent =
-      agentName || storedConfig.agent || storedConfig.defaultAgent || "claude";
+      options.agent ||
+      storedConfig.agent ||
+      storedConfig.defaultAgent ||
+      "claude";
 
-    // Build agent config
+    // Build agent config. CLI --variant is injected into plugin options so the
+    // agent picks it up during initialize(), mirroring run's applyAgentOptions.
+    const agentOptions: Record<string, unknown> = {
+      ...(storedConfig.agentOptions || {}),
+    };
+    if (options.variant) {
+      agentOptions.variant = options.variant;
+    }
+
     const agentConfig: AgentPluginConfig = {
       name: targetAgent,
       plugin: targetAgent,
-      options: storedConfig.agentOptions || {},
+      options: agentOptions,
       command: storedConfig.command,
       envExclude: storedConfig.envExclude,
       envPassthrough: storedConfig.envPassthrough,
@@ -135,6 +150,15 @@ async function getAgent(agentName?: string): Promise<AgentPlugin | null> {
 
     // Get agent instance
     const agent = await registry.getInstance(agentConfig);
+
+    // Validate model if specified, mirroring the engine's preflight in run.
+    if (options.model) {
+      const modelError = agent.validateModel(options.model);
+      if (modelError) {
+        console.error(`Invalid --model value: ${modelError}`);
+        return null;
+      }
+    }
 
     // Check if agent is ready
     const isReady = await agent.isReady();
@@ -166,7 +190,11 @@ async function runChatMode(
   parsedArgs: CreatePrdArgs,
 ): Promise<PrdCreationResult | null> {
   // Get agent
-  const agent = await getAgent(parsedArgs.agent);
+  const agent = await getAgent({
+    agent: parsedArgs.agent,
+    model: parsedArgs.model,
+    variant: parsedArgs.variant,
+  });
   if (!agent) {
     console.error("");
     console.error("Chat mode requires an AI agent. Options:");
@@ -310,6 +338,7 @@ async function runChatMode(
         timeout={timeout}
         prdSkill={parsedArgs.prdSkill}
         prdSkillSource={parsedArgs.prdSkillSource}
+        model={parsedArgs.model}
         trackerLabels={parsedArgs.trackerLabels}
         onComplete={handleComplete}
         onCancel={handleCancel}

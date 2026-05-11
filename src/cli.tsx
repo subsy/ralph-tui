@@ -111,6 +111,15 @@ Convert Options:
   --branch, -b <name> Git branch name (prompts if not provided)
   --force, -f         Overwrite existing files
 
+Create-PRD Options:
+  --agent, -a <name>  Override agent plugin (e.g., claude, opencode)
+  --model <name>      Override model (e.g., opus, anthropic/claude-3-5-sonnet)
+  --variant <level>   Model variant/reasoning effort (e.g., minimal, high, max)
+  --output, -o <dir>  Output directory for PRD files (default: ./tasks)
+  --prd-skill <name>  PRD skill folder inside skills_dir
+  --timeout, -t <ms>  Timeout for AI agent calls (0 = no timeout)
+  --force, -f         Overwrite existing files
+
 Examples:
   ralph-tui                              # Start execution (same as 'run')
   ralph-tui create-prd                   # Create a new PRD interactively

@@ -75,6 +75,12 @@ export interface PrdChatAppProps {
 
   prdSkillSource?: string;
 
+  /**
+   * Override model passed to the agent via --model at execute time.
+   * Used to match `ralph-tui run --model <name>` behavior in PRD chat mode.
+   */
+  model?: string;
+
   /** Labels to apply to created beads issues (from config trackerOptions) */
   trackerLabels?: string[];
 
@@ -350,6 +356,7 @@ export function PrdChatApp({
   timeout = 0,
   prdSkill,
   prdSkillSource,
+  model,
   trackerLabels,
   onComplete,
   onCancel,
@@ -431,8 +438,9 @@ export function PrdChatApp({
       timeout,
       prdSkill,
       prdSkillSource,
+      model,
     });
-    const taskEngine = createTaskChatEngine(agent, { cwd, timeout });
+    const taskEngine = createTaskChatEngine(agent, { cwd, timeout, model });
 
     // Subscribe to events
     const unsubscribe = engine.on((event: ChatEvent) => {
@@ -461,7 +469,7 @@ export function PrdChatApp({
       isMountedRef.current = false;
       unsubscribe();
     };
-  }, [agent, cwd, timeout, prdSkill, prdSkillSource, onError]);
+  }, [agent, cwd, timeout, prdSkill, prdSkillSource, model, onError]);
 
   /**
    * Handle PRD detection - save file and switch to review phase

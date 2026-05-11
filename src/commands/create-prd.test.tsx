@@ -84,6 +84,21 @@ describe('parseCreatePrdArgs', () => {
     expect(args.agent).toBe('opencode');
   });
 
+  test('parses --model flag', () => {
+    const args = parseCreatePrdArgs(['--model', 'opus']);
+    expect(args.model).toBe('opus');
+  });
+
+  test('parses --model with provider/model format', () => {
+    const args = parseCreatePrdArgs(['--model', 'anthropic/claude-3-5-sonnet']);
+    expect(args.model).toBe('anthropic/claude-3-5-sonnet');
+  });
+
+  test('parses --variant flag', () => {
+    const args = parseCreatePrdArgs(['--variant', 'high']);
+    expect(args.variant).toBe('high');
+  });
+
   test('parses --timeout flag', () => {
     const args = parseCreatePrdArgs(['--timeout', '5000']);
     expect(args.timeout).toBe(5000);
@@ -108,11 +123,15 @@ describe('parseCreatePrdArgs', () => {
     const args = parseCreatePrdArgs([
       '--cwd', '/test',
       '--agent', 'claude',
+      '--model', 'opus',
+      '--variant', 'high',
       '--timeout', '3000',
       '--force',
     ]);
     expect(args.cwd).toBe('/test');
     expect(args.agent).toBe('claude');
+    expect(args.model).toBe('opus');
+    expect(args.variant).toBe('high');
     expect(args.timeout).toBe(3000);
     expect(args.force).toBe(true);
   });

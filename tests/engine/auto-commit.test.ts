@@ -1,6 +1,7 @@
 /**
  * ABOUTME: Tests for the auto-commit utility module.
- * Verifies git staging/commit behavior after task completion using real temporary git repos.
+ * Verifies git staging/commit behavior after task completion using real temporary git repos,
+ * plus Handlebars-based rendering of configurable commit message templates.
  *
  * This test file uses Bun.spawn directly for all git operations to avoid mock pollution
  * from other test files. Bun's mock.restore() does not reliably restore builtin modules.
@@ -9,13 +10,19 @@
  * NOTE: The functions hasUncommittedChanges and performAutoCommit are re-implemented
  * locally using Bun.spawn because of the mock restoration issue above. Replace these
  * with imports from src/engine/auto-commit.ts when Bun's module mock restoration is
- * fixed, to keep tests in sync with production.
+ * fixed, to keep tests in sync with production. `renderCommitMessage` is pure and is
+ * imported directly from production.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import {
+  renderCommitMessage,
+  DEFAULT_COMMIT_MESSAGE_TEMPLATE,
+  DEFAULT_TASK_TYPE,
+} from '../../src/engine/auto-commit.js';
 
 let tempDir: string;
 
@@ -53,11 +60,13 @@ async function hasUncommittedChanges(cwd: string): Promise<boolean> {
 /**
  * Test-local implementation of performAutoCommit using Bun.spawn.
  * This mirrors the logic in src/engine/auto-commit.ts but bypasses node:child_process.
+ *
+ * Signature matches the production function: callers pass a pre-rendered subject
+ * (commit message templates are rendered in the engine via renderCommitMessage).
  */
 async function performAutoCommit(
   cwd: string,
-  taskId: string,
-  taskTitle: string
+  commitMessage: string
 ): Promise<{
   committed: boolean;
   commitMessage?: string;
@@ -89,7 +98,6 @@ async function performAutoCommit(
     };
   }
 
-  const commitMessage = `feat: ${taskId} - ${taskTitle}`;
   const commitResult = await runProcess('git', ['commit', '-m', commitMessage], cwd);
   if (!commitResult.success) {
     return {
@@ -165,13 +173,13 @@ describe('hasUncommittedChanges', () => {
 });
 
 describe('performAutoCommit', () => {
-  test('creates commit with correct message format', async () => {
+  test('creates commit with supplied subject line', async () => {
     await writeFile(join(tempDir, 'task-output.txt'), 'done');
 
-    const result = await performAutoCommit(tempDir, 'TASK-42', 'Fix the login bug');
+    const result = await performAutoCommit(tempDir, 'feature: TASK-42 Fix the login bug');
 
     expect(result.committed).toBe(true);
-    expect(result.commitMessage).toBe('feat: TASK-42 - Fix the login bug');
+    expect(result.commitMessage).toBe('feature: TASK-42 Fix the login bug');
     expect(result.commitSha).toBeDefined();
     expect(result.commitSha!.length).toBeGreaterThan(0);
     expect(result.error).toBeUndefined();
@@ -179,7 +187,7 @@ describe('performAutoCommit', () => {
   });
 
   test('skips when there are no changes', async () => {
-    const result = await performAutoCommit(tempDir, 'TASK-1', 'No-op task');
+    const result = await performAutoCommit(tempDir, 'chore: TASK-1 No-op task');
 
     expect(result.committed).toBe(false);
     expect(result.skipReason).toBe('no uncommitted changes');
@@ -190,7 +198,7 @@ describe('performAutoCommit', () => {
     await writeFile(join(tempDir, 'new.ts'), 'export const x = 1;');
     await writeFile(join(tempDir, '.gitkeep'), 'modified');
 
-    const result = await performAutoCommit(tempDir, 'TASK-5', 'Multi-file change');
+    const result = await performAutoCommit(tempDir, 'chore: TASK-5 Multi-file change');
 
     expect(result.committed).toBe(true);
 
@@ -203,7 +211,7 @@ describe('performAutoCommit', () => {
   test('commit SHA matches HEAD after commit', async () => {
     await writeFile(join(tempDir, 'file.txt'), 'content');
 
-    const result = await performAutoCommit(tempDir, 'TASK-10', 'Verify SHA');
+    const result = await performAutoCommit(tempDir, 'chore: TASK-10 Verify SHA');
 
     expect(result.committed).toBe(true);
 
@@ -218,7 +226,7 @@ describe('performAutoCommit', () => {
     await writeFile(join(nonGitDir, 'file.txt'), 'content');
 
     try {
-      const result = await performAutoCommit(nonGitDir, 'TASK-99', 'Should fail');
+      const result = await performAutoCommit(nonGitDir, 'chore: TASK-99 Should fail');
       // Should not throw - returns error in result
       expect(result.committed).toBe(false);
       expect(result.error).toBeDefined();
@@ -231,9 +239,96 @@ describe('performAutoCommit', () => {
   test('leaves working tree clean after commit', async () => {
     await writeFile(join(tempDir, 'file.txt'), 'content');
 
-    await performAutoCommit(tempDir, 'TASK-7', 'Clean tree');
+    await performAutoCommit(tempDir, 'chore: TASK-7 Clean tree');
 
     const hasChanges = await hasUncommittedChanges(tempDir);
     expect(hasChanges).toBe(false);
+  });
+});
+
+describe('renderCommitMessage', () => {
+  test('default template uses task.type when present', () => {
+    const result = renderCommitMessage(undefined, {
+      taskId: 'TASK-42',
+      taskTitle: 'Fix the login bug',
+      taskType: 'feature',
+    });
+
+    expect(result.message).toBe('feature: TASK-42 Fix the login bug');
+    expect(result.usedFallback).toBe(false);
+    expect(result.fallbackReason).toBeUndefined();
+  });
+
+  test('default template falls back to "chore" when task.type missing', () => {
+    const result = renderCommitMessage(undefined, {
+      taskId: 'TASK-1',
+      taskTitle: 'Untyped work',
+    });
+
+    expect(result.message).toBe('chore: TASK-1 Untyped work');
+    expect(result.usedFallback).toBe(false);
+  });
+
+  test('default template falls back to "chore" when task.type is whitespace', () => {
+    const result = renderCommitMessage(undefined, {
+      taskId: 'TASK-2',
+      taskTitle: 'Empty type',
+      taskType: '   ',
+    });
+
+    expect(result.message).toBe(`${DEFAULT_TASK_TYPE}: TASK-2 Empty type`);
+    expect(result.usedFallback).toBe(false);
+  });
+
+  test('custom template references taskId, taskTitle, and taskType', () => {
+    const result = renderCommitMessage('{{taskType}}({{taskId}}): {{taskTitle}}', {
+      taskId: 'US-001',
+      taskTitle: 'Prepare fs',
+      taskType: 'feat',
+    });
+
+    expect(result.message).toBe('feat(US-001): Prepare fs');
+    expect(result.usedFallback).toBe(false);
+  });
+
+  test('custom template that renders to whitespace falls back to default', () => {
+    const result = renderCommitMessage('   ', {
+      taskId: 'TASK-3',
+      taskTitle: 'Whitespace template',
+      taskType: 'bug',
+    });
+
+    expect(result.message).toBe('bug: TASK-3 Whitespace template');
+    expect(result.usedFallback).toBe(true);
+    expect(result.fallbackReason).toBeDefined();
+  });
+
+  test('invalid Handlebars syntax falls back to default and surfaces reason', () => {
+    // Unclosed mustache triggers a Handlebars parse error.
+    const result = renderCommitMessage('{{taskId', {
+      taskId: 'TASK-4',
+      taskTitle: 'Broken template',
+      taskType: 'bug',
+    });
+
+    expect(result.message).toBe('bug: TASK-4 Broken template');
+    expect(result.usedFallback).toBe(true);
+    expect(result.fallbackReason).toBeDefined();
+    expect(result.fallbackReason!.length).toBeGreaterThan(0);
+  });
+
+  test('does not HTML-escape characters in task titles', () => {
+    const result = renderCommitMessage(undefined, {
+      taskId: 'TASK-5',
+      taskTitle: `Handle "quotes" & <brackets>`,
+      taskType: 'fix',
+    });
+
+    expect(result.message).toBe(`fix: TASK-5 Handle "quotes" & <brackets>`);
+    expect(result.usedFallback).toBe(false);
+  });
+
+  test('exports DEFAULT_COMMIT_MESSAGE_TEMPLATE matching the documented default', () => {
+    expect(DEFAULT_COMMIT_MESSAGE_TEMPLATE).toBe('{{taskType}}: {{taskId}} {{taskTitle}}');
   });
 });
