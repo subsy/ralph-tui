@@ -646,6 +646,29 @@ describe('InstanceManager', () => {
     });
   });
 
+  describe('Remote-only mode', () => {
+    test('default constructor leaves remoteOnly false and adds local tab on init', async () => {
+      const { InstanceManager } = await import('../../src/remote/instance-manager.js');
+      const manager = new InstanceManager();
+      expect(manager.isRemoteOnly()).toBe(false);
+
+      await manager.initialize();
+      const tabs = manager.getTabs();
+      expect(tabs.some((t) => t.isLocal)).toBe(true);
+      expect(tabs[0]?.isLocal).toBe(true);
+    });
+
+    test('remoteOnly: true skips the local tab', async () => {
+      const { InstanceManager } = await import('../../src/remote/instance-manager.js');
+      const manager = new InstanceManager({ remoteOnly: true });
+      expect(manager.isRemoteOnly()).toBe(true);
+
+      await manager.initialize();
+      const tabs = manager.getTabs();
+      expect(tabs.some((t) => t.isLocal)).toBe(false);
+    });
+  });
+
   describe('Remote Management Methods', () => {
     test('getTabIndexByAlias returns -1 for non-existent alias', async () => {
       const { InstanceManager } = await import('../../src/remote/instance-manager.js');

@@ -43,6 +43,14 @@ export type InstanceStateChangeHandler = (tabs: InstanceTab[], selectedIndex: nu
 export type EngineEventHandler = (event: import('../engine/types.js').EngineEvent) => void;
 
 /**
+ * Options for InstanceManager construction.
+ */
+export interface InstanceManagerOptions {
+  /** When true, skip the local tab and only show remote tabs */
+  remoteOnly?: boolean;
+}
+
+/**
  * Manages local and remote ralph-tui instances.
  * Handles tab state, connection management, and instance selection.
  * US-5: Tracks connection metrics and emits toast notifications for reconnection events.
@@ -55,14 +63,27 @@ export class InstanceManager {
   private remoteConfigs: Map<string, RemoteServerConfig> = new Map();
   private toastHandler: ToastHandler | null = null;
   private engineEventHandlers: Set<EngineEventHandler> = new Set();
+  private readonly remoteOnly: boolean;
+
+  constructor(options: InstanceManagerOptions = {}) {
+    this.remoteOnly = options.remoteOnly ?? false;
+  }
+
+  /**
+   * Returns true when the manager was constructed in remote-only mode
+   * (no local tab will be present).
+   */
+  isRemoteOnly(): boolean {
+    return this.remoteOnly;
+  }
 
   /**
    * Initialize the instance manager.
-   * Loads remote configurations and sets up the local tab.
+   * Loads remote configurations and sets up the local tab (unless in remote-only mode).
    */
   async initialize(): Promise<void> {
-    // Always start with the local tab
-    this.tabs = [createLocalTab()];
+    // Start with the local tab unless in remote-only mode
+    this.tabs = this.remoteOnly ? [] : [createLocalTab()];
 
     // Load remote configurations
     const remotes = await listRemotes();

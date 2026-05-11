@@ -301,6 +301,18 @@ describe('run command', () => {
       });
     });
 
+    describe('remote-only flag', () => {
+      test('parses --remote-only flag', () => {
+        const result = parseRunArgs(['--remote-only']);
+        expect(result.remoteOnly).toBe(true);
+      });
+
+      test('remoteOnly is undefined when not specified', () => {
+        const result = parseRunArgs([]);
+        expect(result.remoteOnly).toBeUndefined();
+      });
+    });
+
     describe('combined options', () => {
       test('parses multiple options', () => {
         const result = parseRunArgs([
@@ -380,6 +392,7 @@ describe('run command', () => {
       expect(output).toContain('--headless');
       expect(output).toContain('--no-tui');
       expect(output).toContain('--no-setup');
+      expect(output).toContain('--remote-only');
     });
 
     test('includes examples', () => {

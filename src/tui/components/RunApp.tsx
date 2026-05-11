@@ -734,7 +734,8 @@ export function RunApp({
   const [detectedModel, setDetectedModel] = useState<string | undefined>(currentModel);
 
   // Remote viewing state
-  const isViewingRemote = selectedTabIndex > 0;
+  // Use tab.isLocal so remote-only mode (where index 0 is already a remote tab) works correctly.
+  const isViewingRemote = instanceTabs?.[selectedTabIndex]?.isLocal === false;
   const [remoteTasks, setRemoteTasks] = useState<TaskItem[]>([]);
   const [remoteStatus, setRemoteStatus] = useState<RalphStatus>('ready');
   const [remoteOutput, setRemoteOutput] = useState('');
@@ -2629,7 +2630,7 @@ export function RunApp({
 
         // Remote management: 'e' to edit current remote (only when viewing a remote tab)
         case 'e':
-          if (isViewingRemote && instanceTabs && selectedTabIndex > 0) {
+          if (isViewingRemote && instanceTabs) {
             const tab = instanceTabs[selectedTabIndex];
             if (tab?.alias) {
               // Load remote data for editing
@@ -2662,7 +2663,7 @@ export function RunApp({
             break;
           }
           // Remote management: delete current remote (only when viewing a remote tab)
-          if (isViewingRemote && instanceTabs && selectedTabIndex > 0) {
+          if (isViewingRemote && instanceTabs) {
             const tab = instanceTabs[selectedTabIndex];
             if (tab?.alias) {
               // Load remote data for delete confirmation
