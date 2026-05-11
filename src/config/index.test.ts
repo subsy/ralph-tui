@@ -1128,3 +1128,100 @@ envPassthrough = ["MY_API_KEY"]
     expect(config!.agent.envPassthrough).toEqual(['MY_API_KEY']);
   });
 });
+
+describe('buildConfig - preflightTimeoutMs shorthand', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test('applies top-level preflightTimeoutMs to default agent', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+preflightTimeoutMs = 60000
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('agent-level preflightTimeoutMs takes precedence over top-level', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+preflightTimeoutMs = 60000
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude"
+plugin = "claude"
+default = true
+preflightTimeoutMs = 120000
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBe(120000);
+  });
+
+  test('top-level preflightTimeoutMs not applied when agent already has it set', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+preflightTimeoutMs = 60000
+tracker = "beads-bv"
+
+[[agents]]
+name = "custom-claude"
+plugin = "claude"
+default = true
+preflightTimeoutMs = 90000
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBe(90000);
+  });
+
+  test('leaves preflightTimeoutMs undefined when neither level sets it', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBeUndefined();
+  });
+});

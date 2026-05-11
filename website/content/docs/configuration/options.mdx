@@ -28,6 +28,7 @@ These control basic execution behavior.
 | `prompt_template` | string | - | Custom Handlebars template path |
 | `subagentTracingDetail` | string | `"off"` | Subagent visibility level |
 | `skills_dir` | string | - | Directory containing custom PRD skills |
+| `preflightTimeoutMs` | number | `30000` | Preflight check timeout in ms for the default agent (1000–300000). See [Preflight Timeout](#preflight-timeout). |
 
 ### subagentTracingDetail Values
 
@@ -115,11 +116,49 @@ timeout = 300000
 | `command` | string | (from plugin) | Override executable command |
 | `defaultFlags` | string[] | `[]` | Additional CLI flags |
 | `timeout` | number | `0` | Execution timeout (ms, 0 = no timeout) |
+| `preflightTimeoutMs` | number | `30000` | Preflight check timeout in ms (1000–300000). See [Preflight Timeout](#preflight-timeout). |
 | `options` | object | `{}` | Plugin-specific options |
 | `fallbackAgents` | string[] | `[]` | Agents to try on rate limit |
 | `rateLimitHandling` | object | - | Rate limit configuration |
 | `envExclude` | string[] | `[]` | Additional env var patterns to exclude |
 | `envPassthrough` | string[] | `[]` | Env vars to allow through despite exclusion patterns |
+
+### Preflight Timeout
+
+`preflightTimeoutMs` controls how long Ralph TUI waits for the agent to respond during the preflight health check run by [`ralph-tui doctor`](/docs/cli/doctor) and [`ralph-tui setup`](/docs/cli/setup).
+
+The default is **30 seconds**, which is plenty for hosted models. Increase it when:
+
+- You're running a **local reasoning model** (e.g. via Ollama, LM Studio, or a self-hosted endpoint) whose first response can legitimately exceed 30s while it warms up or thinks.
+- You're routing through a wrapper (such as Claude Code Router) that adds latency on cold start.
+- You see intermittent `preflight check failed` errors on a setup that is otherwise healthy.
+
+```toml
+# Top-level shorthand — applies to the default agent
+preflightTimeoutMs = 60000
+```
+
+Or per-agent for finer control:
+
+```toml
+[[agents]]
+name = "my-local-model"
+plugin = "opencode"
+preflightTimeoutMs = 120000  # 2 minutes for a slow local reasoning model
+
+  [agents.options]
+  model = "qwen2.5-coder:32b"
+```
+
+| Constraint | Value |
+|------------|-------|
+| Minimum | `1000` (1 second) |
+| Maximum | `300000` (5 minutes) |
+| Default | `30000` (30 seconds) |
+
+<Callout type="tip">
+The top-level `preflightTimeoutMs` only applies to the default agent. Per-agent settings in `[[agents]]` override the shorthand.
+</Callout>
 
 ## Tracker Options
 
@@ -594,6 +633,7 @@ All numeric options have validation constraints:
 | `errorHandling.retryDelayMs` | 0 | 300000 |
 | `rateLimitHandling.maxRetries` | 0 | 10 |
 | `rateLimitHandling.baseBackoffMs` | 0 | 300000 |
+| `preflightTimeoutMs` | 1000 | 300000 |
 
 ## Environment Variables
 

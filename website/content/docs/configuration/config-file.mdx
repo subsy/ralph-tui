@@ -64,6 +64,10 @@ autoCommit = false
 # Subagent tracing detail: "off", "minimal", "moderate", "full"
 subagentTracingDetail = "minimal"
 
+# Preflight check timeout in ms (1000-300000, default 30000).
+# Increase for local reasoning models that need longer to respond.
+# preflightTimeoutMs = 60000
+
 # ─────────────────────────────────────────────
 # Agent Options (shorthand)
 # ─────────────────────────────────────────────
@@ -236,6 +240,20 @@ tracker = "beads-bv"
 ```
 
 This uses the Claude agent plugin (for output parsing, flags, etc.) but executes through CCR which handles provider routing.
+
+### Local Reasoning Model
+
+When pointing Ralph TUI at a locally hosted thinking model, the preflight health check may legitimately take longer than the default 30 seconds. Raise the limit:
+
+```toml
+agent = "opencode"
+preflightTimeoutMs = 120000  # 2 minutes for local model warm-up
+
+[agentOptions]
+model = "qwen2.5-coder:32b"
+```
+
+See [Preflight Timeout](/docs/configuration/options#preflight-timeout) for the full reference.
 
 ## Advanced: Plugin Arrays
 

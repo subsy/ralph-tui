@@ -256,6 +256,8 @@ function mergeConfigs(
     merged.fallbackAgents = project.fallbackAgents;
   if (project.envExclude !== undefined) merged.envExclude = project.envExclude;
   if (project.envPassthrough !== undefined) merged.envPassthrough = project.envPassthrough;
+  if (project.preflightTimeoutMs !== undefined)
+    merged.preflightTimeoutMs = project.preflightTimeoutMs;
 
   // Merge nested objects
   if (project.rateLimitHandling !== undefined) {
@@ -438,6 +440,14 @@ export function getDefaultAgentConfig(
       result = {
         ...result,
         envPassthrough: storedConfig.envPassthrough,
+      };
+    }
+
+    // Apply preflightTimeoutMs shorthand (only if not already set on agent config)
+    if (storedConfig.preflightTimeoutMs && !result.preflightTimeoutMs) {
+      result = {
+        ...result,
+        preflightTimeoutMs: storedConfig.preflightTimeoutMs,
       };
     }
 

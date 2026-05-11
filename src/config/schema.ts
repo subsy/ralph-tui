@@ -112,6 +112,7 @@ export const AgentPluginConfigSchema = z.object({
   command: z.string().optional(),
   defaultFlags: z.array(z.string()).optional(),
   timeout: z.number().int().min(0).optional(),
+  preflightTimeoutMs: z.number().int().min(1000).max(300000).optional(),
   options: AgentOptionsSchema.optional().default({}),
   fallbackAgents: z.array(z.string().min(1)).optional(),
   rateLimitHandling: RateLimitHandlingConfigSchema.optional(),
@@ -204,6 +205,9 @@ export const StoredConfigSchema = z
 
     // Environment variables to pass through despite matching default exclusion patterns
     envPassthrough: z.array(z.string().min(1)).optional(),
+
+    // Preflight check timeout in milliseconds (shorthand for default agent)
+    preflightTimeoutMs: z.number().int().min(1000).max(300000).optional(),
 
     // Custom prompt template path
     prompt_template: z.string().optional(),

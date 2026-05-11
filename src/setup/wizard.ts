@@ -36,6 +36,7 @@ import {
   installViaAddSkill,
 } from './skill-installer.js';
 import { CURRENT_CONFIG_VERSION } from './migration.js';
+import { loadStoredConfig } from '../config/index.js';
 
 /**
  * Config directory and filename
@@ -498,8 +499,9 @@ export async function runSetupWizard(
       options: agentOptions,
     });
 
+    const savedConfig = await loadStoredConfig(cwd);
     // Run preflight check
-    const preflightResult = await agentInstance.preflight({ timeout: 30000 });
+    const preflightResult = await agentInstance.preflight({ timeout: savedConfig.preflightTimeoutMs ?? 30000 });
 
     if (preflightResult.success) {
       printSuccess(`✓ Agent is configured correctly and responding`);

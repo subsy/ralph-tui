@@ -41,11 +41,17 @@ let mockPreflightResult: MockPreflightResult = { success: true, durationMs: 100 
 // Capture the last config passed to getInstance for verification
 let lastGetInstanceConfig: unknown = null;
 
+// Capture the options passed to preflight() for verification (e.g. timeout)
+let lastPreflightOptions: { timeout?: number } | null = null;
+
 // Mock agent instance
 const createMockAgentInstance = () => ({
   meta: { id: 'claude', name: 'Claude Code' },
   detect: () => Promise.resolve(mockDetectResult),
-  preflight: () => Promise.resolve(mockPreflightResult),
+  preflight: (opts?: { timeout?: number }) => {
+    lastPreflightOptions = opts ?? null;
+    return Promise.resolve(mockPreflightResult);
+  },
   initialize: () => Promise.resolve(),
   dispose: () => Promise.resolve(),
 });
@@ -396,6 +402,7 @@ describe('doctor config propagation', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     lastGetInstanceConfig = null;
+    lastPreflightOptions = null;
     mockDetectResult = { available: true, version: '1.0.0', executablePath: '/usr/bin/mock' };
     mockPreflightResult = { success: true, durationMs: 100 };
 
@@ -506,6 +513,66 @@ envPassthrough = ["CUSTOM_VAR"]
     expect(config.plugin).toBe('claude');
     expect(config.command).toBe('claude-glm');
     expect(config.envPassthrough).toEqual(['CUSTOM_VAR']);
+  });
+
+  test('uses default 30s preflight timeout when not configured', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude',
+    });
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    expect(lastPreflightOptions?.timeout).toBe(30000);
+  });
+
+  test('uses top-level preflightTimeoutMs from config', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude',
+      preflightTimeoutMs: 90000,
+    });
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    expect(lastPreflightOptions?.timeout).toBe(90000);
+  });
+
+  test('uses per-agent preflightTimeoutMs over top-level', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+preflightTimeoutMs = 60000
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude-local"
+plugin = "claude"
+default = true
+preflightTimeoutMs = 180000
+`,
+      'utf-8'
+    );
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    expect(lastPreflightOptions?.timeout).toBe(180000);
   });
 
   test('agent-level command in [[agents]] takes precedence over top-level command', async () => {

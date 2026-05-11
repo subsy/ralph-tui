@@ -344,6 +344,44 @@ describe('AgentPluginConfigSchema', () => {
     expect(result.envExclude).toEqual(['*_TOKEN']);
     expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY']);
   });
+
+  test('accepts preflightTimeoutMs within bounds', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      preflightTimeoutMs: 60000,
+    });
+    expect(result.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('accepts preflightTimeoutMs at exact boundaries', () => {
+    expect(
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 1000 })
+        .preflightTimeoutMs
+    ).toBe(1000);
+    expect(
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 300000 })
+        .preflightTimeoutMs
+    ).toBe(300000);
+  });
+
+  test('rejects preflightTimeoutMs below minimum', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 999 })
+    ).toThrow();
+  });
+
+  test('rejects preflightTimeoutMs above maximum', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 300001 })
+    ).toThrow();
+  });
+
+  test('rejects non-integer preflightTimeoutMs', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 30000.5 })
+    ).toThrow();
+  });
 });
 
 describe('TrackerOptionsSchema', () => {
@@ -482,6 +520,19 @@ describe('StoredConfigSchema', () => {
     });
     expect(result.envExclude).toEqual(['*_TOKEN']);
     expect(result.envPassthrough).toEqual(['MY_API_KEY']);
+  });
+
+  test('accepts top-level preflightTimeoutMs within bounds', () => {
+    const result = StoredConfigSchema.parse({ preflightTimeoutMs: 60000 });
+    expect(result.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('rejects top-level preflightTimeoutMs below minimum', () => {
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: 999 })).toThrow();
+  });
+
+  test('rejects top-level preflightTimeoutMs above maximum', () => {
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: 300001 })).toThrow();
   });
 
   test('accepts progressFile field', () => {
