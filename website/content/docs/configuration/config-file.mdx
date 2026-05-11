@@ -58,6 +58,15 @@ progressFile = ".ralph-tui/progress.md"
 # may still commit on their own if instructed by templates or CLAUDE.md).
 autoCommit = false
 
+# Optional Handlebars template for the auto-commit subject line. Variables:
+#   {{taskId}}    - tracker-supplied task identifier
+#   {{taskTitle}} - tracker-supplied task title
+#   {{taskType}}  - task type (e.g. "bug", "feature"); falls back to "chore"
+# If unset, the default below is used. To restore the legacy `feat:` prefix used
+# in pre-#384 releases, set:
+#   commitMessageTemplate = "feat: {{taskId}} - {{taskTitle}}"
+# commitMessageTemplate = "{{taskType}}: {{taskId}} {{taskTitle}}"
+
 # Custom prompt template path (relative or absolute)
 # prompt_template = "./my-template.hbs"
 

@@ -479,6 +479,13 @@ export interface TaskAutoCommittedEvent extends EngineEventBase {
   commitMessage: string;
   /** Short SHA of the commit (if available) */
   commitSha?: string;
+  /**
+   * Populated when a configured `commitMessageTemplate` failed to render
+   * (Handlebars error or empty/whitespace result) and the engine fell back
+   * to the default template. Always undefined when no template was set or
+   * the template rendered cleanly.
+   */
+  templateFallbackReason?: string;
 }
 
 /**

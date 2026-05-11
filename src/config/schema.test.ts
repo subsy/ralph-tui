@@ -522,6 +522,22 @@ describe('StoredConfigSchema', () => {
     expect(result.envPassthrough).toEqual(['MY_API_KEY']);
   });
 
+  test('accepts commitMessageTemplate as an optional string', () => {
+    const result = StoredConfigSchema.parse({
+      commitMessageTemplate: '{{taskType}}({{taskId}}): {{taskTitle}}',
+    });
+    expect(result.commitMessageTemplate).toBe('{{taskType}}({{taskId}}): {{taskTitle}}');
+  });
+
+  test('accepts empty config without commitMessageTemplate', () => {
+    const result = StoredConfigSchema.parse({});
+    expect(result.commitMessageTemplate).toBeUndefined();
+  });
+
+  test('rejects commitMessageTemplate when set to a non-string', () => {
+    expect(() => StoredConfigSchema.parse({ commitMessageTemplate: 42 })).toThrow();
+  });
+
   test('accepts top-level preflightTimeoutMs within bounds', () => {
     const result = StoredConfigSchema.parse({ preflightTimeoutMs: 60000 });
     expect(result.preflightTimeoutMs).toBe(60000);

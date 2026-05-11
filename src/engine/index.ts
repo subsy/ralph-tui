@@ -56,7 +56,7 @@ import {
 } from '../plugins/agents/usage.js';
 import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
 import { saveIterationLog, buildSubagentTrace, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
-import { performAutoCommit } from './auto-commit.js';
+import { performAutoCommit, renderCommitMessage } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
@@ -2225,7 +2225,17 @@ export class ExecutionEngine {
    */
   private async handleAutoCommit(task: TrackerTask, iteration: number): Promise<void> {
     try {
-      const result = await performAutoCommit(this.config.cwd, task.id, task.title);
+      const rendered = renderCommitMessage(this.config.commitMessageTemplate, {
+        taskId: task.id,
+        taskTitle: task.title,
+        taskType: task.type,
+      });
+      if (rendered.usedFallback) {
+        console.warn(
+          `[auto-commit] commitMessageTemplate fell back to the default for task ${task.id}: ${rendered.fallbackReason}`
+        );
+      }
+      const result = await performAutoCommit(this.config.cwd, rendered.message);
       if (result.committed) {
         this.emit({
           type: 'task:auto-committed',
@@ -2234,6 +2244,7 @@ export class ExecutionEngine {
           iteration,
           commitMessage: result.commitMessage!,
           commitSha: result.commitSha,
+          templateFallbackReason: rendered.usedFallback ? rendered.fallbackReason : undefined,
         });
       } else if (result.error) {
         this.emit({
