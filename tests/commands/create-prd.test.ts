@@ -27,6 +27,8 @@ describe('create-prd command', () => {
       expect(logs[0]).toContain('create-prd');
       expect(logs[0]).toContain('--output');
       expect(logs[0]).toContain('--agent');
+      expect(logs[0]).toContain('--model');
+      expect(logs[0]).toContain('--variant');
     });
   });
 
@@ -49,6 +51,53 @@ describe('create-prd command', () => {
     test('parses -a shorthand', () => {
       const result = parseCreatePrdArgs(['-a', 'claude']);
       expect(result.agent).toBe('claude');
+    });
+
+    test('parses --model with simple name', () => {
+      const result = parseCreatePrdArgs(['--model', 'opus']);
+      expect(result.model).toBe('opus');
+    });
+
+    test('parses --model with provider/model format', () => {
+      const result = parseCreatePrdArgs([
+        '--model',
+        'anthropic/claude-3-5-sonnet',
+      ]);
+      expect(result.model).toBe('anthropic/claude-3-5-sonnet');
+    });
+
+    test('parses --model with OpenRouter triple format', () => {
+      // From issue #383 — exact value the user wanted to pass through
+      const result = parseCreatePrdArgs([
+        '--model',
+        'moonshotai/kimi-k2.6:siliconflow/fp8',
+      ]);
+      expect(result.model).toBe('moonshotai/kimi-k2.6:siliconflow/fp8');
+    });
+
+    test('parses --variant', () => {
+      const result = parseCreatePrdArgs(['--variant', 'high']);
+      expect(result.variant).toBe('high');
+    });
+
+    test('parses --model alongside --agent and --variant', () => {
+      const result = parseCreatePrdArgs([
+        '--agent',
+        'opencode',
+        '--model',
+        'anthropic/claude-3-5-sonnet',
+        '--variant',
+        'max',
+      ]);
+      expect(result.agent).toBe('opencode');
+      expect(result.model).toBe('anthropic/claude-3-5-sonnet');
+      expect(result.variant).toBe('max');
+    });
+
+    test('model and variant are undefined when not provided', () => {
+      const result = parseCreatePrdArgs(['--agent', 'claude']);
+      expect(result.model).toBeUndefined();
+      expect(result.variant).toBeUndefined();
     });
 
     test('parses --stories with count', () => {

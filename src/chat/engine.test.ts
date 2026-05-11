@@ -5,8 +5,13 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { ChatEngine, buildPrdSystemPromptFromSkillSource } from './engine.js';
-import type { AgentPlugin, AgentExecutionHandle, AgentExecutionResult, AgentPluginMeta } from '../plugins/agents/types.js';
+import {
+  ChatEngine,
+  buildPrdSystemPromptFromSkillSource,
+  createPrdChatEngine,
+  createTaskChatEngine,
+} from './engine.js';
+import type { AgentExecuteOptions, AgentPlugin, AgentExecutionHandle, AgentExecutionResult, AgentPluginMeta } from '../plugins/agents/types.js';
 
 describe('buildPrdSystemPromptFromSkillSource', () => {
   test('includes plain text description guidance', () => {
@@ -45,13 +50,16 @@ describe('buildPrdSystemPromptFromSkillSource', () => {
 });
 
 /**
- * Create a mock agent that captures the prompt passed to execute().
+ * Create a mock agent that captures the prompt and execute options
+ * (so tests can assert on flags propagation, etc.).
  */
 function createMockAgent(responseText = 'mock response'): {
   agent: AgentPlugin;
   getCapturedPrompt: () => string | undefined;
+  getCapturedOptions: () => AgentExecuteOptions | undefined;
 } {
   let capturedPrompt: string | undefined;
+  let capturedOptions: AgentExecuteOptions | undefined;
 
   const meta: AgentPluginMeta = {
     id: 'mock',
@@ -72,6 +80,7 @@ function createMockAgent(responseText = 'mock response'): {
     detect: async () => ({ available: true }),
     execute: (prompt: string, _files?, options?) => {
       capturedPrompt = prompt;
+      capturedOptions = options;
       const result: AgentExecutionResult = {
         executionId: 'mock-exec',
         status: 'completed',
@@ -111,7 +120,11 @@ function createMockAgent(responseText = 'mock response'): {
     preflight: async () => ({ success: true, durationMs: 0 }),
   };
 
-  return { agent, getCapturedPrompt: () => capturedPrompt };
+  return {
+    agent,
+    getCapturedPrompt: () => capturedPrompt,
+    getCapturedOptions: () => capturedOptions,
+  };
 }
 
 describe('ChatEngine buildPrompt format', () => {
@@ -272,5 +285,67 @@ describe('ChatEngine buildPrompt format', () => {
     expect(prompt).not.toContain('User: Message 2');
     // Current user message (Message 3) is in history (pushed before buildPrompt)
     expect(prompt).toContain('User: Message 3');
+  });
+});
+
+describe('createPrdChatEngine model propagation', () => {
+  test('forwards --model to the agent via execute flags', async () => {
+    const { agent, getCapturedOptions } = createMockAgent();
+    const engine = createPrdChatEngine(agent, { model: 'opus' });
+
+    await engine.sendMessage('Build a login page');
+
+    const flags = getCapturedOptions()?.flags;
+    expect(flags).toEqual(['--model', 'opus']);
+  });
+
+  test('forwards provider/model format unchanged', async () => {
+    const { agent, getCapturedOptions } = createMockAgent();
+    const engine = createPrdChatEngine(agent, {
+      model: 'moonshotai/kimi-k2.6:siliconflow/fp8',
+    });
+
+    await engine.sendMessage('Build a login page');
+
+    const flags = getCapturedOptions()?.flags;
+    expect(flags).toEqual([
+      '--model',
+      'moonshotai/kimi-k2.6:siliconflow/fp8',
+    ]);
+  });
+
+  test('does not inject --model flag when model is omitted', async () => {
+    const { agent, getCapturedOptions } = createMockAgent();
+    const engine = createPrdChatEngine(agent, {});
+
+    await engine.sendMessage('Hello');
+
+    const flags = getCapturedOptions()?.flags;
+    // Either undefined or an array without --model is acceptable
+    expect(flags === undefined || !flags.includes('--model')).toBe(true);
+  });
+});
+
+describe('createTaskChatEngine model propagation', () => {
+  test('forwards --model to the agent via execute flags', async () => {
+    const { agent, getCapturedOptions } = createMockAgent();
+    const engine = createTaskChatEngine(agent, {
+      model: 'anthropic/claude-3-5-sonnet',
+    });
+
+    await engine.sendMessage('Create tasks');
+
+    const flags = getCapturedOptions()?.flags;
+    expect(flags).toEqual(['--model', 'anthropic/claude-3-5-sonnet']);
+  });
+
+  test('does not inject --model flag when model is omitted', async () => {
+    const { agent, getCapturedOptions } = createMockAgent();
+    const engine = createTaskChatEngine(agent, {});
+
+    await engine.sendMessage('Create tasks');
+
+    const flags = getCapturedOptions()?.flags;
+    expect(flags === undefined || !flags.includes('--model')).toBe(true);
   });
 });
