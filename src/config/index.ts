@@ -256,6 +256,8 @@ function mergeConfigs(
     merged.fallbackAgents = project.fallbackAgents;
   if (project.envExclude !== undefined) merged.envExclude = project.envExclude;
   if (project.envPassthrough !== undefined) merged.envPassthrough = project.envPassthrough;
+  if (project.preflightTimeoutMs !== undefined)
+    merged.preflightTimeoutMs = project.preflightTimeoutMs;
 
   // Merge nested objects
   if (project.rateLimitHandling !== undefined) {

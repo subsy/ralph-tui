@@ -35,9 +35,15 @@ let mockInstallViaAddSkillResult = { success: true, output: '' };
 // Override mockTrackerDetectOverride per-test to change detect() behavior.
 let mockTrackerDetectOverride: ((id: string) => Promise<{ available: boolean; error?: string }>) | null = null;
 
+// Capture the options passed to preflight() for verification (e.g. timeout)
+let lastPreflightOptions: { timeout?: number } | null = null;
+
 // Create a function to generate mock agent instances
 const createMockAgentInstance = (id: string, name: string) => ({
-  preflight: () => Promise.resolve({ success: true, durationMs: 100 }),
+  preflight: (opts?: { timeout?: number }) => {
+    lastPreflightOptions = opts ?? null;
+    return Promise.resolve({ success: true, durationMs: 100 });
+  },
   meta: { id, name, description: `${name} AI`, version: '1.0.0' },
   detect: () => Promise.resolve({ available: true, version: '1.0.0' }),
   initialize: () => Promise.resolve(),
@@ -240,6 +246,7 @@ describe('runSetupWizard', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     capturedOutput = [];
+    lastPreflightOptions = null;
 
     // Spy on console.log to capture output
     consoleLogSpy = spyOn(console, 'log').mockImplementation((...args) => {
@@ -285,6 +292,19 @@ describe('runSetupWizard', () => {
     // Verify file was created
     const configContent = await readFile(result.configPath!, 'utf-8');
     expect(configContent).toContain('tracker');
+  });
+
+  test('preflight uses default 30s timeout when no preflightTimeoutMs is configured', async () => {
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    const result = await runSetupWizard({ cwd: tempDir });
+
+    expect(result.success).toBe(true);
+    expect(lastPreflightOptions?.timeout).toBe(30000);
   });
 
   test('saves correct tracker and agent in config', async () => {
