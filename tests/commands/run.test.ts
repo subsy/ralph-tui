@@ -301,6 +301,18 @@ describe('run command', () => {
       });
     });
 
+    describe('remote-only flag', () => {
+      test('parses --remote-only flag', () => {
+        const result = parseRunArgs(['--remote-only']);
+        expect(result.remoteOnly).toBe(true);
+      });
+
+      test('remoteOnly is undefined when not specified', () => {
+        const result = parseRunArgs([]);
+        expect(result.remoteOnly).toBeUndefined();
+      });
+    });
+
     describe('combined options', () => {
       test('parses multiple options', () => {
         const result = parseRunArgs([
@@ -380,6 +392,7 @@ describe('run command', () => {
       expect(output).toContain('--headless');
       expect(output).toContain('--no-tui');
       expect(output).toContain('--no-setup');
+      expect(output).toContain('--remote-only');
     });
 
     test('includes examples', () => {
@@ -474,6 +487,86 @@ describe('run command', () => {
       const output = consoleErrorOutput.join('\n');
       expect(output).toContain('ralph-tui convert --to json --input ./docs/feature.md');
       expect(output).toContain('ralph-tui convert --to beads --input ./docs/feature.md');
+    });
+  });
+
+  describe('--remote-only flag conflicts', () => {
+    let consoleErrorOutput: string[];
+    let consoleErrorSpy: ReturnType<typeof spyOn>;
+    let processExitSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      consoleErrorOutput = [];
+      consoleErrorSpy = spyOn(console, 'error').mockImplementation((...args) => {
+        consoleErrorOutput.push(args.join(' '));
+      });
+      processExitSpy = spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+    });
+
+    afterEach(() => {
+      consoleErrorSpy.mockRestore();
+      processExitSpy.mockRestore();
+    });
+
+    test('rejects --remote-only combined with --listen', async () => {
+      try {
+        await import('../../src/commands/run.jsx').then((m) =>
+          m.executeRunCommand(['--remote-only', '--listen'])
+        );
+      } catch {
+        // Expected: process.exit throws
+      }
+
+      const output = consoleErrorOutput.join('\n');
+      expect(output).toContain('--remote-only cannot be combined with --listen');
+      expect(processExitSpy).toHaveBeenCalledWith(1);
+    });
+
+    test('rejects --remote-only combined with --headless', async () => {
+      try {
+        await import('../../src/commands/run.jsx').then((m) =>
+          m.executeRunCommand(['--remote-only', '--headless'])
+        );
+      } catch {
+        // Expected: process.exit throws
+      }
+
+      const output = consoleErrorOutput.join('\n');
+      expect(output).toContain('--remote-only requires the TUI');
+      expect(output).toContain('--headless');
+      expect(processExitSpy).toHaveBeenCalledWith(1);
+    });
+
+    test('rejects --remote-only combined with --no-tui (headless alias)', async () => {
+      try {
+        await import('../../src/commands/run.jsx').then((m) =>
+          m.executeRunCommand(['--remote-only', '--no-tui'])
+        );
+      } catch {
+        // Expected: process.exit throws
+      }
+
+      const output = consoleErrorOutput.join('\n');
+      expect(output).toContain('--remote-only requires the TUI');
+      expect(processExitSpy).toHaveBeenCalledWith(1);
+    });
+
+    test('listen check fires before headless check when both implied', async () => {
+      // --listen sets options.headless = true internally. The listen-specific
+      // error message is more useful, so it must be checked first.
+      try {
+        await import('../../src/commands/run.jsx').then((m) =>
+          m.executeRunCommand(['--remote-only', '--listen', '--headless'])
+        );
+      } catch {
+        // Expected: process.exit throws
+      }
+
+      const output = consoleErrorOutput.join('\n');
+      expect(output).toContain('--listen');
+      expect(processExitSpy).toHaveBeenCalledWith(1);
     });
   });
 

@@ -85,8 +85,8 @@ jobs:
           # Run tests in batches to avoid mock.module() conflicts between test files
           # Each batch outputs its own lcov file for later merging
 
-          echo "=== Running tests/ (excluding commands/info.test.ts and beads-rust-bv-tracker.test.ts) ===" | tee -a coverage-output.txt
-          mapfile -t TEST_FILES < <(find tests -type f -name '*.test.ts' ! -path 'tests/commands/info.test.ts' ! -path 'tests/plugins/beads-rust-bv-tracker.test.ts' | sort)
+          echo "=== Running tests/ (excluding commands/info.test.ts, commands/run-remote-only.test.ts and beads-rust-bv-tracker.test.ts) ===" | tee -a coverage-output.txt
+          mapfile -t TEST_FILES < <(find tests -type f -name '*.test.ts' ! -path 'tests/commands/info.test.ts' ! -path 'tests/commands/run-remote-only.test.ts' ! -path 'tests/plugins/beads-rust-bv-tracker.test.ts' | sort)
           bun test "${TEST_FILES[@]}" --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/tests.lcov
 
@@ -101,6 +101,15 @@ jobs:
           echo "=== Running tests/commands/info.test.ts (isolated) ===" | tee -a coverage-output.txt
           bun test tests/commands/info.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/tests-info.lcov
+
+          # Run tests/commands/run-remote-only.test.ts in isolation: it mocks
+          # @opentui/core, @opentui/react, ../../src/remote/index.js, and the
+          # interruption module. Other tests (notably tests/engine/execution-engine.test.ts)
+          # also mock.module() the agent/tracker registry, which pollutes our success-path
+          # tests by replacing getAgentRegistry with a stub missing registerBuiltin.
+          echo "=== Running tests/commands/run-remote-only.test.ts (isolated) ===" | tee -a coverage-output.txt
+          bun test tests/commands/run-remote-only.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/tests-run-remote-only.lcov
 
           echo "=== Running doctor.test.ts ===" | tee -a coverage-output.txt
           bun test src/commands/doctor.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
@@ -232,7 +241,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           # Upload all batch coverage files - Codecov will merge them correctly
-          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-beads-rust-bv.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/beads.lcov,./coverage-parts/plugins.lcov,./coverage-parts/jira.lcov,./coverage-parts/linear-body.lcov,./coverage-parts/linear-client.lcov,./coverage-parts/linear-index.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
+          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-beads-rust-bv.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/tests-run-remote-only.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/beads.lcov,./coverage-parts/plugins.lcov,./coverage-parts/jira.lcov,./coverage-parts/linear-body.lcov,./coverage-parts/linear-client.lcov,./coverage-parts/linear-index.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
           fail_ci_if_error: false
           verbose: true
         env:

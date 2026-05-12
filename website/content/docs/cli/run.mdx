@@ -56,6 +56,7 @@ Running `ralph-tui` without any command also starts the TUI interface, allowing 
 |--------|-------------|
 | `--headless` | Run without TUI (alias: `--no-tui`) |
 | `--no-setup` | Skip interactive setup even if no config exists |
+| `--remote-only` | Start the TUI as a pure remote client — no local engine, no local tab. See [Remote-Only Mode](#remote-only-mode). |
 
 ## Model Options
 
@@ -259,6 +260,62 @@ All remote actions are logged to `~/.config/ralph-tui/audit.log`:
 {"timestamp":"2026-01-19T15:30:00.000Z","clientId":"abc12345@192.168.1.100","action":"connection_connect","success":true}
 {"timestamp":"2026-01-19T15:30:05.000Z","clientId":"abc12345@192.168.1.100","action":"pause","success":true}
 ```
+
+## Remote-Only Mode
+
+Pass `--remote-only` to start the TUI as a **pure remote client**: no local execution engine, no local session/lock, no local tab. The TUI loads your configured remotes and lets you switch between them. Useful when you want to drive multiple remote machines (e.g., several GPU boxes) from one TUI on a workstation that isn't itself running a Ralph engine.
+
+### Requirements
+
+- At least one remote configured in `~/.config/ralph-tui/remotes.toml` (add one with [`ralph-tui remote add`](/docs/cli/remote#add)).
+- The TUI must be visible — `--remote-only` cannot be combined with `--headless` / `--no-tui`.
+
+### Behavior
+
+| Aspect | `--remote-only` |
+|--------|------------------|
+| Local engine | **Not started.** No local agent process, no session file, no lock acquired. |
+| Local tab | **Hidden.** Only remote tabs appear in the TabBar. |
+| Tab navigation | Number keys (1–9) and `[` / `]` switch between remote tabs as usual. |
+| Empty state | At startup, `--remote-only` with zero configured remotes **fails fast** with a non-interactive error (exit 1) — the TUI never opens. See [Fail-fast](#fail-fast-when-no-remotes-are-configured) below. The in-TUI hint `No remotes configured. Press A to add a remote.` only appears if you remove the last remaining remote during an interactive `--remote-only` session; pressing `A` opens the add-remote overlay. |
+| `--epic`, `--prd`, `--agent`, `--model`, `--tracker`, etc. | Silently ignored — each remote uses its own configuration. |
+
+### Examples
+
+```bash
+# Connect to all configured remotes as a pure client
+ralph-tui run --remote-only
+
+# Pair with a theme override (display options still apply)
+ralph-tui run --remote-only --theme dracula
+```
+
+### Flag conflicts
+
+These combinations exit with a clear error:
+
+```bash
+ralph-tui run --remote-only --headless    # cannot run without TUI
+ralph-tui run --remote-only --no-tui      # same as --headless
+ralph-tui run --remote-only --listen      # --listen requires a local engine to expose
+```
+
+### Fail-fast when no remotes are configured
+
+If `~/.config/ralph-tui/remotes.toml` is empty (or missing), `--remote-only` exits with exit code 1 and prints:
+
+```
+Error: --remote-only requires at least one configured remote.
+
+No remotes found in ~/.config/ralph-tui/remotes.toml.
+
+Add a remote first:
+  ralph-tui remote add <alias> <host>:<port> --token <token>
+```
+
+<Callout type="info">
+  Remote-only mode pairs naturally with `--listen` on the other side. Run `ralph-tui run --prd ./prd.json --listen` on each machine you want to control, then use `ralph-tui run --remote-only` on your workstation to drive them all from one TUI.
+</Callout>
 
 ## Parallel Execution
 

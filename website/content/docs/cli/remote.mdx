@@ -317,9 +317,16 @@ Tokens are stored in plain text in `remotes.toml`. Ensure appropriate file permi
 - Full tokens are only shown when generated on the server
 - All remote actions are logged to `~/.config/ralph-tui/audit.log`
 
+## Pure-Client Mode
+
+To launch the TUI without spinning up a local engine — i.e., as a pure client over your configured remotes — use `ralph-tui run --remote-only`. The TUI will skip the local tab and connect only to the remotes listed in `remotes.toml`. This is the natural counterpart to the server-side `--listen` flag and is the recommended way to drive multiple remote instances from one workstation.
+
+See [`run --remote-only`](/docs/cli/run#remote-only-mode) for full details.
+
 ## Related Commands
 
-- [`run --listen`](/docs/cli/run) - Run with remote listener enabled
+- [`run --listen`](/docs/cli/run#remote-listener) - Run with remote listener enabled (server side)
+- [`run --remote-only`](/docs/cli/run#remote-only-mode) - Run the TUI as a pure remote client (no local engine)
 
 ## Troubleshooting
 

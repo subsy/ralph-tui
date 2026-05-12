@@ -91,7 +91,8 @@ The commands are typically used in this order:
 
 ### Remote Control
 
-- **[run --listen](/docs/cli/run#remote-listener)** - Enable WebSocket server for remote control
+- **[run --listen](/docs/cli/run#remote-listener)** - Enable WebSocket server for remote control (server side)
+- **[run --remote-only](/docs/cli/run#remote-only-mode)** - Launch the TUI as a pure remote client — no local engine, no local tab
 - **[remote](/docs/cli/remote)** - Manage connections to remote ralph-tui instances (add, remove, list, test, push-config)
 
 <Callout type="info">
@@ -135,6 +136,9 @@ ralph-tui remote test prod
 
 # Launch TUI to see tabs for local + remote instances
 ralph-tui
+
+# Or launch the TUI as a pure client (no local engine, no local tab)
+ralph-tui run --remote-only
 ```
 
 ### Key Features

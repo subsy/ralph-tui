@@ -77,6 +77,7 @@ import {
   rotateServerToken,
   DEFAULT_LISTEN_OPTIONS,
   InstanceManager,
+  listRemotes,
   type RemoteServer,
   type InstanceTab,
 } from '../remote/index.js';
@@ -747,6 +748,8 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   targetBranch?: string;
   /** Filter tasks by index range (e.g., 1-5, 3-, -10) */
   taskRange?: TaskRangeFilter;
+  /** Skip local engine; TUI acts as pure client to configured remotes */
+  remoteOnly?: boolean;
 }
 
 /**
@@ -935,6 +938,10 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         options.rotateToken = true;
         break;
 
+      case '--remote-only':
+        options.remoteOnly = true;
+        break;
+
       case '--theme':
         if (nextArg && !nextArg.startsWith('-')) {
           options.themePath = nextArg;
@@ -1060,6 +1067,9 @@ Options:
   --listen            Enable remote listener (implies --headless)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
+  --remote-only       Skip local engine — TUI acts as pure remote client.
+                      Requires at least one remote configured in
+                      ~/.config/ralph-tui/remotes.toml.
 
 Log Output Format (--no-tui mode):
   [timestamp] [level] [component] message
@@ -1084,6 +1094,7 @@ Examples:
   ralph-tui run --resume                     # Resume previous session
   ralph-tui run --no-tui                     # Run headless for CI/scripts
   ralph-tui run --listen --prd ./prd.json    # Run with remote listener enabled
+  ralph-tui run --remote-only                # TUI-only client for configured remotes
 `);
 }
 
@@ -1592,6 +1603,8 @@ interface RunAppWrapperProps {
   parallelRefreshedTasks?: TrackerTask[];
   /** Callback to manually refresh tasks in parallel mode (for 'r' key) */
   onRefreshTasks?: () => void;
+  /** When true, the InstanceManager skips the local tab (remote-only mode). */
+  remoteOnly?: boolean;
 }
 
 /**
@@ -1649,6 +1662,7 @@ function RunAppWrapper({
   onConflictSkip,
   parallelRefreshedTasks,
   onRefreshTasks,
+  remoteOnly = false,
 }: RunAppWrapperProps) {
   const [showInterruptDialog, setShowInterruptDialog] = useState(false);
   const [storedConfig, setStoredConfig] = useState<StoredConfig | undefined>(initialStoredConfig);
@@ -1659,7 +1673,7 @@ function RunAppWrapper({
   const localGitInfo = useMemo(() => getGitInfo(cwd), [cwd]);
 
   // Remote instance management
-  const [instanceManager] = useState(() => new InstanceManager());
+  const [instanceManager] = useState(() => new InstanceManager({ remoteOnly }));
   const [instanceTabs, setInstanceTabs] = useState<InstanceTab[]>([]);
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const [connectionToast, setConnectionToast] = useState<ConnectionToastMessage | null>(null);
@@ -2197,6 +2211,102 @@ async function runWithTui(
   process.removeListener('SIGTERM', gracefulShutdown);
 
   return currentState;
+}
+
+/**
+ * Run the TUI as a pure remote client.
+ *
+ * Used in --remote-only mode. No local ExecutionEngine, no session persistence,
+ * no lock acquisition. The InstanceManager (constructed inside RunAppWrapper with
+ * remoteOnly: true) skips the local tab so the TUI only shows configured remotes.
+ *
+ * Keeps the same interrupt-handler / graceful-shutdown plumbing as runWithTui so
+ * Ctrl+C / q behave consistently across modes.
+ */
+async function runRemoteOnlyTui(args: {
+  cwd: string;
+  storedConfig?: StoredConfig;
+}): Promise<void> {
+  let showDialogCallback: (() => void) | null = null;
+  let hideDialogCallback: (() => void) | null = null;
+  let cancelledCallback: (() => void) | null = null;
+
+  // Create the quit Promise up front and capture its resolver before installing
+  // any listeners. This avoids a race where SIGTERM (or any other shutdown path)
+  // fires before `await new Promise(...)` runs and the resolver is still unset.
+  let resolveQuitPromise: () => void = () => {};
+  const quitPromise = new Promise<void>((resolve) => {
+    resolveQuitPromise = resolve;
+  });
+
+  const renderer = await createCliRenderer({
+    exitOnCtrlC: false,
+  });
+
+  const root = createRoot(renderer);
+
+  const cleanup = async (): Promise<void> => {
+    interruptHandler.dispose();
+    renderer.destroy();
+  };
+
+  const gracefulShutdown = async (): Promise<void> => {
+    try {
+      await cleanup();
+    } catch {
+      // Ensure quit promise still resolves when cleanup fails.
+    }
+    resolveQuitPromise();
+  };
+
+  const forceQuit = (): void => {
+    process.exit(1);
+  };
+
+  const interruptHandler = createInterruptHandler({
+    doublePressWindowMs: 1000,
+    onConfirmed: gracefulShutdown,
+    onCancelled: () => {
+      cancelledCallback?.();
+    },
+    onShowDialog: () => {
+      showDialogCallback?.();
+    },
+    onHideDialog: () => {
+      hideDialogCallback?.();
+    },
+    onForceQuit: forceQuit,
+  });
+
+  process.on('SIGTERM', gracefulShutdown);
+
+  root.render(
+    <RunAppWrapper
+      interruptHandler={interruptHandler}
+      onQuit={gracefulShutdown}
+      onInterruptConfirmed={gracefulShutdown}
+      initialTasks={[]}
+      storedConfig={args.storedConfig}
+      cwd={args.cwd}
+      remoteOnly={true}
+    />
+  );
+
+  const checkCallbacks = setInterval(() => {
+    const handler = interruptHandler as {
+      _showDialog?: () => void;
+      _hideDialog?: () => void;
+      _cancelled?: () => void;
+    };
+    if (handler._showDialog) showDialogCallback = handler._showDialog;
+    if (handler._hideDialog) hideDialogCallback = handler._hideDialog;
+    if (handler._cancelled) cancelledCallback = handler._cancelled;
+  }, 10);
+
+  await quitPromise;
+
+  clearInterval(checkCallbacks);
+  process.removeListener('SIGTERM', gracefulShutdown);
 }
 
 /**
@@ -3140,6 +3250,51 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Parse arguments
   const options = parseRunArgs(args);
   const cwd = options.cwd ?? process.cwd();
+
+  // --remote-only conflict guards: these combinations have no coherent meaning.
+  // Check --listen first because it implies --headless.
+  if (options.remoteOnly && options.listen) {
+    console.error('Error: --remote-only cannot be combined with --listen (listen mode requires a local engine to expose).');
+    process.exit(1);
+  }
+  if (options.remoteOnly && options.headless) {
+    console.error('Error: --remote-only requires the TUI; cannot be combined with --headless / --no-tui.');
+    process.exit(1);
+  }
+
+  // --remote-only: skip all local engine setup and run the TUI as a pure client.
+  if (options.remoteOnly) {
+    const remotes = await listRemotes();
+    if (remotes.length === 0) {
+      console.error('');
+      console.error('Error: --remote-only requires at least one configured remote.');
+      console.error('');
+      console.error('No remotes found in ~/.config/ralph-tui/remotes.toml.');
+      console.error('');
+      console.error('Add a remote first:');
+      console.error('  ralph-tui remote add <alias> <host>:<port> --token <token>');
+      console.error('');
+      process.exit(1);
+    }
+
+    if (options.themePath) {
+      try {
+        await initializeTheme(options.themePath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`\nTheme loading failed: ${message}`);
+        process.exit(1);
+      }
+    }
+
+    await initializePlugins();
+    const storedConfig = await loadStoredConfig(cwd);
+
+    console.log(`Initializing remote-only TUI with ${remotes.length} remote(s)...`);
+
+    await runRemoteOnlyTui({ cwd, storedConfig });
+    return;
+  }
 
   // Detect markdown PRD files and show helpful guidance
   if (options.prdPath && /\.(?:md|markdown)$/i.test(options.prdPath)) {
