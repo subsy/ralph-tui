@@ -1908,9 +1908,7 @@ export class ExecutionEngine {
       to: newAgentPlugin,
       reason,
     };
-    if (reason !== 'user-selected') {
-      this.currentIterationAgentSwitches.push(switchEntry);
-    }
+    this.currentIterationAgentSwitches.push(switchEntry);
 
     // Log the switch to console for visibility
     if (reason === 'fallback') {

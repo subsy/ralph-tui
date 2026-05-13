@@ -266,12 +266,14 @@ export async function propagateSettingsToEngine(
 ): Promise<void> {
   if (!engine) return;
 
+  // Resolve agent priority: agent -> defaultAgent -> default agents[] entry -> first agents[] entry.
   const getConfiguredAgentName = (config: StoredConfig | undefined): string | undefined =>
     config?.agent ??
     config?.defaultAgent ??
     config?.agents?.find((agent) => agent.default)?.name ??
     config?.agents?.[0]?.name;
 
+  // Trim model values and treat empty strings as undefined.
   const normalizeModel = (model: string | undefined): string | undefined => {
     const trimmed = model?.trim();
     return trimmed ? trimmed : undefined;
@@ -281,6 +283,8 @@ export async function propagateSettingsToEngine(
   const nextAgentName = getConfiguredAgentName(newConfig);
   const previousModel = normalizeModel(previousConfig?.model);
   const nextModel = normalizeModel(newConfig.model);
+  // Switch on initial config with agent/model, or when resolved agent/model changed.
+  // When true, getDefaultAgentConfig feeds engine.switchToUserAgent(agentConfig, nextModel).
   const shouldSwitchAgent =
     previousConfig === undefined
       ? nextAgentName !== undefined || nextModel !== undefined
