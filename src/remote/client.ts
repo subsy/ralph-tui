@@ -815,6 +815,7 @@ export class RemoteClient {
   async startOrchestration(options: {
     prdPath?: string;
     epicId?: string;
+    epicIds?: string[];
     maxWorkers?: number;
     maxIterations?: number;
     directMerge?: boolean;

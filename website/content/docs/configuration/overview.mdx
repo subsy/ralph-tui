@@ -121,6 +121,10 @@ tracker = "beads-bv"     # Shorthand: use this tracker plugin
 epicId = "beads-001"
 ```
 
+<Callout type="info">
+For multi-epic runs, select epics at runtime with repeated `--epic` flags or `--epics`. The config file keeps a default single tracker setup; the session stores the selected multi-epic scope for resume.
+</Callout>
+
 ### Error Handling
 
 Control how Ralph responds to failures:

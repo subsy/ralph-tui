@@ -28,6 +28,8 @@ import type {
   CheckConfigResponseMessage,
   PushConfigMessage,
   PushConfigResponseMessage,
+  OrchestrateStartMessage,
+  OrchestrateStartResponseMessage,
   RemoteEngineState,
 } from '../../src/remote/types.js';
 import type { ExecutionEngine } from '../../src/engine/index.js';
@@ -294,6 +296,55 @@ describe('RemoteClient', () => {
 
       // Verify client is still connected after pong
       expect(client.status).toBe('connected');
+    });
+  });
+
+  describe('Orchestration', () => {
+    test('sends multiple epic IDs in start payload', async () => {
+      const { RemoteClient } = await import('../../src/remote/client.js');
+
+      const client = new RemoteClient('localhost', 7890, 'test-token', () => {});
+      const connectPromise = client.connect();
+      mockWebSocket.onopen?.();
+
+      const authCall = (mockWebSocket.send as ReturnType<typeof mock>).mock.calls[0];
+      const authMessage = JSON.parse(authCall[0] as string) as AuthMessage;
+      const authResponse: AuthResponseMessage = {
+        type: 'auth_response',
+        id: authMessage.id,
+        timestamp: new Date().toISOString(),
+        success: true,
+      };
+      mockWebSocket.onmessage?.({ data: JSON.stringify(authResponse) });
+      await connectPromise;
+
+      const startPromise = client.startOrchestration({
+        epicIds: ['ui-epic', 'backend-epic'],
+        maxWorkers: 2,
+      });
+      const startCall = (mockWebSocket.send as ReturnType<typeof mock>).mock.calls[1];
+      const startMessage = JSON.parse(startCall[0] as string) as OrchestrateStartMessage;
+
+      expect(startMessage.type).toBe('orchestrate:start');
+      expect(startMessage.epicIds).toEqual(['ui-epic', 'backend-epic']);
+      expect(startMessage.maxWorkers).toBe(2);
+
+      const startResponse: OrchestrateStartResponseMessage = {
+        type: 'orchestrate:start_response',
+        id: startMessage.id,
+        timestamp: new Date().toISOString(),
+        success: true,
+        orchestrationId: 'orch-test',
+        totalTasks: 2,
+        totalGroups: 1,
+        maxParallelism: 2,
+      };
+      mockWebSocket.onmessage?.({ data: JSON.stringify(startResponse) });
+
+      await expect(startPromise).resolves.toMatchObject({
+        success: true,
+        orchestrationId: 'orch-test',
+      });
     });
   });
 

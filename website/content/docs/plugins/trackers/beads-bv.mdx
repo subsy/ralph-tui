@@ -94,6 +94,12 @@ bd init
 ralph-tui run --tracker beads-bv --epic beads-xyz
 ```
 
+```bash
+# One parallel session across multiple epics
+ralph-tui run --tracker beads-bv --parallel --epic beads-ui --epic beads-backend
+ralph-tui run --tracker beads-bv --parallel --epics beads-ui,beads-backend
+```
+
 ### Config File
 
 ```toml
@@ -118,6 +124,20 @@ Same as the base Beads tracker:
 
 <Callout type="info">
 See the [Beads Tracker docs](/docs/plugins/trackers/beads#label-filtering-optional) for details on label filtering.
+</Callout>
+
+## Multi-Epic Parallel Execution
+
+Beads-BV can participate in multi-epic parallel orchestration the same way as the base Beads tracker:
+
+```bash
+ralph-tui run --tracker beads-bv --parallel --epic beads-ui --epic beads-backend
+```
+
+Ralph wraps the tracker so children from each selected epic are fetched and combined into one scoped task set. The global parallel scheduler then analyzes dependencies across all selected epics.
+
+<Callout type="info">
+BV's graph-based ranking still applies through the underlying tracker, but the multi-epic scheduler is global. Worker count is shared across all selected epics, and merges remain sequential in one queue.
 </Callout>
 
 ## How BV Selects Tasks

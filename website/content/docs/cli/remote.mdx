@@ -243,6 +243,8 @@ When starting orchestration, you can specify:
 
 | Option | Type | Description |
 |--------|------|-------------|
+| `epicId` | string | Single epic ID for hierarchy trackers |
+| `epicIds` | string[] | Multiple epic IDs for one multi-epic orchestration session |
 | `maxWorkers` | number | Maximum concurrent workers (default: 3) |
 | `directMerge` | boolean | Merge to current branch vs session branch |
 | `maxIterations` | number | Max iterations per worker |
@@ -280,6 +282,18 @@ if (result.success) {
 }
 ```
 
+### Example: Multi-Epic Remote Start
+
+```typescript
+const result = await client.startOrchestration({
+  epicIds: ['ui-epic', 'backend-epic'],
+  maxWorkers: 4,
+  directMerge: false,
+});
+```
+
+The remote server still runs one active orchestration session. Multiple `epicIds` create one scoped tracker wrapper on the server, one global worker pool, and one merge queue.
+
 ### State Response
 
 The `orchestrate:get_state` command returns:
@@ -287,20 +301,29 @@ The `orchestrate:get_state` command returns:
 ```typescript
 {
   orchestrationId: string;
-  status: 'running' | 'paused' | 'completed' | 'failed';
-  startedAt: string;        // ISO 8601 timestamp
+  status: 'idle' | 'running' | 'paused' | 'completed' | 'failed';
+  currentGroupIndex: number;
+  totalGroups: number;
   totalTasks: number;
-  completedTasks: number;
-  failedTasks: number;
-  workerStates: {
-    [workerId: string]: {
-      status: 'idle' | 'running' | 'completed' | 'failed';
-      currentTaskId?: string;
-      completedTaskIds: string[];
-    };
-  };
+  totalTasksCompleted: number;
+  startedAt: string | null;
+  elapsedMs: number;
+  sessionBranch?: string;
+  originalBranch?: string;
+  workers: WorkerDisplayState[];
+  mergeQueue: MergeOperation[];
+  scopes?: ExecutionScope[];
+  scopeCounts?: {
+    scopeId: string;
+    totalTasks: number;
+    activeTasks: number;
+    completedTasks: number;
+    failedTasks: number;
+  }[];
 }
 ```
+
+`scopes` and `scopeCounts` are present for multi-epic remote orchestration so remote clients can render All/per-epic views without starting separate remote sessions.
 
 <Callout type="info">
   Remote orchestration respects the `--task-range` filter if configured on the server. Only filtered tasks will be distributed to workers.

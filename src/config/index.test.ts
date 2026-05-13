@@ -1008,6 +1008,30 @@ default = true
     expect(config).not.toBeNull();
     expect(config!.agent.command).toBe('my-custom-claude');
   });
+
+  test('normalizes multiple runtime epic IDs into config and tracker options', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-rust"
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({
+      cwd: tempDir,
+      epicIds: ['ui-epic', 'backend-epic'],
+    });
+
+    expect(config).not.toBeNull();
+    expect(config!.epicId).toBe('ui-epic');
+    expect(config!.epicIds).toEqual(['ui-epic', 'backend-epic']);
+    expect(config!.tracker.options?.epicId).toBe('ui-epic');
+    expect(config!.tracker.options?.epicIds).toEqual(['ui-epic', 'backend-epic']);
+  });
 });
 
 describe('buildConfig - envPassthrough shorthand', () => {

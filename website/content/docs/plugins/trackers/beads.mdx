@@ -77,6 +77,13 @@ Run with epic and tracker:
 ralph-tui run --tracker beads --epic beads-abc123
 ```
 
+Run one parallel session across multiple epics:
+
+```bash
+ralph-tui run --tracker beads --parallel --epic beads-ui --epic beads-backend
+ralph-tui run --tracker beads --parallel --epics beads-ui,beads-backend
+```
+
 ### Config File
 
 Set defaults in TOML:
@@ -102,6 +109,18 @@ beadsDir = ".beads"
 <Callout type="info">
 The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
 </Callout>
+
+## Multi-Epic Parallel Execution
+
+The Beads tracker supports multi-epic parallel runs when tasks are organized as children of epics:
+
+```bash
+ralph-tui run --tracker beads --parallel --epic beads-ui --epic beads-backend
+```
+
+Ralph fetches children for each selected epic, annotates each task with its source epic, builds one dependency graph, and schedules ready tasks across all selected epics with one worker pool. The first selected epic remains the compatibility `epicId`; the full selected set is saved as `epicIds` for resume.
+
+Cross-epic dependencies are honored when both tasks are inside the selected epic set. Dependencies outside the selected set must already be closed/cancelled, otherwise the dependent task is shown as blocked and excluded from scheduling.
 
 ## Beads Concepts
 
@@ -237,11 +256,12 @@ When Ralph TUI runs with the Beads tracker:
 
 ## Switching Epics
 
-Change epics mid-session by pressing `l` in the TUI:
+Change epics while execution is idle by pressing `l` in the TUI:
 
 1. Press `l` to open epic selector
-2. Choose from available epics
-3. Task list updates to show new epic's tasks
+2. Use `Space` to select one or more epics
+3. Press `Enter` to accept the selected epic set
+4. Task list updates to show the selected epic scope
 
 Or restart with a different `--epic` flag.
 

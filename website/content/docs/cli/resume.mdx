@@ -73,6 +73,9 @@ Resumable sessions:
 
 2. ⚠ e5f6g7h8  interrupted  codex       epic:EPIC-123
    /home/user/another-project
+
+3. ⏸ j9k0l1m2  paused       claude      epics:UI,Backend
+   /home/user/multi-epic-project
 ```
 
 ### Resume by Session ID
@@ -118,6 +121,7 @@ When you resume a session, Ralph restores:
 - **Task statuses** - Completed tasks remain completed
 - **Progress file** - Cross-iteration context is preserved
 - **Configuration** - Uses the same config as the original run
+- **Epic selection** - Multi-epic sessions restore the same `epicIds` and execution scopes
 
 ## Handling Stale Tasks
 
@@ -128,6 +132,12 @@ If Ralph was interrupted while a task was "in_progress", resume automatically:
 3. Re-selects the next task based on priority
 
 This ensures no tasks are permanently stuck due to crashes.
+
+## Multi-Epic Resume
+
+When a multi-epic hierarchy tracker session is resumed, Ralph reconstructs the same scoped tracker wrapper from the saved `epicIds` and execution scopes. The resumed session continues to use one scheduler, one session branch, and one merge queue across the original selected epic set.
+
+Existing sessions that only have a single `epicId` continue to load as single-epic sessions.
 
 ## Session States
 

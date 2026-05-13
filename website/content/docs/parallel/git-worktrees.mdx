@@ -21,11 +21,11 @@ This means worktrees are fast to create (no file copying beyond checkout) and di
 
 <Steps>
   <Step title="Create">
-    When a parallel group starts, ralph creates worktrees at `.ralph-tui/worktrees/worker-N/` with a dedicated branch `ralph-parallel/{taskId}` branched from the current HEAD.
+    When a parallel group starts, Ralph creates worker-scoped worktrees under the configured worktree directory with a dedicated branch branched from the current HEAD.
 
     ```bash
     # What ralph runs internally:
-    git worktree add .ralph-tui/worktrees/worker-1 -b ralph-parallel/task-123
+    git worktree add <worktree-dir>/worker-1 -b ralph-parallel/session-abc/ui-epic/task-123
     ```
   </Step>
 
@@ -42,11 +42,27 @@ This means worktrees are fast to create (no file copying beyond checkout) and di
 
     ```bash
     # What ralph runs internally:
-    git worktree remove --force .ralph-tui/worktrees/worker-1
-    git branch -D ralph-parallel/task-123
+    git worktree remove --force <worktree-dir>/worker-1
+    git branch -D ralph-parallel/session-abc/ui-epic/task-123
     ```
   </Step>
 </Steps>
+
+## Branch Names
+
+Worker branches include enough context to identify the session, selected epic scope, and task:
+
+```text
+ralph-parallel/<session-slug>/<scope-slug>/<task-slug>
+```
+
+For single-scope or legacy contexts where no scope is available, Ralph falls back to:
+
+```text
+ralph-parallel/<session-slug>/<task-slug>
+```
+
+Worktree paths remain worker-scoped (`worker-1`, `worker-2`, and so on). The scope is in the branch name, not the directory name, so workers can be reused predictably within the configured worktree directory.
 
 ## Directory Layout
 

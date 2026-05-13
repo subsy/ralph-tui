@@ -227,6 +227,14 @@ export interface WorkerModeOptions {
 }
 
 /**
+ * Options for initializing the engine in the normal session path.
+ */
+export interface EngineInitializeOptions {
+  /** Pre-initialized tracker plugin to use instead of resolving from registry */
+  tracker?: TrackerPlugin;
+}
+
+/**
  * Execution engine for the agent loop
  */
 export class ExecutionEngine {
@@ -306,7 +314,7 @@ export class ExecutionEngine {
    *   When provided, the engine uses the injected tracker and works only on
    *   the forced task, skipping tracker initialization and sync.
    */
-  async initialize(workerMode?: WorkerModeOptions): Promise<void> {
+  async initialize(workerMode?: WorkerModeOptions, options?: EngineInitializeOptions): Promise<void> {
     // Get agent instance
     const agentRegistry = getAgentRegistry();
     this.agent = await agentRegistry.getInstance(this.config.agent);
@@ -352,8 +360,12 @@ export class ExecutionEngine {
       this.state.totalTasks = 1;
     } else {
       // Normal mode: initialize tracker from config
-      const trackerRegistry = getTrackerRegistry();
-      this.tracker = await trackerRegistry.getInstance(this.config.tracker);
+      if (options?.tracker) {
+        this.tracker = options.tracker;
+      } else {
+        const trackerRegistry = getTrackerRegistry();
+        this.tracker = await trackerRegistry.getInstance(this.config.tracker);
+      }
 
       // Sync tracker
       await this.tracker.sync();

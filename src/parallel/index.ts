@@ -331,6 +331,7 @@ export class ParallelExecutor {
         totalGroups: this.taskGraph.groups.length,
         totalTasks: this.taskGraph.actionableTaskCount,
         maxWorkers: this.config.maxWorkers,
+        scopes: this.config.scopes,
       });
 
       // Execute groups in topological order
@@ -443,6 +444,7 @@ export class ParallelExecutor {
       currentGroupIndex: this.currentGroupIndex,
       totalGroups: this.taskGraph?.groups.length ?? 0,
       workers: this.activeWorkers.map((w) => w.getDisplayState()),
+      workerResults: [...this.completedResults],
       mergeQueue: [...this.mergeEngine.getQueue()],
       completedMerges: [],
       activeConflicts: [],
@@ -452,6 +454,7 @@ export class ParallelExecutor {
       elapsedMs: this.startedAt
         ? Date.now() - new Date(this.startedAt).getTime()
         : 0,
+      scopes: this.config.scopes,
     };
   }
 
@@ -726,9 +729,14 @@ export class ParallelExecutor {
 
       // Acquire worktree - use the sanitized branch name returned by acquire()
       // since acquire() sanitizes task IDs into valid git branch names
+      const executionScope = (task as { executionScope?: { id: string } }).executionScope;
       const worktreeInfo = await this.worktreeManager.acquire(
         workerId,
-        task.id
+        task.id,
+        {
+          sessionId: this.sessionId,
+          scopeId: executionScope?.id,
+        }
       );
       branchNames.push(worktreeInfo.branch);
 

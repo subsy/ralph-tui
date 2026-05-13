@@ -11,7 +11,11 @@ import {
   access,
   constants,
 } from 'node:fs/promises';
-import type { TrackerTask, TrackerTaskStatus } from '../plugins/trackers/types.js';
+import type {
+  ExecutionScope,
+  TrackerTask,
+  TrackerTaskStatus,
+} from '../plugins/trackers/types.js';
 import type { IterationResult } from '../engine/types.js';
 import type { SessionStatus } from './types.js';
 import { writeJsonAtomic } from './atomic-write.js';
@@ -43,6 +47,10 @@ export interface TrackerStateSnapshot {
   plugin: string;
   /** Epic ID if using beads */
   epicId?: string;
+  /** Epic IDs if using a multi-epic hierarchy tracker run */
+  epicIds?: string[];
+  /** Selected execution scopes */
+  executionScopes?: ExecutionScope[];
   /** PRD path if using json tracker */
   prdPath?: string;
   /** Total tasks at session start */
@@ -301,6 +309,8 @@ export function createPersistedSession(options: {
   model?: string;
   trackerPlugin: string;
   epicId?: string;
+  epicIds?: string[];
+  executionScopes?: ExecutionScope[];
   prdPath?: string;
   maxIterations: number;
   tasks: TrackerTask[];
@@ -323,6 +333,8 @@ export function createPersistedSession(options: {
     trackerState: {
       plugin: options.trackerPlugin,
       epicId: options.epicId,
+      epicIds: options.epicIds,
+      executionScopes: options.executionScopes,
       prdPath: options.prdPath,
       totalTasks: options.tasks.length,
       tasks: options.tasks.map((task) => ({
@@ -640,6 +652,8 @@ export function getSessionSummary(state: PersistedSessionState): {
   agentPlugin: string;
   trackerPlugin: string;
   epicId?: string;
+  epicIds?: string[];
+  executionScopes?: ExecutionScope[];
   prdPath?: string;
 } {
   // Defensive: handle missing trackerState (corrupted/old session files)
@@ -663,6 +677,8 @@ export function getSessionSummary(state: PersistedSessionState): {
     agentPlugin: state.agentPlugin,
     trackerPlugin: trackerState.plugin ?? 'unknown',
     epicId: trackerState.epicId,
+    epicIds: trackerState.epicIds,
+    executionScopes: trackerState.executionScopes,
     prdPath: trackerState.prdPath,
   };
 }

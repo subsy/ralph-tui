@@ -40,6 +40,13 @@ function formatTaskUsageIndicator(task: TaskItem): string {
   return `c${contextDisplay} t${formatTokenCount(totalTokens)}`;
 }
 
+function formatScopePrefix(task: TaskItem): string {
+  const label = task.executionScope?.title || task.executionScope?.id;
+  if (!label) return '';
+  const compact = label.length > 10 ? `${label.slice(0, 9)}…` : label;
+  return `[${compact}]`;
+}
+
 /**
  * Single task item row
  * Shows: [indent][status indicator] [task ID] [task title (truncated)]
@@ -51,6 +58,7 @@ function TaskRow({
   isSelected,
   maxWidth,
   indentLevel = 0,
+  showScopePrefix = false,
 }: {
   task: TaskItem;
   isSelected: boolean;
@@ -58,6 +66,8 @@ function TaskRow({
   maxWidth: number;
   /** Indentation level (0 = epic/root, 1 = child of epic) */
   indentLevel?: number;
+  /** Whether to show a compact execution scope prefix before the task ID */
+  showScopePrefix?: boolean;
 }): ReactNode {
   const statusColor = getTaskStatusColor(task.status);
   const statusIndicator = getTaskStatusIndicator(task.status);
@@ -70,11 +80,16 @@ function TaskRow({
   // Calculate available width:
   // maxWidth - indent - indicator(1) - space(1) - id - space(1)
   const idDisplay = task.id;
+  const scopePrefix = showScopePrefix ? formatScopePrefix(task) : '';
+  const scopePrefixWidth = scopePrefix ? scopePrefix.length + 1 : 0;
   const indentWidth = indentLevel * 2;
   const usageIndicator = formatTaskUsageIndicator(task);
   const hasUsageIndicator = usageIndicator.length > 0;
   const usageIndicatorWidth = hasUsageIndicator ? usageIndicator.length + 1 : 0;
-  const availableForTitle = Math.max(0, maxWidth - indentWidth - 3 - idDisplay.length);
+  const availableForTitle = Math.max(
+    0,
+    maxWidth - indentWidth - 3 - idDisplay.length - scopePrefixWidth
+  );
   const minimalTitlePlusIndicator = 5 + usageIndicator.length + 1;
   const shouldShowUsageIndicator =
     hasUsageIndicator && availableForTitle > minimalTitlePlusIndicator;
@@ -104,6 +119,7 @@ function TaskRow({
       <text>
         <span fg={colors.fg.dim}>{indent}</span>
         <span fg={statusColor}>{statusIndicator}</span>
+        {scopePrefix && <span fg={colors.accent.tertiary}> {scopePrefix}</span>}
         <span fg={idColor}> {idDisplay}</span>
         <span fg={titleColor}> {truncatedTitle}</span>
         {shouldShowUsageIndicator && <span fg={colors.fg.dim}> {usageIndicator}</span>}
@@ -151,6 +167,7 @@ export const LeftPanel = memo(function LeftPanel({
   isViewingRemote = false,
   remoteConnectionStatus,
   remoteAlias,
+  showScopePrefixes = false,
 }: LeftPanelProps & {
   width?: number;
   isFocused?: boolean;
@@ -160,6 +177,8 @@ export const LeftPanel = memo(function LeftPanel({
   remoteConnectionStatus?: ConnectionStatus;
   /** Alias of the remote being viewed */
   remoteAlias?: string;
+  /** Show compact execution scope labels on task rows */
+  showScopePrefixes?: boolean;
 }): ReactNode {
   // Calculate max width for task row content (panel width minus padding and border)
   const maxRowWidth = Math.max(20, width - 4);
@@ -214,6 +233,7 @@ export const LeftPanel = memo(function LeftPanel({
               isSelected={index === selectedIndex}
               maxWidth={maxRowWidth}
               indentLevel={indentMap.get(task.id) ?? 0}
+              showScopePrefix={showScopePrefixes}
             />
           ))
         )}

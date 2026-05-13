@@ -34,7 +34,7 @@ Each completed worker enters a merge queue, processed in priority order (P0 task
     If fast-forward fails (HEAD has moved), fall back to a regular merge:
 
     ```
-    git merge --no-edit ralph-parallel/{taskId}
+    git merge --no-edit ralph-parallel/{session}/{scope}/{taskId}
     ```
 
     This creates a merge commit: `feat({taskId}): {taskTitle}`.

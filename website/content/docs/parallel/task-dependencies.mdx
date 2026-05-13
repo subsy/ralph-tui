@@ -60,6 +60,22 @@ This produces three parallel groups:
 
 With `maxWorkers: 3`, groups 0 and 1 run 2 workers each. Group 2 also runs 2 workers.
 
+## Cross-Epic Dependencies
+
+In multi-epic sessions, Ralph builds one dependency graph across all selected epics. If a task in `backend-epic` depends on a task in `ui-epic`, that edge is preserved and the backend task waits until the UI task finishes.
+
+```bash
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+```
+
+Dependencies that point outside the selected epic set are treated conservatively:
+
+- If the external dependency exists and is completed or cancelled, the dependent task can run
+- If the external dependency is unresolved or cannot be found, the dependent task is marked blocked for this run
+- External-blocked tasks are excluded from parallel scheduling and counted as blocked in the TUI
+
+This prevents Ralph from running a task whose prerequisite is outside the current orchestration session.
+
 ## Structuring Tasks for Parallelism
 
 To maximize parallel execution:

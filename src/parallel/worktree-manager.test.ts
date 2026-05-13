@@ -152,6 +152,15 @@ describe('WorktreeManager', () => {
       expect(worktreeList).toContain(info.path);
     });
 
+    test('includes session and scope slugs in branch names when provided', async () => {
+      const info = await manager.acquire('w1', 'task/001', {
+        sessionId: 'session/abc',
+        scopeId: 'UI Epic',
+      });
+
+      expect(info.branch).toBe('ralph-parallel/session-abc/UI-Epic/task-001');
+    });
+
     test('creates the worktree base directory', async () => {
       const worktreeBaseDir = path.join(repoDir, '.ralph-tui/worktrees');
       expect(fs.existsSync(worktreeBaseDir)).toBe(false);

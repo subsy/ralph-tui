@@ -75,6 +75,9 @@ export interface SessionRegistryEntry {
   /** Epic ID (for beads tracker) */
   epicId?: string;
 
+  /** Epic IDs for multi-epic runs */
+  epicIds?: string[];
+
   /** PRD path (for json tracker) */
   prdPath?: string;
 

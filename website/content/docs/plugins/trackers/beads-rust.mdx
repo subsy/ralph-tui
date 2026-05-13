@@ -77,6 +77,13 @@ Run with epic and tracker:
 ralph-tui run --tracker beads-rust --epic ralph-tui-abc123
 ```
 
+Run one parallel session across multiple epics:
+
+```bash
+ralph-tui run --tracker beads-rust --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --tracker beads-rust --parallel --epics ui-epic,backend-epic
+```
+
 ### Config File
 
 Set defaults in TOML:
@@ -102,6 +109,20 @@ beadsDir = ".beads"
 <Callout type="info">
 The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
 </Callout>
+
+## Multi-Epic Parallel Execution
+
+Beads-Rust supports running one Ralph parallel session across multiple selected epics:
+
+```bash
+ralph-tui run --tracker beads-rust --parallel --epic ui-epic --epic backend-epic
+```
+
+This is one orchestration session with one scheduler and one merge queue. Ralph fetches child tasks for every selected epic with `br`, annotates each task with its execution scope, and builds a single dependency graph across the combined task set.
+
+Cross-epic dependencies are respected when both tasks are in the selected epic set. If a dependency points outside the selected set, Ralph checks the external task with `br show`; unresolved or missing external dependencies block the dependent task for that run.
+
+When launched without `--epic` in the TUI, the epic picker supports multi-select with `Space`, `a` to toggle all visible epics, and `Enter` to accept.
 
 ## PRD Context Injection
 

@@ -32,6 +32,9 @@ ralph-tui run
 # Force parallel execution with 4 workers
 ralph-tui run --parallel 4
 
+# Run one parallel session across multiple epics
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+
 # Force sequential execution (disable parallel)
 ralph-tui run --serial
 ```
@@ -47,6 +50,29 @@ The auto-detection heuristic checks three conditions:
 3. **Less than 50% cyclic dependencies** (heavily coupled tasks don't parallelize well)
 
 If all conditions are met, parallel mode activates. Otherwise, ralph-tui stays in sequential execution.
+
+## Multi-Epic Sessions
+
+Parallel execution can span multiple hierarchy-tracker epics in one Ralph session:
+
+```bash
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --parallel --epics ui-epic,backend-epic
+```
+
+This is a single global orchestration session:
+
+- One task graph is built across all selected epics
+- One worker pool schedules tasks globally
+- One repo lock and one session branch protect the main checkout
+- One merge queue merges completed worker branches sequentially
+- TUI "epic tabs" are local filters over the same session, not separate runners
+
+Tasks keep their source scope as metadata. When viewing all scopes in the TUI, task rows and worker/merge details include a compact scope label.
+
+<Callout type="warning">
+External dependencies outside the selected epic set block their dependent task for that run unless the external task is already completed or cancelled. Ralph excludes those tasks from parallel scheduling and shows them as blocked.
+</Callout>
 
 ## What Happens
 

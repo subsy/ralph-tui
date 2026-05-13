@@ -86,6 +86,9 @@ If you use [Beads](https://github.com/steveyegge/beads) for issue tracking, you 
 ```bash
 # Run with a beads epic
 ralph-tui run --epic my-project-epic
+
+# Run one parallel session across multiple epics
+ralph-tui run --parallel --epic frontend-epic --epic backend-epic
 ```
 
 Beads provides additional features like:
@@ -93,6 +96,7 @@ Beads provides additional features like:
 - Task dependencies
 - Hierarchy (epics containing stories)
 - Labels and priorities
+- Multi-epic parallel sessions for larger features
 
 ## Alternative: Using Skills Directly in Your Agent
 
@@ -146,11 +150,15 @@ While Ralph is running, use these keyboard shortcuts:
 | `o` | Cycle right panel views (details → output → prompt) |
 | `O` | Jump directly to prompt preview |
 | `d` | Toggle progress dashboard |
+| `g` | Cycle to the next epic/scope filter |
+| `G` | Return to all epics/scopes |
 | `a` | Open agent/model picker |
 | `h` | Toggle show/hide closed tasks |
 | `r` | Refresh task list from tracker |
 | `T` | Toggle subagent tree panel |
 | `t` | Cycle subagent detail level (minimal → moderate → detailed) |
+
+For multi-epic parallel sessions, `g` and `G` filter the TUI by epic/scope without changing the running orchestration.
 
 ### File Browser
 

@@ -71,6 +71,35 @@ export interface TrackerTask {
 }
 
 /**
+ * Execution scope selected for a run.
+ * A scope is usually a tracker epic/parent issue, or a PRD when using file-backed tasks.
+ */
+export interface ExecutionScope {
+  /** Stable scope identifier from the tracker */
+  id: string;
+
+  /** Human-readable scope title */
+  title: string;
+
+  /** Scope kind */
+  type: 'epic' | 'prd' | 'tracker';
+
+  /** Optional scope description */
+  description?: string;
+
+  /** Tracker-specific scope metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Tracker task annotated with the execution scope it belongs to.
+ */
+export interface ScopedTrackerTask extends TrackerTask {
+  /** Scope that produced this task */
+  executionScope?: ExecutionScope;
+}
+
+/**
  * Result of completing a task
  */
 export interface TaskCompletionResult {

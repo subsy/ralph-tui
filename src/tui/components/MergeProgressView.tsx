@@ -9,6 +9,7 @@ import { memo } from 'react';
 import { createTextAttributes } from '@opentui/core';
 import { colors, statusIndicators, formatElapsedTime } from '../theme.js';
 import type { MergeOperation } from '../../parallel/types.js';
+import type { ScopedTrackerTask } from '../../plugins/trackers/types.js';
 
 const boldAttr = createTextAttributes({ bold: true });
 
@@ -58,6 +59,13 @@ function getMergeElapsed(op: MergeOperation): string {
   return formatElapsedTime(seconds);
 }
 
+function getScopeLabel(operation: MergeOperation): string {
+  const scope = (operation.workerResult.task as ScopedTrackerTask).executionScope;
+  if (!scope) return '';
+  const label = scope.title || scope.id;
+  return label.length > 14 ? `${label.slice(0, 13)}…` : label;
+}
+
 /**
  * Single merge operation row.
  */
@@ -72,12 +80,14 @@ function MergeOperationRow({
   const elapsed = getMergeElapsed(operation);
   const taskId = operation.workerResult.task.id;
   const taskTitle = operation.workerResult.task.title;
+  const scopeLabel = getScopeLabel(operation);
+  const scopedTaskId = scopeLabel ? `[${scopeLabel}] ${taskId}` : taskId;
 
   // Build the line: indicator taskId → main  label  elapsed
   const prefix = `${indicator} `;
   const arrow = ' → main  ';
   const suffix = elapsed ? `  ${elapsed}` : '';
-  const fixedLen = prefix.length + taskId.length + arrow.length + label.length + suffix.length;
+  const fixedLen = prefix.length + scopedTaskId.length + arrow.length + label.length + suffix.length;
   const titleSpace = maxWidth - fixedLen - 2;
   const title = titleSpace > 3
     ? (taskTitle.length > titleSpace ? taskTitle.slice(0, titleSpace - 1) + '…' : taskTitle)
@@ -87,6 +97,7 @@ function MergeOperationRow({
     <box style={{ flexDirection: 'column' }}>
       <text>
         <span fg={color}>{indicator} </span>
+        {scopeLabel && <span fg={colors.accent.tertiary}>[{scopeLabel}] </span>}
         <span fg={colors.fg.secondary}>{taskId}</span>
         <span fg={colors.fg.dim}>{arrow}</span>
         <span fg={color}>{label}</span>

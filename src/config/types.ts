@@ -179,6 +179,9 @@ export interface RuntimeOptions {
   /** Epic ID for beads-based trackers */
   epicId?: string;
 
+  /** Epic IDs for multi-epic hierarchy tracker runs */
+  epicIds?: string[];
+
   /** PRD file path for json tracker */
   prdPath?: string;
 
@@ -384,6 +387,9 @@ export interface RalphConfig {
 
   /** Epic ID (for beads trackers) */
   epicId?: string;
+
+  /** Epic IDs for multi-epic hierarchy tracker runs */
+  epicIds?: string[];
 
   /** PRD path (for json tracker) */
   prdPath?: string;

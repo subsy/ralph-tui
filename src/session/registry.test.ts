@@ -52,6 +52,8 @@ describe('Session Registry', () => {
         agentPlugin: 'claude',
         trackerPlugin: 'json',
         prdPath: '/tmp/test-project/prd.json',
+        epicId: 'ui-epic',
+        epicIds: ['ui-epic', 'backend-epic'],
       };
 
       await registerSession(entry);
@@ -61,6 +63,8 @@ describe('Session Registry', () => {
       expect(retrieved?.sessionId).toBe(sessionId);
       expect(retrieved?.cwd).toBe('/tmp/test-project');
       expect(retrieved?.status).toBe('running');
+      expect(retrieved?.epicId).toBe('ui-epic');
+      expect(retrieved?.epicIds).toEqual(['ui-epic', 'backend-epic']);
     });
 
     test('updates existing session on re-register', async () => {

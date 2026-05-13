@@ -43,7 +43,11 @@ import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
-import type { TrackerTask } from '../plugins/trackers/types.js';
+import {
+  MultiScopeTrackerPlugin,
+  createExecutionScopeFromTask,
+} from '../plugins/trackers/multi-scope.js';
+import type { ExecutionScope, TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import { RunApp } from '../tui/components/RunApp.js';
 
 /**
@@ -64,6 +68,40 @@ export function shouldWarnAboutTrackerMismatch(
   sessionTotalTasks: number
 ): boolean {
   return engineTotalTasks === 0 && sessionTotalTasks > 0;
+}
+
+async function resolveExecutionScopes(
+  tracker: TrackerPlugin,
+  epicIds: string[],
+  persistedScopes?: ExecutionScope[]
+): Promise<ExecutionScope[]> {
+  if (epicIds.length === 0) {
+    return [];
+  }
+
+  const persistedScopeMap = new Map((persistedScopes ?? []).map((scope) => [scope.id, scope]));
+  let epics: TrackerTask[] = [];
+  try {
+    epics = await tracker.getEpics();
+  } catch {
+    epics = [];
+  }
+
+  return epicIds.map((epicId) => {
+    const persistedScope = persistedScopeMap.get(epicId);
+    if (persistedScope) {
+      return persistedScope;
+    }
+
+    const epic = epics.find((candidate) => candidate.id === epicId);
+    return epic
+      ? createExecutionScopeFromTask(epic)
+      : {
+          id: epicId,
+          title: epicId,
+          type: 'epic',
+        };
+  });
 }
 
 /**
@@ -159,8 +197,10 @@ export function formatSessionEntry(entry: SessionRegistryEntry, index?: number):
                      entry.status === 'running' ? '▶' :
                      entry.status === 'interrupted' ? '⚠' : '•';
   const sandboxTag = entry.sandbox ? ' [sandbox]' : '';
-  const trackerInfo = entry.epicId ? `epic:${entry.epicId}` :
-                      entry.prdPath ? `prd:${entry.prdPath}` : entry.trackerPlugin;
+  const trackerInfo = entry.epicIds && entry.epicIds.length > 0
+    ? `epic:${entry.epicIds.join(',')}`
+    : entry.epicId ? `epic:${entry.epicId}`
+      : entry.prdPath ? `prd:${entry.prdPath}` : entry.trackerPlugin;
 
   return `${prefix}${statusIcon} ${shortId}  ${entry.status.padEnd(11)}  ${entry.agentPlugin.padEnd(10)}  ${trackerInfo}${sandboxTag}\n   ${entry.cwd}`;
 }
@@ -313,7 +353,8 @@ async function runWithTui(
   initialState: PersistedSessionState,
   initialTasks: TrackerTask[],
   trackerType?: string,
-  currentModel?: string
+  currentModel?: string,
+  executionScopes: ExecutionScope[] = []
 ): Promise<PersistedSessionState> {
   let currentState = initialState;
 
@@ -410,6 +451,7 @@ async function runWithTui(
       }}
       onStart={handleStart}
       trackerType={trackerType}
+      executionScopes={executionScopes}
       initialSubagentPanelVisible={initialState.subagentPanelVisible ?? false}
       onSubagentPanelVisibilityChange={handleSubagentPanelVisibilityChange}
       currentModel={currentModel}
@@ -605,6 +647,7 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
     agent: persistedState.agentPlugin,
     tracker: persistedState.trackerState.plugin,
     epicId: persistedState.trackerState.epicId,
+    epicIds: persistedState.trackerState.epicIds,
     prdPath: persistedState.trackerState.prdPath,
     iterations: persistedState.maxIterations,
     cwd,
@@ -652,9 +695,25 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
 
   // Create and initialize engine
   const engine = new ExecutionEngine(config);
+  let executionScopes: ExecutionScope[] = [];
+  let trackerForResume: TrackerPlugin | undefined;
 
   try {
-    await engine.initialize();
+    if (config.epicIds && config.epicIds.length > 1) {
+      const trackerRegistry = getTrackerRegistry();
+      trackerForResume = await trackerRegistry.getInstance(config.tracker);
+      executionScopes = await resolveExecutionScopes(
+        trackerForResume,
+        config.epicIds,
+        resumedState.trackerState.executionScopes
+      );
+      await engine.initialize(undefined, {
+        tracker: new MultiScopeTrackerPlugin(trackerForResume, executionScopes),
+      });
+    } else {
+      executionScopes = resumedState.trackerState.executionScopes ?? [];
+      await engine.initialize();
+    }
   } catch (error) {
     console.error(
       'Failed to initialize engine:',
@@ -670,7 +729,11 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
   if (shouldWarnAboutTrackerMismatch(engineState.totalTasks, sessionTotalTasks)) {
     console.warn('\nWarning: Session has task history but tracker returned no tasks.');
     console.warn('This may happen if:');
-    if (resumedState.trackerState.epicId) {
+    if (resumedState.trackerState.epicIds?.length) {
+      console.warn(
+        `  - The configured epic IDs "${resumedState.trackerState.epicIds.join(', ')}" no longer exist`
+      );
+    } else if (resumedState.trackerState.epicId) {
       console.warn(`  - The epic ID "${resumedState.trackerState.epicId}" no longer exists`);
     }
     if (resumedState.trackerState.prdPath) {
@@ -694,13 +757,21 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
       let tasks: TrackerTask[] = [];
       try {
         const trackerRegistry = getTrackerRegistry();
-        const tracker = await trackerRegistry.getInstance(config.tracker);
+        const tracker = engine.getTracker() ?? trackerForResume ?? await trackerRegistry.getInstance(config.tracker);
         tasks = await tracker.getTasks({ status: ['open', 'in_progress', 'completed'] });
       } catch (error) {
         console.error('Warning: Failed to load tasks:', error);
       }
 
-      finalState = await runWithTui(engine, cwd, resumedState, tasks, config.tracker.plugin, config.model);
+      finalState = await runWithTui(
+        engine,
+        cwd,
+        resumedState,
+        tasks,
+        config.tracker.plugin,
+        config.model,
+        executionScopes
+      );
     } else {
       finalState = await runHeadless(engine, cwd, resumedState);
     }

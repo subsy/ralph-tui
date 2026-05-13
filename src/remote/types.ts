@@ -583,10 +583,27 @@ export interface IterationOutputResponseMessage extends WSMessage {
 // ============================================================================
 
 import type { ParallelEvent } from '../parallel/events.js';
+import type { ExecutionScope } from '../plugins/trackers/types.js';
 import type {
   WorkerDisplayState,
   MergeOperation,
 } from '../parallel/types.js';
+
+/**
+ * Per-scope orchestration counts for remote multi-epic state.
+ */
+export interface RemoteScopeCount {
+  /** Execution scope ID */
+  scopeId: string;
+  /** Total actionable tasks in this scope */
+  totalTasks: number;
+  /** Currently running tasks in this scope */
+  activeTasks: number;
+  /** Successfully merged tasks in this scope */
+  completedTasks: number;
+  /** Failed, conflicted, or cancelled tasks in this scope */
+  failedTasks: number;
+}
 
 /**
  * Request to start parallel orchestration on remote.
@@ -597,6 +614,8 @@ export interface OrchestrateStartMessage extends WSMessage {
   prdPath?: string;
   /** Epic ID (for beads/beads-rust tracker) */
   epicId?: string;
+  /** Epic IDs for multi-epic orchestration */
+  epicIds?: string[];
   /** Maximum workers (default: 3) */
   maxWorkers?: number;
   /** Maximum iterations per worker */
@@ -684,6 +703,10 @@ export interface RemoteOrchestrationState {
   sessionBranch?: string;
   /** Original branch name (if not using directMerge) */
   originalBranch?: string;
+  /** Selected execution scopes for multi-epic orchestration */
+  scopes?: ExecutionScope[];
+  /** Per-scope task counts for multi-epic orchestration */
+  scopeCounts?: RemoteScopeCount[];
 }
 
 /**

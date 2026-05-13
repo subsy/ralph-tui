@@ -103,6 +103,10 @@ ralph-tui run --prd ./prd.json
 # Run with a Beads epic
 ralph-tui run --epic my-epic-id
 
+# Run one parallel session across multiple Beads epics
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --parallel --epics ui-epic,backend-epic
+
 # Override agent or model
 ralph-tui run --agent claude --model sonnet
 ralph-tui run --agent opencode --model anthropic/claude-3-5-sonnet
@@ -145,6 +149,8 @@ ralph-tui create-prd --output ./docs
 | `s` | Start execution |
 | `p` | Pause/Resume |
 | `d` | Toggle dashboard |
+| `g` | Cycle scope filter in multi-epic sessions |
+| `G` | Reset scope filter to All |
 | `T` | Toggle subagent tree panel (Shift+T) |
 | `t` | Cycle subagent detail level |
 | `o` | Cycle right panel views |
@@ -158,6 +164,8 @@ ralph-tui create-prd --output ./docs
 | `A` | Add new remote instance |
 | `e` | Edit current remote (when viewing remote tab) |
 | `x` | Delete current remote (when viewing remote tab) |
+
+**Multi-epic sessions:** Repeated `--epic` and comma-separated `--epics` create one Ralph session across all selected hierarchy-tracker epics. Ralph uses one scheduler, one repo lock, one session branch, one merge queue, and task-scoped worktrees. The TUI scope filter (`g`/`G`) is only a local view filter over that session.
 
 **Dashboard (`d` key):** Toggle a status panel showing:
 - Current execution status and active task

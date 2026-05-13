@@ -646,11 +646,19 @@ export async function buildConfig(
     }
   }
 
+  const epicIds = options.epicIds && options.epicIds.length > 0
+    ? options.epicIds
+    : options.epicId
+      ? [options.epicId]
+      : undefined;
+  const primaryEpicId = epicIds?.[0];
+
   // Apply epic/prd options to tracker
-  if (options.epicId) {
+  if (primaryEpicId) {
     trackerConfig.options = {
       ...trackerConfig.options,
-      epicId: options.epicId,
+      epicId: primaryEpicId,
+      epicIds,
     };
   }
   if (options.prdPath) {
@@ -697,7 +705,8 @@ export async function buildConfig(
       options.progressFile ??
       storedConfig.progressFile ??
       DEFAULT_CONFIG.progressFile,
-    epicId: options.epicId,
+    epicId: primaryEpicId,
+    epicIds,
     prdPath: options.prdPath,
     model: options.model ?? storedConfig.model,
     showTui: !options.headless,

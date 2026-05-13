@@ -121,9 +121,10 @@ The execution engine orchestrates plugins:
 
     ```bash
     ralph-tui run --tracker beads --epic my-epic
+    ralph-tui run --tracker beads --parallel --epic ui-epic --epic backend-epic
     ```
 
-    Issues sync across team members via git.
+    Issues sync across team members via git. Hierarchy trackers can also run one parallel session across multiple selected epics.
   </TabsContent>
   <TabsContent value="large">
     Use **Beads-BV tracker** for intelligent task selection:

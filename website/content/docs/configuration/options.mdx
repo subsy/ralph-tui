@@ -227,6 +227,10 @@ For basic Beads integration:
 |--------|------|-------------|
 | `epicId` | string | Epic ID to filter tasks |
 
+<Callout type="info">
+Multi-epic selection is a runtime option. Use repeated `--epic` flags or `--epics` on `ralph-tui run`; Ralph stores the selected set as `epicIds` in session state for resume.
+</Callout>
+
 ## Error Handling
 
 Controls how Ralph responds to task failures.
@@ -493,6 +497,8 @@ directMerge = false
 | `--parallel` | Force parallel with default workers |
 | `--parallel N` | Force parallel with N workers |
 | `--direct-merge` | Merge directly to current branch |
+| `--epic <id>` | Select an epic. May be repeated for hierarchy trackers. |
+| `--epics <ids>` | Select comma-separated epic IDs for hierarchy trackers. |
 
 See the [Parallel Execution guide](/docs/parallel/overview) for detailed documentation.
 
@@ -587,7 +593,8 @@ These flags override config file settings. Use with any execution command.
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
 | `--tracker <name>` | `-t` | string | Tracker to use |
-| `--epic <id>` | `-e` | string | Epic ID (beads trackers) |
+| `--epic <id>` | `-e` | string | Epic ID (hierarchy trackers). May be repeated. |
+| `--epics <ids>` | | string | Comma-separated epic IDs (hierarchy trackers) |
 | `--prd <path>` | `-p` | string | PRD file path (json tracker) |
 
 ### Error Handling Options

@@ -3,6 +3,8 @@
  * Defines session state, lock files, and related structures.
  */
 
+import type { ExecutionScope } from '../plugins/trackers/types.js';
+
 /**
  * Session status
  */
@@ -61,6 +63,12 @@ export interface SessionMetadata {
   /** Epic ID (if using beads) */
   epicId?: string;
 
+  /** Epic IDs for multi-epic runs */
+  epicIds?: string[];
+
+  /** Selected execution scopes for multi-epic runs */
+  executionScopes?: ExecutionScope[];
+
   /** PRD path (if using json tracker) */
   prdPath?: string;
 
@@ -115,6 +123,12 @@ export interface CreateSessionOptions {
 
   /** Epic ID (if using beads) */
   epicId?: string;
+
+  /** Epic IDs for multi-epic runs */
+  epicIds?: string[];
+
+  /** Selected execution scopes for multi-epic runs */
+  executionScopes?: ExecutionScope[];
 
   /** PRD path (if using json tracker) */
   prdPath?: string;

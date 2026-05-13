@@ -37,6 +37,7 @@ import { WorkerDetailView } from './WorkerDetailView.js';
 import { MergeProgressView } from './MergeProgressView.js';
 import { ConflictResolutionPanel } from './ConflictResolutionPanel.js';
 import { TabBar } from './TabBar.js';
+import { ScopeFilterBar, type ScopeFilterCount } from './ScopeFilterBar.js';
 import { RemoteConfigView } from './RemoteConfigView.js';
 import type { RemoteConfigData } from './RemoteConfigView.js';
 import { RemoteManagementOverlay } from './RemoteManagementOverlay.js';
@@ -52,7 +53,7 @@ import type {
   ActiveAgentState,
   RateLimitState,
 } from '../../engine/index.js';
-import type { TrackerTask } from '../../plugins/trackers/types.js';
+import type { ExecutionScope, ScopedTrackerTask, TrackerTask } from '../../plugins/trackers/types.js';
 import type { StoredConfig, SubagentDetailLevel, SandboxConfig, SandboxMode } from '../../config/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
@@ -134,6 +135,8 @@ export interface RunAppProps {
   agentCommand?: string;
   /** Current epic ID for highlighting in the loader */
   currentEpicId?: string;
+  /** Selected execution scopes for multi-epic sessions */
+  executionScopes?: ExecutionScope[];
   /** Initial subagent panel visibility state (from persisted session) */
   initialSubagentPanelVisible?: boolean;
   /** Callback when subagent panel visibility changes (to persist state) */
@@ -259,6 +262,7 @@ function trackerStatusToTaskStatus(trackerStatus: string): TaskStatus {
  * Convert a TrackerTask to a TaskItem for display in the TUI.
  */
 function trackerTaskToTaskItem(task: TrackerTask): TaskItem {
+  const scopedTask = task as ScopedTrackerTask;
   return {
     id: task.id,
     title: task.title,
@@ -273,6 +277,7 @@ function trackerTaskToTaskItem(task: TrackerTask): TaskItem {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     parentId: task.parentId,
+    executionScope: scopedTask.executionScope,
     metadata: task.metadata,
   };
 }
@@ -490,6 +495,40 @@ function areUsageSummariesEqual(
   );
 }
 
+function createEmptyScopeCount(scopeId?: string): ScopeFilterCount {
+  return {
+    scopeId,
+    total: 0,
+    active: 0,
+    done: 0,
+    completedLocally: 0,
+    blocked: 0,
+    closed: 0,
+  };
+}
+
+function addTaskToScopeCount(count: ScopeFilterCount, task: TaskItem): ScopeFilterCount {
+  const next = { ...count, total: count.total + 1 };
+  switch (task.status) {
+    case 'active':
+      next.active += 1;
+      break;
+    case 'done':
+      next.done += 1;
+      break;
+    case 'completedLocally':
+      next.completedLocally += 1;
+      break;
+    case 'blocked':
+      next.blocked += 1;
+      break;
+    case 'closed':
+      next.closed += 1;
+      break;
+  }
+  return next;
+}
+
 /**
  * Main RunApp component for execution view
  */
@@ -514,6 +553,7 @@ export function RunApp({
   agentPlugin,
   agentCommand,
   currentEpicId,
+  executionScopes = [],
   initialSubagentPanelVisible = false,
   onSubagentPanelVisibilityChange,
   currentModel,
@@ -660,6 +700,8 @@ export function RunApp({
   const [conflictSelectedIndex, setConflictSelectedIndex] = useState(0);
   // Show/hide closed tasks filter (default: show closed tasks)
   const [showClosedTasks, setShowClosedTasks] = useState(true);
+  // Local multi-epic filter; remote instance tabs remain independent.
+  const [scopeFilterId, setScopeFilterId] = useState<string>('all');
   // Track prior summary-line count so auto-open only happens on empty -> non-empty transition.
   const prevParallelSummaryLinesCountRef = useRef(0);
   // Cache for historical iteration output loaded from disk (taskId -> { output, timing, agent, model })
@@ -1335,24 +1377,7 @@ export function RunApp({
     return countRunning(tree);
   }, [subagentTree, remoteSubagentTree, isViewingRemote]);
 
-  // Filter and sort tasks for display
-  // Sort order: active → actionable → blocked → done → closed
-  // This is computed early so keyboard handlers can use displayedTasks.length
-  // Use remoteTasks when viewing a remote instance
-  const displayedTasks = useMemo(() => {
-    // Status priority for sorting (lower = higher priority)
-    const statusPriority: Record<TaskStatus, number> = {
-      active: 0,
-      actionable: 1,
-      pending: 2, // Treat pending same as actionable (shouldn't happen often)
-      blocked: 3,
-      error: 4, // Failed tasks show after blocked
-      completedLocally: 5, // Completed but not merged (e.g., no commits)
-      done: 6,
-      closed: 7,
-    };
-
-    // Use remote tasks when viewing remote, local tasks otherwise
+  const runtimeSourceTasks = useMemo(() => {
     let sourceTasks = isViewingRemote ? remoteTasks : tasks;
 
     // Parallel mode: overlay worker statuses onto tasks in a single render cycle.
@@ -1414,23 +1439,103 @@ export function RunApp({
       };
     });
 
-    const filtered = showClosedTasks ? sourceTasks : sourceTasks.filter((t) => t.status !== 'closed');
-    return [...filtered].sort((a, b) => {
-      const priorityA = statusPriority[a.status] ?? 10;
-      const priorityB = statusPriority[b.status] ?? 10;
-      return priorityA - priorityB;
-    });
+    return sourceTasks;
   }, [
     tasks,
     remoteTasks,
     isViewingRemote,
-    showClosedTasks,
     isParallelMode,
     parallelWorkers,
     parallelCompletedLocallyTaskIds,
     parallelMergedTaskIds,
     taskUsageMap,
     remoteTaskUsageMap,
+  ]);
+
+  const activeExecutionScopes = useMemo(() => {
+    const scopeMap = new Map<string, ExecutionScope>();
+    const preferredScopes = isViewingRemote ? [] : executionScopes;
+
+    for (const scope of preferredScopes) {
+      scopeMap.set(scope.id, scope);
+    }
+
+    for (const task of runtimeSourceTasks) {
+      if (task.executionScope && !scopeMap.has(task.executionScope.id)) {
+        scopeMap.set(task.executionScope.id, task.executionScope);
+      }
+    }
+
+    return [...scopeMap.values()];
+  }, [executionScopes, isViewingRemote, runtimeSourceTasks]);
+
+  const scopeFilterEnabled = activeExecutionScopes.length > 1;
+
+  useEffect(() => {
+    if (!scopeFilterEnabled) {
+      if (scopeFilterId !== 'all') {
+        setScopeFilterId('all');
+      }
+      return;
+    }
+
+    if (
+      scopeFilterId !== 'all' &&
+      !activeExecutionScopes.some((scope) => scope.id === scopeFilterId)
+    ) {
+      setScopeFilterId('all');
+    }
+  }, [activeExecutionScopes, scopeFilterEnabled, scopeFilterId]);
+
+  const { scopeCounts, allScopeCount } = useMemo(() => {
+    const nextCounts = new Map<string, ScopeFilterCount>();
+    let nextAllCount = createEmptyScopeCount();
+
+    for (const task of runtimeSourceTasks) {
+      nextAllCount = addTaskToScopeCount(nextAllCount, task);
+      const scopeId = task.executionScope?.id;
+      if (!scopeId) continue;
+
+      const existing = nextCounts.get(scopeId) ?? createEmptyScopeCount(scopeId);
+      nextCounts.set(scopeId, addTaskToScopeCount(existing, task));
+    }
+
+    return { scopeCounts: nextCounts, allScopeCount: nextAllCount };
+  }, [runtimeSourceTasks]);
+
+  // Filter and sort tasks for display.
+  // Sort order: active → actionable → blocked → done → closed.
+  // This is computed early so keyboard handlers can use displayedTasks.length.
+  const displayedTasks = useMemo(() => {
+    const statusPriority: Record<TaskStatus, number> = {
+      active: 0,
+      actionable: 1,
+      pending: 2,
+      blocked: 3,
+      error: 4,
+      completedLocally: 5,
+      done: 6,
+      closed: 7,
+    };
+
+    let filtered = showClosedTasks
+      ? runtimeSourceTasks
+      : runtimeSourceTasks.filter((t) => t.status !== 'closed');
+
+    if (scopeFilterEnabled && scopeFilterId !== 'all') {
+      filtered = filtered.filter((task) => task.executionScope?.id === scopeFilterId);
+    }
+
+    return [...filtered].sort((a, b) => {
+      const priorityA = statusPriority[a.status] ?? 10;
+      const priorityB = statusPriority[b.status] ?? 10;
+      return priorityA - priorityB;
+    });
+  }, [
+    runtimeSourceTasks,
+    showClosedTasks,
+    scopeFilterEnabled,
+    scopeFilterId,
   ]);
 
   // Derive parallel execution status from worker states.
@@ -1473,6 +1578,10 @@ export function RunApp({
 
   // Clamp selectedIndex when displayedTasks shrinks (e.g., when hiding closed tasks)
   useEffect(() => {
+    if (displayedTasks.length === 0 && selectedIndex !== 0) {
+      setSelectedIndex(0);
+      return;
+    }
     if (displayedTasks.length > 0 && selectedIndex >= displayedTasks.length) {
       setSelectedIndex(displayedTasks.length - 1);
     }
@@ -2364,6 +2473,21 @@ export function RunApp({
           setShowClosedTasks((prev) => !prev);
           break;
 
+        case 'g':
+        case 'G':
+          if (scopeFilterEnabled) {
+            if (key.sequence === 'G') {
+              setScopeFilterId('all');
+            } else {
+              setScopeFilterId((prev) => {
+                const scopeIds = ['all', ...activeExecutionScopes.map((scope) => scope.id)];
+                const currentIndex = scopeIds.indexOf(prev);
+                return scopeIds[(currentIndex + 1) % scopeIds.length] ?? 'all';
+              });
+            }
+          }
+          break;
+
         case '?':
           // Show help overlay
           setShowHelp(true);
@@ -2749,7 +2873,7 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showAgentModelPicker, showQuitDialog, showKillDialog, showParallelSummaryOverlay, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus, onRefreshTasks]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showAgentModelPicker, showQuitDialog, showKillDialog, showParallelSummaryOverlay, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus, onRefreshTasks, scopeFilterEnabled, activeExecutionScopes]
   );
 
   useKeyboard(handleKeyboard);
@@ -2761,9 +2885,11 @@ export function RunApp({
   const shouldShowTabBar = !!instanceTabs && !(instanceTabs.length === 1 && instanceTabs[0]?.isLocal);
   const dashboardHeight = showDashboard ? layout.progressDashboard.height : 0;
   const tabBarHeight = shouldShowTabBar ? layout.tabBar.height : 0;
+  const scopeFilterBarHeight = scopeFilterEnabled ? 1 : 0;
   const contentHeight = Math.max(
     1,
-    height - layout.header.height - layout.footer.height - dashboardHeight - tabBarHeight
+    height - layout.header.height - layout.footer.height - dashboardHeight - tabBarHeight -
+      scopeFilterBarHeight
   );
   const isCompact = width < 80;
   const availableWidth = Math.max(0, width - 4);
@@ -3534,6 +3660,15 @@ export function RunApp({
         />
       )}
 
+      {scopeFilterEnabled && (
+        <ScopeFilterBar
+          scopes={activeExecutionScopes}
+          selectedScopeId={scopeFilterId}
+          counts={scopeCounts}
+          allCount={allScopeCount}
+        />
+      )}
+
       {/* Main content area */}
       <box
         style={{
@@ -3594,6 +3729,7 @@ export function RunApp({
               isViewingRemote={isViewingRemote}
               remoteConnectionStatus={instanceTabs?.[selectedTabIndex]?.status}
               remoteAlias={instanceTabs?.[selectedTabIndex]?.alias}
+              showScopePrefixes={scopeFilterEnabled && scopeFilterId === 'all'}
             />
             <RightPanel
               selectedTask={selectedTask}

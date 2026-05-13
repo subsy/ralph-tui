@@ -22,7 +22,8 @@ Running `ralph-tui` without any command also starts the TUI interface, allowing 
 | Option | Description |
 |--------|-------------|
 | `--prd <path>` | PRD file path (auto-switches to json tracker) |
-| `--epic <id>` | Epic ID for beads tracker |
+| `--epic <id>` | Epic ID for hierarchy trackers. May be repeated for multi-epic runs. |
+| `--epics <ids>` | Comma-separated epic IDs for hierarchy trackers. |
 
 ### Agent & Model Options
 
@@ -124,6 +125,32 @@ ralph-tui run --epic my-feature-epic
 ralph-tui run --epic my-feature-epic --tracker beads-bv
 ```
 
+### Multi-Epic Parallel Runs
+
+Hierarchy trackers such as Beads, Beads-Rust, and Beads-BV can run one parallel session across multiple selected epics:
+
+```bash
+# Repeat --epic
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+
+# Or use comma-separated IDs
+ralph-tui run --parallel --epics ui-epic,backend-epic
+```
+
+Multi-epic mode is one orchestration session, not several local runners. Ralph uses one scheduler, one repo lock, one session branch, and one sequential merge queue. Each task still gets its own worker branch and worktree.
+
+<Callout type="info">
+For compatibility, the first selected epic is still exposed as `epicId`; the full selected set is stored as `epicIds`.
+</Callout>
+
+If you launch a hierarchy tracker without `--epic` and the TUI is enabled, the epic picker supports multi-select:
+
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle highlighted epic |
+| `a` | Toggle all visible epics |
+| `Enter` | Accept selected epics, or the highlighted epic if none are selected |
+
 ### Agent & Model Override
 
 ```bash
@@ -180,6 +207,7 @@ Ralph automatically saves state to `.ralph-tui/session.json`:
 - Task statuses
 - Iteration history
 - Active task IDs (for crash recovery)
+- Selected epic IDs and execution scopes for multi-epic runs
 
 If interrupted, use [`ralph-tui resume`](/docs/cli/resume) to continue.
 

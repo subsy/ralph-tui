@@ -19,11 +19,18 @@ import {
   buildSequentialSummaryFilePath,
   createSequentialRunSummary,
   formatSequentialRunSummary,
+  resolveExecutionScopes,
   type TaskRangeFilter,
   type ParallelConflictState,
 } from './run.js';
-import type { TrackerTask } from '../plugins/trackers/types.js';
-import type { FileConflict, ConflictResolutionResult, ParallelExecutorState, WorktreeInfo } from '../parallel/types.js';
+import type { ExecutionScope, TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
+import type {
+  FileConflict,
+  ConflictResolutionResult,
+  ParallelExecutorState,
+  WorktreeInfo,
+  WorkerResult,
+} from '../parallel/types.js';
 import type { PersistedSessionState } from '../session/persistence.js';
 
 /**
@@ -36,6 +43,12 @@ function createTasks(count: number): TrackerTask[] {
     status: 'open' as const,
     priority: 2 as const,
   }));
+}
+
+function createTrackerWithEpics(getEpics: () => Promise<TrackerTask[]>): TrackerPlugin {
+  return {
+    getEpics,
+  } as TrackerPlugin;
 }
 
 describe('filterTasksByRange', () => {
@@ -189,7 +202,100 @@ describe('filterTasksByRange', () => {
   });
 });
 
+describe('resolveExecutionScopes', () => {
+  test('resolves matching tracker epics and falls back per missing epic ID', async () => {
+    const tracker = createTrackerWithEpics(async () => [
+      {
+        id: 'ui-epic',
+        title: 'UI Epic',
+        status: 'open',
+        priority: 1,
+        description: 'Frontend work',
+        metadata: { owner: 'ui' },
+      },
+    ]);
+
+    const scopes = await resolveExecutionScopes(tracker, ['ui-epic', 'backend-epic']);
+
+    expect(scopes).toEqual([
+      {
+        id: 'ui-epic',
+        title: 'UI Epic',
+        type: 'epic',
+        description: 'Frontend work',
+        metadata: { owner: 'ui' },
+      },
+      {
+        id: 'backend-epic',
+        title: 'backend-epic',
+        type: 'epic',
+      },
+    ]);
+  });
+
+  test('logs getEpics failures before using synthetic scopes', async () => {
+    const originalError = console.error;
+    const calls: unknown[][] = [];
+    const error = new Error('tracker unavailable');
+    console.error = (...args: unknown[]) => {
+      calls.push(args);
+    };
+
+    try {
+      const tracker = createTrackerWithEpics(async () => {
+        throw error;
+      });
+
+      const scopes = await resolveExecutionScopes(tracker, ['ui-epic']);
+
+      expect(scopes).toEqual([
+        {
+          id: 'ui-epic',
+          title: 'ui-epic',
+          type: 'epic',
+        },
+      ]);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.[0]).toBe('Failed to resolve epics from tracker; using synthetic execution scopes:');
+      expect(calls[0]?.[1]).toBe(error);
+    } finally {
+      console.error = originalError;
+    }
+  });
+});
+
 describe('parseRunArgs', () => {
+  describe('--epic/--epics parsing', () => {
+    test('preserves single-epic compatibility', () => {
+      const result = parseRunArgs(['--epic', 'ui-epic']);
+
+      expect(result.epicId).toBe('ui-epic');
+      expect(result.epicIds).toEqual(['ui-epic']);
+    });
+
+    test('parses repeated --epic values in order', () => {
+      const result = parseRunArgs(['--parallel', '--epic', 'ui-epic', '--epic', 'backend-epic']);
+
+      expect(result.parallel).toBe(true);
+      expect(result.epicId).toBe('ui-epic');
+      expect(result.epicIds).toEqual(['ui-epic', 'backend-epic']);
+    });
+
+    test('parses comma-separated --epics values', () => {
+      const result = parseRunArgs(['--epics', 'ui-epic,backend-epic,docs-epic']);
+
+      expect(result.epicId).toBe('ui-epic');
+      expect(result.epicIds).toEqual(['ui-epic', 'backend-epic', 'docs-epic']);
+    });
+
+    test('deduplicates repeated epic IDs', () => {
+      const result = parseRunArgs(['--epic', 'ui-epic', '--epics', 'ui-epic,backend-epic']);
+
+      expect(result.epicId).toBe('ui-epic');
+      expect(result.epicIds).toEqual(['ui-epic', 'backend-epic']);
+    });
+  });
+
   describe('--task-range parsing', () => {
     test('parses full range "1-5"', () => {
       const result = parseRunArgs(['--task-range', '1-5']);
@@ -411,6 +517,7 @@ describe('parallel summary helpers', () => {
       currentGroupIndex: 0,
       totalGroups: 1,
       workers: [],
+      workerResults: [],
       mergeQueue: [],
       completedMerges: [],
       activeConflicts: [],
@@ -432,6 +539,33 @@ describe('parallel summary helpers', () => {
       active: false,
       dirty: true,
       createdAt: '2026-02-23T10:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  function createScopedTask(id: string, scope: ExecutionScope): TrackerTask {
+    return {
+      id,
+      title: id,
+      status: 'open',
+      priority: 2,
+      executionScope: scope,
+    } as TrackerTask & { executionScope: ExecutionScope };
+  }
+
+  function createWorkerResult(
+    task: TrackerTask,
+    overrides: Partial<WorkerResult> = {}
+  ): WorkerResult {
+    return {
+      workerId: 'worker-1',
+      task,
+      success: true,
+      iterationsRun: 1,
+      taskCompleted: true,
+      durationMs: 1000,
+      branchName: `ralph-parallel/${task.id}`,
+      commitCount: 1,
       ...overrides,
     };
   }
@@ -522,6 +656,83 @@ describe('parallel summary helpers', () => {
     expect(output).toContain('Preserved worktrees:    1');
     expect(output).toContain('ralph-parallel/task-1 (TASK-1)');
     expect(output).toContain('/tmp/worktrees/worker-1');
+  });
+
+  test('scope summaries include worker-phase failures before merge queue', () => {
+    const uiScope: ExecutionScope = { id: 'ui', title: 'UI', type: 'epic' };
+    const backendScope: ExecutionScope = { id: 'backend', title: 'Backend', type: 'epic' };
+    const uiTask = createScopedTask('ui-task', uiScope);
+    const backendTask = createScopedTask('backend-task', backendScope);
+
+    const summary = createParallelRunSummary({
+      sessionId: 'session-4',
+      mode: 'headless',
+      executorState: createMockExecutorState({
+        scopes: [uiScope, backendScope],
+        taskGraph: {
+          nodes: new Map([
+            ['ui-task', {
+              task: uiTask,
+              dependencies: [],
+              dependents: [],
+              depth: 0,
+              inCycle: false,
+            }],
+            ['backend-task', {
+              task: backendTask,
+              dependencies: [],
+              dependents: [],
+              depth: 0,
+              inCycle: false,
+            }],
+          ]),
+          groups: [],
+          cyclicTaskIds: [],
+          actionableTaskCount: 2,
+          maxParallelism: 2,
+          recommendParallel: true,
+        },
+        workerResults: [
+          createWorkerResult(uiTask, {
+            success: false,
+            taskCompleted: false,
+            error: 'worker failed',
+          }),
+          createWorkerResult(backendTask),
+        ],
+        mergeQueue: [
+          {
+            id: 'merge-1',
+            workerResult: createWorkerResult(backendTask),
+            status: 'completed',
+            backupTag: 'backup',
+            sourceBranch: 'ralph-parallel/backend-task',
+            commitMessage: 'complete backend-task',
+            queuedAt: '2026-02-23T10:00:00.000Z',
+          },
+        ],
+      }),
+      directMerge: false,
+      sessionBranch: 'ralph-session/session-4',
+      originalBranch: 'main',
+      returnToOriginalBranchError: null,
+      preservedRecoveryWorktrees: [],
+    });
+
+    expect(summary.scopeSummaries).toEqual([
+      {
+        scope: uiScope,
+        totalTasks: 1,
+        tasksCompleted: 0,
+        tasksFailed: 1,
+      },
+      {
+        scope: backendScope,
+        totalTasks: 1,
+        tasksCompleted: 1,
+        tasksFailed: 0,
+      },
+    ]);
   });
 });
 

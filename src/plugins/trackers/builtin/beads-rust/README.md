@@ -34,6 +34,10 @@ ralph-tui run --tracker beads-rust
 
 # Work on tasks within a specific epic
 ralph-tui run --tracker beads-rust --epic ralph-tui-123
+
+# Run one parallel session across multiple epics
+ralph-tui run --tracker beads-rust --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --tracker beads-rust --parallel --epics ui-epic,backend-epic
 ```
 
 ### Creating Tasks for ralph-tui
@@ -81,17 +85,22 @@ Or via CLI flags:
 ralph-tui run --tracker beads-rust --epic ralph-tui-123
 ```
 
+For multi-epic parallel sessions, use repeated `--epic` flags or comma-separated `--epics`. Ralph keeps one global scheduler and merge queue, annotates tasks with their source epic, and stores the full selected epic set for resume.
+
 ## Task Selection
 
 The plugin uses `br ready` to find unblocked tasks:
 
 1. **With `--epic`**: Only tasks that are children of the specified epic
-2. **Without `--epic`**: Any unblocked task in the project
+2. **With repeated `--epic` or `--epics`**: Children from all selected epics are combined into one scoped run
+3. **Without `--epic`**: Any unblocked task in the project
 
 Tasks are selected based on:
 - Dependency status (only unblocked tasks)
 - Priority (P0 > P1 > P2 > P3 > P4)
 - Parent-child relationships
+
+Cross-epic dependencies are respected when both tasks are in the selected epic set. Dependencies outside the selected set must already be completed or cancelled; otherwise, the dependent task is blocked for that run.
 
 ## PRD Context Injection
 

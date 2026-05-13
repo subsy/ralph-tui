@@ -24,11 +24,11 @@ ParallelExecutor
 
 <Steps>
   <Step title="Task Graph Analysis">
-    Ralph fetches all tasks from your tracker and builds a dependency graph using the `dependsOn` and `blocks` fields. Tasks are sorted topologically (Kahn's algorithm) and grouped by depth level — tasks at the same depth with no mutual dependencies form a **parallel group**.
+    Ralph fetches all tasks from your tracker and builds a dependency graph using the `dependsOn` and `blocks` fields. In multi-epic mode, the tracker is wrapped so tasks from every selected epic are fetched and annotated with their execution scope before graph analysis. Tasks are sorted topologically (Kahn's algorithm) and grouped by depth level — tasks at the same depth with no mutual dependencies form a **parallel group**.
   </Step>
 
   <Step title="Worktree Creation">
-    For each task in the current group, the WorktreeManager creates a git worktree at `.ralph-tui/worktrees/worker-N/` with a dedicated branch `ralph-parallel/{taskId}`. Each worktree is a full working copy of your repository branched from the current HEAD.
+    For each task in the current group, the WorktreeManager creates a worker-scoped git worktree with a dedicated task branch. Multi-epic task branches include session and scope context: `ralph-parallel/{session}/{scope}/{task}`. Each worktree is a full working copy of your repository branched from the current HEAD.
   </Step>
 
   <Step title="Parallel Execution">
@@ -63,6 +63,17 @@ The tracker plugin runs **only in the main process**. Workers signal task status
 - Concurrent writes to the beads database
 - Race conditions in JSON file updates
 - Inconsistent task state across workers
+
+## Multi-Scope Tracker Wrapper
+
+When multiple epics are selected, Ralph wraps the configured tracker with a multi-scope tracker:
+
+- `getTasks()` fetches children for each selected epic and annotates each task with its execution scope
+- Duplicate task IDs are deduplicated, keeping the first selected scope
+- `getNextTask()` selects the best ready task across all selected scopes by priority, scope order, and task ID
+- `completeTask()`, `updateTaskStatus()`, `sync()`, and `dispose()` delegate to the underlying tracker
+
+Dependencies inside the selected epic set are preserved in the global graph. Dependencies outside the selected set are resolved through the underlying tracker; if the external dependency cannot be found or is not completed/cancelled, the dependent task is marked blocked for this run and excluded from scheduling.
 
 ## Failure Handling
 

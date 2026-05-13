@@ -54,6 +54,10 @@ function sanitizeBranchName(taskId: string): string {
   return sanitized;
 }
 
+function sanitizeBranchSegment(value: string): string {
+  return sanitizeBranchName(value).replace(/\/+/g, '-') || 'segment';
+}
+
 /** Default minimum free disk space (500 MB) before creating a worktree */
 const DEFAULT_MIN_FREE_DISK_SPACE = 500 * 1024 * 1024;
 
@@ -115,7 +119,11 @@ export class WorktreeManager {
    * @returns Information about the created worktree
    * @throws If worktree creation fails or disk space is insufficient
    */
-  async acquire(workerId: string, taskId: string): Promise<WorktreeInfo> {
+  async acquire(
+    workerId: string,
+    taskId: string,
+    branchParts?: { sessionId?: string; scopeId?: string }
+  ): Promise<WorktreeInfo> {
     const activeWorktreeCount = this.getActiveWorktreeCount();
     if (activeWorktreeCount >= this.config.maxWorktrees) {
       throw new Error(
@@ -128,8 +136,14 @@ export class WorktreeManager {
 
     const worktreeId = `worker-${workerId}`;
     // Sanitize task ID to create a valid git branch name
-    const sanitizedTaskId = sanitizeBranchName(taskId);
-    const branchName = `ralph-parallel/${sanitizedTaskId}`;
+    const sanitizedTaskId = branchParts ? sanitizeBranchSegment(taskId) : sanitizeBranchName(taskId);
+    const branchSegments = [
+      'ralph-parallel',
+      branchParts?.sessionId ? sanitizeBranchSegment(branchParts.sessionId) : undefined,
+      branchParts?.scopeId ? sanitizeBranchSegment(branchParts.scopeId) : undefined,
+      sanitizedTaskId,
+    ].filter((segment): segment is string => Boolean(segment));
+    const branchName = branchSegments.join('/');
     // worktreeDir is now an absolute path (sibling of project), so just join
     const worktreePath = path.join(this.config.worktreeDir, worktreeId);
 

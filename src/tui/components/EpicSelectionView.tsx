@@ -16,6 +16,8 @@ export interface EpicSelectionViewProps {
   epics: TrackerTask[];
   /** Currently selected epic index */
   selectedIndex: number;
+  /** IDs toggled for multi-select */
+  selectedEpicIds?: Set<string>;
   /** Name of the tracker being used */
   trackerName: string;
   /** Whether we're loading epics */
@@ -73,6 +75,7 @@ function getEpicStatusColor(epic: TrackerTask): string {
 export function EpicSelectionView({
   epics,
   selectedIndex,
+  selectedEpicIds = new Set(),
   trackerName,
   loading = false,
   error,
@@ -175,6 +178,9 @@ export function EpicSelectionView({
         <box style={{ flexDirection: 'row', gap: 2 }}>
           <text fg={colors.accent.primary}>Select Epic</text>
           <text fg={colors.fg.muted}>({epics.length} available)</text>
+          {selectedEpicIds.size > 0 && (
+            <text fg={colors.fg.muted}>{selectedEpicIds.size} selected</text>
+          )}
         </box>
         <text fg={colors.fg.muted}>[{trackerName}]</text>
       </box>
@@ -192,6 +198,7 @@ export function EpicSelectionView({
         <scrollbox style={{ flexGrow: 1 }}>
           {epics.map((epic, index) => {
             const isSelected = index === selectedIndex;
+            const isToggled = selectedEpicIds.has(epic.id);
             const statusColor = getEpicStatusColor(epic);
             const meta = epic.metadata as Record<string, unknown> | undefined;
             const storyCount = (meta?.storyCount as number | undefined) ?? 0;
@@ -217,6 +224,10 @@ export function EpicSelectionView({
                 {/* Selection indicator */}
                 <text fg={isSelected ? colors.accent.primary : 'transparent'}>
                   {isSelected ? '▸ ' : '  '}
+                </text>
+
+                <text fg={isToggled ? colors.accent.primary : colors.fg.dim}>
+                  {isToggled ? '■ ' : '□ '}
                 </text>
 
                 {/* Status indicator */}
@@ -258,6 +269,12 @@ export function EpicSelectionView({
       >
         <text fg={colors.fg.muted}>
           <span fg={colors.accent.primary}>Enter/r</span> Start Run
+        </text>
+        <text fg={colors.fg.muted}>
+          <span fg={colors.accent.primary}>Space</span> Toggle
+        </text>
+        <text fg={colors.fg.muted}>
+          <span fg={colors.accent.primary}>a</span> All
         </text>
         <text fg={colors.fg.muted}>
           <span fg={colors.accent.primary}>↑↓/jk</span> Navigate

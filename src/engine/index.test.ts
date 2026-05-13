@@ -8,6 +8,8 @@
  */
 
 import { describe, test, expect } from 'bun:test';
+import { AgentRegistry } from '../plugins/agents/registry.js';
+import type { AgentPlugin } from '../plugins/agents/types.js';
 import type { TrackerPlugin, TrackerTask, TaskFilter } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
 import { ExecutionEngine } from './index.js';
@@ -78,7 +80,97 @@ function createMockConfig(): RalphConfig {
   };
 }
 
+function createMockAgent(): AgentPlugin {
+  return {
+    meta: {
+      id: 'engine-test-agent',
+      name: 'Engine Test Agent',
+      description: 'Agent used by ExecutionEngine tests',
+      version: '1.0.0',
+      defaultCommand: 'engine-test-agent',
+      supportsStreaming: false,
+      supportsInterrupt: false,
+      supportsFileContext: false,
+      supportsSubagentTracing: false,
+    },
+    initialize: async () => undefined,
+    isReady: async () => true,
+    detect: async () => ({ available: true, version: '1.0.0' }),
+    getSandboxRequirements: () => ({
+      authPaths: [],
+      binaryPaths: [],
+      runtimePaths: [],
+      requiresNetwork: false,
+    }),
+    execute: () => ({
+      executionId: 'engine-test-execution',
+      promise: Promise.resolve({
+        executionId: 'engine-test-execution',
+        status: 'completed',
+        stdout: '',
+        stderr: '',
+        durationMs: 0,
+        interrupted: false,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+      }),
+      interrupt: () => undefined,
+      isRunning: () => false,
+    }),
+    interrupt: () => false,
+    interruptAll: () => undefined,
+    getCurrentExecution: () => undefined,
+    getSetupQuestions: () => [],
+    validateSetup: async () => null,
+    validateModel: () => null,
+    listModels: () => [],
+    preflight: async () => ({ success: true }),
+    dispose: async () => undefined,
+  };
+}
+
 describe('ExecutionEngine', () => {
+  describe('initialize', () => {
+    test('uses an injected tracker in normal mode', async () => {
+      const registry = AgentRegistry.getInstance();
+      if (!registry.hasPlugin('engine-test-agent')) {
+        registry.registerBuiltin(createMockAgent);
+      }
+
+      const config = createMockConfig();
+      config.agent = { name: 'engine-test-agent', plugin: 'engine-test-agent', options: {} };
+      config.tracker = { name: 'unused', plugin: 'missing-tracker', options: {} };
+
+      let syncCalls = 0;
+      const getTasksFilters: TaskFilter[] = [];
+      const injectedTracker = {
+        ...createMockTracker([createMockTask({ id: 'task-1' })]),
+        sync: async () => {
+          syncCalls++;
+          return {
+            success: true,
+            message: 'Synced',
+            syncedAt: new Date().toISOString(),
+          };
+        },
+        getTasks: async (filter?: TaskFilter) => {
+          if (filter) {
+            getTasksFilters.push(filter);
+          }
+          return [createMockTask({ id: 'task-1' })];
+        },
+      } as TrackerPlugin;
+
+      const engine = new ExecutionEngine(config);
+
+      await engine.initialize(undefined, { tracker: injectedTracker });
+
+      expect(syncCalls).toBe(1);
+      expect(getTasksFilters).toEqual([{ status: ['open', 'in_progress'] }]);
+      expect(engine.getState().totalTasks).toBe(1);
+    });
+  });
+
   describe('generatePromptPreview', () => {
     test('returns prompt for open tasks', async () => {
       const openTask = createMockTask({ id: 'task-open', status: 'open', title: 'Open Task' });

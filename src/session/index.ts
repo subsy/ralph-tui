@@ -258,6 +258,8 @@ export async function createSession(
     agentPlugin: options.agentPlugin,
     trackerPlugin: options.trackerPlugin,
     epicId: options.epicId,
+    epicIds: options.epicIds,
+    executionScopes: options.executionScopes,
     prdPath: options.prdPath,
     currentIteration: 0,
     maxIterations: options.maxIterations,
