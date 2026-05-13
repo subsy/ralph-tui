@@ -333,6 +333,7 @@ describe('ParallelExecutor class', () => {
       expect(state.currentGroupIndex).toBe(0);
       expect(state.totalGroups).toBe(0);
       expect(state.workers).toEqual([]);
+      expect(state.workerResults).toEqual([]);
       expect(state.mergeQueue).toEqual([]);
       expect(state.completedMerges).toEqual([]);
       expect(state.activeConflicts).toEqual([]);

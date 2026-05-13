@@ -385,6 +385,9 @@ export interface ParallelExecutorState {
   /** Active workers and their display states */
   workers: WorkerDisplayState[];
 
+  /** Results from workers that have completed during this execution */
+  workerResults?: WorkerResult[];
+
   /** Merge queue state */
   mergeQueue: MergeOperation[];
 

@@ -81,7 +81,8 @@ export class MultiScopeTrackerPlugin extends BaseTrackerPlugin {
     return [...this.externalBlockedIds];
   }
 
-  override async initialize(_config: Record<string, unknown>): Promise<void> {
+  override async initialize(config: Record<string, unknown>): Promise<void> {
+    await this.delegate.initialize(config);
     this.ready = await this.delegate.isReady();
   }
 
@@ -92,9 +93,13 @@ export class MultiScopeTrackerPlugin extends BaseTrackerPlugin {
   override async getTasks(filter?: TaskFilter): Promise<ScopedTrackerTask[]> {
     const combined: ScopedTrackerTask[] = [];
     const seenTaskIds = new Set<string>();
+    const scopedTaskLists = await Promise.all(
+      this.scopes.map((scope) => this.delegate.getTasks(mergeFilterForScope(filter, scope)))
+    );
 
-    for (const scope of this.scopes) {
-      const scopedTasks = await this.delegate.getTasks(mergeFilterForScope(filter, scope));
+    for (let index = 0; index < this.scopes.length; index++) {
+      const scope = this.scopes[index]!;
+      const scopedTasks = scopedTaskLists[index]!;
       for (const task of scopedTasks) {
         if (seenTaskIds.has(task.id)) {
           if (!this.warnedDuplicateIds.has(task.id)) {

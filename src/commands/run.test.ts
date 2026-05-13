@@ -22,8 +22,14 @@ import {
   type TaskRangeFilter,
   type ParallelConflictState,
 } from './run.js';
-import type { TrackerTask } from '../plugins/trackers/types.js';
-import type { FileConflict, ConflictResolutionResult, ParallelExecutorState, WorktreeInfo } from '../parallel/types.js';
+import type { ExecutionScope, TrackerTask } from '../plugins/trackers/types.js';
+import type {
+  FileConflict,
+  ConflictResolutionResult,
+  ParallelExecutorState,
+  WorktreeInfo,
+  WorkerResult,
+} from '../parallel/types.js';
 import type { PersistedSessionState } from '../session/persistence.js';
 
 /**
@@ -442,6 +448,7 @@ describe('parallel summary helpers', () => {
       currentGroupIndex: 0,
       totalGroups: 1,
       workers: [],
+      workerResults: [],
       mergeQueue: [],
       completedMerges: [],
       activeConflicts: [],
@@ -463,6 +470,33 @@ describe('parallel summary helpers', () => {
       active: false,
       dirty: true,
       createdAt: '2026-02-23T10:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  function createScopedTask(id: string, scope: ExecutionScope): TrackerTask {
+    return {
+      id,
+      title: id,
+      status: 'open',
+      priority: 2,
+      executionScope: scope,
+    } as TrackerTask & { executionScope: ExecutionScope };
+  }
+
+  function createWorkerResult(
+    task: TrackerTask,
+    overrides: Partial<WorkerResult> = {}
+  ): WorkerResult {
+    return {
+      workerId: 'worker-1',
+      task,
+      success: true,
+      iterationsRun: 1,
+      taskCompleted: true,
+      durationMs: 1000,
+      branchName: `ralph-parallel/${task.id}`,
+      commitCount: 1,
       ...overrides,
     };
   }
@@ -553,6 +587,83 @@ describe('parallel summary helpers', () => {
     expect(output).toContain('Preserved worktrees:    1');
     expect(output).toContain('ralph-parallel/task-1 (TASK-1)');
     expect(output).toContain('/tmp/worktrees/worker-1');
+  });
+
+  test('scope summaries include worker-phase failures before merge queue', () => {
+    const uiScope: ExecutionScope = { id: 'ui', title: 'UI', type: 'epic' };
+    const backendScope: ExecutionScope = { id: 'backend', title: 'Backend', type: 'epic' };
+    const uiTask = createScopedTask('ui-task', uiScope);
+    const backendTask = createScopedTask('backend-task', backendScope);
+
+    const summary = createParallelRunSummary({
+      sessionId: 'session-4',
+      mode: 'headless',
+      executorState: createMockExecutorState({
+        scopes: [uiScope, backendScope],
+        taskGraph: {
+          nodes: new Map([
+            ['ui-task', {
+              task: uiTask,
+              dependencies: [],
+              dependents: [],
+              depth: 0,
+              inCycle: false,
+            }],
+            ['backend-task', {
+              task: backendTask,
+              dependencies: [],
+              dependents: [],
+              depth: 0,
+              inCycle: false,
+            }],
+          ]),
+          groups: [],
+          cyclicTaskIds: [],
+          actionableTaskCount: 2,
+          maxParallelism: 2,
+          recommendParallel: true,
+        },
+        workerResults: [
+          createWorkerResult(uiTask, {
+            success: false,
+            taskCompleted: false,
+            error: 'worker failed',
+          }),
+          createWorkerResult(backendTask),
+        ],
+        mergeQueue: [
+          {
+            id: 'merge-1',
+            workerResult: createWorkerResult(backendTask),
+            status: 'completed',
+            backupTag: 'backup',
+            sourceBranch: 'ralph-parallel/backend-task',
+            commitMessage: 'complete backend-task',
+            queuedAt: '2026-02-23T10:00:00.000Z',
+          },
+        ],
+      }),
+      directMerge: false,
+      sessionBranch: 'ralph-session/session-4',
+      originalBranch: 'main',
+      returnToOriginalBranchError: null,
+      preservedRecoveryWorktrees: [],
+    });
+
+    expect(summary.scopeSummaries).toEqual([
+      {
+        scope: uiScope,
+        totalTasks: 1,
+        tasksCompleted: 0,
+        tasksFailed: 1,
+      },
+      {
+        scope: backendScope,
+        totalTasks: 1,
+        tasksCompleted: 1,
+        tasksFailed: 0,
+      },
+    ]);
   });
 });
 

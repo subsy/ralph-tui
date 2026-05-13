@@ -52,6 +52,7 @@ import type {
   ParallelExecutorState,
   ParallelExecutorStatus,
   WorktreeInfo,
+  WorkerResult,
 } from '../parallel/types.js';
 import type { ParallelEvent } from '../parallel/events.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
@@ -502,6 +503,10 @@ function getTaskExecutionScope(task: TrackerTask): ExecutionScope | undefined {
   return undefined;
 }
 
+function isFailedWorkerResult(result: WorkerResult): boolean {
+  return !result.success || !result.taskCompleted;
+}
+
 function buildParallelScopeSummaries(
   executorState: ParallelExecutorState
 ): ParallelScopeSummary[] {
@@ -520,6 +525,18 @@ function buildParallelScopeSummaries(
 
   const completed = new Map<string, number>();
   const failed = new Map<string, number>();
+  const incrementFailed = (scopeId: string) => {
+    failed.set(scopeId, (failed.get(scopeId) ?? 0) + 1);
+  };
+
+  for (const result of executorState.workerResults ?? []) {
+    if (!isFailedWorkerResult(result)) continue;
+    const scope = getTaskExecutionScope(result.task);
+    if (!scope) continue;
+    scopes.set(scope.id, scope);
+    incrementFailed(scope.id);
+  }
+
   for (const operation of executorState.mergeQueue) {
     const scope = getTaskExecutionScope(operation.workerResult.task);
     if (!scope) continue;
@@ -528,7 +545,7 @@ function buildParallelScopeSummaries(
     if (operation.status === 'completed') {
       completed.set(scope.id, (completed.get(scope.id) ?? 0) + 1);
     } else if (operation.status === 'failed' || operation.status === 'rolled-back') {
-      failed.set(scope.id, (failed.get(scope.id) ?? 0) + 1);
+      incrementFailed(scope.id);
     }
   }
 
@@ -1620,8 +1637,10 @@ async function showEpicSelectionTui(
     });
 
     const root = createRoot(renderer);
+    let handleSigint = () => {};
 
     const cleanup = () => {
+      process.off('SIGINT', handleSigint);
       renderer.destroy();
     };
 
@@ -1636,7 +1655,7 @@ async function showEpicSelectionTui(
     };
 
     // Handle Ctrl+C during epic selection
-    const handleSigint = () => {
+    handleSigint = () => {
       cleanup();
       resolve(undefined);
     };

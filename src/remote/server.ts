@@ -72,7 +72,7 @@ import type { RalphConfig } from '../config/types.js';
 import { summarizeTokenUsageFromOutput } from '../plugins/agents/usage.js';
 import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel } from '../parallel/index.js';
 import type { ParallelEvent } from '../parallel/events.js';
-import type { ParallelExecutorState } from '../parallel/types.js';
+import type { ParallelExecutorState, WorkerResult } from '../parallel/types.js';
 
 export async function resolveExecutionScopes(
   tracker: TrackerPlugin,
@@ -133,6 +133,10 @@ function createRemoteScopeCount(scopeId: string): RemoteScopeCount {
   };
 }
 
+function isFailedWorkerResult(result: WorkerResult): boolean {
+  return !result.success || !result.taskCompleted;
+}
+
 export function buildRemoteScopeCounts(
   executorState: ParallelExecutorState
 ): RemoteScopeCount[] | undefined {
@@ -162,6 +166,15 @@ export function buildRemoteScopeCounts(
     } else if (worker.status === 'failed' || worker.status === 'cancelled') {
       count.failedTasks += 1;
     }
+    counts.set(scope.id, count);
+  }
+
+  for (const result of executorState.workerResults ?? []) {
+    if (!isFailedWorkerResult(result)) continue;
+    const scope = getTaskExecutionScope(result.task);
+    if (!scope) continue;
+    const count = counts.get(scope.id) ?? createRemoteScopeCount(scope.id);
+    count.failedTasks += 1;
     counts.set(scope.id, count);
   }
 

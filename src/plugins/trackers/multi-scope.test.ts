@@ -54,6 +54,7 @@ class MockTracker extends BaseTrackerPlugin {
 
   completedTaskIds: string[] = [];
   statusUpdates: Array<{ id: string; status: TrackerTaskStatus }> = [];
+  initializeConfigs: Record<string, unknown>[] = [];
   syncCount = 0;
   disposeCount = 0;
 
@@ -66,8 +67,9 @@ class MockTracker extends BaseTrackerPlugin {
     super();
   }
 
-  override async initialize(): Promise<void> {
-    await super.initialize({});
+  override async initialize(config: Record<string, unknown>): Promise<void> {
+    this.initializeConfigs.push(config);
+    await super.initialize(config);
   }
 
   override async getTasks(filter?: TaskFilter): Promise<TrackerTask[]> {
@@ -120,6 +122,17 @@ class MockTracker extends BaseTrackerPlugin {
 }
 
 describe('MultiScopeTrackerPlugin', () => {
+  test('initializes the wrapped tracker with the provided config', async () => {
+    const delegate = new MockTracker([]);
+    const tracker = new MultiScopeTrackerPlugin(delegate, scopes);
+    const config = { labels: ['frontend'] };
+
+    await tracker.initialize(config);
+
+    expect(delegate.initializeConfigs).toEqual([config]);
+    expect(await tracker.isReady()).toBe(true);
+  });
+
   test('creates execution scopes from tracker parent tasks and returns defensive scope copies', () => {
     const epicTask = task('epic-1', '', {
       title: 'Feature Epic',
@@ -169,6 +182,32 @@ describe('MultiScopeTrackerPlugin', () => {
     } finally {
       console.warn = originalWarn;
     }
+  });
+
+  test('fetches scoped task lists concurrently while preserving scope order', async () => {
+    const startedScopes: string[] = [];
+    const releaseFetches: Array<() => void> = [];
+    const scopedTasks = [
+      task('ui-task', 'ui-epic'),
+      task('backend-task', 'backend-epic'),
+    ];
+    const delegate = new MockTracker(scopedTasks);
+    delegate.getTasks = async (filter?: TaskFilter) => {
+      startedScopes.push(String(filter?.parentId));
+      await new Promise<void>((resolve) => releaseFetches.push(resolve));
+      return scopedTasks.filter((candidate) => candidate.parentId === filter?.parentId);
+    };
+    const tracker = new MultiScopeTrackerPlugin(delegate, scopes);
+
+    const taskPromise = tracker.getTasks();
+    await Promise.resolve();
+
+    expect(startedScopes).toEqual(['ui-epic', 'backend-epic']);
+
+    for (const release of releaseFetches) release();
+    const tasks = await taskPromise;
+
+    expect(tasks.map((candidate) => candidate.id)).toEqual(['ui-task', 'backend-task']);
   });
 
   test('getNextTask picks lowest priority, then stable scope order, then task id', async () => {

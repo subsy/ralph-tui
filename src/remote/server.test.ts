@@ -217,6 +217,19 @@ describe('RemoteServer', () => {
             elapsedMs: 200,
           },
         ],
+        workerResults: [
+          {
+            workerId: 'worker-4',
+            task: uiTask,
+            success: false,
+            iterationsRun: 1,
+            taskCompleted: false,
+            durationMs: 150,
+            error: 'worker failed',
+            branchName: 'ralph-parallel/session/ui/ui-task',
+            commitCount: 0,
+          },
+        ],
         mergeQueue: [
           {
             id: 'merge-1',
@@ -245,7 +258,7 @@ describe('RemoteServer', () => {
           totalTasks: 1,
           activeTasks: 1,
           completedTasks: 0,
-          failedTasks: 0,
+          failedTasks: 1,
         },
         {
           scopeId: 'backend',
@@ -263,6 +276,7 @@ describe('RemoteServer', () => {
         scopes: [scope],
         taskGraph: null,
         workers: [],
+        workerResults: [],
         mergeQueue: [],
       } as Partial<ParallelExecutorState> as ParallelExecutorState;
 

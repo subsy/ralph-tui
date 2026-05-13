@@ -197,8 +197,10 @@ export function formatSessionEntry(entry: SessionRegistryEntry, index?: number):
                      entry.status === 'running' ? '▶' :
                      entry.status === 'interrupted' ? '⚠' : '•';
   const sandboxTag = entry.sandbox ? ' [sandbox]' : '';
-  const trackerInfo = entry.epicId ? `epic:${entry.epicId}` :
-                      entry.prdPath ? `prd:${entry.prdPath}` : entry.trackerPlugin;
+  const trackerInfo = entry.epicIds && entry.epicIds.length > 0
+    ? `epic:${entry.epicIds.join(',')}`
+    : entry.epicId ? `epic:${entry.epicId}`
+      : entry.prdPath ? `prd:${entry.prdPath}` : entry.trackerPlugin;
 
   return `${prefix}${statusIcon} ${shortId}  ${entry.status.padEnd(11)}  ${entry.agentPlugin.padEnd(10)}  ${trackerInfo}${sandboxTag}\n   ${entry.cwd}`;
 }
@@ -727,7 +729,11 @@ export async function executeResumeCommand(args: string[]): Promise<void> {
   if (shouldWarnAboutTrackerMismatch(engineState.totalTasks, sessionTotalTasks)) {
     console.warn('\nWarning: Session has task history but tracker returned no tasks.');
     console.warn('This may happen if:');
-    if (resumedState.trackerState.epicId) {
+    if (resumedState.trackerState.epicIds?.length) {
+      console.warn(
+        `  - The configured epic IDs "${resumedState.trackerState.epicIds.join(', ')}" no longer exist`
+      );
+    } else if (resumedState.trackerState.epicId) {
       console.warn(`  - The epic ID "${resumedState.trackerState.epicId}" no longer exists`);
     }
     if (resumedState.trackerState.prdPath) {

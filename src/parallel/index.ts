@@ -444,6 +444,7 @@ export class ParallelExecutor {
       currentGroupIndex: this.currentGroupIndex,
       totalGroups: this.taskGraph?.groups.length ?? 0,
       workers: this.activeWorkers.map((w) => w.getDisplayState()),
+      workerResults: [...this.completedResults],
       mergeQueue: [...this.mergeEngine.getQueue()],
       completedMerges: [],
       activeConflicts: [],
