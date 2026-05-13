@@ -23,9 +23,10 @@ import type { HistoricExecutionContext } from './IterationDetailView.js';
 import { ProgressDashboard } from './ProgressDashboard.js';
 import { ConfirmationDialog } from './ConfirmationDialog.js';
 import { HelpOverlay } from './HelpOverlay.js';
-import { SettingsView } from './SettingsView.js';
+import { SettingsView, getConfiguredAgentName } from './SettingsView.js';
 import {
   AgentModelPicker,
+  normalizeModelValue,
   resolveAgentConfigForSelection,
   type AgentModelSelection,
 } from './AgentModelPicker.js';
@@ -1149,6 +1150,25 @@ export function RunApp({
   // Compute display tracker and model for local vs remote
   const displayTrackerName = isViewingRemote ? (remoteTrackerName ?? trackerName) : trackerName;
   const displayModel = isViewingRemote ? (remoteModel ?? currentModel) : localModel;
+
+  const handleSettingsSave = useCallback(
+    async (newConfig: StoredConfig): Promise<void> => {
+      if (!onSaveSettings) {
+        throw new Error('Settings save is not available');
+      }
+
+      const previousAgent = getConfiguredAgentName(storedConfig);
+      const nextAgent = getConfiguredAgentName(newConfig);
+      const previousModel = normalizeModelValue(storedConfig?.model);
+      const nextModel = normalizeModelValue(newConfig.model);
+
+      await onSaveSettings(newConfig);
+      if (previousAgent !== nextAgent || previousModel !== nextModel) {
+        setDetectedModel(nextModel ?? '');
+      }
+    },
+    [onSaveSettings, storedConfig]
+  );
 
   const handleAgentModelConfirm = useCallback(
     async (selection: AgentModelSelection): Promise<void> => {
@@ -3976,8 +3996,9 @@ export function RunApp({
           visible={showSettings}
           config={storedConfig}
           agents={availableAgents}
+          agentConfigs={storedConfig.agents}
           trackers={availableTrackers}
-          onSave={onSaveSettings}
+          onSave={handleSettingsSave}
           onClose={() => setShowSettings(false)}
         />
       )}
