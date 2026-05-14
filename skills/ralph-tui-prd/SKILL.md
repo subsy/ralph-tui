@@ -41,12 +41,6 @@ Ask questions one set at a time. Each answer should inform your next questions. 
    B. Increase user retention
    C. Reduce support burden
    D. Other: [please specify]
-
-2. Who is the target user?
-   A. New users only
-   B. Existing users only
-   C. All users
-   D. Admin users only
 ```
 
 This lets users respond with "1A, 2C" for quick iteration.
@@ -124,11 +118,7 @@ Each story should be small enough to implement in one focused AI agent session.
 
 **Note:** Do NOT include quality gate commands in individual story criteria - they are defined once in the Quality Gates section and applied automatically during conversion.
 
-**Important:**
-- Acceptance criteria must be verifiable, not vague
-- "Works correctly" is bad
-- "Button shows confirmation dialog before deleting" is good
-- Each story should be independently completable
+Acceptance criteria must be verifiable: "Button shows confirmation dialog before deleting" is good. "Works correctly" is bad.
 
 ### 5. Functional Requirements
 Numbered list of specific functionalities:
@@ -318,10 +308,7 @@ Before outputting the PRD:
 
 - [ ] Asked clarifying questions with lettered options
 - [ ] Asked about quality gates (REQUIRED)
-- [ ] Asked follow-up questions when needed
 - [ ] Quality Gates section included with project-specific commands
 - [ ] User stories are small and independently completable
-- [ ] User stories do NOT include quality gate commands (they're in the Quality Gates section)
-- [ ] Functional requirements are numbered and unambiguous
-- [ ] Non-goals section defines clear boundaries
+- [ ] User stories do NOT include quality gate commands
 - [ ] PRD is wrapped in `[PRD]...[/PRD]` markers
