@@ -577,34 +577,44 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
   }
 
   /**
-   * Get child IDs for a parent epic/task.
+   * Get child IDs for a parent epic/task, recursively including all descendants.
    * Uses br dep list --direction up to get issues that depend on the parent
-   * with a parent-child relationship (i.e., children of the epic).
+   * with a parent-child relationship (i.e., children of the epic), then
+   * recursively fetches grandchildren.
    */
   private async getChildIds(parentId: string): Promise<Set<string>> {
-    const { stdout, exitCode } = await execBr(
-      ['dep', 'list', parentId, '--direction', 'up', '--json'],
-      this.workingDir
-    );
+    const allDescendants = new Set<string>();
+    const toProcess: string[] = [parentId];
 
-    if (exitCode !== 0) {
-      return new Set();
-    }
+    while (toProcess.length > 0) {
+      const current = toProcess.shift()!;
 
-    try {
-      const deps = JSON.parse(stdout) as BrDepListItem[];
-      const childIds = new Set<string>();
+      const { stdout, exitCode } = await execBr(
+        ['dep', 'list', current, '--direction', 'up', '--json'],
+        this.workingDir
+      );
 
-      for (const dep of deps) {
-        if (dep.type === 'parent-child') {
-          childIds.add(dep.issue_id);
-        }
+      if (exitCode !== 0) {
+        continue;
       }
 
-      return childIds;
-    } catch {
-      return new Set();
+      try {
+        const deps = JSON.parse(stdout) as BrDepListItem[];
+        for (const dep of deps) {
+          if (dep.type === 'parent-child') {
+            // Only add if not already processed to avoid infinite loops
+            if (!allDescendants.has(dep.issue_id)) {
+              allDescendants.add(dep.issue_id);
+              toProcess.push(dep.issue_id);
+            }
+          }
+        }
+      } catch {
+        // Skip this parent if parsing fails
+      }
     }
+
+    return allDescendants;
   }
 
   /**

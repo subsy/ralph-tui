@@ -576,6 +576,11 @@ describe('BeadsRustTrackerPlugin', () => {
             { issue_id: 'epic.1', depends_on_id: 'epic', type: 'parent-child', title: 'Child', status: 'open', priority: 0 },
           ]),
         },
+        // getChildIds recursively fetches descendants; epic.1 has no children
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([]),
+        },
         {
           exitCode: 0,
           stdout: JSON.stringify([
@@ -597,8 +602,73 @@ describe('BeadsRustTrackerPlugin', () => {
       expect(mockSpawnArgs.map((c) => c.args)).toEqual([
         ['list', '--json', '--all', '--limit', '0'],
         ['dep', 'list', 'epic', '--direction', 'up', '--json'],
+        ['dep', 'list', 'epic.1', '--direction', 'up', '--json'],
         ['dep', 'list', 'epic.1', '--json'],
       ]);
+    });
+
+    test('recursively fetches all descendants for multi-level hierarchy', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'br version 0.4.1\n' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'epic', title: 'Epic', status: 'open', priority: 0, issue_type: 'epic' },
+            { id: 'epic.1', title: 'User story', status: 'open', priority: 0, issue_type: 'user-story', dependencies: [{ id: 'epic', dependency_type: 'parent-child' }], dependents: [{ id: 'epic.1.1', dependency_type: 'parent-child' }, { id: 'epic.1.2', dependency_type: 'parent-child' }] },
+            { id: 'epic.1.1', title: 'Task A', status: 'open', priority: 0, issue_type: 'task', dependencies: [{ id: 'epic.1', dependency_type: 'parent-child' }], dependency_count: 1 },
+            { id: 'epic.1.2', title: 'Task B', status: 'open', priority: 0, issue_type: 'task', dependencies: [{ id: 'epic.1', dependency_type: 'parent-child' }], dependency_count: 1 },
+          ]),
+        },
+        // dep list epic -> returns epic.1
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { issue_id: 'epic.1', depends_on_id: 'epic', type: 'parent-child' },
+          ]),
+        },
+        // dep list epic.1 -> returns epic.1.1 and epic.1.2
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { issue_id: 'epic.1.1', depends_on_id: 'epic.1', type: 'parent-child' },
+            { issue_id: 'epic.1.2', depends_on_id: 'epic.1', type: 'parent-child' },
+          ]),
+        },
+        // dep list epic.1.1 -> no children
+        { exitCode: 0, stdout: JSON.stringify([]) },
+        // dep list epic.1.2 -> no children
+        { exitCode: 0, stdout: JSON.stringify([]) },
+        // dep list epic.1 for dependency enrichment
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { issue_id: 'epic.1', depends_on_id: 'epic', type: 'parent-child' },
+          ]),
+        },
+        // dep list epic.1.1 for dependency enrichment
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { issue_id: 'epic.1.1', depends_on_id: 'epic.1', type: 'parent-child' },
+          ]),
+        },
+        // dep list epic.1.2 for dependency enrichment
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { issue_id: 'epic.1.2', depends_on_id: 'epic.1', type: 'parent-child' },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const tasks = await plugin.getTasks({ parentId: 'epic' });
+
+      expect(tasks.length).toBe(3);
+      expect(tasks.map((t) => t.id).sort()).toEqual(['epic.1', 'epic.1.1', 'epic.1.2']);
     });
 
     test('merges enriched dependencies with existing list dependencies and deduplicates', async () => {
