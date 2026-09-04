@@ -390,8 +390,11 @@ export function FileBrowser({
             setShowHidden((prev) => !prev);
           } else if ((key.sequence === '/' || key.sequence === 'g') && !searchQuery) {
             startEditingPath();
-          } else if (isPrintableKeySequence(key.sequence)) {
-            // Start or continue fuzzy search with alphanumeric input
+          } else if (
+            isPrintableKeySequence(key.sequence) &&
+            (key.sequence !== ' ' || Boolean(searchQuery))
+          ) {
+            // Start or continue fuzzy search with printable input
             setSearchQuery((prev) => prev + key.sequence);
             setSelectedIndex(0);
           }
