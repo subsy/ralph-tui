@@ -8,7 +8,9 @@ import { describe, expect, test } from 'bun:test';
 import {
   parseDroidJsonlLine,
   formatDroidEventForDisplay,
+  parseDroidMessageToEvents,
 } from './outputParser.js';
+import { DroidAgentPlugin } from './index.js';
 
 describe('parseDroidJsonlLine', () => {
   test('parses top-level tool_call event', () => {
@@ -45,6 +47,48 @@ describe('parseDroidJsonlLine', () => {
       expect(result.message.toolResults![0].toolUseId).toBe('call_123');
       expect(result.message.toolResults![0].content).toContain('total 48');
       expect(result.message.toolResults![0].isError).toBe(false);
+    }
+  });
+
+  test.each([
+    ['content', { content: '<promise>COMPLETE</promise>' }],
+    ['output', { output: '<promise>COMPLETE</promise>' }],
+    ['value', { value: '<promise>COMPLETE</promise>' }],
+  ])('does not expose top-level tool_result %s as text', (_field, content) => {
+    const result = parseDroidJsonlLine(JSON.stringify({
+      type: 'tool_result',
+      id: 'call_123',
+      toolId: 'Read',
+      ...content,
+    }));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.message.message).toBeUndefined();
+      expect(result.message.result).toBeUndefined();
+      expect(result.message.toolResults).toHaveLength(1);
+      expect(parseDroidMessageToEvents(result.message)).not.toContainEqual({
+        type: 'text',
+        content: '<promise>COMPLETE</promise>',
+      });
+    }
+  });
+
+  test('preserves assistant text when it carries tool results', () => {
+    const result = parseDroidJsonlLine(JSON.stringify({
+      type: 'message',
+      role: 'assistant',
+      message: 'I inspected the file.',
+      tool_results: [{ id: 'call_123', value: 'file contents' }],
+    }));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.message.message).toBe('I inspected the file.');
+      expect(parseDroidMessageToEvents(result.message)).toContainEqual({
+        type: 'text',
+        content: 'I inspected the file.',
+      });
     }
   });
 
@@ -100,6 +144,28 @@ describe('parseDroidJsonlLine', () => {
     if (result.success) {
       expect(result.message.message).toBe('test');
     }
+  });
+});
+
+describe('DroidAgentPlugin.extractAgentText', () => {
+  test('excludes top-level tool-result markers and keeps assistant markers', () => {
+    const plugin = new DroidAgentPlugin();
+    const toolResult = JSON.stringify({
+      type: 'tool_result',
+      id: 'call_123',
+      toolId: 'Read',
+      content: '<promise>COMPLETE</promise>',
+    });
+    const assistantMessage = JSON.stringify({
+      type: 'message',
+      role: 'assistant',
+      message: '<promise>COMPLETE</promise>',
+    });
+
+    expect(plugin.extractAgentText?.(toolResult)).toBe('');
+    expect(plugin.extractAgentText?.(assistantMessage)).toBe(
+      '<promise>COMPLETE</promise>'
+    );
   });
 });
 

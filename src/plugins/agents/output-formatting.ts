@@ -413,6 +413,17 @@ export type AgentDisplayEvent =
   | { type: 'system'; subtype?: string; content?: string };
 
 /**
+ * Extract agent-authored text from parsed display events.
+ * Tool results and other non-narrative events are excluded.
+ */
+export function extractAgentTextFromEvents(events: AgentDisplayEvent[]): string {
+  return events
+    .filter((event): event is { type: 'text'; content: string } => event.type === 'text')
+    .map((event) => event.content)
+    .join('\n');
+}
+
+/**
  * Process agent events and format for display (legacy string version).
  * @param events Array of parsed agent events
  * @returns Formatted string for display

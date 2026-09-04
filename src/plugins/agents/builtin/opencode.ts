@@ -12,7 +12,12 @@ import {
   quoteForWindowsShell,
   shouldUseWindowsShell,
 } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  extractAgentTextFromEvents,
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -468,6 +473,14 @@ export class OpenCodeAgentPlugin extends BaseAgentPlugin {
       return prompt;
     }
     return undefined;
+  }
+
+  extractAgentText(stdout: string): string | undefined {
+    const events = stdout
+      .split('\n')
+      .flatMap((line) => parseOpenCodeJsonLine(line.trim()));
+    if (events.length === 0) return undefined;
+    return extractAgentTextFromEvents(events);
   }
 
   /**

@@ -6,7 +6,12 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  extractAgentTextFromEvents,
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -402,6 +407,30 @@ export class PiAgentPlugin extends BaseAgentPlugin {
    */
   private parsePiJsonLine(input: string | Record<string, unknown>): AgentDisplayEvent[] {
     return parsePiJsonLine(input);
+  }
+
+  extractAgentText(stdout: string): string | undefined {
+    const structuredTypes = new Set(['message_update', 'message_end', 'turn_end']);
+    let isStructured = false;
+    const events: AgentDisplayEvent[] = [];
+
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      try {
+        const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+        if (typeof parsed.type === 'string' && structuredTypes.has(parsed.type)) {
+          isStructured = true;
+          events.push(...this.parsePiJsonLine(parsed));
+        }
+      } catch {
+        // Ignore non-JSON lines while parsing structured output.
+      }
+    }
+
+    if (!isStructured) return undefined;
+    return extractAgentTextFromEvents(events);
   }
 
   /**

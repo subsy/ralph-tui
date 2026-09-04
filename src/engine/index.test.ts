@@ -9,6 +9,7 @@
 
 import { describe, test, expect } from 'bun:test';
 import { AgentRegistry } from '../plugins/agents/registry.js';
+import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
 import type { AgentPlugin } from '../plugins/agents/types.js';
 import type { TrackerPlugin, TrackerTask, TaskFilter } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
@@ -82,7 +83,10 @@ function createMockConfig(): RalphConfig {
   };
 }
 
-function createMockAgent(): AgentPlugin {
+function createMockAgent(
+  stdout = '',
+  extractAgentText?: AgentPlugin['extractAgentText']
+): AgentPlugin {
   return {
     meta: {
       id: 'engine-test-agent',
@@ -109,7 +113,7 @@ function createMockAgent(): AgentPlugin {
       promise: Promise.resolve({
         executionId: 'engine-test-execution',
         status: 'completed',
-        stdout: '',
+        stdout,
         stderr: '',
         durationMs: 0,
         interrupted: false,
@@ -119,6 +123,7 @@ function createMockAgent(): AgentPlugin {
       interrupt: () => undefined,
       isRunning: () => false,
     }),
+    extractAgentText,
     interrupt: () => false,
     interruptAll: () => undefined,
     getCurrentExecution: () => undefined,
@@ -131,7 +136,88 @@ function createMockAgent(): AgentPlugin {
   };
 }
 
+function createExecutionTracker(completeCalls: string[]): TrackerPlugin {
+  const task = createMockTask();
+  return {
+    ...createMockTracker([task]),
+    updateTaskStatus: async () => task,
+    completeTask: async (id: string) => {
+      completeCalls.push(id);
+      return {
+        success: true,
+        message: 'Completed',
+        task,
+      };
+    },
+  } as TrackerPlugin;
+}
+
 describe('ExecutionEngine', () => {
+  describe('completion detection', () => {
+    test('ignores completion markers in structured tool results', async () => {
+      const stdout = [
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Which database should I use?' }],
+          },
+        }),
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                content: '<promise>COMPLETE</promise>',
+              },
+            ],
+          },
+        }),
+      ].join('\n');
+      const claude = new ClaudeAgentPlugin();
+      const completeCalls: string[] = [];
+      const task = createMockTask();
+      const engine = new ExecutionEngine(createMockConfig());
+      const internals = engine as unknown as {
+        agent: AgentPlugin;
+        tracker: TrackerPlugin;
+        runIteration: (task: TrackerTask) => Promise<{ taskCompleted: boolean }>;
+      };
+      internals.agent = createMockAgent(stdout, claude.extractAgentText.bind(claude));
+      internals.tracker = createExecutionTracker(completeCalls);
+
+      const result = await internals.runIteration(task);
+
+      expect(result.taskCompleted).toBe(false);
+      expect(completeCalls).toHaveLength(0);
+    });
+
+    test('completes when the marker is in assistant narrative text', async () => {
+      const stdout = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: '<promise>COMPLETE</promise>' }],
+        },
+      });
+      const claude = new ClaudeAgentPlugin();
+      const completeCalls: string[] = [];
+      const task = createMockTask();
+      const engine = new ExecutionEngine(createMockConfig());
+      const internals = engine as unknown as {
+        agent: AgentPlugin;
+        tracker: TrackerPlugin;
+        runIteration: (task: TrackerTask) => Promise<{ taskCompleted: boolean }>;
+      };
+      internals.agent = createMockAgent(stdout, claude.extractAgentText.bind(claude));
+      internals.tracker = createExecutionTracker(completeCalls);
+
+      const result = await internals.runIteration(task);
+
+      expect(result.taskCompleted).toBe(true);
+      expect(completeCalls).toEqual([task.id]);
+    });
+  });
+
   describe('initialize', () => {
     test('uses an injected tracker in normal mode', async () => {
       const registry = AgentRegistry.getInstance();

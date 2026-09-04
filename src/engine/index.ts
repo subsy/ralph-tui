@@ -1445,7 +1445,12 @@ export class ExecutionEngine {
       const durationMs = endedAt.getTime() - startedAt.getTime();
 
       // Check for completion signal
-      const promiseComplete = PROMISE_COMPLETE_PATTERN.test(agentResult.stdout);
+      // Only the agent's own text can signal completion. Raw stdout for structured
+      // agents includes tool results (file contents), so a file that merely mentions
+      // the signal would otherwise complete the task.
+      const completionScanText =
+        this.agent!.extractAgentText?.(agentResult.stdout) ?? agentResult.stdout;
+      const promiseComplete = PROMISE_COMPLETE_PATTERN.test(completionScanText);
 
       // Determine if task was completed
       // IMPORTANT: Only use the explicit <promise>COMPLETE</promise> signal.
