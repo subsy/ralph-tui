@@ -279,6 +279,11 @@ function parseToolResult(value: unknown): DroidToolResult | null {
   return null;
 }
 
+function isToolResultPayload(payload: Record<string, unknown>): boolean {
+  const payloadType = readString(payload.type)?.toLowerCase().replace(/[-_]/g, '');
+  return payloadType === 'toolresult' || readString(payload.role)?.toLowerCase() === 'tool';
+}
+
 function extractToolResults(payload: Record<string, unknown>): DroidToolResult[] {
   const results: DroidToolResult[] = [];
   const toolResults = payload.tool_results ?? payload.toolResults;
@@ -300,8 +305,7 @@ function extractToolResults(payload: Record<string, unknown>): DroidToolResult[]
 
   // Handle droid's top-level tool_result format where the entire payload IS the tool result
   // e.g., {"type":"tool_result","id":"call_xxx","toolId":"LS","value":"..."}
-  const payloadType = readString(payload.type);
-  if (payloadType === 'tool_result' && results.length === 0) {
+  if (isToolResultPayload(payload) && results.length === 0) {
     const parsed = parseToolResult(payload);
     if (parsed) {
       results.push(parsed);
@@ -641,14 +645,15 @@ export function parseDroidJsonlLine(line: string): DroidJsonlParseResult {
       return { success: false, raw: line, error: 'Invalid JSON object' };
     }
 
+    const isToolResult = isToolResultPayload(payload);
     const message: DroidJsonlMessage = {
       source: 'droid',
       type:
         readString(payload.type) ??
         readString(payload.event) ??
         readString(payload.kind),
-      message: extractMessageText(payload),
-      result: extractResultText(payload),
+      message: isToolResult ? undefined : extractMessageText(payload),
+      result: isToolResult ? undefined : extractResultText(payload),
       toolCalls: undefined,
       toolResults: undefined,
       error: undefined,
