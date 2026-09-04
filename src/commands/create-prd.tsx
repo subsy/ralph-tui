@@ -262,7 +262,7 @@ async function runChatMode(
 
   // Auto-load bundled skill if no custom skill specified
   if (!parsedArgs.prdSkillSource) {
-    const bundledSkill = await loadBundledPrdSkill(agent);
+    const bundledSkill = await loadBundledPrdSkill(agent, cwd);
     if (bundledSkill) {
       parsedArgs.prdSkillSource = bundledSkill;
       console.log("✓ Loaded ralph-tui-prd skill");
