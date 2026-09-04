@@ -9,7 +9,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
 import { buildRemoteWebSocketUrl } from '../../remote/url.js';
-import { isPrintableKeySequence } from '../../utils/printable-key.js';
+import { isPrintableKeySequence, removeLastCodePoint } from '../../utils/printable-key.js';
 
 /**
  * Mode determines which UI to show
@@ -275,7 +275,7 @@ export function RemoteManagementOverlay({
             break;
 
           case 'backspace':
-            updateCurrentField((prev) => prev.slice(0, -1));
+            updateCurrentField(removeLastCodePoint);
             break;
 
           case 'space':

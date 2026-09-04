@@ -9,7 +9,7 @@ import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
 import { getAgentRegistry } from '../../plugins/agents/registry.js';
 import type { AgentPluginConfig } from '../../plugins/agents/types.js';
-import { isPrintableKeySequence } from '../../utils/printable-key.js';
+import { isPrintableKeySequence, removeLastCodePoint } from '../../utils/printable-key.js';
 
 type PickerFocus = 'agent' | 'model';
 
@@ -301,7 +301,7 @@ export function AgentModelPicker({
 
         case 'backspace':
           if (focusedColumn === 'model' && modelOptions.length === 0) {
-            setModelInput((prev) => prev.slice(0, -1));
+            setModelInput(removeLastCodePoint);
           }
           return;
 

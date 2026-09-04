@@ -13,7 +13,7 @@ import { dirname, resolve, sep, isAbsolute } from 'node:path';
 import { colors } from '../theme.js';
 import { listDirectory, isDirectory, pathExists, type DirectoryEntry } from '../../utils/files.js';
 import { fuzzySearch } from '../../utils/fuzzy-search.js';
-import { isPrintableKeySequence } from '../../utils/printable-key.js';
+import { isPrintableKeySequence, removeLastCodePoint } from '../../utils/printable-key.js';
 
 /**
  * Props for the FileBrowser component
@@ -290,7 +290,7 @@ export function FileBrowser({
             break;
 
           case 'backspace':
-            setEditedPath((prev) => prev.slice(0, -1));
+            setEditedPath(removeLastCodePoint);
             break;
 
           default:
@@ -371,7 +371,7 @@ export function FileBrowser({
           // In search mode, delete characters; otherwise go to parent
           if (searchQuery) {
             setSearchQuery((prev) => {
-              const newQuery = prev.slice(0, -1);
+              const newQuery = removeLastCodePoint(prev);
               if (!newQuery) {
                 setSelectedIndex(0);
               }
