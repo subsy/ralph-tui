@@ -184,10 +184,11 @@ export async function loadPackagedPrdSkill(): Promise<string | undefined> {
  */
 export async function loadBundledPrdSkill(
   agent: AgentPlugin,
+  cwd: string = process.cwd(),
 ): Promise<string | undefined> {
   const skillsPaths = agent.meta.skillsPaths;
   if (skillsPaths) {
-    const searchPaths = getSkillSearchPaths(skillsPaths, process.cwd(), agent.meta.id);
+    const searchPaths = getSkillSearchPaths(skillsPaths, cwd, agent.meta.id);
 
     for (const dir of [...searchPaths.personal, ...searchPaths.repo]) {
       const content = await readPrdSkillFrom(dir);
