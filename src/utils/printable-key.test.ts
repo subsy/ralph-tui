@@ -1,5 +1,7 @@
-// ABOUTME: Tests Unicode printable keyboard sequence classification.
-// ABOUTME: Covers printable code points, controls, and multi-code-point input.
+/**
+ * ABOUTME: Tests Unicode printable keyboard sequence classification.
+ * Covers printable code points, controls, and multi-code-point input.
+ */
 
 import { describe, expect, test } from 'bun:test';
 import { isPrintableKeySequence, removeLastCodePoint } from './printable-key.js';
@@ -23,6 +25,8 @@ describe('isPrintableKeySequence', () => {
     ['delete', '\x7f'],
     ['control sequence', '\x1b[A'],
     ['multiple CJK characters', '中文'],
+    ['leading lone surrogate', '\uD800'],
+    ['trailing lone surrogate', '\uDFFF'],
   ])('rejects %s input', (_label, sequence) => {
     expect(isPrintableKeySequence(sequence)).toBe(false);
   });
