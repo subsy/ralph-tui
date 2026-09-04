@@ -5,7 +5,7 @@
  */
 
 import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 /**
  * Default path for the progress file (relative to cwd).
@@ -13,11 +13,34 @@ import { join, dirname } from 'node:path';
 export const PROGRESS_FILE = '.ralph-tui/progress.md';
 
 /**
+ * Working directory and optional configured progress file path.
+ */
+export interface ProgressLocation {
+  cwd: string;
+  progressFile?: string;
+}
+
+/**
+ * Resolve a relative progress path against cwd; use absolute paths as-is.
+ */
+export function resolveProgressFile(location: ProgressLocation): string {
+  const configured = location.progressFile?.trim() || PROGRESS_FILE;
+  return isAbsolute(configured) ? configured : resolve(location.cwd, configured);
+}
+
+/**
+ * Resolve a worker's isolated, gitignored progress file in its worktree.
+ */
+export function resolveWorkerProgressFile(worktreePath: string): string {
+  return join(worktreePath, PROGRESS_FILE);
+}
+
+/**
  * Read the progress file content for inclusion in prompts.
  * Returns empty string if file doesn't exist.
  */
-export async function readProgress(cwd: string): Promise<string> {
-  const filePath = join(cwd, PROGRESS_FILE);
+export async function readProgress(location: ProgressLocation): Promise<string> {
+  const filePath = resolveProgressFile(location);
 
   try {
     return await readFile(filePath, 'utf-8');
@@ -31,10 +54,10 @@ export async function readProgress(cwd: string): Promise<string> {
  * This is more concise than the full progress file.
  */
 export async function getRecentProgressSummary(
-  cwd: string,
+  location: ProgressLocation,
   maxEntries = 5
 ): Promise<string> {
-  const content = await readProgress(cwd);
+  const content = await readProgress(location);
   if (!content) return '';
 
   // Find entry headers
@@ -57,8 +80,8 @@ export async function getRecentProgressSummary(
 /**
  * Clear the progress file (start fresh).
  */
-export async function clearProgress(cwd: string): Promise<void> {
-  const filePath = join(cwd, PROGRESS_FILE);
+export async function clearProgress(location: ProgressLocation): Promise<void> {
+  const filePath = resolveProgressFile(location);
   const dirPath = dirname(filePath);
 
   try {
@@ -72,8 +95,8 @@ export async function clearProgress(cwd: string): Promise<void> {
 /**
  * Create the progress file with its default header if it does not exist.
  */
-export async function ensureProgressFile(cwd: string): Promise<void> {
-  const filePath = join(cwd, PROGRESS_FILE);
+export async function ensureProgressFile(location: ProgressLocation): Promise<void> {
+  const filePath = resolveProgressFile(location);
   const dirPath = dirname(filePath);
 
   try {
@@ -93,10 +116,10 @@ export async function ensureProgressFile(cwd: string): Promise<void> {
  * Append a marker identifying the start of a new session.
  */
 export async function appendProgressSessionMarker(
-  cwd: string,
+  location: ProgressLocation,
   sessionId: string
 ): Promise<void> {
-  const filePath = join(cwd, PROGRESS_FILE);
+  const filePath = resolveProgressFile(location);
   const marker = `\n---\n\n## Session ${sessionId} — started ${new Date().toISOString()}\n\n`;
 
   await appendFile(filePath, marker, 'utf-8');
@@ -130,11 +153,11 @@ const PATTERNS_SECTION_REGEX = /## Codebase Patterns.*?\n([\s\S]*?)(?=\n---|\n##
  * Extract codebase patterns from the progress file.
  * These are consolidated learnings that should be read first.
  *
- * @param cwd Working directory
+ * @param location Progress file location
  * @returns Array of pattern strings, or empty array if none found
  */
-export async function extractCodebasePatterns(cwd: string): Promise<string[]> {
-  const content = await readProgress(cwd);
+export async function extractCodebasePatterns(location: ProgressLocation): Promise<string[]> {
+  const content = await readProgress(location);
   if (!content) return [];
 
   const match = content.match(PATTERNS_SECTION_REGEX);
@@ -158,11 +181,11 @@ export async function extractCodebasePatterns(cwd: string): Promise<string[]> {
  * Get the formatted codebase patterns section for prompts.
  * Returns empty string if no patterns exist.
  *
- * @param cwd Working directory
+ * @param location Progress file location
  * @returns Formatted patterns section markdown
  */
-export async function getCodebasePatternsForPrompt(cwd: string): Promise<string> {
-  const patterns = await extractCodebasePatterns(cwd);
+export async function getCodebasePatternsForPrompt(location: ProgressLocation): Promise<string> {
+  const patterns = await extractCodebasePatterns(location);
   if (patterns.length === 0) return '';
 
   const lines = ['## Codebase Patterns (Study These First)', ''];

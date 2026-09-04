@@ -3746,13 +3746,13 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     }
   } else {
     if (options.resetProgress) {
-      await clearProgress(config.cwd);
+      await clearProgress(config);
     }
     try {
       if (!options.resetProgress) {
-        await ensureProgressFile(config.cwd);
+        await ensureProgressFile(config);
       }
-      await appendProgressSessionMarker(config.cwd, newSessionId);
+      await appendProgressSessionMarker(config, newSessionId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`Warning: Failed to update progress file: ${message}`);

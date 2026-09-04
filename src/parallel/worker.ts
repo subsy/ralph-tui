@@ -9,6 +9,7 @@ import { ExecutionEngine, type WorkerModeOptions } from '../engine/index.js';
 import type { EngineEvent, EngineEventListener } from '../engine/types.js';
 import type { RalphConfig } from '../config/types.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
+import { resolveWorkerProgressFile } from '../logs/progress.js';
 import type {
   WorkerConfig,
   WorkerResult,
@@ -88,7 +89,7 @@ export class Worker {
       cwd: this.config.worktreePath,
       maxIterations: this.maxIterations,
       outputDir: `${this.config.worktreePath}/.ralph-tui/iterations`,
-      progressFile: `${this.config.worktreePath}/.ralph-tui/progress.md`,
+      progressFile: resolveWorkerProgressFile(this.config.worktreePath),
       sessionId: `${baseConfig.sessionId ?? 'session'}-${this.id}`,
       // Force auto-commit in parallel mode — required for merge workflow to work.
       // Without commits, there's nothing to merge back to main.

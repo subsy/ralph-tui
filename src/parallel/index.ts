@@ -5,8 +5,8 @@
  */
 
 import { readFile, writeFile, appendFile, access, constants } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { RalphConfig } from '../config/types.js';
+import { resolveProgressFile, resolveWorkerProgressFile } from '../logs/progress.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import type { EngineEventListener } from '../engine/types.js';
 import { analyzeTaskGraph, shouldRunParallel } from './task-graph.js';
@@ -1021,8 +1021,10 @@ export class ParallelExecutor {
   private async mergeProgressFile(workerResult: WorkerResult): Promise<void> {
     if (!workerResult.worktreePath) return;
 
-    const workerProgressPath = join(workerResult.worktreePath, '.ralph-tui', 'progress.md');
-    const mainProgressPath = join(this.config.cwd, '.ralph-tui', 'progress.md');
+    const workerProgressPath = resolveWorkerProgressFile(workerResult.worktreePath);
+    const mainProgressPath = resolveProgressFile(this.baseConfig);
+
+    if (workerProgressPath === mainProgressPath) return;
 
     try {
       // Check if worker's progress file exists
