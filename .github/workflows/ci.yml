@@ -212,6 +212,10 @@ jobs:
           bun test src/templates/ --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/templates.lcov
 
+          echo "=== Running src/utils/ ===" | tee -a coverage-output.txt
+          bun test src/utils/ --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
+          cp coverage/lcov.info coverage-parts/utils.lcov
+
           echo "=== Running src/tui/ ===" | tee -a coverage-output.txt
           bun test src/tui/ --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee -a coverage-output.txt
           cp coverage/lcov.info coverage-parts/tui.lcov
@@ -249,7 +253,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           # Upload all batch coverage files - Codecov will merge them correctly
-          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-beads-rust-bv.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/tests-run-remote-only.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/remote-server.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/beads.lcov,./coverage-parts/plugins.lcov,./coverage-parts/multi-scope.lcov,./coverage-parts/jira.lcov,./coverage-parts/linear-body.lcov,./coverage-parts/linear-client.lcov,./coverage-parts/linear-index.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
+          files: ./coverage-parts/tests.lcov,./coverage-parts/tests-beads-rust-bv.lcov,./coverage-parts/tests-info.lcov,./coverage-parts/tests-run-remote-only.lcov,./coverage-parts/doctor.lcov,./coverage-parts/info.lcov,./coverage-parts/skills.lcov,./coverage-parts/run.lcov,./coverage-parts/remote-server.lcov,./coverage-parts/config.lcov,./coverage-parts/engine.lcov,./coverage-parts/beads-bv.lcov,./coverage-parts/beads-rust.lcov,./coverage-parts/beads.lcov,./coverage-parts/plugins.lcov,./coverage-parts/multi-scope.lcov,./coverage-parts/jira.lcov,./coverage-parts/linear-body.lcov,./coverage-parts/linear-client.lcov,./coverage-parts/linear-index.lcov,./coverage-parts/session.lcov,./coverage-parts/sandbox.lcov,./coverage-parts/wizard.lcov,./coverage-parts/setup.lcov,./coverage-parts/skill-installer-spawn.lcov,./coverage-parts/migration-install.lcov,./coverage-parts/templates.lcov,./coverage-parts/utils.lcov,./coverage-parts/tui.lcov,./coverage-parts/prd.lcov,./coverage-parts/chat.lcov,./coverage-parts/parallel.lcov
           fail_ci_if_error: false
           verbose: true
         env:

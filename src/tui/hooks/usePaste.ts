@@ -8,6 +8,8 @@ import { useEffect, useCallback, useRef } from 'react';
 import { useRenderer } from '@opentui/react';
 import type { PasteEvent } from '@opentui/core';
 
+const pasteDecoder = new TextDecoder();
+
 /**
  * Options for the usePaste hook.
  */
@@ -75,7 +77,7 @@ export function usePaste(
       }
 
       const now = Date.now();
-      const text = event.text;
+      const text = pasteDecoder.decode(event.bytes);
 
       // Debounce: ignore if same text was pasted within debounce window
       if (debounceMs > 0) {

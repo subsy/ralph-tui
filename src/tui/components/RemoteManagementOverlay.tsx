@@ -9,6 +9,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
 import { buildRemoteWebSocketUrl } from '../../remote/url.js';
+import { isPrintableKeySequence, removeLastCodePoint } from '../../utils/printable-key.js';
 
 /**
  * Mode determines which UI to show
@@ -274,7 +275,7 @@ export function RemoteManagementOverlay({
             break;
 
           case 'backspace':
-            updateCurrentField((prev) => prev.slice(0, -1));
+            updateCurrentField(removeLastCodePoint);
             break;
 
           case 'space':
@@ -291,7 +292,7 @@ export function RemoteManagementOverlay({
             }
 
             // Append printable characters to current field
-            if (key.sequence && key.sequence.length === 1) {
+            if (isPrintableKeySequence(key.sequence)) {
               // Only allow digits for port field
               if (focusedField === FIELD_SECURE) {
                 const lowerSequence = key.sequence.toLowerCase();
