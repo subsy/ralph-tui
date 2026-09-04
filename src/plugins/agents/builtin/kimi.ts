@@ -6,7 +6,12 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  extractAgentTextFromEvents,
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import { extractErrorMessage } from '../utils.js';
 import type {
   AgentPluginMeta,
@@ -116,6 +121,12 @@ export class KimiAgentPlugin extends BaseAgentPlugin {
 
   private model?: string;
   protected override defaultTimeout = 0;
+
+  extractAgentText(stdout: string): string | undefined {
+    const events = parseKimiOutputToEvents(stdout);
+    if (events.length === 0) return undefined;
+    return extractAgentTextFromEvents(events);
+  }
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
     await super.initialize(config);

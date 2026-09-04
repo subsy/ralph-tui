@@ -7,7 +7,12 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  extractAgentTextFromEvents,
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -429,6 +434,27 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       allEvents.push(...events);
     }
     return allEvents;
+  }
+
+  extractAgentText(stdout: string): string | undefined {
+    const events = this.parseClaudeOutputToEvents(stdout);
+    const resultTexts: string[] = [];
+
+    for (const line of stdout.split('\n')) {
+      try {
+        const event = JSON.parse(line.trim()) as Record<string, unknown>;
+        if (event.type === 'result' && typeof event.result === 'string') {
+          resultTexts.push(event.result);
+        }
+      } catch {
+        // Ignore non-JSON lines while parsing structured output.
+      }
+    }
+
+    if (events.length === 0 && resultTexts.length === 0) return undefined;
+
+    const narrative = extractAgentTextFromEvents(events);
+    return narrative ? [narrative, ...resultTexts].join('\n') : resultTexts.join('\n');
   }
 
   /**

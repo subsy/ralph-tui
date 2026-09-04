@@ -370,6 +370,13 @@ export interface AgentPlugin {
   readonly meta: AgentPluginMeta;
 
   /**
+   * Extract the agent's own narrative text from raw stdout, excluding tool
+   * results and file contents. Returns undefined when the output is not in
+   * this agent's structured format, so callers can fall back to raw stdout.
+   */
+  extractAgentText?(stdout: string): string | undefined;
+
+  /**
    * Initialize the plugin with configuration.
    * Called once when the plugin is loaded.
    * @param config Plugin-specific configuration options

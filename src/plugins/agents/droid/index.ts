@@ -24,6 +24,11 @@ import type {
 import { buildDroidCommandArgs } from './commandBuilder.js';
 import { DROID_DEFAULT_COMMAND } from './config.js';
 import { DroidAgentConfigSchema, type DroidReasoningEffort } from './schema.js';
+import { extractAgentTextFromEvents } from '../output-formatting.js';
+import {
+  createDroidStreamingJsonlParser,
+  parseDroidMessageToEvents,
+} from './outputParser.js';
 
 export class DroidAgentPlugin extends BaseAgentPlugin {
   private readonly baseMeta: AgentPluginMeta = {
@@ -135,6 +140,17 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
       '  3. Check Droid is installed: droid --version\n' +
       '  4. Ensure you have access to the Factory platform'
     );
+  }
+
+  extractAgentText(stdout: string): string | undefined {
+    const parser = createDroidStreamingJsonlParser();
+    parser.push(stdout);
+    parser.flush();
+    const messages = parser.getState().messages;
+    if (messages.length === 0) return undefined;
+
+    const events = messages.flatMap((message) => parseDroidMessageToEvents(message));
+    return extractAgentTextFromEvents(events);
   }
 
   /**

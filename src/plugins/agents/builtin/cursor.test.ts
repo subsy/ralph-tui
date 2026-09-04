@@ -23,6 +23,17 @@ describe('CursorAgentPlugin', () => {
     await plugin.dispose();
   });
 
+  test('extracts narrative text from structured output', () => {
+    const stdout = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: 'I will inspect the schema first.' }],
+      },
+    });
+
+    expect(plugin.extractAgentText?.(stdout)).toBe('I will inspect the schema first.');
+  });
+
   describe('meta', () => {
     test('has correct plugin ID', () => {
       expect(plugin.meta.id).toBe('cursor');
