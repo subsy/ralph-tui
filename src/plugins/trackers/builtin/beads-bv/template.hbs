@@ -59,7 +59,7 @@ Completing this task will unblock: {{blocks}}
 
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
-2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+2. Study `{{progressFile}}` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. **BEFORE implementing**: Review the relevant parts of the codebase to understand existing patterns and architecture
 4. **Check the original task list**: Verify if there are any related tasks or dependencies that affect this implementation
 5. **If something is missing**: If you discover that related functionality needs changes, implement those changes as part of this task
@@ -75,7 +75,7 @@ Completing this task will unblock: {{blocks}}
 11. Signal completion
 
 ## Before Completing
-APPEND to `.ralph-tui/progress.md`:
+APPEND to `{{progressFile}}`:
 ```
 ## [Date] - {{taskId}}
 - What was implemented
@@ -86,7 +86,7 @@ APPEND to `.ralph-tui/progress.md`:
 ---
 ```
 
-If you discovered a **reusable pattern**, also add it to the `## Codebase Patterns` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the `## Codebase Patterns` section at the TOP of `{{progressFile}}`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it works correctly and signal completion immediately.

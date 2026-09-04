@@ -51,6 +51,7 @@ export {
 
 export {
   PROGRESS_FILE,
+  resolveProgressFile,
   readProgress,
   getRecentProgressSummary,
   getCodebasePatternsForPrompt,
@@ -58,3 +59,5 @@ export {
   ensureProgressFile,
   appendProgressSessionMarker,
 } from './progress.js';
+
+export type { ProgressLocation } from './progress.js';
