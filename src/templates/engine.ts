@@ -408,7 +408,7 @@ function computePromptProgressFile(config: Partial<RalphConfig>): string {
   });
   const relative = path.relative(cwd, resolved);
   const promptPath =
-    relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+    relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
       ? relative
       : resolved;
 

@@ -12,11 +12,17 @@ import { dirname, isAbsolute, resolve } from 'node:path';
  */
 export const PROGRESS_FILE = '.ralph-tui/progress.md';
 
+/**
+ * Working directory and optional configured progress file path.
+ */
 export interface ProgressLocation {
   cwd: string;
   progressFile?: string;
 }
 
+/**
+ * Resolve a relative progress path against cwd; use absolute paths as-is.
+ */
 export function resolveProgressFile(location: ProgressLocation): string {
   const configured = location.progressFile?.trim() || PROGRESS_FILE;
   return isAbsolute(configured) ? configured : resolve(location.cwd, configured);

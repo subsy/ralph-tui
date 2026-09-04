@@ -1027,6 +1027,8 @@ export class ParallelExecutor {
     });
     const mainProgressPath = resolveProgressFile(this.baseConfig);
 
+    if (workerProgressPath === mainProgressPath) return;
+
     try {
       // Check if worker's progress file exists
       await access(workerProgressPath, constants.R_OK);
