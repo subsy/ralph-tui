@@ -9,6 +9,7 @@ import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
 import { getAgentRegistry } from '../../plugins/agents/registry.js';
 import type { AgentPluginConfig } from '../../plugins/agents/types.js';
+import { isPrintableKeySequence } from '../../utils/printable-key.js';
 
 type PickerFocus = 'agent' | 'model';
 
@@ -308,8 +309,7 @@ export function AgentModelPicker({
           if (
             focusedColumn === 'model' &&
             modelOptions.length === 0 &&
-            key.sequence &&
-            key.sequence.length === 1
+            isPrintableKeySequence(key.sequence)
           ) {
             setModelInput((prev) => prev + key.sequence);
           }

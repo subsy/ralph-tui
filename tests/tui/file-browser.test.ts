@@ -209,6 +209,16 @@ describe('FileBrowser helpers', () => {
       expect(filtered.map((e) => e.name)).toContain('my-prd-file.json');
     });
 
+    test('filters entries by CJK fuzzy query', () => {
+      const entries: DirectoryEntry[] = [
+        { name: 'prd-中文.json', path: '/project/prd-中文.json', isDirectory: false },
+      ];
+
+      const filtered = filterEntriesWithFuzzySearch(entries, '中文');
+
+      expect(filtered.map((e) => e.name)).toContain('prd-中文.json');
+    });
+
     test('ranks exact filename match first', () => {
       const filtered = filterEntriesWithFuzzySearch(mockEntries, 'prd.json');
       expect(filtered[0].name).toBe('prd.json');

@@ -13,6 +13,7 @@ import { dirname, resolve, sep, isAbsolute } from 'node:path';
 import { colors } from '../theme.js';
 import { listDirectory, isDirectory, pathExists, type DirectoryEntry } from '../../utils/files.js';
 import { fuzzySearch } from '../../utils/fuzzy-search.js';
+import { isPrintableKeySequence } from '../../utils/printable-key.js';
 
 /**
  * Props for the FileBrowser component
@@ -293,7 +294,7 @@ export function FileBrowser({
             break;
 
           default:
-            if (key.sequence && key.sequence.length === 1 && key.sequence >= ' ') {
+            if (isPrintableKeySequence(key.sequence)) {
               setEditedPath((prev) => prev + key.sequence);
             }
             break;
@@ -389,7 +390,7 @@ export function FileBrowser({
             setShowHidden((prev) => !prev);
           } else if ((key.sequence === '/' || key.sequence === 'g') && !searchQuery) {
             startEditingPath();
-          } else if (key.sequence && key.sequence.length === 1 && /[a-zA-Z0-9_\-.]/.test(key.sequence)) {
+          } else if (isPrintableKeySequence(key.sequence)) {
             // Start or continue fuzzy search with alphanumeric input
             setSearchQuery((prev) => prev + key.sequence);
             setSelectedIndex(0);

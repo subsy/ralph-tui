@@ -11,6 +11,7 @@ import { colors } from '../theme.js';
 import type { StoredConfig, SubagentDetailLevel, NotificationSoundMode } from '../../config/types.js';
 import type { AgentPluginConfig } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
+import { isPrintableKeySequence } from '../../utils/printable-key.js';
 import {
   listModelsForAgent,
   normalizeModelValue,
@@ -358,7 +359,7 @@ export function SettingsView({
 
           default:
             // Append character to edit value
-            if (key.sequence && key.sequence.length === 1) {
+            if (isPrintableKeySequence(key.sequence)) {
               setEditValue((prev) => prev + key.sequence);
             }
             break;
