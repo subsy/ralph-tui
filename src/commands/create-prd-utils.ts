@@ -7,7 +7,12 @@ import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentPlugin } from "../plugins/agents/types.js";
-import { getSkillSearchPaths } from "../setup/skill-installer.js";
+import {
+  getBundledSkillsDir,
+  getSkillSearchPaths,
+} from "../setup/skill-installer.js";
+
+const PRD_SKILL_NAME = "ralph-tui-prd";
 
 /**
  * Command-line arguments for the create-prd command.
@@ -156,29 +161,39 @@ Examples:
 `);
 }
 
+async function readPrdSkillFrom(dir: string): Promise<string | undefined> {
+  const skillFile = join(dir, PRD_SKILL_NAME, "SKILL.md");
+  try {
+    await access(skillFile, constants.R_OK);
+    const content = await readFile(skillFile, "utf-8");
+    return content.trim() ? content : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Try to load the bundled ralph-tui-prd skill from the agent's skills directory.
- * Returns the skill source if found, undefined otherwise.
+ * Load the packaged ralph-tui-prd skill.
+ */
+export async function loadPackagedPrdSkill(): Promise<string | undefined> {
+  return readPrdSkillFrom(getBundledSkillsDir());
+}
+
+/**
+ * Load the agent-installed ralph-tui-prd skill, falling back to the packaged copy.
  */
 export async function loadBundledPrdSkill(
   agent: AgentPlugin,
 ): Promise<string | undefined> {
   const skillsPaths = agent.meta.skillsPaths;
-  if (!skillsPaths) return undefined;
-  const searchPaths = getSkillSearchPaths(skillsPaths, process.cwd(), agent.meta.id);
+  if (skillsPaths) {
+    const searchPaths = getSkillSearchPaths(skillsPaths, process.cwd(), agent.meta.id);
 
-  for (const dir of [...searchPaths.personal, ...searchPaths.repo]) {
-    const skillFile = join(dir, "ralph-tui-prd", "SKILL.md");
-    try {
-      await access(skillFile, constants.R_OK);
-      const content = await readFile(skillFile, "utf-8");
-      if (content.trim()) {
-        return content;
-      }
-    } catch {
-      // Try the next discovery path.
+    for (const dir of [...searchPaths.personal, ...searchPaths.repo]) {
+      const content = await readPrdSkillFrom(dir);
+      if (content) return content;
     }
   }
 
-  return undefined;
+  return loadPackagedPrdSkill();
 }
