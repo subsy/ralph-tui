@@ -5,7 +5,7 @@
  */
 
 import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 /**
  * Default path for the progress file (relative to cwd).
@@ -26,6 +26,13 @@ export interface ProgressLocation {
 export function resolveProgressFile(location: ProgressLocation): string {
   const configured = location.progressFile?.trim() || PROGRESS_FILE;
   return isAbsolute(configured) ? configured : resolve(location.cwd, configured);
+}
+
+/**
+ * Resolve a worker's isolated, gitignored progress file in its worktree.
+ */
+export function resolveWorkerProgressFile(worktreePath: string): string {
+  return join(worktreePath, PROGRESS_FILE);
 }
 
 /**

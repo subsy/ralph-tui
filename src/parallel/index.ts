@@ -6,7 +6,7 @@
 
 import { readFile, writeFile, appendFile, access, constants } from 'node:fs/promises';
 import type { RalphConfig } from '../config/types.js';
-import { resolveProgressFile } from '../logs/progress.js';
+import { resolveProgressFile, resolveWorkerProgressFile } from '../logs/progress.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import type { EngineEventListener } from '../engine/types.js';
 import { analyzeTaskGraph, shouldRunParallel } from './task-graph.js';
@@ -1021,10 +1021,7 @@ export class ParallelExecutor {
   private async mergeProgressFile(workerResult: WorkerResult): Promise<void> {
     if (!workerResult.worktreePath) return;
 
-    const workerProgressPath = resolveProgressFile({
-      cwd: workerResult.worktreePath,
-      progressFile: this.baseConfig.progressFile,
-    });
+    const workerProgressPath = resolveWorkerProgressFile(workerResult.worktreePath);
     const mainProgressPath = resolveProgressFile(this.baseConfig);
 
     if (workerProgressPath === mainProgressPath) return;

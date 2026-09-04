@@ -52,6 +52,7 @@ export {
 export {
   PROGRESS_FILE,
   resolveProgressFile,
+  resolveWorkerProgressFile,
   readProgress,
   getRecentProgressSummary,
   getCodebasePatternsForPrompt,
