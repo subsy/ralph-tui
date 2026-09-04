@@ -197,6 +197,10 @@ function createWorkerResult(task: TrackerTask, overrides: Partial<WorkerResult> 
   };
 }
 
+type ParallelExecutorWithProgressMerge = {
+  mergeProgressFile(workerResult: WorkerResult): Promise<void>;
+};
+
 /** Create a merge operation for targeted conflict-queue tests. */
 function createMergeOperation(
   id: string,
@@ -280,7 +284,7 @@ describe('ParallelExecutor class', () => {
         await writeFile(workerProgressPath, 'worker learnings');
         await writeFile(mainProgressPath, 'main progress');
 
-        await (executor as any).mergeProgressFile(
+        await (executor as unknown as ParallelExecutorWithProgressMerge).mergeProgressFile(
           createWorkerResult(task('T1'), { worktreePath: workerCwd })
         );
 
@@ -306,7 +310,7 @@ describe('ParallelExecutor class', () => {
         await mkdir(root, { recursive: true });
         await writeFile(sharedProgressPath, 'shared progress');
 
-        await (executor as any).mergeProgressFile(
+        await (executor as unknown as ParallelExecutorWithProgressMerge).mergeProgressFile(
           createWorkerResult(task('T1'), { worktreePath: join(root, 'worker') })
         );
 
