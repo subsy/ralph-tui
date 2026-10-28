@@ -12,7 +12,7 @@ import createZaiAgent, { ZaiAgentPlugin } from '../../src/plugins/agents/builtin
 import { registerBuiltinAgents } from '../../src/plugins/agents/builtin/index.js';
 import { getAgentRegistry } from '../../src/plugins/agents/registry.js';
 import { BaseAgentPlugin } from '../../src/plugins/agents/base.js';
-import type { AgentExecuteOptions, AgentFileContext } from '../../src/plugins/agents/types.js';
+import type { AgentExecuteOptions, AgentExecutionResult, AgentFileContext } from '../../src/plugins/agents/types.js';
 
 const wrapperSource = `#!/usr/bin/env bun
 if (process.argv.includes('--version')) {
@@ -23,7 +23,28 @@ if (process.argv.includes('--fail-provider')) {
   console.error('Provider authentication failed');
   process.exit(1);
 }
-if (process.env.FAKE_MODE === 'hang') {
+const mode = process.env.FAKE_MODE;
+const text = (value) => JSON.stringify({type:'assistant',message:{content:[{type:'text',text:value}]}});
+if (mode === 'exact-limit') {
+  const line = text('At limit');
+  process.stdout.write(' '.repeat(2_000_000 - line.length) + line);
+} else if (mode?.startsWith('overflow')) {
+  process.stdout.write('x' + ' '.repeat(2_000_000));
+  await Bun.sleep(60);
+  process.stdout.write(text('Spoofed truncated tail'));
+  if (mode !== 'overflow-eof') {
+    process.stdout.write('\\n' + text('After delimiter') + '\\n' + text('Final valid record'));
+  }
+} else if (mode?.startsWith('structured-error')) {
+  process.stdout.write(JSON.stringify({type:'result',subtype:'error_during_execution',is_error:true,errors:['Provider auth failed',42,'Retry exhausted']}));
+  if (mode === 'structured-error-hang') {
+    process.stdout.write('\\n');
+    setInterval(() => {}, 100);
+  }
+} else if (mode === 'tool-only') {
+  console.log(JSON.stringify({type:'user',message:{content:[{type:'tool_result',is_error:true,content:'Recoverable tool error'}]}}));
+  process.stdout.write(text('Recovered'));
+} else if (mode === 'hang') {
   console.log(JSON.stringify({type:'system',subtype:'init'}));
   setInterval(() => {}, 100);
 } else {
@@ -160,7 +181,8 @@ for (const Plugin of [MiniMaxAgentPlugin, ZaiAgentPlugin]) {
         onStdoutSegments: (data) => segments.push(...data),
         onEnd: () => { ended = true; },
       }).promise;
-      expect(result.status).toBe('completed');
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe('Provider failed');
       expect(ended).toBe(true);
       expect(messages[0]).toMatchObject({ prompt, cwd: directory, sandbox: '1' });
       expect(messages[0].args).toEqual(['--print', '--verbose', '--output-format', 'stream-json', '--model', 'provider-model', '--dangerously-skip-permissions', '--add-dir', '/context']);
@@ -184,6 +206,173 @@ for (const Plugin of [MiniMaxAgentPlugin, ZaiAgentPlugin]) {
       expect(result.stdout).not.toContain('--output-format');
       expect(result.stdout).not.toContain('--dangerously-skip-permissions');
       expect(result.stdout).toContain('custom');
+    });
+
+    for (const mode of ['overflow-delimited', 'overflow-eof']) {
+      test(`${mode} diagnoses a discarded record without parsing its truncated suffix`, async () => {
+        await plugin.initialize({ command });
+        let display = '';
+        const messages: Record<string, unknown>[] = [];
+        const ended: AgentExecutionResult[] = [];
+        const result = await plugin.execute('test', [], {
+          env: { FAKE_MODE: mode },
+          onStdout: (text) => { display += text; },
+          onJsonlMessage: (message) => { messages.push(message); },
+          onEnd: (result) => { ended.push({ ...result }); },
+        }).promise;
+        expect(display).not.toContain('Spoofed truncated tail');
+        expect(JSON.stringify(messages)).not.toContain('Spoofed truncated tail');
+        expect(result.status).toBe('failed');
+        expect(result.error).toContain('2000000');
+        expect(result.error).toContain('discard');
+        expect(display.match(/buffer limit/g)).toHaveLength(1);
+        expect(ended).toHaveLength(1);
+        expect(ended[0].status).toBe('failed');
+        expect(ended[0].error).toBe(result.error);
+        if (mode === 'overflow-delimited') {
+          expect(messages).toHaveLength(2);
+          expect(display).toContain('After delimiter');
+          expect(display).toContain('Final valid record');
+        } else {
+          expect(messages).toHaveLength(0);
+        }
+      });
+    }
+
+    test('structured result errors fail even with exit zero and no observers', async () => {
+      await plugin.initialize({ command });
+      const result = await plugin.execute('test', [], { env: { FAKE_MODE: 'structured-error' } }).promise;
+      expect(result.exitCode).toBe(0);
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe('Provider auth failed\nRetry exhausted');
+    });
+
+    test('a record at the pending limit survives final flushing', async () => {
+      await plugin.initialize({ command });
+      let display = '';
+      const result = await plugin.execute('test', [], { env: { FAKE_MODE: 'exact-limit' }, onStdout: (text) => { display += text; } }).promise;
+      expect(result.status).toBe('completed');
+      expect(result.error).toBeUndefined();
+      expect(display).toContain('At limit');
+      expect(display).not.toContain('buffer limit');
+    });
+
+    test('overflow status reaches onEnd even when the recovered final display throws', async () => {
+      await plugin.initialize({ command });
+      const ended: AgentExecutionResult[] = [];
+      const result = await plugin.execute('test', [], {
+        env: { FAKE_MODE: 'overflow-delimited' },
+        onStdout: (text) => { if (text.includes('Final valid record')) throw new Error('display failed'); },
+        onEnd: (result) => { ended.push({ ...result }); },
+      }).promise;
+      expect(ended).toHaveLength(1);
+      expect(ended[0].status).toBe('failed');
+      expect(ended[0].error).toContain('buffer limit');
+      expect(result.error).toBe(ended[0].error);
+    });
+
+    for (const callback of ['onStdout', 'onStdoutSegments', 'onJsonlMessage'] as const) {
+      test(`final ${callback} throwing cannot skip onEnd or error normalization`, async () => {
+        await plugin.initialize({ command });
+        const ended: AgentExecutionResult[] = [];
+        let calls = 0;
+        const result = await plugin.execute('test', [], {
+          env: { FAKE_MODE: 'structured-error' },
+          [callback]: () => { calls++; throw new Error('display failed'); },
+          onEnd: (result) => { ended.push({ ...result }); },
+        }).promise;
+        expect(calls).toBe(1);
+        expect(ended).toHaveLength(1);
+        expect(ended[0].status).toBe('failed');
+        expect(ended[0].error).toBe('Provider auth failed\nRetry exhausted');
+        expect(result.status).toBe('failed');
+        expect(result.error).toBe(ended[0].error);
+      });
+    }
+
+    test('caller onEnd can throw without duplicate delivery or a rejected promise', async () => {
+      await plugin.initialize({ command });
+      let calls = 0;
+      let status: string | undefined;
+      const result = await plugin.execute('test', [], {
+        env: { FAKE_MODE: 'structured-error' },
+        onEnd: (result) => { calls++; status = result.status; throw new Error('end failed'); },
+      }).promise;
+      expect(calls).toBe(1);
+      expect(status).toBe('failed');
+      expect(result.status).toBe('failed');
+    });
+
+    test('tool errors are recoverable and execution state does not leak', async () => {
+      await plugin.initialize({ command });
+      await plugin.execute('test', [], { env: { FAKE_MODE: 'structured-error' } }).promise;
+      let display = '';
+      const result = await plugin.execute('test', [], { env: { FAKE_MODE: 'tool-only' }, onStdout: (data) => { display += data; } }).promise;
+      expect(result.status).toBe('completed');
+      expect(result.error).toBeUndefined();
+      expect(display).toContain('Recoverable tool error');
+      expect(display).toContain('Recovered');
+    });
+
+    test('structured error diagnostics are displayed without Unknown error', async () => {
+      await plugin.initialize({ command });
+      let display = '';
+      const result = await plugin.execute('test', [], { env: { FAKE_MODE: 'structured-error' }, onStdout: (text) => { display += text; } }).promise;
+      expect(result.status).toBe('failed');
+      expect(display).toContain('Provider auth failed');
+      expect(display).toContain('Retry exhausted');
+      expect(display).not.toContain('Unknown error');
+    });
+
+    test('a structured error does not replace a subsequent timeout', async () => {
+      await plugin.initialize({ command, timeout: 200 });
+      const result = await plugin.execute('test', [], { env: { FAKE_MODE: 'structured-error-hang' } }).promise;
+      expect(result.status).toBe('timeout');
+    });
+
+    test('a structured error does not replace interruption', async () => {
+      await plugin.initialize({ command });
+      let handle: ReturnType<typeof plugin.execute>;
+      handle = plugin.execute('test', [], {
+        env: { FAKE_MODE: 'structured-error-hang' },
+        onJsonlMessage: () => { handle.interrupt(); },
+      });
+      const result = await handle.promise;
+      expect(result.status).toBe('interrupted');
+      expect(result.interrupted).toBe(true);
+    });
+
+    test('preflight rejects a result error even when the wrapper exits zero', async () => {
+      await writeFile(command, wrapperSource.replace('const mode = process.env.FAKE_MODE;', "const mode = 'structured-error';"));
+      await plugin.initialize({ command });
+      const result = await plugin.preflight();
+      expect(result.success).toBe(false);
+      expect(result.exitCode).toBe(0);
+      expect(result.error).toContain('Provider auth failed');
+      expect(result.stdout).toContain('Retry exhausted');
+    });
+
+    for (const [event, error] of [
+      [{ type: 'result', subtype: 'error_max_turns', errors: [' ', 'Too many turns', null] }, 'Too many turns'],
+      [{ type: 'result', is_error: true, result: 'Preferred result', errors: ['Other diagnostic'] }, 'Preferred result'],
+      [{ type: 'result', is_error: true, result: {}, errors: ['Array fallback'] }, 'Array fallback'],
+      [{ type: 'result', is_error: true, errors: [null, 42, ' '] }, 'Unknown error'],
+      [{ type: 'error', error: { message: 'Nested error' } }, 'Nested error'],
+    ] as const) {
+      test(`preserves the structured diagnostic ${error}`, async () => {
+        await writeFile(command, `#!/usr/bin/env bun\nprocess.stdout.write(${JSON.stringify(JSON.stringify(event))});\n`);
+        await plugin.initialize({ command });
+        const result = await plugin.execute('test').promise;
+        expect(result.status).toBe('failed');
+        expect(result.error).toBe(error);
+      });
+    }
+
+    test('plain output is not reclassified as structured failure', async () => {
+      await plugin.initialize({ command, printMode: 'text' });
+      const result = await plugin.execute('test', [], { env: { FAKE_MODE: 'structured-error' } }).promise;
+      expect(result.status).toBe('completed');
+      expect(result.error).toBeUndefined();
     });
 
     test('subagent tracing requests structured output even in text mode', async () => {
