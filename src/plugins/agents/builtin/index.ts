@@ -64,6 +64,8 @@ export {
 // Export Claude JSONL parsing types and utilities
 export type { ClaudeJsonlMessage, JsonlParseResult } from './claude.js';
 export { ClaudeAgentPlugin } from './claude.js';
+export { MiniMaxAgentPlugin } from './minimax.js';
+export { ZaiAgentPlugin } from './zai.js';
 
 // Export new agent plugin classes
 export { GeminiAgentPlugin } from './gemini.js';

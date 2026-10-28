@@ -9,6 +9,8 @@
 
 import { describe, test, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 let mockSpawnArgs: Array<{ cmd: string; args: string[]; opts: unknown }> = [];
 let mockSpawnExitCode: number | null = 0;
@@ -102,6 +104,17 @@ describe('installViaAddSkill', () => {
     const opts = mockSpawnArgs[0].opts as { stdio: string };
     expect(opts.stdio).toBe('pipe');
   });
+
+  for (const agentId of ['minimax', 'zai']) {
+    test(`installs ${agentId} skills in its isolated Claude config`, async () => {
+      const originalConfig = process.env.CLAUDE_CONFIG_DIR;
+      await installViaAddSkill({ agentId, global: true });
+      expect(mockSpawnArgs[0].args).toContain('claude-code');
+      const opts = mockSpawnArgs[0].opts as { env: Record<string, string> };
+      expect(opts.env.CLAUDE_CONFIG_DIR).toBe(join(homedir(), '.cc-mirror', agentId, 'config'));
+      expect(process.env.CLAUDE_CONFIG_DIR).toBe(originalConfig);
+    });
+  }
 
   test('returns success for ELOOP-only failures', async () => {
     mockSpawnStdout = 'Installation complete\n';

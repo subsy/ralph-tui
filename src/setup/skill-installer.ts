@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
  */
 export const AGENT_ID_MAP: Record<string, string> = {
   claude: 'claude-code',
+  minimax: 'claude-code',
+  zai: 'claude-code',
   opencode: 'opencode',
   codex: 'codex',
   gemini: 'gemini-cli',
@@ -308,6 +310,9 @@ export async function installViaAddSkill(options: AddSkillInstallOptions): Promi
     const child = spawn('bunx', args, {
       stdio: 'pipe',
       cwd: process.cwd(),
+      ...(['minimax', 'zai'].includes(options.agentId) ? {
+        env: { ...process.env, CLAUDE_CONFIG_DIR: join(homedir(), '.cc-mirror', options.agentId, 'config') },
+      } : {}),
     });
 
     let output = '';

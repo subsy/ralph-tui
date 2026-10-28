@@ -6,6 +6,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { appendWithCharLimit } from '../../../utils/buffer-limits.js';
 import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
 import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
 import type {
@@ -136,7 +137,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     if (!findResult.found) {
       return {
         available: false,
-        error: `Claude CLI not found in PATH. Install with: npm install -g @anthropic-ai/claude-code`,
+        error: this.getCommandNotFoundMessage(),
       };
     }
 
@@ -159,6 +160,10 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       version: versionResult.version,
       executablePath: findResult.path,
     };
+  }
+
+  protected override getCommandNotFoundMessage(): string {
+    return 'Claude CLI not found in PATH. Install with: npm install -g @anthropic-ai/claude-code';
   }
 
   override getSandboxRequirements() {
@@ -405,10 +410,13 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       }
 
       // Parse error events
-      if (event.type === 'error' || event.error) {
+      const isErrorResult = event.type === 'result' &&
+        (event.is_error === true || (typeof event.subtype === 'string' && event.subtype.startsWith('error')));
+      if (event.type === 'error' || event.error || isErrorResult) {
         const errorMsg = typeof event.error === 'string'
           ? event.error
-          : (event.error as { message?: string })?.message ?? 'Unknown error';
+          : (event.error as { message?: string })?.message ??
+            (typeof event.result === 'string' ? event.result : 'Unknown error');
         events.push({ type: 'error', message: errorMsg });
       }
 
@@ -451,6 +459,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       sandboxEnv.IS_SANDBOX = '1';
     }
 
+    let pendingOutput = '';
     const parsedOptions: AgentExecuteOptions = {
       ...options,
       env: { ...sandboxEnv, ...options?.env },
@@ -463,6 +472,11 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       // Legacy string callback or wrapper that calls both callbacks and JSONL message callback
       onStdout: isStreamingJson && (options?.onStdout || options?.onStdoutSegments || options?.onJsonlMessage)
         ? (data: string) => {
+            pendingOutput = appendWithCharLimit(pendingOutput, data, 2_000_000, '');
+            const boundary = pendingOutput.lastIndexOf('\n');
+            if (boundary < 0) return;
+            data = pendingOutput.slice(0, boundary + 1);
+            pendingOutput = pendingOutput.slice(boundary + 1);
             // Parse each line for JSONL messages and display events
             for (const line of data.split('\n')) {
               const trimmed = line.trim();
@@ -499,6 +513,14 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
             }
           }
         : options?.onStdout,
+      onEnd: (result) => {
+        if (pendingOutput.trim()) {
+          const tail = pendingOutput;
+          pendingOutput = '';
+          parsedOptions.onStdout?.(`${tail}\n`);
+        }
+        options?.onEnd?.(result);
+      },
     };
 
     return super.execute(prompt, files, parsedOptions);

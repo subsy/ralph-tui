@@ -89,7 +89,9 @@ export const docsNavigation: NavItem[] = [
           { title: 'Grok', href: '/docs/plugins/agents/grok', label: 'New' },
           { title: 'Kimi', href: '/docs/plugins/agents/kimi', label: 'New' },
           { title: 'Kiro', href: '/docs/plugins/agents/kiro', label: 'New' },
+          { title: 'MiniMax (cc-mirror)', href: '/docs/plugins/agents/minimax', label: 'New' },
           { title: 'Pi', href: '/docs/plugins/agents/pi', label: 'New' },
+          { title: 'Z.ai (cc-mirror)', href: '/docs/plugins/agents/zai', label: 'New' },
         ],
       },
       {
