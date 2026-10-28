@@ -4,12 +4,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   readFile,
-  writeFile,
-  unlink,
   mkdir,
   access,
   constants,
@@ -21,6 +18,13 @@ import type {
   CreateSessionOptions,
   SessionStatus,
 } from './types.js';
+import { writeJsonAtomic } from './atomic-write.js';
+import {
+  acquireLockExclusive,
+  cleanStaleLock as cleanStaleLockWithGuard,
+  ownsLock,
+  releaseLock as releaseLockWithGuard,
+} from './lock.js';
 
 /**
  * Directory for session data (relative to cwd)
@@ -49,7 +53,7 @@ function getSessionDir(cwd: string): string {
 }
 
 /**
- * Get the lock file path
+ * Get the lock file path.
  */
 function getLockPath(cwd: string): string {
   return join(getSessionDir(cwd), LOCK_FILE);
@@ -152,64 +156,6 @@ export async function checkSession(cwd: string): Promise<SessionCheckResult> {
 }
 
 /**
- * Acquire lock for a new session
- */
-export async function acquireLock(
-  cwd: string,
-  sessionId: string
-): Promise<boolean> {
-  await ensureSessionDir(cwd);
-  const lockPath = getLockPath(cwd);
-
-  // Check for existing lock
-  const existingLock = await readLockFile(cwd);
-  if (existingLock && isProcessRunning(existingLock.pid)) {
-    return false;
-  }
-
-  // Write our lock file
-  const lock: LockFile = {
-    pid: process.pid,
-    sessionId,
-    acquiredAt: new Date().toISOString(),
-    cwd,
-    hostname: hostname(),
-  };
-
-  await writeFile(lockPath, JSON.stringify(lock, null, 2));
-  return true;
-}
-
-/**
- * Release the lock
- */
-export async function releaseLock(cwd: string): Promise<void> {
-  const lockPath = getLockPath(cwd);
-  try {
-    await unlink(lockPath);
-  } catch {
-    // Ignore if lock doesn't exist
-  }
-}
-
-/**
- * Clean up stale lock (when process is no longer running)
- */
-export async function cleanStaleLock(cwd: string): Promise<boolean> {
-  const lock = await readLockFile(cwd);
-  if (!lock) {
-    return false;
-  }
-
-  if (!isProcessRunning(lock.pid)) {
-    await releaseLock(cwd);
-    return true;
-  }
-
-  return false;
-}
-
-/**
  * Create a new session
  */
 export async function createSession(
@@ -219,13 +165,15 @@ export async function createSession(
 
   const now = new Date().toISOString();
   const session: SessionMetadata = {
-    id: randomUUID(),
+    id: options.sessionId ?? randomUUID(),
     status: 'running',
     startedAt: now,
     updatedAt: now,
     agentPlugin: options.agentPlugin,
     trackerPlugin: options.trackerPlugin,
     epicId: options.epicId,
+    epicIds: options.epicIds,
+    executionScopes: options.executionScopes,
     prdPath: options.prdPath,
     currentIteration: 0,
     maxIterations: options.maxIterations,
@@ -234,10 +182,28 @@ export async function createSession(
     cwd: options.cwd,
   };
 
-  await saveSession(session);
+  // Acquire lock unless caller already acquired it at a higher level.
+  let lockAcquiredHere = false;
+  if (!options.lockAlreadyAcquired) {
+    const acquired = await acquireLockExclusive(options.cwd, session.id);
+    if (!acquired) {
+      throw new Error('Unable to acquire session lock');
+    }
+    lockAcquiredHere = true;
+  }
 
-  // Acquire lock
-  await acquireLock(options.cwd, session.id);
+  try {
+    await saveSession(session);
+  } catch (error) {
+    if (lockAcquiredHere) {
+      try {
+        await releaseLockWithGuard(options.cwd);
+      } catch {
+        // Best effort cleanup for lock acquired in this function.
+      }
+    }
+    throw error;
+  }
 
   return session;
 }
@@ -254,7 +220,7 @@ export async function saveSession(session: SessionMetadata): Promise<void> {
     updatedAt: new Date().toISOString(),
   };
 
-  await writeFile(sessionPath, JSON.stringify(updated, null, 2));
+  await writeJsonAtomic(sessionPath, updated);
 }
 
 /**
@@ -326,7 +292,7 @@ export async function endSession(
   status: SessionStatus = 'completed'
 ): Promise<void> {
   await updateSessionStatus(cwd, status);
-  await releaseLock(cwd);
+  await releaseLockWithGuard(cwd);
 }
 
 /**
@@ -340,13 +306,15 @@ export async function resumeSession(
     return null;
   }
 
-  // Clean up stale lock if present
-  await cleanStaleLock(cwd);
+  if (!(await ownsLock(cwd))) {
+    // Clean up stale lock if present
+    await cleanStaleLockWithGuard(cwd);
 
-  // Acquire new lock
-  const acquired = await acquireLock(cwd, session.id);
-  if (!acquired) {
-    return null;
+    // Acquire new lock
+    const acquired = await acquireLockExclusive(cwd, session.id);
+    if (!acquired) {
+      return null;
+    }
   }
 
   // Update status to running
@@ -400,8 +368,31 @@ export type {
 export {
   checkLock,
   acquireLockWithPrompt,
+  acquireLockExclusiveResult,
+  acquireLockExclusive as acquireLock,
+  ownsLock,
+  cleanStaleLock,
+  releaseLock,
   releaseLock as releaseLockNew,
   registerLockCleanupHandlers,
   type LockCheckResult,
   type LockAcquisitionResult,
 } from './lock.js';
+
+// Re-export registry module for cross-directory session discovery
+export {
+  registerSession,
+  updateRegistryStatus,
+  unregisterSession,
+  getSessionById,
+  getSessionByCwd,
+  listResumableSessions,
+  listAllSessions,
+  cleanupStaleRegistryEntries,
+  findSessionsByPrefix,
+  getRegistryDir,
+  getRegistryFilePath,
+  loadRegistry,
+  type SessionRegistryEntry,
+  type SessionRegistry,
+} from './registry.js';

@@ -19,8 +19,11 @@ import type {
 import {
   DEFAULT_TEMPLATE,
   BEADS_TEMPLATE,
+  BEADS_RUST_TEMPLATE,
   BEADS_BV_TEMPLATE,
+  BEADS_RUST_BV_TEMPLATE,
   JSON_TEMPLATE,
+  JIRA_TEMPLATE,
 } from './builtin.js';
 
 /**
@@ -37,10 +40,16 @@ export function getBuiltinTemplate(trackerType: BuiltinTemplateType): string {
   switch (trackerType) {
     case 'beads':
       return BEADS_TEMPLATE;
+    case 'beads-rust':
+      return BEADS_RUST_TEMPLATE;
     case 'beads-bv':
       return BEADS_BV_TEMPLATE;
+    case 'beads-rust-bv':
+      return BEADS_RUST_BV_TEMPLATE;
     case 'json':
       return JSON_TEMPLATE;
+    case 'jira':
+      return JIRA_TEMPLATE;
     case 'default':
     default:
       return DEFAULT_TEMPLATE;
@@ -53,14 +62,23 @@ export function getBuiltinTemplate(trackerType: BuiltinTemplateType): string {
  * @returns The matching built-in template type
  */
 export function getTemplateTypeFromPlugin(pluginName: string): BuiltinTemplateType {
+  if (pluginName.includes('beads-rust-bv')) {
+    return 'beads-rust-bv';
+  }
   if (pluginName.includes('beads-bv')) {
     return 'beads-bv';
+  }
+  if (pluginName.includes('beads-rust')) {
+    return 'beads-rust';
   }
   if (pluginName.includes('beads')) {
     return 'beads';
   }
   if (pluginName.includes('json')) {
     return 'json';
+  }
+  if (pluginName.includes('jira')) {
+    return 'jira';
   }
   return 'default';
 }
@@ -406,6 +424,7 @@ export function buildTemplateContext(
     vars: buildTemplateVariables(task, config, epic, extended),
     task,
     config,
+    prd: typeof extended === 'string' ? undefined : extended?.prd,
     epic,
   };
 }
@@ -473,6 +492,7 @@ export function renderPrompt(
     ...context.vars,
     task: context.task,
     config: context.config,
+    prd: context.prd,
     epic: context.epic,
   };
 
@@ -623,7 +643,7 @@ export function installGlobalTemplates(
 
 /**
  * Install built-in templates to the global config directory.
- * Copies default, beads, beads-bv, and json templates.
+ * Copies all built-in tracker templates.
  *
  * @param force Overwrite existing files
  * @returns Results for each template
@@ -636,8 +656,11 @@ export function installBuiltinTemplates(force = false): {
   const templates: Record<string, string> = {
     'default': DEFAULT_TEMPLATE,
     'beads': BEADS_TEMPLATE,
+    'beads-rust': BEADS_RUST_TEMPLATE,
     'beads-bv': BEADS_BV_TEMPLATE,
+    'beads-rust-bv': BEADS_RUST_BV_TEMPLATE,
     'json': JSON_TEMPLATE,
+    'jira': JIRA_TEMPLATE,
   };
 
   return installGlobalTemplates(templates, force);

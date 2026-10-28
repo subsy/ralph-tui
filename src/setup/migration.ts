@@ -7,6 +7,7 @@
 
 import { access, constants } from 'node:fs/promises';
 
+import { compareSemverStrings } from '../utils/semver.js';
 import {
   loadProjectConfigOnly,
   saveProjectConfig,
@@ -14,8 +15,8 @@ import {
 } from '../config/index.js';
 import type { StoredConfig } from '../config/types.js';
 import {
-  installSkillsForAgent,
-  resolveSkillsPath,
+  installViaAddSkill,
+  resolveAddSkillAgentId,
 } from './skill-installer.js';
 import { installBuiltinTemplates } from '../templates/engine.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
@@ -55,36 +56,6 @@ export interface MigrationResult {
 
   /** Error message if migration failed */
   error?: string;
-}
-
-/**
- * Compare two semver-like version strings numerically.
- * Compares each segment as integers (e.g., "2.10" > "2.9").
- * Missing segments are treated as 0.
- *
- * @param a First version string
- * @param b Second version string
- * @returns -1 if a < b, 0 if a === b, 1 if a > b
- */
-export function compareSemverStrings(a: string, b: string): -1 | 0 | 1 {
-  // Strip any pre-release/build metadata (e.g., "2.0-beta" -> "2.0")
-  const cleanA = a.split(/[-+]/)[0];
-  const cleanB = b.split(/[-+]/)[0];
-
-  const partsA = cleanA.split('.').map((s) => parseInt(s, 10) || 0);
-  const partsB = cleanB.split('.').map((s) => parseInt(s, 10) || 0);
-
-  const maxLen = Math.max(partsA.length, partsB.length);
-
-  for (let i = 0; i < maxLen; i++) {
-    const numA = partsA[i] ?? 0;
-    const numB = partsB[i] ?? 0;
-
-    if (numA < numB) return -1;
-    if (numA > numB) return 1;
-  }
-
-  return 0;
 }
 
 /**
@@ -152,7 +123,7 @@ export async function migrateConfig(
     log('');
     log('📦 Upgrading ralph-tui configuration...');
 
-    // 1. Install/update bundled skills for all detected agents
+    // 1. Install/update bundled skills for all detected agents via add-skill
     log('   Installing bundled skills for detected agents...');
 
     // Register built-in agents and get those with skill support
@@ -183,34 +154,20 @@ export async function migrateConfig(
         continue;
       }
 
-      // Install skills for this agent
+      // Install all skills for this agent via add-skill
       log(`   Installing skills for ${meta.name}...`);
-      const agentResult = await installSkillsForAgent(
-        meta.id,
-        meta.name,
-        meta.skillsPaths,
-        {
-          force: options.forceSkills ?? true,
-          personal: true,
-          repo: false,
-        }
-      );
+      const addSkillResult = await installViaAddSkill({
+        agentId: meta.id,
+        global: true,
+      });
 
-      const skillPath = resolveSkillsPath(meta.skillsPaths.personal);
-      for (const [skillName, targetResults] of agentResult.skills) {
-        // Migration only installs to personal, so we check the first (and only) target result
-        for (const { result: skillResult } of targetResults) {
-          if (skillResult.success && !skillResult.skipped) {
-            result.skillsUpdated.push(`${meta.id}:${skillName}`);
-            log(`     ✓ ${skillName}`);
-          } else if (skillResult.skipped) {
-            log(`     · ${skillName} (already installed)`);
-          } else if (skillResult.error) {
-            result.warnings.push(`Failed to install ${skillName} for ${meta.name}: ${skillResult.error}`);
-          }
-        }
+      if (addSkillResult.success) {
+        result.skillsUpdated.push(`${meta.id}:all`);
+        log(`     ✓ Skills installed for ${meta.name} (${resolveAddSkillAgentId(meta.id)})`);
+      } else {
+        result.warnings.push(`Failed to install skills for ${meta.name}: ${addSkillResult.output}`);
+        log(`     ✗ Failed for ${meta.name}`);
       }
-      log(`     → ${skillPath}`);
     }
 
     // 2. Install builtin templates to global config directory

@@ -1,0 +1,83 @@
+{
+  "name": "Ralph-TUI Conflict Resolution Test",
+  "description": "Test PRD specifically designed to trigger merge conflicts for testing AI conflict resolution in parallel execution",
+  "branchName": "test/conflict-resolution",
+  "userStories": [
+    {
+      "id": "CONFLICT-001",
+      "title": "Add feature A documentation",
+      "description": "Add documentation for Feature A to the shared FEATURES.md file. Create the file if it doesn't exist with a header, then add a section for Feature A describing it as 'a powerful data processing capability'.",
+      "acceptanceCriteria": [
+        "FEATURES.md exists in the workspace",
+        "File contains a '## Feature A' section",
+        "Feature A section describes it as a data processing capability"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": [
+        "parallel-safe",
+        "conflict-test"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "CONFLICT-002",
+      "title": "Add feature B documentation",
+      "description": "Add documentation for Feature B to the shared FEATURES.md file. Create the file if it doesn't exist with a header, then add a section for Feature B describing it as 'an advanced caching mechanism'.",
+      "acceptanceCriteria": [
+        "FEATURES.md exists in the workspace",
+        "File contains a '## Feature B' section",
+        "Feature B section describes it as a caching mechanism"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": [
+        "parallel-safe",
+        "conflict-test"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "CONFLICT-003",
+      "title": "Add feature C documentation",
+      "description": "Add documentation for Feature C to the shared FEATURES.md file. Create the file if it doesn't exist with a header, then add a section for Feature C describing it as 'a real-time notification system'.",
+      "acceptanceCriteria": [
+        "FEATURES.md exists in the workspace",
+        "File contains a '## Feature C' section",
+        "Feature C section describes it as a notification system"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": [
+        "parallel-safe",
+        "conflict-test"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "CONFLICT-004",
+      "title": "Create features summary",
+      "description": "Read the FEATURES.md file and create a SUMMARY.md that lists all three features (A, B, C) in a bullet-point format with a one-line description of each.",
+      "acceptanceCriteria": [
+        "SUMMARY.md exists in the workspace",
+        "File lists Feature A, Feature B, and Feature C",
+        "Each feature has a one-line description"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": [
+        "has-deps"
+      ],
+      "dependsOn": [
+        "CONFLICT-001",
+        "CONFLICT-002",
+        "CONFLICT-003"
+      ]
+    }
+  ],
+  "metadata": {
+    "createdAt": "2026-02-04T00:00:00.000Z",
+    "version": "1.0.0",
+    "purpose": "Test AI conflict resolution during parallel task execution"
+  }
+}

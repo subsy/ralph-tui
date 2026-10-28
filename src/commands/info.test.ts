@@ -1,158 +1,22 @@
 /**
- * ABOUTME: Tests for the system info command.
- * Tests the collection and formatting of system diagnostic information.
+ * ABOUTME: Tests for the system info command formatting functions.
+ * Tests the formatting of system diagnostic information.
+ *
+ * NOTE: The collectSystemInfo tests are in tests/commands/info.test.ts because
+ * they require the real agent registry, and other test files in src/commands/
+ * (doctor.test.ts, create-prd.test.tsx) mock the registry at module level.
+ * Bun's mock.restore() doesn't properly restore module mocks, causing pollution.
  */
 
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, test } from 'bun:test';
 
 import {
-  collectSystemInfo,
   formatSystemInfo,
   formatForBugReport,
   parseCwdArg,
   computePackageJsonPath,
   type SystemInfo,
 } from './info.js';
-
-// Helper to create a temp directory for each test
-async function createTempDir(): Promise<string> {
-  return await mkdtemp(join(tmpdir(), 'ralph-tui-info-test-'));
-}
-
-// Helper to write a TOML config file
-async function writeConfig(dir: string, config: Record<string, unknown>): Promise<void> {
-  const configDir = join(dir, '.ralph-tui');
-  await mkdir(configDir, { recursive: true });
-
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(config)) {
-    if (typeof value === 'string') {
-      lines.push(`${key} = "${value}"`);
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
-      lines.push(`${key} = ${value}`);
-    }
-  }
-
-  await writeFile(join(configDir, 'config.toml'), lines.join('\n'), 'utf-8');
-}
-
-describe('collectSystemInfo', () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test('collects basic system info', async () => {
-    await writeConfig(tempDir, {
-      agent: 'claude',
-      tracker: 'beads',
-    });
-
-    const info = await collectSystemInfo(tempDir);
-
-    // Check structure
-    expect(info).toHaveProperty('version');
-    expect(info).toHaveProperty('runtime');
-    expect(info).toHaveProperty('os');
-    expect(info).toHaveProperty('config');
-    expect(info).toHaveProperty('templates');
-    expect(info).toHaveProperty('agent');
-    expect(info).toHaveProperty('tracker');
-    expect(info).toHaveProperty('skills');
-  });
-
-  test('collects skills info', async () => {
-    await writeConfig(tempDir, {
-      agent: 'claude',
-    });
-
-    const info = await collectSystemInfo(tempDir);
-
-    // Check skills structure
-    expect(info.skills).toHaveProperty('bundled');
-    expect(info.skills).toHaveProperty('customDir');
-    expect(info.skills).toHaveProperty('customSkills');
-    expect(info.skills).toHaveProperty('agents');
-    expect(Array.isArray(info.skills.bundled)).toBe(true);
-    expect(Array.isArray(info.skills.agents)).toBe(true);
-  });
-
-  test('detects runtime correctly', async () => {
-    await writeConfig(tempDir, { agent: 'claude' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    // We're running in Bun
-    expect(info.runtime.name).toBe('bun');
-    expect(info.runtime.version).toBeTruthy();
-  });
-
-  test('collects OS info', async () => {
-    await writeConfig(tempDir, { agent: 'claude' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.os.platform).toBeTruthy();
-    expect(info.os.release).toBeTruthy();
-    expect(info.os.arch).toBeTruthy();
-  });
-
-  test('detects project config', async () => {
-    await writeConfig(tempDir, { agent: 'claude' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.config.projectPath).toBe(join(tempDir, '.ralph-tui', 'config.toml'));
-    expect(info.config.projectExists).toBe(true);
-  });
-
-  test('handles missing project config', async () => {
-    // Don't create any config
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.config.projectExists).toBe(false);
-  });
-
-  test('uses configured agent name', async () => {
-    await writeConfig(tempDir, { agent: 'opencode' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.agent.name).toBe('opencode');
-  });
-
-  test('uses configured tracker name', async () => {
-    await writeConfig(tempDir, { tracker: 'json' });
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.tracker.name).toBe('json');
-  });
-
-  test('defaults to claude agent when not configured', async () => {
-    await writeConfig(tempDir, {});
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.agent.name).toBe('claude');
-  });
-
-  test('defaults to beads tracker when not configured', async () => {
-    await writeConfig(tempDir, {});
-
-    const info = await collectSystemInfo(tempDir);
-
-    expect(info.tracker.name).toBe('beads');
-  });
-});
 
 describe('formatSystemInfo', () => {
   const mockInfo: SystemInfo = {
@@ -193,11 +57,15 @@ describe('formatSystemInfo', () => {
           id: 'claude',
           name: 'Claude Code',
           available: true,
-          personalDir: '/home/user/.claude/skills',
-          repoDir: '.claude/skills',
+          personalDir: ['/home/user/.claude/skills'],
+          repoDir: ['.claude/skills'],
           personalSkills: ['ralph-tui-prd'],
         },
       ],
+    },
+    envExclusion: {
+      blocked: [],
+      allowed: [],
     },
   };
 
@@ -257,6 +125,23 @@ describe('formatSystemInfo', () => {
     expect(output).toContain('Installed: ralph-tui-prd');
   });
 
+  test('joins multiple discovery paths only for display', () => {
+    const output = formatSystemInfo({
+      ...mockInfo,
+      skills: {
+        ...mockInfo.skills,
+        agents: [
+          {
+            ...mockInfo.skills.agents[0],
+            personalDir: ['/home/user/.agents/skills', '/home/user/.codex/skills'],
+          },
+        ],
+      },
+    });
+
+    expect(output).toContain('Paths: /home/user/.agents/skills, /home/user/.codex/skills');
+  });
+
   test('shows no project config when missing', () => {
     const infoWithoutProject: SystemInfo = {
       ...mockInfo,
@@ -301,6 +186,72 @@ describe('formatSystemInfo', () => {
     expect(output).toContain('Available: no');
     expect(output).toContain('Error: Command not found');
   });
+
+  test('shows custom command when configured', () => {
+    const infoWithCommand: SystemInfo = {
+      ...mockInfo,
+      agent: {
+        name: 'claude-custom',
+        command: 'claude-glm',
+        available: true,
+        version: '2.1.0',
+      },
+    };
+
+    const output = formatSystemInfo(infoWithCommand);
+
+    expect(output).toContain('Configured: claude-custom');
+    expect(output).toContain('Command: claude-glm');
+    expect(output).toContain('Available: yes');
+  });
+
+  test('does not show command line when command is not configured', () => {
+    const output = formatSystemInfo(mockInfo);
+
+    // mockInfo doesn't have a command, so "Command:" should not appear
+    expect(output).not.toContain('Command:');
+  });
+
+  test('shows env filter message even when no vars match', () => {
+    const output = formatSystemInfo(mockInfo);
+
+    expect(output).toContain('Env filter:');
+    expect(output).toContain('no vars matched exclusion patterns');
+  });
+
+  test('shows blocked env vars when present', () => {
+    const infoWithBlocked: SystemInfo = {
+      ...mockInfo,
+      envExclusion: {
+        blocked: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+        allowed: [],
+      },
+    };
+
+    const output = formatSystemInfo(infoWithBlocked);
+
+    expect(output).toContain('Env filter:');
+    expect(output).toContain('Blocked:');
+    expect(output).toContain('ANTHROPIC_API_KEY');
+  });
+
+  test('shows passthrough env vars when present', () => {
+    const infoWithPassthrough: SystemInfo = {
+      ...mockInfo,
+      envExclusion: {
+        blocked: ['OPENAI_API_KEY'],
+        allowed: ['ANTHROPIC_API_KEY'],
+      },
+    };
+
+    const output = formatSystemInfo(infoWithPassthrough);
+
+    expect(output).toContain('Env filter:');
+    expect(output).toContain('Passthrough:');
+    expect(output).toContain('ANTHROPIC_API_KEY');
+    expect(output).toContain('Blocked:');
+    expect(output).toContain('OPENAI_API_KEY');
+  });
 });
 
 describe('formatForBugReport', () => {
@@ -342,11 +293,15 @@ describe('formatForBugReport', () => {
           id: 'claude',
           name: 'Claude Code',
           available: true,
-          personalDir: '/home/user/.claude/skills',
-          repoDir: '.claude/skills',
+          personalDir: ['/home/user/.claude/skills'],
+          repoDir: ['.claude/skills'],
           personalSkills: ['ralph-tui-prd'],
         },
       ],
+    },
+    envExclusion: {
+      blocked: [],
+      allowed: [],
     },
   };
 

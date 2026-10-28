@@ -27,13 +27,16 @@ import {
   printSuccess,
   printInfo,
   printError,
+  isInteractiveTerminal,
 } from './prompts.js';
 import {
+  getSkillSearchPaths,
   listBundledSkills,
-  installSkill,
-  isSkillInstalled,
+  isSkillInstalledAtAnyPath,
+  installViaAddSkill,
 } from './skill-installer.js';
 import { CURRENT_CONFIG_VERSION } from './migration.js';
+import { loadStoredConfig } from '../config/index.js';
 
 /**
  * Config directory and filename
@@ -55,9 +58,40 @@ export async function projectConfigExists(cwd: string = process.cwd()): Promise<
 }
 
 /**
- * Detect available tracker plugins
+ * Format a human-readable reason for why a tracker is unavailable.
+ * Provides specific guidance based on what's missing (directory vs CLI).
  */
-async function detectTrackerPlugins(): Promise<PluginDetection[]> {
+export function formatTrackerUnavailableReason(plugin: PluginDetection): string {
+  const error = plugin.error ?? '';
+  const isBeadsFamily = plugin.id === 'beads' || plugin.id === 'beads-bv' || plugin.id === 'beads-rust';
+
+  if (isBeadsFamily) {
+    // Beads directory not found
+    if (error.includes('directory not found')) {
+      return 'No .beads directory found. Run "bd init" or "br init" to create one.';
+    }
+
+    // CLI binary not available
+    if (error.includes('binary not available') || error.includes('not available')) {
+      const cli = plugin.id === 'beads-rust' ? 'br' : 'bd';
+      return `${cli} CLI not found. Install it to use this tracker.`;
+    }
+  }
+
+  // Generic fallback for non-beads trackers or unrecognized beads errors
+  if (error) {
+    return error;
+  }
+
+  return `${plugin.description} (not detected)`;
+}
+
+/**
+ * Detect available tracker plugins.
+ * For beads-family trackers, checks for .beads directory and CLI availability.
+ * For other trackers (json), always marks as available.
+ */
+async function detectTrackerPlugins(cwd?: string): Promise<PluginDetection[]> {
   const registry = getTrackerRegistry();
 
   // Register built-in plugins if not already done
@@ -71,17 +105,43 @@ async function detectTrackerPlugins(): Promise<PluginDetection[]> {
     const instance = registry.createInstance(meta.id);
     if (!instance) continue;
 
-    // For trackers, we can't really "detect" without config
-    // So we just list them as available
+    // Check environment availability using detect() if the tracker supports it.
+    // Beads-family trackers have detect() which checks .beads dir and CLI presence.
+    // Trackers without detect() (like json) have no environmental prerequisites.
+    const instanceAsDetectable = instance as unknown as {
+      detect?: () => Promise<{ available: boolean; error?: string; bdVersion?: string; brVersion?: string }>;
+    };
+
+    let available = true;
+    let error: string | undefined;
+    let version: string | undefined;
+
+    try {
+      if (typeof instanceAsDetectable.detect === 'function') {
+        // Initialize with cwd so detect() can access the correct workingDir/beadsDir
+        await instance.initialize({ workingDir: cwd });
+        const detectResult = await instanceAsDetectable.detect();
+        available = detectResult.available;
+        if (!available) {
+          error = detectResult.error;
+          version = detectResult.bdVersion ?? detectResult.brVersion;
+        }
+      }
+    } catch (err) {
+      available = false;
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      await instance.dispose();
+    }
+
     detections.push({
       id: meta.id,
       name: meta.name,
       description: meta.description,
-      available: true,
-      version: meta.version,
+      available,
+      version: available ? meta.version : version,
+      error,
     });
-
-    await instance.dispose();
   }
 
   return detections;
@@ -207,6 +267,18 @@ export async function runSetupWizard(
   const cwd = options.cwd ?? process.cwd();
 
   try {
+    // Check if we're in an interactive terminal
+    if (!isInteractiveTerminal()) {
+      return {
+        success: false,
+        error:
+          'The setup wizard requires an interactive terminal. ' +
+          'Please run this command in a terminal that supports interactive input (TTY). ' +
+          'If running in a container or automated environment, consider creating the ' +
+          'configuration file manually at .ralph-tui/config.toml',
+      };
+    }
+
     // Check if config already exists
     if (!options.force) {
       const exists = await projectConfigExists(cwd);
@@ -230,7 +302,7 @@ export async function runSetupWizard(
     // === Step 1: Select Tracker ===
     printSection('Issue Tracker Selection');
 
-    const trackerPlugins = await detectTrackerPlugins();
+    const trackerPlugins = await detectTrackerPlugins(cwd);
     if (trackerPlugins.length === 0) {
       return {
         success: false,
@@ -241,10 +313,12 @@ export async function runSetupWizard(
     // Build choices with availability info
     const trackerChoices = trackerPlugins.map((p) => ({
       value: p.id,
-      label: p.name,
+      label: p.available
+        ? p.name
+        : `${p.name} (unavailable)`,
       description: p.available
         ? p.description
-        : `${p.description} (not available: ${p.error})`,
+        : formatTrackerUnavailableReason(p),
     }));
 
     const selectedTracker = await promptSelect(
@@ -255,6 +329,22 @@ export async function runSetupWizard(
         help: 'Ralph will use this tracker to manage tasks.',
       }
     );
+
+    // Show tip for beads-family trackers
+    const isBeadsTracker = selectedTracker === 'beads' || selectedTracker === 'beads-bv' || selectedTracker === 'beads-rust';
+    if (isBeadsTracker) {
+      const selectedPlugin = trackerPlugins.find((p) => p.id === selectedTracker);
+      if (selectedPlugin?.available) {
+        console.log();
+        printInfo('Beads tracker tip: When running Ralph, specify an epic:');
+        console.log('  ralph-tui run --epic <epic-id>');
+        console.log();
+        printInfo('Or omit --epic to get an interactive epic selection list.');
+        console.log();
+        printInfo('Have a markdown PRD? Convert it to Beads issues:');
+        console.log('  ralph-tui convert --to beads --input ./prd.md');
+      }
+    }
 
     // Collect tracker-specific options
     const trackerOptions = await collectTrackerOptions(selectedTracker);
@@ -326,44 +416,56 @@ export async function runSetupWizard(
     // === Step 4: Skills Installation ===
     printSection('AI Skills Installation');
 
-    const bundledSkills = await listBundledSkills();
+    // Get the selected agent's skills paths from the registry
+    const agentRegistry = getAgentRegistry();
+    const agentMeta = agentRegistry.getPluginMeta(selectedAgent);
+    const skillsPaths = agentMeta?.skillsPaths;
 
-    if (bundledSkills.length > 0) {
-      printInfo('Ralph TUI includes AI skills that enhance agent capabilities.');
-      printInfo('Installing skills ensures you have the latest versions.');
-      console.log();
-
-      for (const skill of bundledSkills) {
-        const alreadyInstalled = await isSkillInstalled(skill.name);
-        const actionLabel = alreadyInstalled ? 'Update' : 'Install';
-
-        const installThisSkill = await promptBoolean(
-          `${actionLabel} skill: ${skill.name}?`,
-          {
-            default: true,
-            help: alreadyInstalled
-              ? `${skill.description} (currently installed - update to latest)`
-              : skill.description,
-          }
-        );
-
-        if (installThisSkill) {
-          // Always use force to overwrite existing skills with latest version
-          const result = await installSkill(skill.name, { force: true });
-          if (result.success) {
-            printSuccess(`  ${alreadyInstalled ? 'Updated' : 'Installed'}: ${skill.name}`);
-            if (result.path) {
-              printInfo(`    Location: ${result.path}`);
-            }
-          } else {
-            printError(`  Failed to ${actionLabel.toLowerCase()} ${skill.name}: ${result.error}`);
-          }
-        } else if (alreadyInstalled) {
-          printInfo(`  ${skill.name}: Keeping existing version`);
-        }
-      }
+    if (!skillsPaths) {
+      printInfo(`Agent "${agentMeta?.name ?? selectedAgent}" does not support skill installation.`);
     } else {
-      printInfo('No bundled skills available for installation.');
+      const bundledSkills = await listBundledSkills();
+
+      if (bundledSkills.length > 0) {
+        const searchPaths = getSkillSearchPaths(skillsPaths, cwd, selectedAgent);
+        const personalDir = searchPaths.personal.join(', ');
+        printInfo('Ralph TUI includes AI skills that enhance agent capabilities.');
+        printInfo(`Checking for already installed skills in: ${personalDir}`);
+        console.log();
+
+        for (const skill of bundledSkills) {
+          const alreadyInstalled = await isSkillInstalledAtAnyPath(skill.name, searchPaths.personal);
+          const actionLabel = alreadyInstalled ? 'Update' : 'Install';
+
+          const installThisSkill = await promptBoolean(
+            `${actionLabel} skill: ${skill.name}?`,
+            {
+              default: true,
+              help: alreadyInstalled
+                ? `${skill.description} (currently installed - update to latest)`
+                : skill.description,
+            }
+          );
+
+          if (installThisSkill) {
+            const result = await installViaAddSkill({
+              agentId: selectedAgent,
+              skillName: skill.name,
+              global: true,
+            });
+
+            if (result.success) {
+              printSuccess(`  ${alreadyInstalled ? 'Updated' : 'Installed'}: ${skill.name}`);
+            } else {
+              printError(`  Failed to ${actionLabel.toLowerCase()} ${skill.name}: ${result.output || 'Unknown error'}`);
+            }
+          } else if (alreadyInstalled) {
+            printInfo(`  ${skill.name}: Keeping existing version`);
+          }
+        }
+      } else {
+        printInfo('No bundled skills available for installation.');
+      }
     }
 
     // === Save Configuration ===
@@ -391,15 +493,15 @@ export async function runSetupWizard(
     console.log();
 
     // Get a fresh agent instance with the configured options
-    const agentRegistry = getAgentRegistry();
     const agentInstance = await agentRegistry.getInstance({
       name: selectedAgent,
       plugin: selectedAgent,
       options: agentOptions,
     });
 
+    const savedConfig = await loadStoredConfig(cwd);
     // Run preflight check
-    const preflightResult = await agentInstance.preflight({ timeout: 30000 });
+    const preflightResult = await agentInstance.preflight({ timeout: savedConfig.preflightTimeoutMs ?? 30000 });
 
     if (preflightResult.success) {
       printSuccess(`✓ Agent is configured correctly and responding`);
@@ -432,6 +534,15 @@ export async function runSetupWizard(
       console.log();
       console.log('  Create a PRD and tasks:        ralph-tui create-prd');
       console.log('  Run Ralph on existing tasks:   ralph-tui run --prd <path-to-prd.json>');
+    } else if (selectedTracker === 'beads' || selectedTracker === 'beads-bv' || selectedTracker === 'beads-rust') {
+      printInfo('You can now run Ralph TUI with:');
+      console.log();
+      console.log('  ralph-tui run                  # Interactive epic selection');
+      console.log('  ralph-tui run --epic <id>      # Run with a specific epic');
+      console.log();
+      printInfo('To create issues from a markdown PRD:');
+      console.log();
+      console.log('  ralph-tui convert --to beads --input ./prd.md');
     } else {
       printInfo('You can now run Ralph TUI with:');
       console.log();

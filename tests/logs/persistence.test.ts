@@ -10,7 +10,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -164,6 +164,26 @@ describe('buildMetadata', () => {
     expect(metadata.error).toBe('Task failed due to timeout');
   });
 
+  test('includes usage from iteration result when present', () => {
+    const result = createTestIterationResult({
+      usage: {
+        inputTokens: 1200,
+        outputTokens: 400,
+        totalTokens: 1600,
+        contextWindowTokens: 200000,
+        remainingContextTokens: 198400,
+        remainingContextPercent: 99.2,
+        events: 1,
+      },
+    });
+
+    const metadata = buildMetadata(result, { config: {} });
+    expect(metadata.usage).toBeDefined();
+    expect(metadata.usage?.inputTokens).toBe(1200);
+    expect(metadata.usage?.outputTokens).toBe(400);
+    expect(metadata.usage?.totalTokens).toBe(1600);
+  });
+
   test('includes completionSummary when provided', () => {
     const result = createTestIterationResult();
 
@@ -243,10 +263,7 @@ describe('buildMetadata', () => {
   });
 });
 
-// Note: These tests pass in isolation but may fail when run with the full test suite
-// due to module mocking interference from other test files (execution-engine.test.ts
-// mocks the logs module globally). Run `bun test tests/logs/persistence.test.ts` to verify.
-describe.skipIf(process.env.CI === 'true')('saveIterationLog and loadIterationLog', () => {
+describe('saveIterationLog and loadIterationLog', () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -360,22 +377,106 @@ describe.skipIf(process.env.CI === 'true')('saveIterationLog and loadIterationLo
     expect(loaded!.stdout).toBe(stdout);
     expect(loaded!.stderr).toBe(stderr);
   });
+
+  test('streams raw stdout/stderr from files when provided', async () => {
+    const result = createTestIterationResult();
+    const rawStdout = `${'x'.repeat(8192)}\n<promise>COMPLETE</promise>`;
+    const rawStderr = 'Warning: stream test stderr';
+    const rawStdoutFilePath = join(tempDir, 'stdout.raw');
+    const rawStderrFilePath = join(tempDir, 'stderr.raw');
+
+    await writeFile(rawStdoutFilePath, rawStdout, 'utf-8');
+    await writeFile(rawStderrFilePath, rawStderr, 'utf-8');
+
+    const filePath = await saveIterationLog(
+      tempDir,
+      result,
+      '[truncated stdout]',
+      '[truncated stderr]',
+      {
+        config: {},
+        rawStdoutFilePath,
+        rawStderrFilePath,
+      }
+    );
+
+    const loaded = await loadIterationLog(filePath);
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.stdout).toBe(rawStdout);
+    expect(loaded!.stderr).toBe(rawStderr);
+  });
 });
 
 describe('generateLogFilename', () => {
-  test('generates filename with padded iteration number', () => {
-    const filename = generateLogFilename(1, 'task-123');
-    expect(filename).toBe('iteration-001-task-123.log');
+  describe('legacy format (no sessionId)', () => {
+    test('generates filename with padded iteration number', () => {
+      const filename = generateLogFilename(1, 'task-123');
+      expect(filename).toBe('iteration-001-task-123.log');
+    });
+
+    test('handles iteration numbers over 100', () => {
+      const filename = generateLogFilename(150, 'task-abc');
+      expect(filename).toBe('iteration-150-task-abc.log');
+    });
+
+    test('sanitizes task IDs with special characters', () => {
+      const filename = generateLogFilename(1, 'beads-123/subtask');
+      expect(filename).toBe('iteration-001-beads-123-subtask.log');
+    });
   });
 
-  test('handles iteration numbers over 100', () => {
-    const filename = generateLogFilename(150, 'task-abc');
-    expect(filename).toBe('iteration-150-task-abc.log');
-  });
+  describe('new format (with sessionId)', () => {
+    test('generates filename with sessionId, timestamp, and taskId', () => {
+      const filename = generateLogFilename(
+        1,
+        'BEAD-001',
+        'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        '2024-01-15T10:30:45.123Z'
+      );
+      expect(filename).toBe('a1b2c3d4_2024-01-15_10-30-45_BEAD-001.log');
+    });
 
-  test('sanitizes task IDs with special characters', () => {
-    const filename = generateLogFilename(1, 'beads-123/subtask');
-    expect(filename).toBe('iteration-001-beads-123-subtask.log');
+    test('uses first 8 chars of session ID', () => {
+      const filename = generateLogFilename(
+        1,
+        'task-123',
+        'abcdefgh-ijkl-mnop-qrst-uvwxyz123456',
+        '2024-06-20T15:45:30.000Z'
+      );
+      expect(filename).toMatch(/^abcdefgh_/);
+    });
+
+    test('formats timestamp without milliseconds', () => {
+      const filename = generateLogFilename(
+        1,
+        'task-123',
+        'session-id',
+        '2024-12-31T23:59:59.999Z'
+      );
+      // Note: local timezone may affect the exact time shown
+      expect(filename).toMatch(/_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_/);
+    });
+
+    test('sanitizes task IDs with special characters', () => {
+      const filename = generateLogFilename(
+        1,
+        'beads-123/subtask:test',
+        'a1b2c3d4-5678',
+        '2024-01-15T10:00:00.000Z'
+      );
+      expect(filename).toMatch(/_beads-123-subtask-test\.log$/);
+    });
+
+    test('falls back to legacy format if sessionId missing', () => {
+      const filename = generateLogFilename(1, 'task-123', undefined, '2024-01-15T10:00:00.000Z');
+      expect(filename).toBe('iteration-001-task-123.log');
+    });
+
+    test('falls back to legacy format if startedAt missing', () => {
+      const filename = generateLogFilename(1, 'task-123', 'session-id', undefined);
+      expect(filename).toBe('iteration-001-task-123.log');
+    });
   });
 });
 
@@ -507,6 +608,31 @@ describe('formatMetadataHeader', () => {
     expect(header).toContain('**Completion Summary**: Completed successfully');
   });
 
+  test('includes usage metrics when present', () => {
+    const metadata = buildMetadata(
+      createTestIterationResult({
+        usage: {
+          inputTokens: 111,
+          outputTokens: 222,
+          totalTokens: 333,
+          contextWindowTokens: 1000,
+          remainingContextTokens: 667,
+          remainingContextPercent: 66.7,
+          events: 1,
+        },
+      }),
+      { config: {} }
+    );
+    const header = formatMetadataHeader(metadata);
+
+    expect(header).toContain('**Input Tokens**: 111');
+    expect(header).toContain('**Output Tokens**: 222');
+    expect(header).toContain('**Total Tokens**: 333');
+    expect(header).toContain('**Context Window Tokens**: 1000');
+    expect(header).toContain('**Remaining Context Tokens**: 667');
+    expect(header).toContain('**Remaining Context Percent**: 66.70');
+  });
+
   test('includes agent switches section', () => {
     const metadata = buildMetadata(createTestIterationResult(), {
       config: {},
@@ -594,6 +720,34 @@ describe('parseMetadataHeader', () => {
     expect(parsed!.epicId).toBe('epic-456');
   });
 
+  test('parses usage metrics', () => {
+    const original = buildMetadata(
+      createTestIterationResult({
+        usage: {
+          inputTokens: 900,
+          outputTokens: 100,
+          totalTokens: 1000,
+          contextWindowTokens: 200000,
+          remainingContextTokens: 199000,
+          remainingContextPercent: 99.5,
+          events: 2,
+        },
+      }),
+      { config: {} }
+    );
+    const header = formatMetadataHeader(original);
+    const parsed = parseMetadataHeader(header);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.usage).toBeDefined();
+    expect(parsed!.usage?.inputTokens).toBe(900);
+    expect(parsed!.usage?.outputTokens).toBe(100);
+    expect(parsed!.usage?.totalTokens).toBe(1000);
+    expect(parsed!.usage?.contextWindowTokens).toBe(200000);
+    expect(parsed!.usage?.remainingContextTokens).toBe(199000);
+    expect(parsed!.usage?.remainingContextPercent).toBe(99.5);
+  });
+
   test('returns null for invalid header', () => {
     const parsed = parseMetadataHeader('not a valid header');
     // Should return metadata with default values, not null
@@ -616,5 +770,83 @@ describe('getIterationsDir', () => {
   test('uses absolute custom dir directly', () => {
     const dir = getIterationsDir('/project', '/absolute/path');
     expect(dir).toBe('/absolute/path');
+  });
+});
+
+describe('listIterationLogs chronological sorting', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ralph-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test('sorts logs by startedAt timestamp, not by iteration number', async () => {
+    // Simulate cross-session scenario:
+    // Session 1: task ran at iteration 3 (older timestamp)
+    // Session 2: same task ran at iteration 1 (newer timestamp)
+    const { listIterationLogs } = await import('../../src/logs/persistence.js');
+
+    // Create iteration 3 first (older, from "Session 1")
+    const result1 = createTestIterationResult({
+      iteration: 3,
+      task: { id: 'test-task', title: 'Test Task', status: 'open', priority: 2 },
+      startedAt: '2024-01-15T10:00:00.000Z',
+      endedAt: '2024-01-15T10:00:05.000Z',
+    });
+    await saveIterationLog(tempDir, result1, 'Session 1 output', '');
+
+    // Create iteration 1 second (newer, from "Session 2")
+    const result2 = createTestIterationResult({
+      iteration: 1,
+      task: { id: 'test-task', title: 'Test Task', status: 'open', priority: 2 },
+      startedAt: '2024-01-16T10:00:00.000Z', // One day later
+      endedAt: '2024-01-16T10:00:05.000Z',
+    });
+    await saveIterationLog(tempDir, result2, 'Session 2 output', '');
+
+    // List logs - should be sorted chronologically, not by iteration
+    const logs = await listIterationLogs(tempDir);
+
+    // Expect chronological order: oldest first (iteration 3), newest last (iteration 1)
+    expect(logs.length).toBe(2);
+    expect(logs[0].iteration).toBe(3); // Older (Session 1)
+    expect(logs[1].iteration).toBe(1); // Newer (Session 2)
+
+    // The "most recent" log (last in list) should be the one from Session 2
+    const mostRecent = logs[logs.length - 1];
+    expect(mostRecent.startedAt).toBe('2024-01-16T10:00:00.000Z');
+  });
+
+  test('getIterationLogsByTask returns logs sorted chronologically', async () => {
+    const { getIterationLogsByTask } = await import('../../src/logs/persistence.js');
+
+    // Create logs with different iteration numbers but different timestamps
+    const result1 = createTestIterationResult({
+      iteration: 5,
+      task: { id: 'my-task', title: 'My Task', status: 'open', priority: 2 },
+      startedAt: '2024-01-10T10:00:00.000Z',
+      endedAt: '2024-01-10T10:00:05.000Z',
+    });
+    await saveIterationLog(tempDir, result1, 'Old output', '');
+
+    const result2 = createTestIterationResult({
+      iteration: 2,
+      task: { id: 'my-task', title: 'My Task', status: 'open', priority: 2 },
+      startedAt: '2024-01-20T10:00:00.000Z',
+      endedAt: '2024-01-20T10:00:05.000Z',
+    });
+    await saveIterationLog(tempDir, result2, 'New output', '');
+
+    // Get logs by task ID - should return chronologically ordered
+    const logs = await getIterationLogsByTask(tempDir, 'my-task');
+
+    expect(logs.length).toBe(2);
+    // Most recent (last) should have the newer timestamp, even though iteration is lower
+    expect(logs[logs.length - 1].stdout).toBe('New output');
+    expect(logs[logs.length - 1].metadata.iteration).toBe(2);
   });
 });

@@ -40,6 +40,15 @@ export interface AgentPreflightResult {
 
   /** How long the preflight check took in milliseconds */
   durationMs?: number;
+
+  /** Exit code from the preflight execution (for diagnostics) */
+  exitCode?: number;
+
+  /** Stderr output from the preflight execution (for diagnostics) */
+  stderr?: string;
+
+  /** Stdout output from the preflight execution (for diagnostics) */
+  stdout?: string;
 }
 
 /**
@@ -222,6 +231,9 @@ export interface AgentPluginConfig {
   /** Default timeout in milliseconds */
   timeout?: number;
 
+  /** Timeout in milliseconds for preflight checks (default: 30000) */
+  preflightTimeoutMs?: number;
+
   /** Plugin-specific configuration options */
   options: Record<string, unknown>;
 
@@ -234,6 +246,27 @@ export interface AgentPluginConfig {
 
   /** Rate limit handling configuration for this agent */
   rateLimitHandling?: RateLimitHandlingConfig;
+
+  /**
+   * Environment variables to exclude when spawning the agent process.
+   * Use this to prevent sensitive keys from being inherited by the agent.
+   * Supports exact names (e.g., "ANTHROPIC_API_KEY") or glob patterns (e.g., "*_API_KEY").
+   *
+   * @example ["ANTHROPIC_API_KEY"] - Exclude specific key
+   * @example ["*_API_KEY", "*_SECRET"] - Exclude all API keys and secrets
+   */
+  envExclude?: string[];
+
+  /**
+   * Environment variables to pass through despite matching default exclusion patterns.
+   * Use this to explicitly allow specific keys that are blocked by the built-in
+   * defaults (*_API_KEY, *_SECRET_KEY, *_SECRET).
+   * Supports exact names (e.g., "ANTHROPIC_API_KEY") or glob patterns.
+   *
+   * @example ["ANTHROPIC_API_KEY"] - Allow this specific key through
+   * @example ["MY_*"] - Allow all MY_* vars through even if they match *_API_KEY
+   */
+  envPassthrough?: string[];
 }
 
 export interface AgentSandboxRequirements {
@@ -285,6 +318,9 @@ export interface AgentPluginMeta {
   /** Default command name for the agent CLI */
   defaultCommand: string;
 
+  /** Optional alternate command names used for auto-detection */
+  commandAliases?: string[];
+
   /** Whether the agent supports streaming output */
   supportsStreaming: boolean;
 
@@ -305,6 +341,7 @@ export interface AgentPluginMeta {
    * If undefined, the agent does not support skill installation.
    */
   skillsPaths?: AgentSkillsPaths;
+
 }
 
 /**
@@ -406,6 +443,13 @@ export interface AgentPlugin {
    * @returns null if valid, or an error message string if invalid
    */
   validateModel(model: string): string | null;
+
+  /**
+   * List known model names for this agent.
+   * Agents with open-ended model identifiers should return an empty array.
+   * @returns Array of known model identifiers
+   */
+  listModels(): string[];
 
   /**
    * Run a preflight check to verify the agent is fully operational.

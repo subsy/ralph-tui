@@ -105,6 +105,7 @@ function createControllableAgent(options: {
 function createControllableTracker(options: {
   tasks?: TrackerTask[];
   completesAfter?: number;
+  onUpdateTaskStatus?: (taskId: string, status: string) => void;
 } = {}) {
   let tasks = options.tasks ?? createTrackerTasks(2);
   let completedCount = 0;
@@ -176,6 +177,7 @@ function createControllableTracker(options: {
       return [];
     },
     async updateTaskStatus(taskId, status) {
+      options.onUpdateTaskStatus?.(taskId, status);
       const task = tasks.find(t => t.id === taskId);
       if (task) {
         task.status = status;
@@ -220,15 +222,22 @@ describe('ExecutionEngine Integration', () => {
     // Reset mocks for each test
     mockAgentRegistry = createControllableAgent();
     mockTrackerRegistry = createControllableTracker();
-    
+
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const actualAgentRegistryModule = await import('../../src/plugins/agents/registry.js?test-reload') as typeof import('../../src/plugins/agents/registry.js');
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const actualTrackerRegistryModule = await import('../../src/plugins/trackers/registry.js?test-reload') as typeof import('../../src/plugins/trackers/registry.js');
+
     // Mock the modules
     mock.module('../../src/plugins/agents/registry.js', () => ({
+      ...actualAgentRegistryModule,
       getAgentRegistry: () => ({
         getInstance: () => Promise.resolve(mockAgentRegistry.agent),
       }),
     }));
 
     mock.module('../../src/plugins/trackers/registry.js', () => ({
+      ...actualTrackerRegistryModule,
       getTrackerRegistry: () => ({
         getInstance: () => Promise.resolve(mockTrackerRegistry.tracker),
       }),
@@ -277,6 +286,8 @@ describe('ExecutionEngine Integration', () => {
         cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
+        watch: false,
+        pollIntervalMs: 30000,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
         errorHandling: { strategy: 'skip', maxRetries: 3, retryDelayMs: 0, continueOnNonZeroExit: false },
@@ -330,6 +341,8 @@ describe('ExecutionEngine Integration', () => {
         cwd: tempDir,
         maxIterations: 10,
         iterationDelay: 0,
+        watch: false,
+        pollIntervalMs: 30000,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
         errorHandling: { strategy: 'skip', maxRetries: 3, retryDelayMs: 0, continueOnNonZeroExit: false },
@@ -372,6 +385,8 @@ describe('ExecutionEngine Integration', () => {
         cwd: tempDir,
         maxIterations: 2,
         iterationDelay: 0,
+        watch: false,
+        pollIntervalMs: 30000,
         agent: { name: 'test', plugin: 'test', options: {} },
         tracker: { name: 'test', plugin: 'test', options: {} },
         errorHandling: { strategy: 'skip', maxRetries: 3, retryDelayMs: 0, continueOnNonZeroExit: false },
@@ -605,9 +620,11 @@ describe('ExecutionEngine Integration', () => {
       });
 
       const tasks = [createTrackerTask({ id: 'task-001', status: 'open' })];
+      const ordering: string[] = [];
       mockTrackerRegistry = createControllableTracker({
         tasks,
         completesAfter: 1,
+        onUpdateTaskStatus: () => ordering.push('tracker:updateTaskStatus'),
       });
 
       const engine = new ExecutionEngine({
@@ -619,7 +636,12 @@ describe('ExecutionEngine Integration', () => {
         errorHandling: { strategy: 'skip', maxRetries: 0, retryDelayMs: 0, continueOnNonZeroExit: false },
       } as any);
 
-      engine.on((event) => events.push(event));
+      engine.on((event) => {
+        events.push(event);
+        if (event.type === 'task:activated') {
+          ordering.push('event:task:activated');
+        }
+      });
 
       await engine.initialize();
 
@@ -629,6 +651,10 @@ describe('ExecutionEngine Integration', () => {
       // Verify task was activated
       const activatedEvent = events.find(e => e.type === 'task:activated');
       expect(activatedEvent).toBeDefined();
+      expect(ordering).toEqual([
+        'event:task:activated',
+        'tracker:updateTaskStatus',
+      ]);
 
       await engine.dispose();
     });

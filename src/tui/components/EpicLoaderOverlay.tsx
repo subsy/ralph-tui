@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { colors, statusIndicators } from '../theme.js';
 import type { TrackerTask } from '../../plugins/trackers/types.js';
+import { FileBrowser } from './FileBrowser.js';
 
 /**
  * Mode for the epic loader overlay
@@ -16,39 +17,61 @@ import type { TrackerTask } from '../../plugins/trackers/types.js';
 export type EpicLoaderMode = 'list' | 'file-prompt';
 
 /**
- * Props for the EpicLoaderOverlay component
+ * Base props shared by all EpicLoaderOverlay modes
  */
-export interface EpicLoaderOverlayProps {
+interface EpicLoaderOverlayBaseProps {
   /** Whether the overlay is visible */
   visible: boolean;
 
-  /** Mode: 'list' for beads-style selection, 'file-prompt' for json-style */
-  mode: EpicLoaderMode;
+  /** Tracker name for display */
+  trackerName: string;
 
-  /** Available epics (for list mode) */
+  /** Callback when user cancels (Escape) */
+  onCancel: () => void;
+
+  /** Error message if loading failed */
+  error?: string;
+
+  /** Current epic ID (for highlighting) */
+  currentEpicId?: string;
+}
+
+/**
+ * Props for list mode (beads-style epic selection)
+ */
+interface EpicLoaderOverlayListProps extends EpicLoaderOverlayBaseProps {
+  mode: 'list';
+
+  /** Available epics */
   epics: TrackerTask[];
 
   /** Whether epics are loading */
   loading: boolean;
 
-  /** Error message if loading failed */
-  error?: string;
-
-  /** Tracker name for display */
-  trackerName: string;
-
-  /** Current epic ID (for highlighting) */
-  currentEpicId?: string;
-
   /** Callback when an epic is selected */
   onSelect: (epic: TrackerTask) => void;
 
-  /** Callback when user cancels (Escape) */
-  onCancel: () => void;
-
-  /** Callback when file path is submitted (file-prompt mode) */
-  onFilePath?: (path: string) => void;
+  onFilePath?: never;
 }
+
+/**
+ * Props for file-prompt mode (json-style file selection)
+ */
+interface EpicLoaderOverlayFilePromptProps extends EpicLoaderOverlayBaseProps {
+  mode: 'file-prompt';
+
+  /** Callback when file path is submitted */
+  onFilePath: (path: string) => void;
+
+  epics?: never;
+  loading?: never;
+  onSelect?: never;
+}
+
+/**
+ * Props for the EpicLoaderOverlay component - discriminated union by mode
+ */
+export type EpicLoaderOverlayProps = EpicLoaderOverlayListProps | EpicLoaderOverlayFilePromptProps;
 
 /**
  * Truncate text to fit within a given width
@@ -107,79 +130,66 @@ export function EpicLoaderOverlay({
   onFilePath,
 }: EpicLoaderOverlayProps): ReactNode {
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [filePath, setFilePath] = useState('');
 
-  // Reset state when overlay becomes visible
+  // Reset state when overlay becomes visible (list mode only)
   useEffect(() => {
-    if (visible) {
+    if (visible && mode === 'list' && epics) {
       // Find the currently selected epic in the list
       const currentIndex = epics.findIndex((e) => e.id === currentEpicId);
       setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
-      setFilePath('');
     }
-  }, [visible, epics, currentEpicId]);
+  }, [visible, mode, epics, currentEpicId]);
 
-  // Handle keyboard input
+  // Handle keyboard input (only for list mode - file-prompt uses FileBrowser)
   const handleKeyboard = useCallback(
     (key: { name: string; sequence?: string }) => {
-      if (!visible) return;
+      if (!visible || mode !== 'list') return;
 
-      if (mode === 'list') {
-        switch (key.name) {
-          case 'escape':
-            onCancel();
-            break;
+      switch (key.name) {
+        case 'escape':
+          onCancel();
+          break;
 
-          case 'up':
-          case 'k':
-            setSelectedIndex((prev) => Math.max(0, prev - 1));
-            break;
+        case 'up':
+        case 'k':
+          setSelectedIndex((prev) => Math.max(0, prev - 1));
+          break;
 
-          case 'down':
-          case 'j':
-            setSelectedIndex((prev) => Math.min(epics.length - 1, prev + 1));
-            break;
+        case 'down':
+        case 'j':
+          setSelectedIndex((prev) => Math.min(epics.length - 1, prev + 1));
+          break;
 
-          case 'return':
-          case 'enter':
-            if (epics.length > 0 && epics[selectedIndex]) {
-              onSelect(epics[selectedIndex]);
-            }
-            break;
-        }
-      } else if (mode === 'file-prompt') {
-        switch (key.name) {
-          case 'escape':
-            onCancel();
-            break;
-
-          case 'return':
-          case 'enter':
-            if (filePath.trim() && onFilePath) {
-              onFilePath(filePath.trim());
-            }
-            break;
-
-          case 'backspace':
-            setFilePath((prev) => prev.slice(0, -1));
-            break;
-
-          default:
-            // Handle character input
-            if (key.sequence && key.sequence.length === 1 && key.name !== 'backspace') {
-              setFilePath((prev) => prev + key.sequence);
-            }
-            break;
-        }
+        case 'return':
+        case 'enter':
+          if (epics.length > 0 && epics[selectedIndex]) {
+            onSelect(epics[selectedIndex]);
+          }
+          break;
       }
     },
-    [visible, mode, epics, selectedIndex, filePath, onSelect, onCancel, onFilePath]
+    [visible, mode, epics, selectedIndex, onSelect, onCancel]
   );
 
   useKeyboard(handleKeyboard);
 
   if (!visible) {
     return null;
+  }
+
+  // Use FileBrowser for file-prompt mode
+  if (mode === 'file-prompt') {
+    return (
+      <FileBrowser
+        visible={visible}
+        fileExtension=".json"
+        filenamePrefix="prd"
+        trackerLabel={trackerName}
+        errorMessage={error}
+        onSelect={onFilePath}
+        onCancel={onCancel}
+      />
+    );
   }
 
   // Full-screen overlay with centered modal
@@ -199,7 +209,7 @@ export function EpicLoaderOverlay({
       <box
         style={{
           width: 70,
-          height: mode === 'file-prompt' ? 12 : 20,
+          height: 20,
           backgroundColor: colors.bg.secondary,
           border: true,
           borderColor: colors.accent.primary,
@@ -219,43 +229,12 @@ export function EpicLoaderOverlay({
             paddingRight: 1,
           }}
         >
-          <text fg={colors.accent.primary}>
-            {mode === 'list' ? 'Load Epic' : 'Enter PRD File Path'}
-          </text>
+          <text fg={colors.accent.primary}>Load Epic</text>
           <text fg={colors.fg.muted}>[{trackerName}]</text>
         </box>
 
         {/* Content */}
-        {mode === 'file-prompt' ? (
-          <box
-            style={{
-              flexGrow: 1,
-              flexDirection: 'column',
-              padding: 1,
-              justifyContent: 'center',
-            }}
-          >
-            <text fg={colors.fg.secondary}>
-              Enter the path to a prd.json file:
-            </text>
-            <box style={{ height: 1 }} />
-            <box
-              style={{
-                width: '100%',
-                height: 1,
-                backgroundColor: colors.bg.primary,
-                paddingLeft: 1,
-              }}
-            >
-              <text fg={colors.fg.primary}>{filePath}</text>
-              <text fg={colors.accent.primary}>_</text>
-            </box>
-            <box style={{ height: 1 }} />
-            <text fg={colors.fg.muted}>
-              Press Enter to load, Escape to cancel
-            </text>
-          </box>
-        ) : loading ? (
+        {loading ? (
           <box
             style={{
               flexGrow: 1,
@@ -372,16 +351,12 @@ export function EpicLoaderOverlay({
             gap: 3,
           }}
         >
-          {mode === 'list' && (
-            <>
-              <text fg={colors.fg.muted}>
-                <span fg={colors.accent.primary}>Enter</span> Select
-              </text>
-              <text fg={colors.fg.muted}>
-                <span fg={colors.accent.primary}>↑↓/jk</span> Navigate
-              </text>
-            </>
-          )}
+          <text fg={colors.fg.muted}>
+            <span fg={colors.accent.primary}>Enter</span> Select
+          </text>
+          <text fg={colors.fg.muted}>
+            <span fg={colors.accent.primary}>↑↓/jk</span> Navigate
+          </text>
           <text fg={colors.fg.muted}>
             <span fg={colors.accent.primary}>Esc</span> Cancel
           </text>

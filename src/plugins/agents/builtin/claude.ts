@@ -6,7 +6,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { BaseAgentPlugin, findCommandPath } from '../base.js';
+import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
 import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
 import type {
   AgentPluginMeta,
@@ -83,6 +83,9 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       personal: '~/.claude/skills',
       repo: '.claude/skills',
     },
+    // NOTE: Claude CLI does not have a --cwd flag. It detects the project
+    // based on where .claude/ directories exist and respects spawn's cwd
+    // when there's no conflicting project detection.
   };
 
   /** Print mode: text, json, or stream-json */
@@ -137,6 +140,9 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       };
     }
 
+    // Store the resolved path for execute() to use
+    this.commandPath = findResult.path;
+
     // Verify the binary works by running --version
     const versionResult = await this.runVersion(findResult.path);
 
@@ -173,9 +179,10 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     command: string
   ): Promise<{ success: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
-      const proc = spawn(command, ['--version'], {
+      const useShell = process.platform === 'win32';
+      const proc = spawn(useShell ? quoteForWindowsShell(command) : command, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
+        shell: useShell,
       });
 
       let stdout = '';
@@ -212,11 +219,11 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
         }
       });
 
-      // Timeout after 5 seconds
+      // Timeout after 15 seconds
       setTimeout(() => {
         proc.kill();
         resolve({ success: false, error: 'Timeout waiting for --version' });
-      }, 5000);
+      }, 15000);
     });
   }
 
@@ -436,8 +443,17 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     // Wrap callbacks to parse JSONL events when using stream-json output
     const isStreamingJson = options?.subagentTracing || this.printMode === 'json' || this.printMode === 'stream';
 
+    // When skipPermissions is enabled, Claude Code requires IS_SANDBOX=1 in the
+    // environment (particularly on Linux VMs running as root). Without it, Claude
+    // exits with a non-zero code even if the prompt is valid.
+    const sandboxEnv: Record<string, string> = {};
+    if (this.skipPermissions) {
+      sandboxEnv.IS_SANDBOX = '1';
+    }
+
     const parsedOptions: AgentExecuteOptions = {
       ...options,
+      env: { ...sandboxEnv, ...options?.env },
       // TUI-native segments callback (preferred)
       onStdoutSegments: options?.onStdoutSegments && isStreamingJson
         ? (/* original segments ignored - we parse from raw */) => {
@@ -520,6 +536,13 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   static readonly VALID_MODELS = ['sonnet', 'opus', 'haiku'] as const;
 
   /**
+   * List known Claude model aliases supported by the plugin.
+   */
+  override listModels(): string[] {
+    return [...ClaudeAgentPlugin.VALID_MODELS];
+  }
+
+  /**
    * Validate a model name for the Claude agent.
    * @param model The model name to validate
    * @returns null if valid, error message if invalid
@@ -544,7 +567,8 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       '  1. Test Claude Code directly: claude "hello"\n' +
       '  2. Verify your Anthropic API key: echo $ANTHROPIC_API_KEY\n' +
       '  3. Check Claude Code is installed: claude --version\n' +
-      '  4. Try running: claude --print-system-prompt (should show system prompt)'
+      '  4. Try running: claude --print-system-prompt (should show system prompt)\n' +
+      '  5. On Linux VMs (especially as root): ensure IS_SANDBOX=1 is set in the environment'
     );
   }
 

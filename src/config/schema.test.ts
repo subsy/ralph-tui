@@ -12,6 +12,8 @@ import {
   RateLimitHandlingConfigSchema,
   NotificationSoundModeSchema,
   NotificationsConfigSchema,
+  ParallelModeSchema,
+  ParallelConfigSchema,
   AgentPluginConfigSchema,
   TrackerOptionsSchema,
   TrackerPluginConfigSchema,
@@ -167,6 +169,57 @@ describe('NotificationsConfigSchema', () => {
   });
 });
 
+describe('ParallelModeSchema', () => {
+  test('accepts valid modes', () => {
+    expect(ParallelModeSchema.parse('auto')).toBe('auto');
+    expect(ParallelModeSchema.parse('always')).toBe('always');
+    expect(ParallelModeSchema.parse('never')).toBe('never');
+  });
+
+  test('rejects invalid modes', () => {
+    expect(() => ParallelModeSchema.parse('invalid')).toThrow();
+    expect(() => ParallelModeSchema.parse('')).toThrow();
+    expect(() => ParallelModeSchema.parse(123)).toThrow();
+  });
+});
+
+describe('ParallelConfigSchema', () => {
+  test('accepts valid full configuration', () => {
+    const result = ParallelConfigSchema.parse({
+      mode: 'auto',
+      maxWorkers: 4,
+      worktreeDir: '.ralph-tui/worktrees',
+      directMerge: true,
+    });
+    expect(result.mode).toBe('auto');
+    expect(result.maxWorkers).toBe(4);
+    expect(result.worktreeDir).toBe('.ralph-tui/worktrees');
+    expect(result.directMerge).toBe(true);
+  });
+
+  test('accepts empty object (all fields optional)', () => {
+    const result = ParallelConfigSchema.parse({});
+    expect(result).toEqual({});
+  });
+
+  test('accepts partial configuration', () => {
+    const result = ParallelConfigSchema.parse({ mode: 'always' });
+    expect(result.mode).toBe('always');
+    expect(result.maxWorkers).toBeUndefined();
+  });
+
+  test('validates maxWorkers bounds', () => {
+    expect(() => ParallelConfigSchema.parse({ maxWorkers: 0 })).toThrow();
+    expect(() => ParallelConfigSchema.parse({ maxWorkers: 33 })).toThrow();
+    expect(ParallelConfigSchema.parse({ maxWorkers: 1 }).maxWorkers).toBe(1);
+    expect(ParallelConfigSchema.parse({ maxWorkers: 32 }).maxWorkers).toBe(32);
+  });
+
+  test('validates maxWorkers is integer', () => {
+    expect(() => ParallelConfigSchema.parse({ maxWorkers: 2.5 })).toThrow();
+  });
+});
+
 describe('AgentPluginConfigSchema', () => {
   test('accepts valid minimal configuration', () => {
     const result = AgentPluginConfigSchema.parse({
@@ -229,6 +282,105 @@ describe('AgentPluginConfigSchema', () => {
       plugin: 'claude',
       fallbackAgents: [''],
     })).toThrow();
+  });
+
+  test('accepts valid envExclude patterns', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: ['*_API_KEY', 'MY_SECRET'],
+    });
+    expect(result.envExclude).toEqual(['*_API_KEY', 'MY_SECRET']);
+  });
+
+  test('rejects envExclude with empty strings', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: [''],
+    })).toThrow();
+  });
+
+  test('rejects envExclude with non-string values', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: [123],
+    })).toThrow();
+  });
+
+  test('accepts valid envPassthrough patterns', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envPassthrough: ['ANTHROPIC_API_KEY', '*_SECRET'],
+    });
+    expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY', '*_SECRET']);
+  });
+
+  test('rejects envPassthrough with empty strings', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envPassthrough: [''],
+    })).toThrow();
+  });
+
+  test('rejects envPassthrough with non-string values', () => {
+    expect(() => AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envPassthrough: [42],
+    })).toThrow();
+  });
+
+  test('accepts both envExclude and envPassthrough together', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      envExclude: ['*_TOKEN'],
+      envPassthrough: ['ANTHROPIC_API_KEY'],
+    });
+    expect(result.envExclude).toEqual(['*_TOKEN']);
+    expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY']);
+  });
+
+  test('accepts preflightTimeoutMs within bounds', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      preflightTimeoutMs: 60000,
+    });
+    expect(result.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('accepts preflightTimeoutMs at exact boundaries', () => {
+    expect(
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 1000 })
+        .preflightTimeoutMs
+    ).toBe(1000);
+    expect(
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 300000 })
+        .preflightTimeoutMs
+    ).toBe(300000);
+  });
+
+  test('rejects preflightTimeoutMs below minimum', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 999 })
+    ).toThrow();
+  });
+
+  test('rejects preflightTimeoutMs above maximum', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 300001 })
+    ).toThrow();
+  });
+
+  test('rejects non-integer preflightTimeoutMs', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 30000.5 })
+    ).toThrow();
   });
 });
 
@@ -323,6 +475,15 @@ describe('StoredConfigSchema', () => {
     expect(() => StoredConfigSchema.parse({ iterationDelay: 300001 })).toThrow();
   });
 
+  test('validates watch polling configuration', () => {
+    expect(StoredConfigSchema.parse({ watch: true, pollIntervalMs: 30000 })).toMatchObject({
+      watch: true,
+      pollIntervalMs: 30000,
+    });
+    expect(() => StoredConfigSchema.parse({ pollIntervalMs: 0 })).toThrow();
+    expect(() => StoredConfigSchema.parse({ pollIntervalMs: -1 })).toThrow();
+  });
+
   test('rejects unknown fields (strict mode)', () => {
     expect(() => StoredConfigSchema.parse({ unknownField: 'value' })).toThrow();
   });
@@ -337,6 +498,120 @@ describe('StoredConfigSchema', () => {
     expect(() => StoredConfigSchema.parse({
       trackers: [{ name: 'test', plugin: '' }],
     })).toThrow();
+  });
+
+  test('accepts top-level envExclude', () => {
+    const result = StoredConfigSchema.parse({
+      envExclude: ['*_API_KEY', '*_SECRET'],
+    });
+    expect(result.envExclude).toEqual(['*_API_KEY', '*_SECRET']);
+  });
+
+  test('rejects top-level envExclude with empty strings', () => {
+    expect(() => StoredConfigSchema.parse({ envExclude: [''] })).toThrow();
+  });
+
+  test('accepts top-level envPassthrough', () => {
+    const result = StoredConfigSchema.parse({
+      envPassthrough: ['ANTHROPIC_API_KEY'],
+    });
+    expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY']);
+  });
+
+  test('rejects top-level envPassthrough with empty strings', () => {
+    expect(() => StoredConfigSchema.parse({ envPassthrough: [''] })).toThrow();
+  });
+
+  test('accepts envExclude and envPassthrough together at top level', () => {
+    const result = StoredConfigSchema.parse({
+      envExclude: ['*_TOKEN'],
+      envPassthrough: ['MY_API_KEY'],
+    });
+    expect(result.envExclude).toEqual(['*_TOKEN']);
+    expect(result.envPassthrough).toEqual(['MY_API_KEY']);
+  });
+
+  test('accepts commitMessageTemplate as an optional string', () => {
+    const result = StoredConfigSchema.parse({
+      commitMessageTemplate: '{{taskType}}({{taskId}}): {{taskTitle}}',
+    });
+    expect(result.commitMessageTemplate).toBe('{{taskType}}({{taskId}}): {{taskTitle}}');
+  });
+
+  test('accepts empty config without commitMessageTemplate', () => {
+    const result = StoredConfigSchema.parse({});
+    expect(result.commitMessageTemplate).toBeUndefined();
+  });
+
+  test('rejects commitMessageTemplate when set to a non-string', () => {
+    expect(() => StoredConfigSchema.parse({ commitMessageTemplate: 42 })).toThrow();
+  });
+
+  test('accepts top-level preflightTimeoutMs within bounds', () => {
+    const result = StoredConfigSchema.parse({ preflightTimeoutMs: 60000 });
+    expect(result.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('rejects top-level preflightTimeoutMs below minimum', () => {
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: 999 })).toThrow();
+  });
+
+  test('rejects top-level preflightTimeoutMs above maximum', () => {
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: 300001 })).toThrow();
+  });
+
+  test('accepts progressFile field', () => {
+    const result = StoredConfigSchema.parse({
+      progressFile: '.ralph-tui/progress.md',
+    });
+    expect(result.progressFile).toBe('.ralph-tui/progress.md');
+  });
+
+  test('accepts parallel configuration', () => {
+    const result = StoredConfigSchema.parse({
+      parallel: {
+        mode: 'auto',
+        maxWorkers: 4,
+        worktreeDir: '.ralph-tui/worktrees',
+        directMerge: false,
+      },
+    });
+    expect(result.parallel?.mode).toBe('auto');
+    expect(result.parallel?.maxWorkers).toBe(4);
+    expect(result.parallel?.worktreeDir).toBe('.ralph-tui/worktrees');
+    expect(result.parallel?.directMerge).toBe(false);
+  });
+
+  test('accepts partial parallel configuration', () => {
+    const result = StoredConfigSchema.parse({
+      parallel: {
+        mode: 'never',
+      },
+    });
+    expect(result.parallel?.mode).toBe('never');
+    expect(result.parallel?.maxWorkers).toBeUndefined();
+  });
+
+  test('accepts progressFile and parallel together', () => {
+    const result = StoredConfigSchema.parse({
+      progressFile: 'custom-progress.md',
+      parallel: {
+        mode: 'always',
+        maxWorkers: 8,
+      },
+    });
+    expect(result.progressFile).toBe('custom-progress.md');
+    expect(result.parallel?.mode).toBe('always');
+    expect(result.parallel?.maxWorkers).toBe(8);
+  });
+
+  test('validates parallel.maxWorkers bounds', () => {
+    expect(() => StoredConfigSchema.parse({ parallel: { maxWorkers: 0 } })).toThrow();
+    expect(() => StoredConfigSchema.parse({ parallel: { maxWorkers: 33 } })).toThrow();
+  });
+
+  test('validates parallel.mode values', () => {
+    expect(() => StoredConfigSchema.parse({ parallel: { mode: 'invalid' } })).toThrow();
   });
 });
 

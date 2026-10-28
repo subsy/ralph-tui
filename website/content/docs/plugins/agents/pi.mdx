@@ -1,0 +1,283 @@
+---
+title: Pi Agent
+description: Integrate Pi Coding Agent with Ralph TUI for AI-assisted coding.
+---
+
+## Pi Agent
+
+The Pi agent plugin integrates with the Pi Coding Agent (`pi`) to execute AI coding tasks. Pi is a minimal, extensible terminal coding agent with a tiny core that supports multiple providers and models.
+
+<Callout type="info">
+Pi outputs structured JSONL which enables detailed subagent tracing with tool call breakdowns.
+</Callout>
+
+## Prerequisites
+
+Install Pi CLI:
+
+```bash
+npm install -g @mariozechner/pi-coding-agent
+```
+
+For other platforms, visit the [Pi GitHub repository](https://github.com/badlogic/pi-coding-agent).
+
+Verify installation:
+
+```bash
+pi --version
+# Should output version like: 0.55.0
+```
+
+You'll also need an API key for at least one supported provider:
+
+- **Anthropic**: `ANTHROPIC_API_KEY`
+- **OpenAI**: `OPENAI_API_KEY`
+- **Google**: `GEMINI_API_KEY`
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Pi">
+    Use the `--agent pi` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent pi
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Specify a model via `--agent-options`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent pi --agent-options 'model=sonnet'
+    ```
+
+    Or configure in TOML:
+
+    ```toml
+    [agentOptions]
+    model = "sonnet"
+    ```
+  </Step>
+
+  <Step title="Configure Thinking Level">
+    Set extended thinking level:
+
+    ```toml
+    [agentOptions]
+    thinking = "high"
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "pi"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-pi"
+plugin = "pi"
+default = true
+command = "pi"
+timeout = 300000
+
+[agents.options]
+mode = "json"
+model = "sonnet"
+thinking = "high"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `mode` | string | `"json"` | Output mode: `"json"` for structured JSONL or `"text"` for plain text |
+| `model` | string | - | Model to use (e.g., `sonnet`, `openai/gpt-4o`, `anthropic/claude-sonnet`) |
+| `thinking` | string | - | Thinking level: `off`, `minimal`, `low`, `medium`, `high`, `xhigh` |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"pi"` | Path to Pi CLI executable |
+
+<Callout type="info">
+A `timeout` of `0` means no timeout (unlimited execution time). For production or autonomous runs, consider setting a reasonable timeout like `300000` (5 minutes) or `600000` (10 minutes).
+</Callout>
+
+## Model Selection
+
+Pi supports multiple providers and model patterns:
+
+### Shorthand Models
+
+```toml
+[agentOptions]
+model = "sonnet"      # Claude Sonnet
+model = "haiku"        # Claude Haiku
+model = "opus"         # Claude Opus
+```
+
+### Provider/Model Format
+
+```toml
+[agentOptions]
+model = "openai/gpt-4o"
+model = "anthropic/claude-sonnet"
+model = "google/gemini-2.5-pro"
+```
+
+### With Thinking Suffix
+
+```toml
+[agentOptions]
+model = "sonnet:high"  # Sonnet with high thinking
+```
+
+List available models:
+
+```bash
+pi --list-models
+```
+
+## Thinking Levels
+
+Pi supports extended thinking for supported models:
+
+| Level | Description |
+|-------|-------------|
+| (empty) | Use model defaults |
+| `off` | No extended thinking |
+| `minimal` | Minimal thinking budget |
+| `low` | Low thinking budget |
+| `medium` | Medium thinking budget |
+| `high` | High thinking budget |
+| `xhigh` | Maximum thinking |
+
+## Output Modes
+
+### JSON Mode (Default)
+
+```toml
+[agentOptions]
+mode = "json"
+```
+
+Enables structured JSONL output with:
+- Detailed tool call tracking
+- Subagent tracing
+- Token usage reporting
+- Cost information
+
+### Text Mode
+
+```toml
+[agentOptions]
+mode = "text"
+```
+
+Plain text output without structured data.
+
+## Skills Support
+
+Pi CLI supports skills:
+
+| Location | Description |
+|----------|-------------|
+| `~/.pi/skills/` | Personal skills (user-specific) |
+| `.pi/skills/` | Repository skills (project-specific) |
+
+## How It Works
+
+When Ralph TUI executes a task with Pi:
+
+1. **Build command**: Constructs `pi --print --mode json [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
+3. **Parse JSONL output**: Extracts structured events for display
+4. **Stream in real-time**: Shows thinking and tool calls as they happen
+5. **Handle completion**: Reports final results with usage stats
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+pi \
+  --print \                    # Non-interactive mode
+  --mode json \                # JSONL output (for subagent tracing)
+  --model sonnet \             # If model specified
+  --thinking high \            # If thinking level specified
+  < prompt.txt                 # Prompt via stdin
+```
+
+## Subagent Tracing
+
+Pi's JSON mode enables rich subagent tracing:
+
+- **Thinking**: Shows reasoning process
+- **Tool Calls**: Detailed tool invocations with inputs
+- **Tool Results**: Tool outputs with errors
+- **Token Usage**: Input/output tokens and cost
+- **Turn History**: Multiple conversation turns
+
+## Troubleshooting
+
+### "Pi not found in PATH"
+
+Ensure Pi is installed and in your PATH:
+
+```bash
+which pi
+# Should output: /path/to/pi
+
+# If not found, install via:
+# npm install -g @mariozechner/pi-coding-agent
+```
+
+### "No API key configured"
+
+Set your provider API key:
+
+```bash
+# Anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# OpenAI
+export OPENAI_API_KEY=sk-...
+
+# Google
+export GEMINI_API_KEY=...
+```
+
+### "Invalid model"
+
+Check available models:
+
+```bash
+pi --list-models
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "pi"
+plugin = "pi"
+timeout = 600000  # 10 minutes
+```
+
+## Next Steps
+
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Kiro Agent](/docs/plugins/agents/kiro)** - AWS Kiro CLI
+- **[Configuration](/docs/configuration/options)** - Full options reference

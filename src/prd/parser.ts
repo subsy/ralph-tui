@@ -40,9 +40,21 @@ export interface ParseOptions {
 }
 
 /**
- * Pattern to match user story headers: ### US-001: Title or ## US-001: Title
+ * Pattern to match user story headers: ### US-001: Title or ## US-001: Title or #### US-001: Title
+ * Supports multiple ID formats:
+ * - US-001: Standard 3-digit format
+ * - US-2.1.1: Version-style format (X.Y or X.Y.Z)
+ * - EPIC-123: Custom prefix format
+ * - Feature 1.1: Feature version format (case-insensitive)
  */
-const USER_STORY_HEADER_PATTERN = /^#{2,3}\s+(US-\d{3}|[A-Z]+-\d+):\s*(.+)$/;
+const USER_STORY_HEADER_PATTERN = /^#{2,4}\s+(US-\d{3}|US-\d+(?:\.\d+)+|(?!US-)[A-Z]+-\d+|Feature\s+\d+\.\d+):\s*(.+)$/i;
+
+/**
+ * Fallback pattern to match ANY header with a colon in the User Stories section.
+ * Used when strict patterns don't match. Captures any H2/H3/H4 header.
+ * Examples: "### Epic 1: Title", "## 1. Story Title", "#### Any Header: With Colon"
+ */
+const FALLBACK_STORY_HEADER_PATTERN = /^(#{2,4})\s+(.+?):\s*(.+)$/;
 
 /**
  * Pattern to match PRD title from first H1
@@ -78,6 +90,31 @@ const DEPENDS_ON_PATTERN = /\*\*Depends on:\*\*\s*(.+)/;
  * Pattern to match checklist items: - [ ] or - [x]
  */
 const CHECKLIST_ITEM_PATTERN = /^-\s+\[[\sx]\]\s+(.+)$/;
+
+/**
+ * Normalize story ID from various formats to standard format.
+ * Examples:
+ * - "US-001" → "US-001" (unchanged)
+ * - "Feature 1.1" → "FEAT-1-1"
+ * - "EPIC-123" → "EPIC-123" (unchanged)
+ */
+function normalizeStoryId(rawId: string): string {
+  // If it's already in US-XXX or PREFIX-XXX format, keep it
+  if (/^(US-\d{3}|[A-Z]+-\d+)$/.test(rawId)) {
+    return rawId;
+  }
+
+  // Convert "Feature X.Y" to "FEAT-X-Y" (case-insensitive)
+  const featureMatch = rawId.match(/^Feature\s+(\d+)\.(\d+)$/i);
+  if (featureMatch) {
+    const majorVersion = featureMatch[1];
+    const minorVersion = featureMatch[2];
+    return `FEAT-${majorVersion}-${minorVersion}`;
+  }
+
+  // Fallback: return as-is
+  return rawId;
+}
 
 /**
  * Extract the PRD title from the document.
@@ -235,7 +272,23 @@ function extractDependsOn(section: string): string[] | undefined {
 }
 
 /**
+ * Pattern to match bold-prefixed metadata fields that terminate description extraction.
+ * These are known structured fields, NOT description content.
+ */
+const DESCRIPTION_STOP_PATTERN = /^\*\*(Acceptance Criteria|Priority|Depends on|Labels|Notes):\*\*/;
+
+/**
+ * Pattern to match the **Description:** label prefix that LLMs sometimes generate.
+ * The actual description text follows the label on the same line.
+ */
+const DESCRIPTION_LABEL_PATTERN = /^\*\*Description:\*\*\s*/;
+
+/**
  * Extract the description (first paragraph) from a user story section.
+ * Handles multiple LLM output formats:
+ *   - Plain text: "As a user, I want..."
+ *   - Bold-label: "**Description:** As a user, I want..."
+ *   - Bold-keyword: "**As a** user **I want** to... **So that**..."
  */
 function extractStoryDescription(section: string, headerLine: string): string {
   // Get lines after the header
@@ -252,11 +305,11 @@ function extractStoryDescription(section: string, headerLine: string): string {
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const line = lines[i]?.trim() ?? '';
 
-    // Stop at acceptance criteria or other sections
+    // Stop at acceptance criteria or other known metadata sections
     if (line.match(ACCEPTANCE_CRITERIA_PATTERN)) {
       break;
     }
-    if (line.startsWith('**')) {
+    if (line.match(DESCRIPTION_STOP_PATTERN)) {
       break;
     }
     if (line.startsWith('#')) {
@@ -266,22 +319,51 @@ function extractStoryDescription(section: string, headerLine: string): string {
       break;
     }
 
-    // Add non-empty lines
-    if (line) {
-      descLines.push(line);
+    // Strip **Description:** label prefix if present
+    const stripped = line.replace(DESCRIPTION_LABEL_PATTERN, '');
+
+    // Add non-empty lines (after stripping labels)
+    if (stripped) {
+      descLines.push(stripped);
     } else if (descLines.length > 0) {
       // Empty line ends the description paragraph
       break;
     }
   }
 
-  return descLines.join(' ').trim();
+  // Join and strip any remaining bold markers used for emphasis (e.g., **As a** → As a)
+  const raw = descLines.join(' ').trim();
+  return raw.replace(/\*\*([^*]+)\*\*/g, '$1');
 }
 
 /**
  * Find all user story sections in the markdown.
+ * Uses a 3-tier fallback strategy to ALWAYS find something:
+ * 1. Strict patterns (US-XXX, US-X.Y.Z, PREFIX-XXX, Feature X.Y)
+ * 2. Any header with colon in "User Stories" section
+ * 3. Ultimate fallback: ANY H2/H3/H4 with colon in entire document
  */
 function findUserStorySections(markdown: string): Array<{ id: string; title: string; section: string }> {
+  // First try with strict patterns
+  const strictSections = findUserStorySectionsStrict(markdown);
+  if (strictSections.length > 0) {
+    return strictSections;
+  }
+
+  // Second fallback: find any headers in User Stories section
+  const fallbackSections = findUserStorySectionsFallback(markdown);
+  if (fallbackSections.length > 0) {
+    return fallbackSections;
+  }
+
+  // Ultimate fallback: find ANY headers with colons in the entire document
+  return findUserStorySectionsUltimate(markdown);
+}
+
+/**
+ * Find user story sections using strict ID patterns.
+ */
+function findUserStorySectionsStrict(markdown: string): Array<{ id: string; title: string; section: string }> {
   const sections: Array<{ id: string; title: string; section: string }> = [];
   const lines = markdown.split('\n');
 
@@ -304,8 +386,178 @@ function findUserStorySections(markdown: string): Array<{ id: string; title: str
 
       // Start new story
       currentStory = {
-        id: match[1] ?? '',
+        id: normalizeStoryId(match[1] ?? ''),
         title: match[2]?.trim() ?? '',
+        startIndex: i,
+      };
+    }
+  }
+
+  // Don't forget the last story
+  if (currentStory) {
+    const sectionLines = lines.slice(currentStory.startIndex);
+    sections.push({
+      id: currentStory.id,
+      title: currentStory.title,
+      section: sectionLines.join('\n'),
+    });
+  }
+
+  return sections;
+}
+
+/**
+ * Fallback: Find any H2/H3/H4 headers with colons in the User Stories section.
+ * Auto-generates IDs like STORY-001, STORY-002, etc.
+ */
+function findUserStorySectionsFallback(markdown: string): Array<{ id: string; title: string; section: string }> {
+  const sections: Array<{ id: string; title: string; section: string }> = [];
+  const lines = markdown.split('\n');
+
+  // Find the "User Stories" section
+  let inUserStoriesSection = false;
+  let storyCounter = 0;
+  let currentStory: { id: string; title: string; startIndex: number } | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+
+    // Check if we're entering User Stories section
+    if (/^#{1,2}\s+.*(?:User\s*Stor(?:y|ies)|Felhasználói\s*történet)/i.test(line)) {
+      inUserStoriesSection = true;
+      continue;
+    }
+
+    // Check if we're leaving User Stories section (any H1 or H2 that's not a story header)
+    if (inUserStoriesSection && /^#{1,2}\s+/.test(line)) {
+      // Check if this H1/H2 looks like a story header (has colon format)
+      const looksLikeStory = FALLBACK_STORY_HEADER_PATTERN.test(line);
+      if (!looksLikeStory) {
+        // Not a story header - we've left the User Stories section
+        // Save last story and exit
+        if (currentStory) {
+          const sectionLines = lines.slice(currentStory.startIndex, i);
+          sections.push({
+            id: currentStory.id,
+            title: currentStory.title,
+            section: sectionLines.join('\n'),
+          });
+        }
+        break;
+      }
+    }
+
+    if (!inUserStoriesSection) continue;
+
+    // Match any header with colon (potential story)
+    const fallbackMatch = line.match(FALLBACK_STORY_HEADER_PATTERN);
+    if (fallbackMatch) {
+      // Save previous story section
+      if (currentStory) {
+        const sectionLines = lines.slice(currentStory.startIndex, i);
+        sections.push({
+          id: currentStory.id,
+          title: currentStory.title,
+          section: sectionLines.join('\n'),
+        });
+      }
+
+      // Generate auto ID or extract from prefix
+      storyCounter++;
+      const prefix = fallbackMatch[2]?.trim() ?? '';
+      const title = fallbackMatch[3]?.trim() ?? '';
+
+      // Try to use the prefix as ID if it looks like one, otherwise generate
+      let id: string;
+      // Match valid ID formats:
+      // - US-XXX (exactly 3 digits) or US-X.Y.Z (version style)
+      // - Non-US prefix with digits (EPIC-1, TASK-123)
+      // - Feature X.Y format
+      const validIdPattern = /^US-\d{3}$|^US-\d+(?:\.\d+)+$|^(?!US-)[A-Z]+-\d+$|^Feature\s+\d+\.\d+$/i;
+      if (validIdPattern.test(prefix)) {
+        id = normalizeStoryId(prefix);
+      } else {
+        id = `STORY-${String(storyCounter).padStart(3, '0')}`;
+      }
+
+      currentStory = {
+        id,
+        title: title || prefix,
+        startIndex: i,
+      };
+    }
+  }
+
+  // Don't forget the last story
+  if (currentStory) {
+    const sectionLines = lines.slice(currentStory.startIndex);
+    sections.push({
+      id: currentStory.id,
+      title: currentStory.title,
+      section: sectionLines.join('\n'),
+    });
+  }
+
+  return sections;
+}
+
+/**
+ * Ultimate fallback: Find ANY H2/H3/H4 headers with colons in the entire document.
+ * This ensures we ALWAYS generate some stories, even from non-standard PRDs.
+ * Skips common non-story headers like "Overview:", "Description:", etc.
+ */
+function findUserStorySectionsUltimate(markdown: string): Array<{ id: string; title: string; section: string }> {
+  const sections: Array<{ id: string; title: string; section: string }> = [];
+  const lines = markdown.split('\n');
+
+  let storyCounter = 0;
+  let currentStory: { id: string; title: string; startIndex: number } | null = null;
+
+  // Headers to skip (common section headers, not stories)
+  const skipHeaders = /^#{1,4}\s*(?:Overview|Description|Summary|Introduction|Background|Goals|Objectives|Requirements|Technical|Implementation|Architecture|Design|Testing|Documentation|Appendix|References|Glossary|Changelog|Notes|Risks|Timeline|Dependencies|Constraints|Assumptions|Scope|Összefoglaló|Leírás|Célok|Követelmények|Technikai|Implementáció|Tesztelés|Dokumentáció):/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+
+    // Skip the title (H1)
+    if (/^#\s+/.test(line) && !/^##/.test(line)) {
+      continue;
+    }
+
+    // Skip known non-story headers
+    if (skipHeaders.test(line)) {
+      continue;
+    }
+
+    // Match any H2/H3/H4 with colon
+    const match = line.match(/^(#{2,4})\s+(.+?):\s*(.+)$/);
+    if (match) {
+      // Save previous story section
+      if (currentStory) {
+        const sectionLines = lines.slice(currentStory.startIndex, i);
+        sections.push({
+          id: currentStory.id,
+          title: currentStory.title,
+          section: sectionLines.join('\n'),
+        });
+      }
+
+      storyCounter++;
+      const prefix = match[2]?.trim() ?? '';
+      const title = match[3]?.trim() ?? '';
+
+      // Try to use prefix as ID if it looks like one
+      let id: string;
+      const validIdPattern = /^US-\d{3}$|^US-\d+(?:\.\d+)+$|^(?!US-)[A-Z]+-\d+$|^Feature\s+\d+\.\d+$/i;
+      if (validIdPattern.test(prefix)) {
+        id = normalizeStoryId(prefix);
+      } else {
+        id = `STORY-${String(storyCounter).padStart(3, '0')}`;
+      }
+
+      currentStory = {
+        id,
+        title: title || prefix,
         startIndex: i,
       };
     }

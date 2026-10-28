@@ -86,6 +86,9 @@ If you use [Beads](https://github.com/steveyegge/beads) for issue tracking, you 
 ```bash
 # Run with a beads epic
 ralph-tui run --epic my-project-epic
+
+# Run one parallel session across multiple epics
+ralph-tui run --parallel --epic frontend-epic --epic backend-epic
 ```
 
 Beads provides additional features like:
@@ -93,6 +96,7 @@ Beads provides additional features like:
 - Task dependencies
 - Hierarchy (epics containing stories)
 - Labels and priorities
+- Multi-epic parallel sessions for larger features
 
 ## Alternative: Using Skills Directly in Your Agent
 
@@ -146,10 +150,32 @@ While Ralph is running, use these keyboard shortcuts:
 | `o` | Cycle right panel views (details → output → prompt) |
 | `O` | Jump directly to prompt preview |
 | `d` | Toggle progress dashboard |
+| `g` | Cycle to the next epic/scope filter |
+| `G` | Return to all epics/scopes |
+| `a` | Open agent/model picker |
 | `h` | Toggle show/hide closed tasks |
 | `r` | Refresh task list from tracker |
 | `T` | Toggle subagent tree panel |
 | `t` | Cycle subagent detail level (minimal → moderate → detailed) |
+
+For multi-epic parallel sessions, `g` and `G` filter the TUI by epic/scope without changing the running orchestration.
+
+### File Browser
+
+When selecting a PRD file (JSON tracker) or switching epics, a file browser appears with keyboard-driven navigation:
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate entries |
+| `Enter` / `→` | Enter directory or select file |
+| `Tab` | Select highlighted entry |
+| `Backspace` / `←` | Go to parent directory |
+| `~` | Jump to home directory |
+| `.` | Toggle hidden files |
+| `/` or `g` | Type a path directly |
+| `Esc` | Cancel / clear search |
+
+**Fuzzy Search**: Just start typing to filter files. Results are ranked by match quality — exact matches first, then partial matches. Use `Tab` or `Enter` to select the highlighted match. Press `Esc` to clear the search, or `Backspace` to delete characters.
 
 ## Understanding the TUI
 
@@ -168,7 +194,7 @@ The terminal interface shows:
 - **Footer**: Available keyboard shortcuts
 
 <Callout type="tip">
-Use `O` to preview the exact prompt being sent to your AI agent. Press `T` to see the subagent tree - this shows what autonomous subtasks the AI is spawning to complete your work.
+Use `O` to preview the exact prompt being sent to your AI agent. Press `a` to switch the agent or model for the next iteration. Press `T` to see the subagent tree - this shows what autonomous subtasks the AI is spawning to complete your work.
 </Callout>
 
 ## Next Steps

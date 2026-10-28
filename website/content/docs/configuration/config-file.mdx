@@ -35,6 +35,9 @@ Here's a fully annotated configuration file showing all available options:
 # Default agent plugin name
 agent = "claude"
 
+# Default model for the selected agent (optional)
+model = "sonnet"
+
 # Custom command (optional) - use wrapper tools like Claude Code Router
 # command = "ccr code"
 
@@ -53,8 +56,19 @@ outputDir = ".ralph-tui/iterations"
 # Progress file for cross-iteration context
 progressFile = ".ralph-tui/progress.md"
 
-# Auto-commit after each completed task
+# Auto-commit: when true, ralph-tui stages and commits all changes after each
+# successful task completion. When false, no automatic commit is made (agents
+# may still commit on their own if instructed by templates or CLAUDE.md).
 autoCommit = false
+
+# Optional Handlebars template for the auto-commit subject line. Variables:
+#   {{taskId}}    - tracker-supplied task identifier
+#   {{taskTitle}} - tracker-supplied task title
+#   {{taskType}}  - task type (e.g. "bug", "feature"); falls back to "chore"
+# If unset, the default below is used. To restore the legacy `feat:` prefix used
+# in pre-#384 releases, set:
+#   commitMessageTemplate = "feat: {{taskId}} - {{taskTitle}}"
+# commitMessageTemplate = "{{taskType}}: {{taskId}} {{taskTitle}}"
 
 # Custom prompt template path (relative or absolute)
 # prompt_template = "./my-template.hbs"
@@ -62,13 +76,17 @@ autoCommit = false
 # Subagent tracing detail: "off", "minimal", "moderate", "full"
 subagentTracingDetail = "minimal"
 
+# Preflight check timeout in ms (1000-300000, default 30000).
+# Increase for local reasoning models that need longer to respond.
+# preflightTimeoutMs = 60000
+
 # ─────────────────────────────────────────────
 # Agent Options (shorthand)
 # ─────────────────────────────────────────────
 
 [agentOptions]
-# These options are passed to the selected agent plugin
-model = "claude-sonnet-4-20250514"
+# These options are passed to the selected agent plugin.
+# Prefer top-level `model` for the default runtime model.
 
 # ─────────────────────────────────────────────
 # Tracker Options (shorthand)
@@ -78,6 +96,8 @@ model = "claude-sonnet-4-20250514"
 # These options are passed to the selected tracker plugin
 # Example for beads-bv tracker:
 # epicId = "beads-001"
+# For multi-epic runs, prefer runtime flags:
+# ralph-tui run --parallel --epic ui-epic --epic backend-epic
 
 # ─────────────────────────────────────────────
 # Error Handling
@@ -126,6 +146,20 @@ enabled = true
 
 # Sound mode: "off", "system", or "ralph"
 sound = "off"
+
+# ─────────────────────────────────────────────
+# Parallel Execution
+# ─────────────────────────────────────────────
+
+[parallel]
+# Mode: "auto" (analyze dependencies), "always" (force parallel), "never" (disable)
+mode = "never"
+
+# Maximum concurrent workers (git worktrees)
+maxWorkers = 3
+
+# Directory for worker worktrees (relative to project root)
+worktreeDir = ".ralph-tui/worktrees"
 ```
 
 ## Common Configurations
@@ -220,6 +254,20 @@ tracker = "beads-bv"
 ```
 
 This uses the Claude agent plugin (for output parsing, flags, etc.) but executes through CCR which handles provider routing.
+
+### Local Reasoning Model
+
+When pointing Ralph TUI at a locally hosted thinking model, the preflight health check may legitimately take longer than the default 30 seconds. Raise the limit:
+
+```toml
+agent = "opencode"
+preflightTimeoutMs = 120000  # 2 minutes for local model warm-up
+
+[agentOptions]
+model = "qwen2.5-coder:32b"
+```
+
+See [Preflight Timeout](/docs/configuration/options#preflight-timeout) for the full reference.
 
 ## Advanced: Plugin Arrays
 

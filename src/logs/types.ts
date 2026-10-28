@@ -5,6 +5,7 @@
 
 import type { IterationStatus, ActiveAgentReason } from '../engine/types.js';
 import type { SubagentEvent, SubagentState } from '../plugins/agents/tracing/types.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 
 /**
  * Summary of what was accomplished in an iteration.
@@ -27,7 +28,7 @@ export interface IterationSummary {
 
 /**
  * Entry recording an agent switch during an iteration.
- * Tracks when and why the engine switched between primary and fallback agents.
+ * Tracks when and why the engine switched between active agents.
  */
 export interface AgentSwitchEntry {
   /** ISO 8601 timestamp when the switch occurred */
@@ -83,6 +84,9 @@ export interface IterationLogMetadata {
 
   /** Duration in milliseconds */
   durationMs: number;
+
+  /** Token usage summary for this iteration (if available) */
+  usage?: TokenUsageSummary;
 
   /** Error message if iteration failed */
   error?: string;

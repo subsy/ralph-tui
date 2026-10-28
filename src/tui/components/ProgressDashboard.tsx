@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react';
 import { colors, statusIndicators, layout, type RalphStatus } from '../theme.js';
 import type { SandboxConfig, SandboxMode } from '../../config/types.js';
+import { formatTokenCount } from '../utils/token-format.js';
 
 /**
  * Props for the ProgressDashboard component
@@ -50,6 +51,16 @@ export interface ProgressDashboardProps {
   autoCommit?: boolean;
   /** Git repository information */
   gitInfo?: GitInfo;
+  /** Number of currently active (running) parallel workers */
+  activeWorkerCount?: number;
+  /** Total number of parallel workers */
+  totalWorkerCount?: number;
+  /** Aggregated token usage across all tasks in the current run */
+  aggregateUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 /**
@@ -103,7 +114,7 @@ function getStatusDisplay(
       return { label: `Agent running${taskLabel}`, color: colors.status.success, indicator: statusIndicators.executing };
     }
     case 'pausing':
-      return { label: 'Pausing after current iteration...', color: colors.status.warning, indicator: statusIndicators.pausing };
+      return { label: 'Pausing (completing in-flight tasks)', color: colors.status.warning, indicator: statusIndicators.pausing };
     case 'paused':
       return { label: 'Paused - Press p to resume', color: colors.status.warning, indicator: statusIndicators.paused };
     case 'stopped':
@@ -112,6 +123,8 @@ function getStatusDisplay(
       return { label: 'All tasks complete!', color: colors.status.success, indicator: statusIndicators.complete };
     case 'idle':
       return { label: 'No more tasks available', color: colors.fg.muted, indicator: statusIndicators.idle };
+    case 'waiting':
+      return { label: 'Waiting for new tasks', color: colors.fg.muted, indicator: statusIndicators.waiting };
     case 'error':
       return { label: 'Failed - Check logs for details', color: colors.status.error, indicator: statusIndicators.blocked };
   }
@@ -134,6 +147,9 @@ export function ProgressDashboard({
   remoteInfo,
   autoCommit,
   gitInfo,
+  activeWorkerCount,
+  totalWorkerCount,
+  aggregateUsage,
 }: ProgressDashboardProps): ReactNode {
   const statusDisplay = getStatusDisplay(status, currentTaskId);
   const sandboxDisplay = getSandboxDisplay(sandboxConfig, resolvedSandboxMode);
@@ -205,6 +221,19 @@ export function ProgressDashboard({
             <text fg={colors.fg.primary}>{taskDisplay}</text>
           </box>
         )}
+
+        {/* Parallel worker count - shown when workers are active */}
+        {activeWorkerCount !== undefined &&
+          activeWorkerCount !== null &&
+          activeWorkerCount > 0 &&
+          totalWorkerCount !== undefined &&
+          totalWorkerCount !== null && (
+          <box style={{ flexDirection: 'row' }}>
+            <text fg={colors.status.info}>Workers: </text>
+            <text fg={colors.status.success}>{activeWorkerCount} active</text>
+            <text fg={colors.fg.muted}> / {totalWorkerCount}</text>
+          </box>
+        )}
       </box>
 
       {/* Right column: Configuration items stacked */}
@@ -225,6 +254,17 @@ export function ProgressDashboard({
         <box style={{ flexDirection: 'row' }}>
           <text fg={colors.fg.secondary}>Tracker: </text>
           <text fg={colors.accent.tertiary}>{trackerName}</text>
+          {aggregateUsage && (
+            <>
+              <text fg={colors.fg.muted}> · </text>
+              <text fg={colors.fg.secondary}>Σ I/O/T: </text>
+              <text fg={colors.accent.secondary}>{formatTokenCount(aggregateUsage.inputTokens)}</text>
+              <text fg={colors.fg.muted}>/</text>
+              <text fg={colors.accent.primary}>{formatTokenCount(aggregateUsage.outputTokens)}</text>
+              <text fg={colors.fg.muted}>/</text>
+              <text fg={colors.status.info}>{formatTokenCount(aggregateUsage.totalTokens)}</text>
+            </>
+          )}
         </box>
 
         {/* Row 3: Git branch (own line) */}

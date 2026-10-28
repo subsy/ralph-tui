@@ -4,6 +4,7 @@
  */
 
 import { join } from 'node:path';
+import { createReadStream, createWriteStream, type WriteStream } from 'node:fs';
 import {
   writeFile,
   readFile,
@@ -46,12 +47,97 @@ const STDERR_DIVIDER = '\n--- STDERR ---\n';
 const SUBAGENT_TRACE_DIVIDER = '\n--- SUBAGENT TRACE ---\n';
 
 /**
- * Generate log filename for an iteration.
- * Format: iteration-{N}-{taskId}.log
+ * Write a string chunk to a writable stream and await completion.
  */
-export function generateLogFilename(iteration: number, taskId: string): string {
+async function writeChunkToStream(stream: WriteStream, chunk: string): Promise<void> {
+  if (chunk.length === 0) return;
+  await new Promise<void>((resolve, reject) => {
+    stream.write(chunk, 'utf-8', (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Pipe a file's content into a writable stream without closing the destination.
+ */
+async function pipeFileToStream(filePath: string, stream: WriteStream): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const source = createReadStream(filePath, { encoding: 'utf-8' });
+    const onError = (error: Error): void => {
+      source.destroy();
+      stream.off('error', onError);
+      reject(error);
+    };
+
+    source.once('error', onError);
+    stream.once('error', onError);
+    source.once('end', () => {
+      stream.off('error', onError);
+      resolve();
+    });
+    source.pipe(stream, { end: false });
+  });
+}
+
+/**
+ * Close a writable stream and await completion.
+ */
+async function closeWriteStream(stream: WriteStream): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => reject(error);
+    stream.once('error', onError);
+    stream.end(() => {
+      stream.off('error', onError);
+      resolve();
+    });
+  });
+}
+
+/**
+ * Format a timestamp for use in filenames.
+ * Input: ISO 8601 timestamp (e.g., '2024-01-15T10:30:45.123Z')
+ * Output: filesystem-safe timestamp (e.g., '2024-01-15_10-30-45')
+ */
+function formatTimestampForFilename(isoTimestamp: string): string {
+  // Parse ISO timestamp and format as YYYY-MM-DD_HH-mm-ss
+  const date = new Date(isoTimestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+}
+
+/**
+ * Generate log filename for an iteration.
+ * New format: {sessionId}_{timestamp}_{taskId}.log
+ * Example: a1b2c3d4_2024-01-15_10-30-45_BEAD-001.log
+ *
+ * Falls back to legacy format if sessionId or startedAt not provided:
+ * Legacy format: iteration-{N}-{taskId}.log
+ */
+export function generateLogFilename(
+  iteration: number,
+  taskId: string,
+  sessionId?: string,
+  startedAt?: string
+): string {
   // Sanitize task ID for filesystem safety (replace / with -)
   const safeTaskId = taskId.replace(/[/\\:*?"<>|]/g, '-');
+
+  // Use new format if sessionId and startedAt are available
+  if (sessionId && startedAt) {
+    // Use first 8 chars of session ID for brevity
+    const shortSessionId = sessionId.slice(0, 8);
+    const timestamp = formatTimestampForFilename(startedAt);
+    return `${shortSessionId}_${timestamp}_${safeTaskId}.log`;
+  }
+
+  // Legacy fallback format
   const paddedIteration = String(iteration).padStart(3, '0');
   return `iteration-${paddedIteration}-${safeTaskId}.log`;
 }
@@ -152,6 +238,7 @@ export function buildMetadata(
     startedAt: result.startedAt,
     endedAt: result.endedAt,
     durationMs: result.durationMs,
+    usage: result.usage,
     error: result.error,
     agentPlugin: config?.agent?.plugin,
     model: config?.model,
@@ -230,6 +317,22 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
   lines.push(`- **Started At**: ${metadata.startedAt}`);
   lines.push(`- **Ended At**: ${metadata.endedAt}`);
   lines.push(`- **Duration**: ${formatDuration(metadata.durationMs)}`);
+  if (metadata.usage) {
+    lines.push(`- **Input Tokens**: ${metadata.usage.inputTokens}`);
+    lines.push(`- **Output Tokens**: ${metadata.usage.outputTokens}`);
+    lines.push(`- **Total Tokens**: ${metadata.usage.totalTokens}`);
+    if (metadata.usage.contextWindowTokens !== undefined) {
+      lines.push(`- **Context Window Tokens**: ${metadata.usage.contextWindowTokens}`);
+    }
+    if (metadata.usage.remainingContextTokens !== undefined) {
+      lines.push(`- **Remaining Context Tokens**: ${metadata.usage.remainingContextTokens}`);
+    }
+    if (metadata.usage.remainingContextPercent !== undefined) {
+      lines.push(
+        `- **Remaining Context Percent**: ${metadata.usage.remainingContextPercent.toFixed(2)}`
+      );
+    }
+  }
 
   if (metadata.error) {
     lines.push(`- **Error**: ${metadata.error}`);
@@ -267,7 +370,11 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
     lines.push('## Agent Switches');
     lines.push('');
     for (const sw of metadata.agentSwitches) {
-      const switchType = sw.reason === 'fallback' ? 'Switched to fallback' : 'Recovered to primary';
+      const switchType = sw.reason === 'fallback'
+        ? 'Switched to fallback'
+        : sw.reason === 'user-selected'
+          ? 'User-selected agent'
+          : 'Recovered to primary';
       lines.push(`- **${switchType}**: ${sw.from} → ${sw.to} at ${sw.at}`);
     }
   }
@@ -409,6 +516,12 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
       return match ? match[1].trim() : undefined;
     };
 
+    const parseNumber = (value?: string): number | undefined => {
+      if (!value) return undefined;
+      const parsed = Number(value.replace(/,/g, '').replace(/%/g, '').trim());
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
     const taskId = extractValue('Task ID') ?? '';
     const taskTitle = extractValue('Task Title') ?? '';
     const taskDescription = extractValue('Description');
@@ -453,6 +566,31 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
       : sandboxNetworkStr === 'Disabled' ? false
       : undefined;
 
+    const inputTokens = parseNumber(extractValue('Input Tokens'));
+    const outputTokens = parseNumber(extractValue('Output Tokens'));
+    const totalTokens = parseNumber(extractValue('Total Tokens'));
+    const contextWindowTokens = parseNumber(extractValue('Context Window Tokens'));
+    const remainingContextTokens = parseNumber(extractValue('Remaining Context Tokens'));
+    const remainingContextPercent = parseNumber(extractValue('Remaining Context Percent'));
+    const usage =
+      inputTokens !== undefined ||
+      outputTokens !== undefined ||
+      totalTokens !== undefined ||
+      contextWindowTokens !== undefined ||
+      remainingContextTokens !== undefined ||
+      remainingContextPercent !== undefined
+        ? {
+            inputTokens: inputTokens ?? 0,
+            outputTokens: outputTokens ?? 0,
+            totalTokens: totalTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
+            contextWindowTokens,
+            remainingContextTokens,
+            remainingContextPercent,
+            // events is not persisted in metadata headers; default to 0 when parsing from disk.
+            events: 0,
+          }
+        : undefined;
+
     return {
       iteration,
       taskId,
@@ -464,6 +602,7 @@ function parseMetadataHeader(header: string): IterationLogMetadata | null {
       startedAt,
       endedAt,
       durationMs,
+      usage,
       error,
       agentPlugin,
       model,
@@ -484,6 +623,9 @@ export interface SaveIterationLogOptions {
   /** Ralph config (for output directory, agent plugin, model, epicId) */
   config?: Partial<RalphConfig>;
 
+  /** Session ID for unique log file naming */
+  sessionId?: string;
+
   /** Subagent trace data to persist (optional) */
   subagentTrace?: SubagentTrace;
 
@@ -501,6 +643,18 @@ export interface SaveIterationLogOptions {
 
   /** Resolved sandbox mode when configured mode was 'auto' */
   resolvedSandboxMode?: Exclude<SandboxMode, 'auto'>;
+
+  /**
+   * Optional file path containing full raw stdout for this iteration.
+   * When provided, saveIterationLog streams from this file instead of the stdout string argument.
+   */
+  rawStdoutFilePath?: string;
+
+  /**
+   * Optional file path containing full raw stderr for this iteration.
+   * When provided, saveIterationLog streams from this file instead of the stderr string argument.
+   */
+  rawStderrFilePath?: string;
 }
 
 /**
@@ -522,31 +676,40 @@ export async function saveIterationLog(
   // Old signature: saveIterationLog(cwd, result, stdout, stderr, config)
   // New signature: saveIterationLog(cwd, result, stdout, stderr, options)
   let config: Partial<RalphConfig> | undefined;
+  let sessionId: string | undefined;
   let subagentTrace: SubagentTrace | undefined;
   let agentSwitches: AgentSwitchEntry[] | undefined;
   let completionSummary: string | undefined;
   let summary: IterationSummary | undefined;
   let sandboxConfig: SandboxConfig | undefined;
   let resolvedSandboxMode: Exclude<SandboxMode, 'auto'> | undefined;
+  let rawStdoutFilePath: string | undefined;
+  let rawStderrFilePath: string | undefined;
 
   // Detect new options object format by checking for any of its unique keys
   const isOptionsObject = options && (
     'config' in options ||
     'subagentTrace' in options ||
     'sandboxConfig' in options ||
-    'resolvedSandboxMode' in options
+    'resolvedSandboxMode' in options ||
+    'sessionId' in options ||
+    'rawStdoutFilePath' in options ||
+    'rawStderrFilePath' in options
   );
 
   if (isOptionsObject) {
     // New options object
     const saveOptions = options as SaveIterationLogOptions;
     config = saveOptions.config;
+    sessionId = saveOptions.sessionId;
     subagentTrace = saveOptions.subagentTrace;
     agentSwitches = saveOptions.agentSwitches;
     completionSummary = saveOptions.completionSummary;
     summary = saveOptions.summary;
     sandboxConfig = saveOptions.sandboxConfig;
     resolvedSandboxMode = saveOptions.resolvedSandboxMode;
+    rawStdoutFilePath = saveOptions.rawStdoutFilePath;
+    rawStderrFilePath = saveOptions.rawStderrFilePath;
   } else {
     // Old config-only signature for backward compatibility
     config = options as Partial<RalphConfig> | undefined;
@@ -563,8 +726,55 @@ export async function saveIterationLog(
     sandboxConfig,
     resolvedSandboxMode,
   });
-  const filename = generateLogFilename(result.iteration, result.task.id);
+  // Generate filename with new format if sessionId available, else legacy format
+  const filename = generateLogFilename(result.iteration, result.task.id, sessionId, result.startedAt);
   const filePath = join(getIterationsDir(cwd, outputDir), filename);
+
+  // If raw stream files are provided, stream log content directly from files.
+  // This avoids requiring full raw output strings in memory.
+  if (rawStdoutFilePath || rawStderrFilePath) {
+    const stream = createWriteStream(filePath, { encoding: 'utf-8' });
+    let writeError: unknown;
+    try {
+      await writeChunkToStream(stream, formatMetadataHeader(metadata) + LOG_DIVIDER);
+
+      if (rawStdoutFilePath) {
+        await pipeFileToStream(rawStdoutFilePath, stream);
+      } else {
+        await writeChunkToStream(stream, stdout);
+      }
+
+      const hasStderr = rawStderrFilePath
+        ? await stat(rawStderrFilePath).then((s) => s.size > 0).catch(() => false)
+        : stderr.trim().length > 0;
+
+      if (hasStderr) {
+        await writeChunkToStream(stream, STDERR_DIVIDER);
+        if (rawStderrFilePath) {
+          await pipeFileToStream(rawStderrFilePath, stream);
+        } else {
+          await writeChunkToStream(stream, stderr);
+        }
+      }
+
+      if (subagentTrace && subagentTrace.events.length > 0) {
+        await writeChunkToStream(stream, SUBAGENT_TRACE_DIVIDER);
+        await writeChunkToStream(stream, JSON.stringify(subagentTrace, null, 2));
+      }
+    } catch (error) {
+      writeError = error;
+      throw error;
+    } finally {
+      try {
+        await closeWriteStream(stream);
+      } catch (closeError) {
+        if (!writeError) {
+          throw closeError;
+        }
+      }
+    }
+    return filePath;
+  }
 
   // Build file content with structured header and raw output
   const header = formatMetadataHeader(metadata);
@@ -658,10 +868,15 @@ export async function listIterationLogs(
     return [];
   }
 
-  // Filter to .log files that match our pattern
+  // Filter to .log files that match either legacy or new format:
+  // Legacy: iteration-{NNN}-{taskId}.log
+  // New: {sessionId}_{timestamp}_{taskId}.log (e.g., a1b2c3d4_2024-01-15_10-30-45_BEAD-001.log)
+  const legacyPattern = /^iteration-\d+-.*\.log$/;
+  // sessionId token: one or more non-underscore chars; timestamp: YYYY-MM-DD_HH-mm-ss; taskId: anything
+  const newPattern = /^[^_]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_.*\.log$/;
   const logFiles = files
-    .filter((f) => f.startsWith('iteration-') && f.endsWith('.log'))
-    .sort(); // Sort by filename (which includes iteration number)
+    .filter((f) => legacyPattern.test(f) || newPattern.test(f))
+    .sort(); // Sort by filename (for initial ordering, will be re-sorted by timestamp below)
 
   const summaries: IterationLogSummary[] = [];
 
@@ -701,6 +916,15 @@ export async function listIterationLogs(
       filePath,
     });
   }
+
+  // Sort by startedAt timestamp (chronologically oldest first)
+  // This ensures logs[logs.length - 1] returns the most recent log,
+  // even when iteration numbers reset between sessions.
+  summaries.sort((a, b) => {
+    const timeA = new Date(a.startedAt).getTime();
+    const timeB = new Date(b.startedAt).getTime();
+    return timeA - timeB;
+  });
 
   // Apply pagination
   let result = summaries;
@@ -763,8 +987,13 @@ export async function cleanupIterationLogs(
 ): Promise<LogCleanupResult> {
   const allSummaries = await listIterationLogs(cwd);
 
-  // Sort by iteration number descending (most recent first)
-  const sorted = [...allSummaries].sort((a, b) => b.iteration - a.iteration);
+  // listIterationLogs returns summaries sorted chronologically (oldest first).
+  // Sort by timestamp descending (most recent first) to keep the newest logs.
+  const sorted = [...allSummaries].sort((a, b) => {
+    const timeA = new Date(a.startedAt).getTime();
+    const timeB = new Date(b.startedAt).getTime();
+    return timeB - timeA; // Descending (newest first)
+  });
 
   const toKeep = sorted.slice(0, options.keep);
   const toDelete = sorted.slice(options.keep);
@@ -798,13 +1027,16 @@ export async function getIterationLogCount(cwd: string): Promise<number> {
 }
 
 /**
- * Check if any iteration logs exist.
+ * Check if any iteration logs exist (either legacy or new format).
  */
 export async function hasIterationLogs(cwd: string): Promise<boolean> {
   const dir = getIterationsDir(cwd);
   try {
     const files = await readdir(dir);
-    return files.some((f) => f.startsWith('iteration-') && f.endsWith('.log'));
+    // Match both legacy (iteration-NNN-taskId.log) and new (sessionId_timestamp_taskId.log) formats
+    const legacyPattern = /^iteration-\d+-.*\.log$/;
+    const newPattern = /^[^_]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_.*\.log$/;
+    return files.some((f) => legacyPattern.test(f) || newPattern.test(f));
   } catch {
     return false;
   }

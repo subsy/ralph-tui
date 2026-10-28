@@ -79,7 +79,7 @@ src/
 ├── interruption/     # Signal handling
 ├── logs/             # Iteration logging
 ├── plugins/
-│   ├── agents/       # Agent plugins (claude, opencode)
+│   ├── agents/       # Agent plugins (claude, opencode, gemini, codex, kiro)
 │   └── trackers/     # Tracker plugins (beads, json)
 ├── session/          # Session management
 ├── setup/            # Interactive setup wizard
@@ -139,24 +139,155 @@ docs: update README with configuration examples
 ### Pull Request Guidelines
 
 1. **One feature per PR** - Keep changes focused
-2. **Update documentation** if adding features
-3. **Ensure CI passes** - typecheck and lint must succeed
-4. **Describe your changes** in the PR description
+2. **Update documentation** if adding features - any new or changed functionality must include documentation updates
+3. **Ensure CI passes** - typecheck, lint, and tests must succeed
+4. **Meet test coverage requirements** - PRs must have >50% test coverage on new and changed lines (enforced by Codecov)
+5. **Describe your changes** in the PR description
+
+## Contribution Requirements Checklist
+
+All contributions must meet these requirements before merging:
+
+### Code Quality
+- [ ] **Test coverage >50%** - New/changed code must have at least 50% unit test coverage (enforced by Codecov)
+- [ ] **Typecheck passes** - Run `bun run typecheck` with no errors
+- [ ] **Lint passes** - Run `bun run lint` with no errors
+- [ ] **Build succeeds** - Run `bun run build` with no errors
+
+### Documentation
+- [ ] **Docs for user-facing changes** - Any new or changed user-facing behavior must include documentation updates
+- [ ] **ABOUTME header** - All new source files must have an ABOUTME comment header
+
+---
 
 ## Adding New Features
 
 ### Adding a New Tracker Plugin
 
-1. Create a new file in `src/plugins/trackers/builtin/`
-2. Extend `BaseTrackerPlugin` or implement `TrackerPlugin` interface
-3. Register in `src/plugins/trackers/builtin/index.ts`
-4. Add a template in `src/templates/builtin.ts` if needed
+Complete this checklist when adding a new tracker plugin:
+
+#### Source Code
+- [ ] Create plugin directory: `src/plugins/trackers/builtin/<tracker-name>/`
+- [ ] Create main plugin file: `src/plugins/trackers/builtin/<tracker-name>/index.ts`
+- [ ] Include ABOUTME header comment in all source files
+- [ ] Extend `BaseTrackerPlugin` or implement `TrackerPlugin` interface
+- [ ] Implement required interface methods:
+  - [ ] `meta` - Plugin metadata (id, name, description, version, author)
+  - [ ] `initialize(config)` - Configuration initialization
+  - [ ] `detect()` - Check if tracker CLI/tool is available
+  - [ ] `getTasks()` - Fetch tasks from the tracker
+  - [ ] `getTask(id)` - Fetch a single task by ID
+  - [ ] `updateTask(id, updates)` - Update task status/fields
+  - [ ] `getSetupQuestions()` - Setup wizard questions
+  - [ ] `validateSetup(answers)` - Validate setup answers
+- [ ] Export factory function: `const createMyTracker: TrackerPluginFactory = () => new MyTrackerPlugin();`
+
+#### Registration
+- [ ] Import factory in `src/plugins/trackers/builtin/index.ts`
+- [ ] Add to `builtinTrackers` object
+- [ ] Add to `registerBuiltinTrackers()` function
+- [ ] Export the factory function
+
+#### Tests
+- [ ] Create test file: `src/plugins/trackers/builtin/<tracker-name>.test.ts` or `tests/plugins/trackers/<tracker-name>.test.ts`
+- [ ] Test plugin metadata
+- [ ] Test `initialize()` with various configs
+- [ ] Test `detect()` success and failure cases
+- [ ] Test `getTasks()` parsing
+- [ ] Test `getTask()` by ID
+- [ ] Test `updateTask()` operations
+- [ ] Test `getSetupQuestions()` returns valid questions
+- [ ] Test `validateSetup()` with valid/invalid inputs
+- [ ] Test error handling for CLI failures
+- [ ] Achieve >50% coverage on new code
+
+#### Documentation
+- [ ] Create docs page: `website/content/docs/plugins/trackers/<tracker-name>.mdx`
+- [ ] Include sections: Overview, Prerequisites, Basic Usage, Configuration, Options Reference, How It Works, Troubleshooting
+- [ ] Add to navigation: `website/lib/navigation.ts` (in Trackers section)
+
+---
 
 ### Adding a New Agent Plugin
 
-1. Create a new file in `src/plugins/agents/builtin/`
-2. Extend `BaseAgentPlugin` or implement `AgentPlugin` interface
-3. Register in `src/plugins/agents/builtin/index.ts`
+Complete this checklist when adding a new agent plugin:
+
+#### Source Code
+- [ ] Create plugin file: `src/plugins/agents/builtin/<agent-name>.ts`
+- [ ] Include ABOUTME header comment
+- [ ] Extend `BaseAgentPlugin` or implement `AgentPlugin` interface
+- [ ] Define `meta` with required fields:
+  - [ ] `id` - Unique plugin identifier (e.g., `'cursor'`)
+  - [ ] `name` - Display name (e.g., `'Cursor Agent'`)
+  - [ ] `description` - Brief description
+  - [ ] `version` - Plugin version
+  - [ ] `author` - Author/organization name
+  - [ ] `defaultCommand` - CLI command name (e.g., `'agent'`)
+  - [ ] `supportsStreaming` - Whether agent supports streaming output
+  - [ ] `supportsInterrupt` - Whether agent can be interrupted
+  - [ ] `supportsFileContext` - Whether agent accepts file context
+  - [ ] `supportsSubagentTracing` - Whether agent emits structured JSONL
+  - [ ] `structuredOutputFormat` - Output format (e.g., `'jsonl'`)
+  - [ ] `skillsPaths` - Personal and repo skill paths (optional)
+- [ ] Implement required methods:
+  - [ ] `initialize(config)` - Configuration initialization
+  - [ ] `detect()` - Check if agent CLI is available and get version
+  - [ ] `execute(prompt, files?, options?)` - Execute agent with prompt
+  - [ ] `getSandboxRequirements()` - Auth/binary paths needed
+  - [ ] `getSetupQuestions()` - Setup wizard questions
+  - [ ] `validateSetup(answers)` - Validate setup answers
+  - [ ] `validateModel(model)` - Validate model name (if applicable)
+- [ ] Implement protected methods:
+  - [ ] `buildArgs(prompt, files?, options?)` - Build CLI arguments
+  - [ ] `getStdinInput(prompt, files?, options?)` - Provide stdin input (if needed)
+  - [ ] `getPreflightSuggestion()` - Troubleshooting suggestions
+- [ ] If agent outputs JSONL, implement parsing functions:
+  - [ ] `parse<Agent>JsonLine(jsonLine)` - Parse single JSONL line to `AgentDisplayEvent[]`
+  - [ ] `parse<Agent>OutputToEvents(data)` - Parse full output to events
+- [ ] Use shared utilities from `src/plugins/agents/utils.ts` (e.g., `extractErrorMessage`)
+- [ ] Export factory function: `const create<Agent>Agent: AgentPluginFactory = () => new <Agent>AgentPlugin();`
+
+#### Registration
+- [ ] Import factory in `src/plugins/agents/builtin/index.ts`
+- [ ] Add to `registerBuiltinAgents()` function
+- [ ] Export the factory function
+- [ ] Export the plugin class
+- [ ] Add to `AGENT_ID_MAP` in `src/setup/skill-installer.ts`
+
+#### Tests
+- [ ] Create test file: `src/plugins/agents/builtin/<agent-name>.test.ts`
+- [ ] Test plugin metadata (id, name, defaultCommand, supports* flags)
+- [ ] Test `initialize()` with various configs (model, timeout, agent-specific options)
+- [ ] Test `getSetupQuestions()` returns all expected questions
+- [ ] Test `validateSetup()` with valid/invalid inputs
+- [ ] Test `validateModel()` with various model names
+- [ ] Test `getSandboxRequirements()` returns expected paths
+- [ ] Test `buildArgs()` produces correct CLI arguments
+- [ ] Test `getStdinInput()` returns prompt correctly
+- [ ] If JSONL parsing:
+  - [ ] Test parsing valid JSONL events (text, tool_use, tool_result, error)
+  - [ ] Test handling of empty/invalid input
+  - [ ] Test handling of mixed valid/invalid lines
+  - [ ] Test edge cases (missing fields, malformed JSON)
+- [ ] Achieve >50% coverage on new code
+
+#### Documentation
+- [ ] Create docs page: `website/content/docs/plugins/agents/<agent-name>.mdx`
+- [ ] Include sections:
+  - [ ] Overview with feature highlights
+  - [ ] Prerequisites (installation instructions)
+  - [ ] Basic Usage (with `<Steps>` component)
+  - [ ] Configuration (shorthand and full config examples)
+  - [ ] Options Reference (table with all options)
+  - [ ] Agent-specific features (modes, sandbox, etc.)
+  - [ ] Subagent Tracing (if supported)
+  - [ ] How It Works (CLI arguments built)
+  - [ ] Troubleshooting (common issues and fixes)
+  - [ ] Next Steps (links to related docs)
+- [ ] Add to navigation: `website/lib/navigation.ts` (in Agents section)
+- [ ] Use `label: 'New'` in navigation for new agents
+
+---
 
 ### Adding a New CLI Command
 
@@ -164,6 +295,8 @@ docs: update README with configuration examples
 2. Export from `src/commands/index.ts`
 3. Add handling in `src/cli.tsx`
 4. Update the help text in `showHelp()`
+5. Create tests in `tests/commands/` or `src/commands/*.test.ts`
+6. Update documentation if user-facing
 
 ## Testing
 
@@ -321,10 +454,13 @@ test('should call dependency', () => {
 
 ### Coverage Requirements
 
-- Aim for **80%+ line coverage** on new code
+- **PRs must have >50% test coverage on new/changed lines** (enforced by Codecov patch check)
+- Aim for **80%+ line coverage** on new code when possible
 - Critical paths (engine, plugins) should have higher coverage
 - Run `bun test --coverage` to check coverage locally
 - Coverage reports are generated in CI and uploaded to Codecov
+
+> **Note:** If your PR adds new functionality, you must include tests that cover at least 50% of the new/changed lines. PRs that fail the Codecov patch check will not be merged.
 
 ### Manual Testing
 

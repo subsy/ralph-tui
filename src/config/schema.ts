@@ -66,6 +66,43 @@ export const NotificationsConfigSchema = z.object({
 });
 
 /**
+ * Parallel execution mode schema
+ */
+export const ParallelModeSchema = z.enum(['auto', 'always', 'never']);
+
+/**
+ * Parallel execution configuration schema
+ */
+export const ParallelConfigSchema = z.object({
+  /** Execution mode: 'auto' analyzes dependencies, 'always' forces parallel, 'never' disables */
+  mode: ParallelModeSchema.optional(),
+  /** Maximum concurrent workers (default: 3) */
+  maxWorkers: z.number().int().min(1).max(32).optional(),
+  /** Directory for git worktrees relative to project root */
+  worktreeDir: z.string().optional(),
+  /** Merge directly to the current branch instead of creating a session branch */
+  directMerge: z.boolean().optional(),
+  /**
+   * Explicit session branch name for parallel runs.
+   * Maps to ParallelExecutorConfig.sessionBranchName, which is passed to
+   * MergeEngine.initializeSessionBranch(explicitBranchName).
+   */
+  targetBranch: z.string().min(1).optional(),
+});
+
+/**
+ * Conflict resolution configuration schema for parallel execution
+ */
+export const ConflictResolutionConfigSchema = z.object({
+  /** Whether to attempt AI resolution for merge conflicts (default: true) */
+  enabled: z.boolean().optional(),
+  /** Timeout in milliseconds for AI resolution per file (default: 120000) */
+  timeoutMs: z.number().int().min(1000).max(600000).optional(),
+  /** Maximum files to attempt AI resolution on per conflict (default: 10) */
+  maxFiles: z.number().int().min(1).max(100).optional(),
+});
+
+/**
  * Agent plugin configuration schema
  */
 export const AgentPluginConfigSchema = z.object({
@@ -75,9 +112,12 @@ export const AgentPluginConfigSchema = z.object({
   command: z.string().optional(),
   defaultFlags: z.array(z.string()).optional(),
   timeout: z.number().int().min(0).optional(),
+  preflightTimeoutMs: z.number().int().min(1000).max(300000).optional(),
   options: AgentOptionsSchema.optional().default({}),
   fallbackAgents: z.array(z.string().min(1)).optional(),
   rateLimitHandling: RateLimitHandlingConfigSchema.optional(),
+  envExclude: z.array(z.string().min(1)).optional(),
+  envPassthrough: z.array(z.string().min(1)).optional(),
 });
 
 /**
@@ -112,8 +152,11 @@ export const StoredConfigSchema = z
     // Core settings
     maxIterations: z.number().int().min(0).max(1000).optional(),
     iterationDelay: z.number().int().min(0).max(300000).optional(),
+    watch: z.boolean().optional(),
+    pollIntervalMs: z.number().int().min(1).optional(),
     outputDir: z.string().optional(),
     autoCommit: z.boolean().optional(),
+    commitMessageTemplate: z.string().optional(),
 
     // Plugin configurations
     agents: z.array(AgentPluginConfigSchema).optional(),
@@ -121,6 +164,7 @@ export const StoredConfigSchema = z
 
     // Agent-specific options (shorthand for common settings)
     agent: z.string().optional(),
+    model: z.string().optional(),
     agentCommand: z.string().optional(),
     /**
      * Custom command/executable path for the agent.
@@ -160,6 +204,15 @@ export const StoredConfigSchema = z
     // Rate limit handling (shorthand for default agent)
     rateLimitHandling: RateLimitHandlingConfigSchema.optional(),
 
+    // Environment variable exclusion (shorthand for default agent)
+    envExclude: z.array(z.string().min(1)).optional(),
+
+    // Environment variables to pass through despite matching default exclusion patterns
+    envPassthrough: z.array(z.string().min(1)).optional(),
+
+    // Preflight check timeout in milliseconds (shorthand for default agent)
+    preflightTimeoutMs: z.number().int().min(1000).max(300000).optional(),
+
     // Custom prompt template path
     prompt_template: z.string().optional(),
 
@@ -170,6 +223,15 @@ export const StoredConfigSchema = z
 
     // Notifications configuration
     notifications: NotificationsConfigSchema.optional(),
+
+    // Progress file path for cross-iteration context
+    progressFile: z.string().optional(),
+
+    // Parallel execution configuration
+    parallel: ParallelConfigSchema.optional(),
+
+    // Conflict resolution configuration for parallel execution
+    conflictResolution: ConflictResolutionConfigSchema.optional(),
   })
   .strict();
 

@@ -4,10 +4,11 @@
  * Helps users identify and fix configuration issues before starting work.
  */
 
-import { loadStoredConfig } from '../config/index.js';
+import { loadStoredConfig, getDefaultAgentConfig } from '../config/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import type { AgentPlugin, AgentPreflightResult, AgentDetectResult } from '../plugins/agents/types.js';
+import { getEnvExclusionReport, formatEnvExclusionReport, type EnvExclusionReport } from '../plugins/agents/base.js';
 
 /**
  * Result of the doctor command diagnostics
@@ -27,6 +28,9 @@ export interface DoctorResult {
 
   /** Preflight result (only if detection passed) */
   preflight?: AgentPreflightResult;
+
+  /** Environment variable exclusion report */
+  envExclusion?: EnvExclusionReport;
 
   /** Summary message */
   message: string;
@@ -50,35 +54,66 @@ async function runDiagnostics(
   // Get agent registry
   const registry = getAgentRegistry();
 
-  // Determine which agent to check
-  const agentName = agentOverride ?? storedConfig.agent ?? 'claude';
+  // Discover user plugins (~/.config/ralph-tui/plugins/agents/) — run.tsx's
+  // initializePlugins() already does this before actually running an agent;
+  // doctor was missing it, so `doctor --agent <custom-plugin>` always
+  // reported "Unknown agent plugin" even for a plugin that `run` could
+  // load fine.
+  const userPluginResults = await registry.initialize();
+  for (const result of userPluginResults) {
+    if (!result.success && result.error) {
+      log(`  ⚠ ${result.error}`);
+    }
+  }
+  if (process.env.RALPH_TUI_DEBUG_PLUGINS === '1') {
+    // Run and resume report human-readable load failures; this opt-in dump
+    // includes the structured results for diagnosing why a custom plugin did
+    // not register.
+    console.error('DEBUG user plugin load results:', JSON.stringify(userPluginResults, null, 2));
+  }
 
-  // Check if agent plugin exists
-  if (!registry.hasPlugin(agentName)) {
+  // Determine which agent to check using centralized logic
+  const agentConfig = getDefaultAgentConfig(storedConfig, { agent: agentOverride });
+
+  if (!agentConfig) {
     return {
       healthy: false,
-      agent: { name: agentName, plugin: agentName },
-      detection: { available: false, error: `Unknown agent plugin: ${agentName}` },
-      message: `Agent plugin '${agentName}' is not registered`,
+      agent: { name: agentOverride ?? 'unknown', plugin: agentOverride ?? 'unknown' },
+      detection: { available: false, error: 'No agent configured or available' },
+      message: 'No agent plugin configured or available',
     };
   }
 
-  // Get agent instance
+  // Check if agent plugin exists
+  if (!registry.hasPlugin(agentConfig.plugin)) {
+    return {
+      healthy: false,
+      agent: { name: agentConfig.name, plugin: agentConfig.plugin },
+      detection: { available: false, error: `Unknown agent plugin: ${agentConfig.plugin}` },
+      message: `Agent plugin '${agentConfig.plugin}' is not registered`,
+    };
+  }
+
+  // Get agent instance with full config (including command, envExclude, etc.)
   let agent: AgentPlugin;
   try {
-    agent = await registry.getInstance({
-      name: agentName,
-      plugin: agentName,
-      options: storedConfig.agentOptions ?? {},
-    });
+    agent = await registry.getInstance(agentConfig);
   } catch (error) {
     return {
       healthy: false,
-      agent: { name: agentName, plugin: agentName },
+      agent: { name: agentConfig.name, plugin: agentConfig.plugin },
       detection: { available: false, error: error instanceof Error ? error.message : String(error) },
-      message: `Failed to initialize agent '${agentName}'`,
+      message: `Failed to initialize agent '${agentConfig.name}'`,
     };
   }
+
+  // Collect environment variable exclusion info (displayed in printHumanResult)
+  // Use agent config's env settings (which already include top-level shorthands if not overridden)
+  const envExclusion = getEnvExclusionReport(
+    process.env,
+    agentConfig.envPassthrough,
+    agentConfig.envExclude
+  );
 
   // Run detection
   log(`\n🔍 Checking ${agent.meta.name}...\n`);
@@ -104,7 +139,7 @@ async function runDiagnostics(
   log('\n  Step 2: Preflight (testing if agent can respond)...');
   log('    Running test prompt...');
 
-  const preflight = await agent.preflight({ timeout: 30000 });
+  const preflight = await agent.preflight({ timeout: agentConfig.preflightTimeoutMs ?? 30000 });
 
   if (!preflight.success) {
     return {
@@ -123,6 +158,7 @@ async function runDiagnostics(
     agent: { name: agent.meta.name, plugin: agent.meta.id },
     detection,
     preflight,
+    envExclusion,
     message: 'Agent is healthy and ready to use',
   };
 }
@@ -130,7 +166,7 @@ async function runDiagnostics(
 /**
  * Print doctor results in human-readable format
  */
-function printHumanResult(result: DoctorResult): void {
+function printHumanResult(result: DoctorResult, verbose = false): void {
   console.log('\n═══════════════════════════════════════════════════════════════');
   console.log('                    Ralph TUI Doctor Report                     ');
   console.log('═══════════════════════════════════════════════════════════════\n');
@@ -173,6 +209,10 @@ function printHumanResult(result: DoctorResult): void {
       if (result.preflight.error) {
         console.log(`    ✗ Error: ${result.preflight.error}`);
       }
+      // Show exit code if available
+      if (result.preflight.exitCode !== undefined) {
+        console.log(`    ✗ Exit code: ${result.preflight.exitCode}`);
+      }
       if (result.preflight.suggestion) {
         console.log('');
         console.log('  Suggestions:');
@@ -182,6 +222,45 @@ function printHumanResult(result: DoctorResult): void {
           console.log(`    ${line}`);
         }
       }
+    }
+
+    // Verbose output: show captured stdout/stderr
+    if (verbose && !result.preflight.success) {
+      console.log('');
+      console.log('  Verbose diagnostics:');
+      if (result.preflight.stderr) {
+        console.log('    Stderr:');
+        const stderrLines = result.preflight.stderr.split('\n');
+        for (const line of stderrLines.slice(0, 20)) { // Limit to 20 lines
+          console.log(`      ${line}`);
+        }
+        if (stderrLines.length > 20) {
+          console.log(`      ... (${stderrLines.length - 20} more lines)`);
+        }
+      } else {
+        console.log('    Stderr: (empty)');
+      }
+      if (result.preflight.stdout) {
+        console.log('    Stdout:');
+        const stdoutLines = result.preflight.stdout.split('\n');
+        for (const line of stdoutLines.slice(0, 20)) { // Limit to 20 lines
+          console.log(`      ${line}`);
+        }
+        if (stdoutLines.length > 20) {
+          console.log(`      ... (${stdoutLines.length - 20} more lines)`);
+        }
+      } else {
+        console.log('    Stdout: (empty)');
+      }
+    }
+    console.log('');
+  }
+
+  // Environment variable exclusion info (always shown)
+  if (result.envExclusion) {
+    const envLines = formatEnvExclusionReport(result.envExclusion);
+    for (const line of envLines) {
+      console.log(`  ${line}`);
     }
     console.log('');
   }
@@ -196,6 +275,10 @@ function printHumanResult(result: DoctorResult): void {
     console.log(`  ✗ ${result.message}`);
     console.log('');
     console.log('  Please fix the issues above and run: ralph-tui doctor');
+    if (!verbose) {
+      console.log('');
+      console.log('  Tip: Run with --verbose for more diagnostic details');
+    }
   }
   console.log('───────────────────────────────────────────────────────────────');
   console.log('');
@@ -207,6 +290,7 @@ function printHumanResult(result: DoctorResult): void {
 export async function executeDoctorCommand(args: string[]): Promise<void> {
   let cwd = process.cwd();
   let outputJson = false;
+  let verbose = false;
   let agentOverride: string | undefined;
 
   // Parse arguments
@@ -216,6 +300,8 @@ export async function executeDoctorCommand(args: string[]): Promise<void> {
       i++;
     } else if (args[i] === '--json') {
       outputJson = true;
+    } else if (args[i] === '--verbose' || args[i] === '-v') {
+      verbose = true;
     } else if (args[i] === '--agent' && args[i + 1]) {
       agentOverride = args[i + 1];
       i++;
@@ -231,7 +317,7 @@ export async function executeDoctorCommand(args: string[]): Promise<void> {
     if (outputJson) {
       console.log(JSON.stringify(result, null, 2));
     } else {
-      printHumanResult(result);
+      printHumanResult(result, verbose);
     }
 
     // Exit with appropriate code
@@ -263,6 +349,7 @@ Usage: ralph-tui doctor [options]
 Options:
   --agent <name>    Check specific agent (default: configured agent)
   --json            Output in JSON format
+  --verbose, -v     Show detailed diagnostics (stderr/stdout capture)
   --cwd <path>      Working directory (default: current directory)
   -h, --help        Show this help message
 
@@ -286,9 +373,10 @@ Exit Codes:
   1    Agent has configuration issues
 
 Examples:
-  ralph-tui doctor                # Check configured agent
-  ralph-tui doctor --agent claude # Check specific agent
-  ralph-tui doctor --json         # JSON output for scripts
+  ralph-tui doctor                 # Check configured agent
+  ralph-tui doctor --agent claude  # Check specific agent
+  ralph-tui doctor --json          # JSON output for scripts
+  ralph-tui doctor --verbose       # Show detailed error output
 
 Common Issues:
   OpenCode: Configure a default model in ~/.config/opencode/opencode.json

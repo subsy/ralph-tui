@@ -22,7 +22,8 @@ Running `ralph-tui` without any command also starts the TUI interface, allowing 
 | Option | Description |
 |--------|-------------|
 | `--prd <path>` | PRD file path (auto-switches to json tracker) |
-| `--epic <id>` | Epic ID for beads tracker |
+| `--epic <id>` | Epic ID for hierarchy trackers. May be repeated for multi-epic runs. |
+| `--epics <ids>` | Comma-separated epic IDs for hierarchy trackers. |
 
 ### Agent & Model Options
 
@@ -38,6 +39,11 @@ Running `ralph-tui` without any command also starts the TUI interface, allowing 
 |--------|-------------|
 | `--iterations <n>` | Maximum iterations (0 = unlimited) |
 | `--delay <ms>` | Delay between iterations in milliseconds |
+| `--watch` | Keep the engine alive and start new tasks automatically as they become available |
+| `--poll <seconds>` | Poll for new tasks at the given interval (default: 30 seconds); implies `--watch` |
+| `--serial`, `--sequential` | Force sequential execution (disable parallel) |
+| `--parallel [N]` | Force parallel execution, optionally with N workers |
+| `--task-range <range>` | Filter tasks by index (e.g., `1-5`, `3-`, `-10`) |
 
 ### Output & State
 
@@ -53,6 +59,7 @@ Running `ralph-tui` without any command also starts the TUI interface, allowing 
 |--------|-------------|
 | `--headless` | Run without TUI (alias: `--no-tui`) |
 | `--no-setup` | Skip interactive setup even if no config exists |
+| `--remote-only` | Start the TUI as a pure remote client — no local engine, no local tab. See [Remote-Only Mode](#remote-only-mode). |
 
 ## Model Options
 
@@ -90,6 +97,14 @@ Models use `provider/model` format. Valid providers:
 Model names within each provider are validated by the provider's API. If you specify an invalid model name, you'll see an error from the underlying agent CLI.
 </Callout>
 
+## Switching Agent or Model During a Run
+
+Press `a` in the local TUI to open the Agent & Model picker. Choose an agent in the left column and a model in the right column. Agents with known model lists show selectable models; agents that accept open-ended model names use a free-text model field.
+
+Use `Tab` to switch columns, `Enter` to apply, and `Esc` to cancel. The selected agent and model are used on the next iteration.
+
+Enable **Save as default** to write the selection to `.ralph-tui/config.toml`. Leave it unchecked for a session-only switch.
+
 ## Examples
 
 ### Basic Usage with JSON Tracker
@@ -111,6 +126,32 @@ ralph-tui run --epic my-feature-epic
 # Use beads-bv for intelligent task selection
 ralph-tui run --epic my-feature-epic --tracker beads-bv
 ```
+
+### Multi-Epic Parallel Runs
+
+Hierarchy trackers such as Beads, Beads-Rust, and Beads-BV can run one parallel session across multiple selected epics:
+
+```bash
+# Repeat --epic
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+
+# Or use comma-separated IDs
+ralph-tui run --parallel --epics ui-epic,backend-epic
+```
+
+Multi-epic mode is one orchestration session, not several local runners. Ralph uses one scheduler, one repo lock, one session branch, and one sequential merge queue. Each task still gets its own worker branch and worktree.
+
+<Callout type="info">
+For compatibility, the first selected epic is still exposed as `epicId`; the full selected set is stored as `epicIds`.
+</Callout>
+
+If you launch a hierarchy tracker without `--epic` and the TUI is enabled, the epic picker supports multi-select:
+
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle highlighted epic |
+| `a` | Toggle all visible epics |
+| `Enter` | Accept selected epics, or the highlighted epic if none are selected |
 
 ### Agent & Model Override
 
@@ -158,7 +199,7 @@ When you run this command, Ralph:
 6. **Streams output** to the TUI (or stdout in headless mode)
 7. **Detects completion** via `<promise>COMPLETE</promise>` token
 8. **Marks task done** and proceeds to next task
-9. **Repeats** until no tasks remain or max iterations reached
+9. **Repeats** until no tasks remain or max iterations reached; with `--watch`, waits and polls instead of stopping when no tasks remain
 
 ## Session Persistence
 
@@ -168,6 +209,7 @@ Ralph automatically saves state to `.ralph-tui/session.json`:
 - Task statuses
 - Iteration history
 - Active task IDs (for crash recovery)
+- Selected epic IDs and execution scopes for multi-epic runs
 
 If interrupted, use [`ralph-tui resume`](/docs/cli/resume) to continue.
 
@@ -225,10 +267,15 @@ After starting with `--listen`, connect from another machine:
 # Add remote connection
 ralph-tui remote add prod server.example.com:7890 --token <token>
 
+# Add a TLS-terminated remote behind a reverse proxy
+ralph-tui remote add prod ralph.example.com:443 --secure --token <token>
+
 # View remote in TUI
 ralph-tui run
 # Then press number keys to switch between local and remote tabs
 ```
+
+Use `--secure` for remotes exposed through TLS-terminating proxies such as Caddy or nginx. Secure remotes connect with `wss://`; port `443` is omitted from displayed URLs.
 
 ### Security Model
 
@@ -251,6 +298,122 @@ All remote actions are logged to `~/.config/ralph-tui/audit.log`:
 {"timestamp":"2026-01-19T15:30:00.000Z","clientId":"abc12345@192.168.1.100","action":"connection_connect","success":true}
 {"timestamp":"2026-01-19T15:30:05.000Z","clientId":"abc12345@192.168.1.100","action":"pause","success":true}
 ```
+
+## Remote-Only Mode
+
+Pass `--remote-only` to start the TUI as a **pure remote client**: no local execution engine, no local session/lock, no local tab. The TUI loads your configured remotes and lets you switch between them. Useful when you want to drive multiple remote machines (e.g., several GPU boxes) from one TUI on a workstation that isn't itself running a Ralph engine.
+
+### Requirements
+
+- At least one remote configured in `~/.config/ralph-tui/remotes.toml` (add one with [`ralph-tui remote add`](/docs/cli/remote#add)).
+- The TUI must be visible — `--remote-only` cannot be combined with `--headless` / `--no-tui`.
+
+### Behavior
+
+| Aspect | `--remote-only` |
+|--------|------------------|
+| Local engine | **Not started.** No local agent process, no session file, no lock acquired. |
+| Local tab | **Hidden.** Only remote tabs appear in the TabBar. |
+| Tab navigation | Number keys (1–9) and `[` / `]` switch between remote tabs as usual. |
+| Empty state | At startup, `--remote-only` with zero configured remotes **fails fast** with a non-interactive error (exit 1) — the TUI never opens. See [Fail-fast](#fail-fast-when-no-remotes-are-configured) below. The in-TUI hint `No remotes configured. Press A to add a remote.` only appears if you remove the last remaining remote during an interactive `--remote-only` session; pressing `A` opens the add-remote overlay. |
+| `--epic`, `--prd`, `--agent`, `--model`, `--tracker`, etc. | Silently ignored — each remote uses its own configuration. |
+
+### Examples
+
+```bash
+# Connect to all configured remotes as a pure client
+ralph-tui run --remote-only
+
+# Pair with a theme override (display options still apply)
+ralph-tui run --remote-only --theme dracula
+```
+
+### Flag conflicts
+
+These combinations exit with a clear error:
+
+```bash
+ralph-tui run --remote-only --headless    # cannot run without TUI
+ralph-tui run --remote-only --no-tui      # same as --headless
+ralph-tui run --remote-only --listen      # --listen requires a local engine to expose
+```
+
+### Fail-fast when no remotes are configured
+
+If `~/.config/ralph-tui/remotes.toml` is empty (or missing), `--remote-only` exits with exit code 1 and prints:
+
+```
+Error: --remote-only requires at least one configured remote.
+
+No remotes found in ~/.config/ralph-tui/remotes.toml.
+
+Add a remote first:
+  ralph-tui remote add <alias> <host>:<port> --token <token>
+```
+
+<Callout type="info">
+  Remote-only mode pairs naturally with `--listen` on the other side. Run `ralph-tui run --prd ./prd.json --listen` on each machine you want to control, then use `ralph-tui run --remote-only` on your workstation to drive them all from one TUI.
+</Callout>
+
+## Parallel Execution
+
+By default, ralph-tui runs sequentially. Parallel execution is opt-in via `--parallel` or configuration (`parallel.mode = "auto"` or `parallel.mode = "always"`). Each parallel worker runs in its own git worktree for full isolation.
+
+```bash
+# Default behavior (sequential)
+ralph-tui run --prd ./prd.json
+
+# Force parallel with 4 workers
+ralph-tui run --prd ./prd.json --parallel 4
+
+# Force sequential (disable parallel)
+ralph-tui run --prd ./prd.json --serial
+```
+
+To enable automatic parallel detection on normal `run` invocations, set `parallel.mode = "auto"` in your config.
+
+When parallel mode is active, the TUI shows additional views:
+- Press `w` to toggle the workers view
+- Press `m` to toggle the merge progress view
+- Press `Enter` on a worker to see its detail output
+
+See the [Parallel Execution guide](/docs/parallel/overview) for full documentation.
+
+## Task Range Filtering
+
+The `--task-range` flag lets you filter tasks by their position in the task list. Task indices are **1-indexed** for user friendliness.
+
+### Range Formats
+
+| Format | Meaning |
+|--------|---------|
+| `1-5` | Tasks 1 through 5 (inclusive) |
+| `3-` | Tasks 3 to the end |
+| `-10` | Tasks 1 through 10 |
+| `5` | Only task 5 |
+
+### Examples
+
+```bash
+# Run only the first 5 tasks
+ralph-tui run --prd ./prd.json --task-range 1-5
+
+# Skip the first 2 tasks, run the rest
+ralph-tui run --prd ./prd.json --task-range 3-
+
+# Run tasks 1-10 only (useful for large PRDs)
+ralph-tui run --prd ./prd.json --task-range -10
+
+# Run just task 3
+ralph-tui run --prd ./prd.json --task-range 3
+
+# Combine with parallel for targeted parallel execution
+ralph-tui run --prd ./prd.json --task-range 5-15 --parallel 4
+```
+
+<Callout type="tip">
+  Task range filtering works with both sequential and parallel execution. When combined with `--parallel`, only the filtered tasks are distributed across workers.
+</Callout>
 
 ## Related Commands
 

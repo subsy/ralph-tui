@@ -1,0 +1,97 @@
+{
+  "name": "Ralph-TUI Test Feature",
+  "description": "Test PRD for manually testing Ralph-TUI end-to-end workflow",
+  "branchName": "test/ralph-tui-e2e",
+  "userStories": [
+    {
+      "id": "TEST-001",
+      "title": "Create test file A",
+      "description": "Create a simple test file named 'output-a.txt' containing 'Task A completed'",
+      "acceptanceCriteria": [
+        "File output-a.txt exists in the test-workspace directory",
+        "File contains the text 'Task A completed'"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": [
+        "parallel-safe",
+        "fast"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "TEST-002",
+      "title": "Create test file B",
+      "description": "Create a simple test file named 'output-b.txt' containing 'Task B completed'",
+      "acceptanceCriteria": [
+        "File output-b.txt exists in the test-workspace directory",
+        "File contains the text 'Task B completed'"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": [
+        "parallel-safe",
+        "fast"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "TEST-003",
+      "title": "Create test file C",
+      "description": "Create a simple test file named 'output-c.txt' containing 'Task C completed'",
+      "acceptanceCriteria": [
+        "File output-c.txt exists in the test-workspace directory",
+        "File contains the text 'Task C completed'"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": [
+        "parallel-safe",
+        "fast"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "TEST-004",
+      "title": "Merge outputs A and B",
+      "description": "Create merged-ab.txt that combines content from output-a.txt and output-b.txt",
+      "acceptanceCriteria": [
+        "File merged-ab.txt exists",
+        "File contains content from both output-a.txt and output-b.txt"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": [
+        "has-deps"
+      ],
+      "dependsOn": [
+        "TEST-001",
+        "TEST-002"
+      ]
+    },
+    {
+      "id": "TEST-005",
+      "title": "Create final summary",
+      "description": "Create summary.txt that lists all completed tasks and their outputs",
+      "acceptanceCriteria": [
+        "File summary.txt exists",
+        "File lists all completed tasks",
+        "File confirms merged-ab.txt and output-c.txt exist"
+      ],
+      "priority": 3,
+      "passes": false,
+      "labels": [
+        "final"
+      ],
+      "dependsOn": [
+        "TEST-003",
+        "TEST-004"
+      ]
+    }
+  ],
+  "metadata": {
+    "createdAt": "2026-01-29T00:00:00.000Z",
+    "version": "1.0.0",
+    "purpose": "Manual end-to-end testing of Ralph-TUI workflow"
+  }
+}

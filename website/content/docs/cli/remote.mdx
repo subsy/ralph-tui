@@ -18,13 +18,14 @@ The `remote` command manages connections to ralph-tui instances running on other
 Add a new remote server configuration.
 
 ```bash
-ralph-tui remote add <alias> <host:port> --token <token>
+ralph-tui remote add <alias> <host:port> --token <token> [--secure]
 ```
 
 **Arguments:**
 - `<alias>` - A unique name for this remote (e.g., `prod`, `staging`, `dev`)
 - `<host:port>` - Server hostname and port (port defaults to 7890 if omitted)
 - `--token <token>` - Authentication token from the remote server
+- `--secure` - Use `wss://` for TLS-terminated remote connections
 
 **Examples:**
 
@@ -32,12 +33,17 @@ ralph-tui remote add <alias> <host:port> --token <token>
 # Add a remote server with explicit port
 ralph-tui remote add prod server.example.com:7890 --token OGQwNTcxMjM0NTY3...
 
+# Add a secure remote behind a TLS proxy
+ralph-tui remote add prod ralph.example.com:443 --secure --token OGQwNTcxMjM0NTY3...
+
 # Add with default port (7890)
 ralph-tui remote add staging staging.local --token YWJjZGVmMDEyMzQ1...
 
 # Add localhost for testing
 ralph-tui remote add local localhost --token dGVzdDEyMzQ1Njc4...
 ```
+
+Remotes marked with `--secure` connect with `wss://`. Port `443` also uses `wss://` automatically and is omitted from displayed URLs.
 
 **Alias naming rules:**
 - Must start with a letter
@@ -73,7 +79,7 @@ Configured Remotes
     Last:   1/19/2026, 3:30:00 PM
 
   ✗ staging
-    URL:    ws://staging.local:7890
+    URL:    wss://staging.local
     Status: Connection timed out (5s)
     Token:  YWJjZGVm...
 
@@ -196,10 +202,132 @@ lastConnected = "2026-01-19T15:30:00.000Z"
 
 [remotes.staging]
 host = "staging.local"
-port = 7890
+port = 443
+secure = true
 token = "YWJjZGVmMDEyMzQ1Njc4OTBhYmNkZWYwMTIzNDU2Nzg5"
 addedAt = "2026-01-18T10:00:00.000Z"
 ```
+
+Set `secure = true` when a remote is exposed through a TLS-terminating reverse proxy such as Caddy or nginx. Secure remotes use `wss://`; when the port is `443`, the port is omitted from the URL.
+
+## Remote Parallel Orchestration
+
+When a ralph-tui server is running with `--listen`, remote clients can start, control, and monitor parallel execution through WebSocket messages.
+
+### How It Works
+
+1. **Server setup**: Start ralph-tui with parallel configuration and `--listen`:
+   ```bash
+   ralph-tui run --prd ./prd.json --listen
+   ```
+
+2. **Client control**: Remote clients can send orchestration commands via WebSocket
+
+3. **Event streaming**: The server streams parallel execution events (worker started, task completed, merge status) to subscribed clients
+
+### Orchestration Commands
+
+Remote clients can use these WebSocket message types:
+
+| Command | Description |
+|---------|-------------|
+| `orchestrate:start` | Start parallel execution with specified options |
+| `orchestrate:pause` | Pause all workers |
+| `orchestrate:resume` | Resume paused workers |
+| `orchestrate:stop` | Stop execution and clean up worktrees |
+| `orchestrate:get_state` | Query current orchestration status |
+
+### Start Options
+
+When starting orchestration, you can specify:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `epicId` | string | Single epic ID for hierarchy trackers |
+| `epicIds` | string[] | Multiple epic IDs for one multi-epic orchestration session |
+| `maxWorkers` | number | Maximum concurrent workers (default: 3) |
+| `directMerge` | boolean | Merge to current branch vs session branch |
+| `maxIterations` | number | Max iterations per worker |
+
+### Example: Programmatic Control
+
+```typescript
+// Connect to remote ralph-tui server
+const client = new RemoteClient('ws://server:7890', token);
+await client.connect();
+
+// Start parallel execution
+const result = await client.startOrchestration({
+  maxWorkers: 4,
+  directMerge: false,
+});
+
+if (result.success) {
+  console.log(`Started orchestration: ${result.orchestrationId}`);
+  console.log(`Total tasks: ${result.totalTasks}`);
+
+  // Subscribe to events
+  client.on('parallel_event', (event) => {
+    console.log(`Event: ${event.event.type}`);
+  });
+
+  // Later: pause if needed
+  await client.pauseOrchestration(result.orchestrationId);
+
+  // Resume
+  await client.resumeOrchestration(result.orchestrationId);
+
+  // Or stop
+  await client.stopOrchestration(result.orchestrationId);
+}
+```
+
+### Example: Multi-Epic Remote Start
+
+```typescript
+const result = await client.startOrchestration({
+  epicIds: ['ui-epic', 'backend-epic'],
+  maxWorkers: 4,
+  directMerge: false,
+});
+```
+
+The remote server still runs one active orchestration session. Multiple `epicIds` create one scoped tracker wrapper on the server, one global worker pool, and one merge queue.
+
+### State Response
+
+The `orchestrate:get_state` command returns:
+
+```typescript
+{
+  orchestrationId: string;
+  status: 'idle' | 'running' | 'paused' | 'completed' | 'failed';
+  currentGroupIndex: number;
+  totalGroups: number;
+  totalTasks: number;
+  totalTasksCompleted: number;
+  startedAt: string | null;
+  elapsedMs: number;
+  sessionBranch?: string;
+  originalBranch?: string;
+  workers: WorkerDisplayState[];
+  mergeQueue: MergeOperation[];
+  scopes?: ExecutionScope[];
+  scopeCounts?: {
+    scopeId: string;
+    totalTasks: number;
+    activeTasks: number;
+    completedTasks: number;
+    failedTasks: number;
+  }[];
+}
+```
+
+`scopes` and `scopeCounts` are present for multi-epic remote orchestration so remote clients can render All/per-epic views without starting separate remote sessions.
+
+<Callout type="info">
+  Remote orchestration respects the `--task-range` filter if configured on the server. Only filtered tasks will be distributed to workers.
+</Callout>
 
 ## Security
 
@@ -212,9 +340,16 @@ Tokens are stored in plain text in `remotes.toml`. Ensure appropriate file permi
 - Full tokens are only shown when generated on the server
 - All remote actions are logged to `~/.config/ralph-tui/audit.log`
 
+## Pure-Client Mode
+
+To launch the TUI without spinning up a local engine — i.e., as a pure client over your configured remotes — use `ralph-tui run --remote-only`. The TUI will skip the local tab and connect only to the remotes listed in `remotes.toml`. This is the natural counterpart to the server-side `--listen` flag and is the recommended way to drive multiple remote instances from one workstation.
+
+See [`run --remote-only`](/docs/cli/run#remote-only-mode) for full details.
+
 ## Related Commands
 
-- [`run --listen`](/docs/cli/run) - Run with remote listener enabled
+- [`run --listen`](/docs/cli/run#remote-listener) - Run with remote listener enabled (server side)
+- [`run --remote-only`](/docs/cli/run#remote-only-mode) - Run the TUI as a pure remote client (no local engine)
 
 ## Troubleshooting
 
@@ -229,8 +364,9 @@ Tokens are stored in plain text in `remotes.toml`. Ensure appropriate file permi
 - Server is not running (`ralph-tui run --listen`)
 - Firewall blocking port 7890
 - Incorrect hostname or port
+- TLS reverse proxy requires a secure remote configuration
 
-**Solution:** Verify the server is running and the port is accessible.
+**Solution:** Verify the server is running and the port is accessible. For TLS-terminated remotes, add or edit the remote with `--secure` or `secure = true`.
 
 ### Authentication Failed
 

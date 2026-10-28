@@ -2,25 +2,46 @@
  * ABOUTME: PRD Chat application component for the Ralph TUI.
  * Provides an interactive chat interface for generating PRDs using an AI agent.
  * After PRD generation, shows a split view with PRD preview and tracker options.
+ * Supports image attachments that are appended to prompts.
  */
 
 import type { ReactNode } from 'react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useKeyboard, useRenderer } from '@opentui/react';
-import type { KeyEvent } from '@opentui/core';
+import type { KeyEvent, PasteEvent } from '@opentui/core';
 import { platform } from 'node:os';
-import { writeToClipboard } from '../../utils/index.js';
+import { readFromClipboard, writeToClipboard } from '../../utils/index.js';
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ChatView } from './ChatView.js';
 import { ConfirmationDialog } from './ConfirmationDialog.js';
-import { ChatEngine, createPrdChatEngine, createTaskChatEngine, slugify } from '../../chat/engine.js';
-import type { ChatMessage, ChatEvent } from '../../chat/types.js';
+import {
+  ChatEngine,
+  createPrdChatEngine,
+  createTaskChatEngine,
+  slugify,
+} from '../../chat/engine.js';
+import type { ChatMessage, ChatEvent, TimeoutState } from '../../chat/types.js';
 import type { AgentPlugin } from '../../plugins/agents/types.js';
-import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
-import { parsePrdMarkdown } from '../../prd/index.js';
+import { stripAnsiCodes, type FormattedSegment } from '../../plugins/agents/output-formatting.js';
+import { parsePrdMarkdown } from '../../prd/parser.js';
 import { colors } from '../theme.js';
+import {
+  useImageAttachmentWithFeedback,
+  useToast,
+  usePasteHint,
+} from '../hooks/index.js';
+import type { ImageConfig } from '../../config/types.js';
+import { DEFAULT_IMAGE_CONFIG } from '../../config/types.js';
+import {
+  isSlashCommand,
+  executeSlashCommand,
+} from '../utils/slash-commands.js';
+import {
+  detectBase64Image,
+  looksLikeImagePath,
+} from '../utils/image-detection.js';
 
 /**
  * Props for the PrdChatApp component
@@ -54,14 +75,26 @@ export interface PrdChatAppProps {
 
   prdSkillSource?: string;
 
+  /**
+   * Override model passed to the agent via --model at execute time.
+   * Used to match `ralph-tui run --model <name>` behavior in PRD chat mode.
+   */
+  model?: string;
+
+  /** Labels to apply to created beads issues (from config trackerOptions) */
+  trackerLabels?: string[];
+
   /** Callback when PRD is successfully generated */
-  onComplete: (result: PrdCreationResult) => void;
+  onComplete: (result: PrdCreationResult) => Promise<void>;
 
   /** Callback when user cancels */
-  onCancel: () => void;
+  onCancel: () => Promise<void>;
 
   /** Callback when an error occurs */
   onError?: (error: string) => void;
+
+  /** Image attachment configuration */
+  imageConfig?: ImageConfig;
 }
 
 /**
@@ -174,16 +207,110 @@ Transform any complex PRD structure (phases, milestones, etc.) into a FLAT list 
     {
       key: '2',
       name: 'Beads issues',
-      skillPrompt: 'Convert this PRD to beads using the ralph-tui-create-beads skill.',
+      skillPrompt:
+        'Convert this PRD to beads using the ralph-tui-create-beads skill.',
       available: hasBeads,
     },
   ];
 }
 
 /**
+ * Build the labels instruction appended to the beads skill prompt.
+ * Deduplicates labels case-insensitively and always includes 'ralph'.
+ * Returns an empty string when no labels are configured.
+ * @internal Exported for testing
+ */
+export function buildBeadsLabelsInstruction(trackerLabels?: string[]): string {
+  if (!trackerLabels || trackerLabels.length === 0) return '';
+
+  const seen = new Set<string>(['ralph']);
+  const allLabels = ['ralph'];
+  for (const l of trackerLabels) {
+    const key = l.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      allLabels.push(l);
+    }
+  }
+  const labelsStr = allLabels.join(',');
+  return `
+
+IMPORTANT: Apply these labels to EVERY issue created (epic and all child tasks):
+  --labels "${labelsStr}"
+
+Add the --labels flag to every bd create / br create command.`;
+}
+
+/**
+ * Returns true when a submitted review-phase message should trigger a tracker action.
+ * @internal Exported for testing.
+ */
+export function isReviewPhaseShortcut(
+  phase: 'chat' | 'review',
+  trimmedMessage: string,
+): trimmedMessage is '1' | '2' | '3' {
+  return (
+    phase === 'review' &&
+    (trimmedMessage === '1' ||
+      trimmedMessage === '2' ||
+      trimmedMessage === '3')
+  );
+}
+
+/**
+ * Classification result for pasted text.
+ */
+export interface PasteClassification {
+  /** Whether the paste should be intercepted and handled manually. */
+  intercept: boolean;
+  /** Whether fallback text insertion should be suppressed to avoid gibberish. */
+  suppressFallbackInsert: boolean;
+}
+
+/**
+ * Classify pasted text for image-handling flow.
+ * Intercepts image-like payloads while allowing plain text to use native paste behavior.
+ */
+export function classifyPastePayload(text: string): PasteClassification {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { intercept: false, suppressFallbackInsert: false };
+  }
+
+  if (looksLikeImagePath(trimmed)) {
+    return { intercept: true, suppressFallbackInsert: false };
+  }
+
+  if (detectBase64Image(trimmed).isBase64Image) {
+    return { intercept: true, suppressFallbackInsert: false };
+  }
+
+  // Treat high-control-character payloads as binary-ish and avoid inserting raw noise.
+  let controlChars = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    const isControl = (code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127;
+    if (isControl) {
+      controlChars++;
+    }
+  }
+  if (controlChars >= 4 && controlChars / Math.max(text.length, 1) > 0.05) {
+    return { intercept: true, suppressFallbackInsert: true };
+  }
+
+  return { intercept: false, suppressFallbackInsert: false };
+}
+
+/**
  * PRD Preview component for the right panel
  */
-function PrdPreview({ content, path }: { content: string; path: string }): ReactNode {
+function PrdPreview({
+  content,
+  path,
+}: {
+  content: string;
+  path: string;
+}): ReactNode {
   return (
     <box
       style={{
@@ -220,18 +347,93 @@ function PrdPreview({ content, path }: { content: string; path: string }): React
 }
 
 /**
+ * Timeout Dialog component for retry/continue decision
+ */
+function TimeoutDialog({
+  timeoutState,
+}: {
+  timeoutState: TimeoutState;
+}): ReactNode {
+  const formatMs = (ms: number): string => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes > 0) {
+      return `${minutes}m ${remainingSeconds}s`;
+    }
+    return `${seconds}s`;
+  };
+
+  return (
+    <box
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.bg.overlay,
+      }}
+    >
+      <box
+        style={{
+          width: 60,
+          backgroundColor: colors.bg.secondary,
+          border: true,
+          borderColor: colors.status.warning,
+          flexDirection: 'column',
+          padding: 1,
+        }}
+      >
+        {/* Title */}
+        <text fg={colors.status.warning}>⚠ Request Timed Out</text>
+        <text fg={colors.fg.muted} style={{ marginTop: 1 }}>
+          The request was interrupted after {formatMs(timeoutState.currentTimeout)}.
+        </text>
+
+        {/* Retry info */}
+        {timeoutState.retryCount > 0 && (
+          <box style={{ marginTop: 1 }}>
+            <text fg={colors.fg.primary}>
+              Previous retries: {timeoutState.retryCount}
+            </text>
+          </box>
+        )}
+
+        {/* Options */}
+        <box style={{ marginTop: 2, flexDirection: 'column' }}>
+          <text fg={colors.status.success}>[r] Retry with longer timeout</text>
+          <text fg={colors.fg.primary}>[c] Continue waiting indefinitely</text>
+          <text fg={colors.status.error}>[Esc] Cancel request</text>
+        </box>
+
+        {/* Hint */}
+        <text fg={colors.fg.muted} style={{ marginTop: 1 }}>
+          Press a key to choose
+        </text>
+      </box>
+    </box>
+  );
+}
+
+/**
  * PrdChatApp component - Main application for PRD chat generation
  */
 export function PrdChatApp({
   agent,
   cwd = process.cwd(),
   outputDir = 'tasks',
-  timeout = 180000,
+  timeout,
   prdSkill,
   prdSkillSource,
+  model,
+  trackerLabels,
   onComplete,
   onCancel,
   onError,
+  imageConfig,
 }: PrdChatAppProps): ReactNode {
   const renderer = useRenderer();
   // Copy feedback message state (auto-dismissed after 2s)
@@ -251,22 +453,61 @@ export function PrdChatApp({
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
   const [streamingChunk, setStreamingChunk] = useState('');
-  const [streamingSegments, setStreamingSegments] = useState<FormattedSegment[]>([]);
+  const [streamingSegments, setStreamingSegments] = useState<
+    FormattedSegment[]
+  >([]);
   const [error, setError] = useState<string | undefined>();
 
   // Quit confirmation dialog state
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
+  // Timeout dialog state
+  const [showTimeoutDialog, setShowTimeoutDialog] = useState(false);
+  const [timeoutState, setTimeoutState] = useState<TimeoutState | null>(null);
+
   // Track which tracker format was selected for tasks
-  const [selectedTrackerFormat, setSelectedTrackerFormat] = useState<'json' | 'beads' | null>(null);
+  const [selectedTrackerFormat, setSelectedTrackerFormat] = useState<
+    'json' | 'beads' | null
+  >(null);
 
   // Refs
   const engineRef = useRef<ChatEngine | null>(null);
   const taskEngineRef = useRef<ChatEngine | null>(null);
+  const timeoutEngineRef = useRef<ChatEngine | null>(null);
+  const retryInFlightRef = useRef(false);
+  const retryResponseHandledRef = useRef(false);
   const isMountedRef = useRef(true);
+  // Ref for inserting text into the chat input (used for image markers)
+  const insertTextRef = useRef<((text: string) => void) | null>(null);
+  // Tracks last native paste event timestamp for keyboard-shortcut fallback detection.
+  const lastPasteEventAtRef = useRef(0);
 
   // Get tracker options
   const trackerOptions = getTrackerOptions(cwd);
+
+  // Image attachment and toast hooks
+  const toast = useToast();
+  const imagesEnabled = imageConfig?.enabled ?? DEFAULT_IMAGE_CONFIG.enabled;
+  const maxImagesPerMessage =
+    imageConfig?.max_images_per_message ??
+    DEFAULT_IMAGE_CONFIG.max_images_per_message;
+  const showPasteHints =
+    imageConfig?.show_paste_hints ?? DEFAULT_IMAGE_CONFIG.show_paste_hints;
+  const {
+    attachedImages,
+    attachImage,
+    attachFromClipboard,
+    removeImageByNumber,
+    clearImages,
+    getPromptSuffix,
+  } = useImageAttachmentWithFeedback(toast, {
+    maxImagesPerMessage: imagesEnabled ? maxImagesPerMessage : 0,
+  });
+
+  // Paste hint hook for first-time users
+  const { onTextPaste } = usePasteHint(toast, {
+    enabled: showPasteHints && imagesEnabled,
+  });
 
   // Initialize chat engine
   useEffect(() => {
@@ -276,37 +517,90 @@ export function PrdChatApp({
       timeout,
       prdSkill,
       prdSkillSource,
+      model,
     });
-    const taskEngine = createTaskChatEngine(agent, { cwd, timeout });
+    const taskEngine = createTaskChatEngine(agent, { cwd, timeout, model });
 
-    // Subscribe to events
-    const unsubscribe = engine.on((event: ChatEvent) => {
+    const handleEngineEvent = (sourceEngine: ChatEngine, event: ChatEvent) => {
       switch (event.type) {
         case 'status:changed':
           break;
 
         case 'prd:detected':
-          // PRD was detected - save and switch to review phase
-          void handlePrdDetected(event.prdContent, event.featureName);
+          if (sourceEngine === engine) {
+            // PRD was detected - save and switch to review phase
+            void handlePrdDetected(event.prdContent, event.featureName);
+          }
+          break;
+
+        case 'message:received':
+          if (retryInFlightRef.current) {
+            retryInFlightRef.current = false;
+            retryResponseHandledRef.current = true;
+            if (isMountedRef.current) {
+              setMessages((prev) => [...prev, event.message]);
+              setStreamingChunk('');
+              setStreamingSegments([]);
+              setIsLoading(false);
+              setLoadingStatus('');
+            }
+          }
           break;
 
         case 'error:occurred':
+          retryInFlightRef.current = false;
+          retryResponseHandledRef.current = false;
           if (isMountedRef.current) {
             setError(event.error);
           }
           onError?.(event.error);
           break;
+
+        case 'timeout:occurred':
+          timeoutEngineRef.current = sourceEngine;
+          retryInFlightRef.current = false;
+          retryResponseHandledRef.current = false;
+          if (isMountedRef.current) {
+            // Stop showing loading indicator
+            setIsLoading(false);
+            setTimeoutState(event.timeoutState);
+            setShowTimeoutDialog(true);
+          }
+          break;
+
+        case 'retry:started':
+          timeoutEngineRef.current = sourceEngine;
+          retryInFlightRef.current = true;
+          retryResponseHandledRef.current = false;
+          if (isMountedRef.current) {
+            setShowTimeoutDialog(false);
+            setTimeoutState(event.timeoutState);
+            setIsLoading(true);
+            setLoadingStatus(`Retrying request (attempt ${event.timeoutState.retryCount})...`);
+          }
+          break;
       }
-    });
+    };
+
+    const unsubscribeEngine = engine.on((event) =>
+      handleEngineEvent(engine, event)
+    );
+    const unsubscribeTaskEngine = taskEngine.on((event) =>
+      handleEngineEvent(taskEngine, event)
+    );
 
     engineRef.current = engine;
     taskEngineRef.current = taskEngine;
 
     return () => {
       isMountedRef.current = false;
-      unsubscribe();
+      unsubscribeEngine();
+      unsubscribeTaskEngine();
+      timeoutEngineRef.current = null;
+      retryInFlightRef.current = false;
+      retryResponseHandledRef.current = false;
     };
-  }, [agent, cwd, timeout, prdSkill, prdSkillSource, onError]);
+  }, [agent, cwd, timeout, prdSkill, prdSkillSource, model, onError]);
 
   /**
    * Handle PRD detection - save file and switch to review phase
@@ -327,12 +621,15 @@ export function PrdChatApp({
       const filename = `prd-${slug}.md`;
       const filepath = join(fullOutputDir, filename);
 
+      // Strip ANSI codes before saving (agents like Kiro output colored text)
+      const cleanContent = stripAnsiCodes(content);
+
       // Write the file
-      await writeFile(filepath, content, 'utf-8');
+      await writeFile(filepath, cleanContent, 'utf-8');
 
       // Update state for review phase
       if (isMountedRef.current) {
-        setPrdContent(content);
+        setPrdContent(cleanContent);
         setPrdPath(filepath);
         setFeatureName(name);
         setPhase('review');
@@ -352,7 +649,7 @@ Would you like me to create tasks from this PRD?
 ${optionsText}
   [3] Done - I'll create tasks later
 
-Press a number key to select, or continue chatting.`,
+Send "1", "2", or "3" to choose an option, or continue chatting.`,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, reviewMessage]);
@@ -371,12 +668,19 @@ Press a number key to select, or continue chatting.`,
    */
   const handleTrackerSelect = useCallback(
     async (option: TrackerOption) => {
-      if (!taskEngineRef.current || !prdPath || !prdContent || isLoading) return;
+      const taskEngine = taskEngineRef.current;
+      if (!taskEngine || !prdPath || !prdContent || isLoading)
+        return;
 
       const parsedPrd = parsePrdMarkdown(prdContent);
       if (parsedPrd.userStories.length === 0) {
         const errorMessage =
-          'PRD has no user stories. Add sections like "### US-001: Title" with acceptance criteria checklists.';
+          'PRD has no user stories. Add sections with one of these formats:\n' +
+          '  • "### US-001: Title" (standard 3-digit)\n' +
+          '  • "### US-2.1.1: Title" (version-style)\n' +
+          '  • "### EPIC-123: Title" (custom prefix)\n' +
+          '  • "### Feature 1.1: Title" (feature format)\n' +
+          'Each section must include acceptance criteria checklists.';
         setError(errorMessage);
         onError?.(errorMessage);
         return;
@@ -389,6 +693,7 @@ Press a number key to select, or continue chatting.`,
       setIsLoading(true);
       setStreamingChunk('');
       setStreamingSegments([]);
+      retryResponseHandledRef.current = false;
       setLoadingStatus(`Creating ${option.name} tasks...`);
 
       // Add user selection message
@@ -399,14 +704,18 @@ Press a number key to select, or continue chatting.`,
       };
       setMessages((prev) => [...prev, userMsg]);
 
+      // Build labels instruction for beads format
+      const labelsInstruction =
+        format === 'beads' ? buildBeadsLabelsInstruction(trackerLabels) : '';
+
       const prompt = `${option.skillPrompt}
 
 The PRD file is at: ${prdPath}
 
-Read the PRD and create the appropriate tasks.`;
+Read the PRD and create the appropriate tasks.${labelsInstruction}`;
 
       try {
-        const result = await taskEngineRef.current.sendMessage(prompt, {
+        const result = await taskEngine.sendMessage(prompt, {
           onSegments: (segments) => {
             if (isMountedRef.current) {
               setStreamingSegments((prev) => [...prev, ...segments]);
@@ -420,19 +729,28 @@ Read the PRD and create the appropriate tasks.`;
         });
 
         if (isMountedRef.current) {
+          const retryResponseHandled = retryResponseHandledRef.current;
+          retryResponseHandledRef.current = false;
           if (result.success && result.response) {
-            setMessages((prev) => [...prev, result.response!]);
+            if (!retryResponseHandled) {
+              setMessages((prev) => [...prev, result.response!]);
+            }
             setStreamingChunk('');
             setStreamingSegments([]);
 
             // Add completion message and finish
             const doneMsg: ChatMessage = {
               role: 'assistant',
-              content: 'Tasks created! Press [3] to finish or select another format.',
+              content:
+                'Tasks created! Send "3" to finish or select another format.',
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, doneMsg]);
-          } else if (!result.success) {
+          } else if (
+            !result.success &&
+            taskEngine.getStatus() !== 'timeout' &&
+            !taskEngine.getTimeoutState().retryPending
+          ) {
             setError(result.error || 'Failed to create tasks');
           }
         }
@@ -448,7 +766,7 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
     },
-    [prdPath, prdContent, isLoading, onError]
+    [prdPath, prdContent, isLoading, onError, trackerLabels]
   );
 
   /**
@@ -456,8 +774,71 @@ Read the PRD and create the appropriate tasks.`;
    */
   const sendMessage = useCallback(
     async (value?: string) => {
-      const userMessage = value?.trim() ?? inputValue.trim();
-      if (!userMessage || !engineRef.current || isLoading) {
+      const rawMessage = value?.trim() ?? inputValue.trim();
+      if (!rawMessage || isLoading) {
+        return;
+      }
+
+      // Use the message as-is (no zero-width markers to clean)
+      const userMessage = rawMessage;
+
+      // In review phase, a bare "1", "2", or "3" is handled on submit, not keydown,
+      // so in-progress typing like "3A" is never swallowed mid-entry.
+      if (isReviewPhaseShortcut(phase, userMessage)) {
+        setInputValue('');
+        if (userMessage === '1' || userMessage === '2') {
+          const option = trackerOptions.find((t) => t.key === userMessage);
+          if (option?.available) {
+            void handleTrackerSelect(option);
+          } else {
+            const errorMessage = option
+              ? `${option.name} is not available in this project.`
+              : `Tracker option ${userMessage} is not available.`;
+            setError(errorMessage);
+            onError?.(errorMessage);
+          }
+          return;
+        }
+        // userMessage === '3' → Done
+        if (prdPath && featureName) {
+          void onComplete({
+            prdPath,
+            featureName,
+            selectedTracker: selectedTrackerFormat,
+          }).catch((err) => {
+            const errorMessage =
+              'Failed to complete PRD workflow: ' +
+              (err instanceof Error ? err.message : String(err));
+            setError(errorMessage);
+            onError?.(errorMessage);
+          });
+        }
+        return;
+      }
+
+      // Check for slash commands first
+      if (isSlashCommand(userMessage)) {
+        const result = await executeSlashCommand(userMessage, {
+          // Pass true to delete files - slash commands are user-initiated cancellations
+          clearPendingImages: () => clearImages(true),
+          pendingImageCount: attachedImages.length,
+        });
+
+        if (result.handled) {
+          setInputValue('');
+          // Show feedback via toast
+          if (result.success) {
+            toast.showSuccess(result.message ?? 'Command executed');
+          } else {
+            toast.showError(result.message ?? 'Command failed');
+          }
+          return;
+        }
+      }
+
+      // Regular message - requires engine
+      const chatEngine = engineRef.current;
+      if (!chatEngine) {
         return;
       }
 
@@ -465,44 +846,67 @@ Read the PRD and create the appropriate tasks.`;
       setIsLoading(true);
       setStreamingChunk('');
       setStreamingSegments([]);
+      retryResponseHandledRef.current = false;
       setLoadingStatus('Sending to agent...');
       setError(undefined);
 
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
+      // Get image suffix before clearing (will be empty string if no images)
+      const imageSuffix = getPromptSuffix();
 
-    try {
-      const result = await engineRef.current.sendMessage(userMessage, {
-        onSegments: (segments) => {
-          if (isMountedRef.current) {
-            setStreamingSegments((prev) => [...prev, ...segments]);
-          }
-        },
-        onStatus: (status) => {
-          if (isMountedRef.current) {
-            setLoadingStatus(status);
-          }
-        },
-      });
+      // Clear attached images after capturing suffix
+      // Pass false (default) to keep files - the agent needs to read them
+      if (attachedImages.length > 0) {
+        clearImages(false);
+      }
 
-      if (isMountedRef.current) {
-        if (result.success && result.response) {
-          setMessages((prev) => [...prev, result.response!]);
-          setStreamingChunk('');
-          setStreamingSegments([]);
-        } else if (!result.success) {
-          setError(result.error || 'Failed to get response');
+      // The user message shown in the chat
+      // The [Image N] markers in the message provide visual indication of attachments
+      const userMsg: ChatMessage = {
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      // The prompt sent to the agent includes the image paths
+      const promptToSend = userMessage + imageSuffix;
+
+      try {
+        const result = await chatEngine.sendMessage(promptToSend, {
+          onSegments: (segments) => {
+            if (isMountedRef.current) {
+              setStreamingSegments((prev) => [...prev, ...segments]);
+            }
+          },
+          onStatus: (status) => {
+            if (isMountedRef.current) {
+              setLoadingStatus(status);
+            }
+          },
+        });
+
+        if (isMountedRef.current) {
+          const retryResponseHandled = retryResponseHandledRef.current;
+          retryResponseHandledRef.current = false;
+          if (result.success && result.response) {
+            if (!retryResponseHandled) {
+              setMessages((prev) => [...prev, result.response!]);
+            }
+            setStreamingChunk('');
+            setStreamingSegments([]);
+          } else if (
+            !result.success &&
+            chatEngine.getStatus() !== 'timeout' &&
+            !chatEngine.getTimeoutState().retryPending
+          ) {
+            setError(result.error || 'Failed to get response');
+          }
         }
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      if (isMountedRef.current) {
-        setError(errorMsg);
-      }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        if (isMountedRef.current) {
+          setError(errorMsg);
+        }
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
@@ -510,28 +914,148 @@ Read the PRD and create the appropriate tasks.`;
         }
       }
     },
-    [inputValue, isLoading]
+    [
+      inputValue,
+      isLoading,
+      getPromptSuffix,
+      attachedImages,
+      clearImages,
+      toast,
+      phase,
+      trackerOptions,
+      handleTrackerSelect,
+      prdPath,
+      featureName,
+      selectedTrackerFormat,
+      onComplete,
+      onError,
+    ],
   );
 
   /**
-   * Handle keyboard input (only for non-input keys like Escape and review phase shortcuts)
-   * Text editing is handled by the native OpenTUI input component
+   * Handle timeout dialog retry action
+   */
+  const handleTimeoutRetry = useCallback(() => {
+    const timeoutEngine = timeoutEngineRef.current ?? engineRef.current;
+    if (!timeoutEngine) return;
+
+    setShowTimeoutDialog(false);
+    // Reset timeout-related state
+    setTimeoutState(null);
+    // Retry using the engine's built-in retry mechanism
+    timeoutEngine.retry();
+  }, []);
+
+  /**
+   * Handle timeout dialog cancel action
+   */
+  const handleTimeoutCancel = useCallback(() => {
+    const timeoutEngine = timeoutEngineRef.current ?? engineRef.current;
+    if (!timeoutEngine) return;
+
+    setShowTimeoutDialog(false);
+    setTimeoutState(null);
+    setIsLoading(false);
+    setLoadingStatus('');
+    // Tell the engine to cancel the timeout state
+    timeoutEngine.cancelTimeout();
+    timeoutEngineRef.current = null;
+  }, []);
+
+  /**
+   * Handle continue waiting indefinitely - re-send with no timeout
+   */
+  const handleTimeoutContinue = useCallback(() => {
+    const timeoutEngine = timeoutEngineRef.current ?? engineRef.current;
+    if (!timeoutEngine) return;
+
+    setShowTimeoutDialog(false);
+    setTimeoutState(null);
+    setIsLoading(true);
+    setLoadingStatus('Continuing to wait for agent response (no timeout)...');
+    // Tell the engine to continue indefinitely
+    timeoutEngine.continueIndefinitely();
+  }, []);
+
+  /**
+   * Clipboard fallback for terminals that don't emit OpenTUI paste events.
+   * Triggered by paste keyboard shortcuts when no paste event follows shortly after.
+   */
+  const performClipboardPasteFallback = useCallback(async () => {
+    if (isLoading) {
+      return;
+    }
+
+    if (imagesEnabled) {
+      const imageResult = await attachFromClipboard();
+      if (imageResult.success && imageResult.inlineMarker) {
+        if (insertTextRef.current) {
+          insertTextRef.current(imageResult.inlineMarker + ' ');
+        }
+        return;
+      }
+    }
+
+    const textResult = await readFromClipboard();
+    if (!textResult.success || !textResult.text || !insertTextRef.current) {
+      return;
+    }
+
+    insertTextRef.current(textResult.text);
+    onTextPaste();
+  }, [isLoading, imagesEnabled, attachFromClipboard, onTextPaste]);
+
+  const reportCallbackError = useCallback(
+    (context: string, err: unknown) => {
+      const errorMessage =
+        `${context}: ` + (err instanceof Error ? err.message : String(err));
+      setError(errorMessage);
+      onError?.(errorMessage);
+    },
+    [onError],
+  );
+
+  const runOnComplete = useCallback(
+    async (result: PrdCreationResult) => {
+      try {
+        await onComplete(result);
+      } catch (err) {
+        reportCallbackError('Failed to complete PRD workflow', err);
+      }
+    },
+    [onComplete, reportCallbackError],
+  );
+
+  const runOnCancel = useCallback(async () => {
+    try {
+      await onCancel();
+    } catch (err) {
+      reportCallbackError('Failed to cancel PRD workflow', err);
+    }
+  }, [onCancel, reportCallbackError]);
+
+  /**
+   * Handle keyboard input for non-text shortcuts like paste fallback and Escape.
+   * Text editing is handled by the native OpenTUI input component.
    */
   const handleKeyboard = useCallback(
     (key: KeyEvent) => {
+      const keyName = key.name.toLowerCase();
+
       // Handle clipboard copy:
       // - macOS: Cmd+C (meta key)
-      // - Linux: Ctrl+Shift+C or Alt+C
+      // - Linux: Alt+C (Ctrl+Shift+C where the terminal reports Shift)
       // - Windows: Ctrl+C
       // Note: We check this early so copy works even when dialogs are open
       const isMac = platform() === 'darwin';
       const isWindows = platform() === 'win32';
       const selection = renderer.getSelection();
       const isCopyShortcut = isMac
-        ? key.meta && key.name === 'c'
+        ? key.meta && keyName === 'c'
         : isWindows
-          ? key.ctrl && key.name === 'c'
-          : (key.ctrl && key.shift && key.name === 'c') || (key.option && key.name === 'c');
+          ? key.ctrl && keyName === 'c'
+          : (key.ctrl && key.shift && keyName === 'c') ||
+            (key.option && keyName === 'c');
 
       if (isCopyShortcut && selection) {
         const selectedText = selection.getSelectedText();
@@ -549,9 +1073,26 @@ Read the PRD and create the appropriate tasks.`;
       if (showQuitConfirm) {
         if (key.name === 'y' || key.sequence === 'y' || key.sequence === 'Y') {
           setShowQuitConfirm(false);
-          onCancel();
-        } else if (key.name === 'n' || key.name === 'escape' || key.sequence === 'n' || key.sequence === 'N') {
+          void runOnCancel();
+        } else if (
+          key.name === 'n' ||
+          key.name === 'escape' ||
+          key.sequence === 'n' ||
+          key.sequence === 'N'
+        ) {
           setShowQuitConfirm(false);
+        }
+        return;
+      }
+
+      // Handle timeout dialog
+      if (showTimeoutDialog && timeoutState) {
+        if (key.name === 'r' || key.sequence === 'r' || key.sequence === 'R') {
+          handleTimeoutRetry();
+        } else if (key.name === 'c' || key.sequence === 'c' || key.sequence === 'C') {
+          handleTimeoutContinue();
+        } else if (key.name === 'escape') {
+          handleTimeoutCancel();
         }
         return;
       }
@@ -561,40 +1102,150 @@ Read the PRD and create the appropriate tasks.`;
         return;
       }
 
-      // In review phase, handle number keys for tracker selection
-      if (phase === 'review' && key.sequence) {
-        const keyNum = key.sequence;
-        if (keyNum === '1' || keyNum === '2') {
-          const option = trackerOptions.find((t) => t.key === keyNum && t.available);
-          if (option) {
-            void handleTrackerSelect(option);
+      // Handle paste fallback shortcuts for terminals that do not emit paste events.
+      // If a native paste event arrives right after this shortcut, fallback is skipped.
+      const isPasteShortcut = isMac
+        ? key.meta && keyName === 'v'
+        : isWindows
+          ? (key.ctrl && keyName === 'v') ||
+            (key.shift && keyName === 'insert')
+          : (key.ctrl && keyName === 'v') ||
+            (key.ctrl && key.shift && keyName === 'v') ||
+            (key.shift && keyName === 'insert');
+      if (isPasteShortcut) {
+        key.preventDefault?.();
+        const requestTime = Date.now();
+        setTimeout(() => {
+          if (lastPasteEventAtRef.current >= requestTime) {
             return;
           }
-        }
-        if (keyNum === '3') {
-          // Done - complete and exit
-          if (prdPath && featureName) {
-            onComplete({ prdPath, featureName, selectedTracker: selectedTrackerFormat });
-          }
-          return;
-        }
+          void performClipboardPasteFallback();
+        }, 80);
+        return;
       }
 
       // Handle escape key
       if (key.name === 'escape') {
         if (phase === 'review' && prdPath && featureName) {
           // In review phase, escape completes (PRD already saved)
-          onComplete({ prdPath, featureName, selectedTracker: selectedTrackerFormat });
+          void runOnComplete({
+            prdPath,
+            featureName,
+            selectedTracker: selectedTrackerFormat,
+          });
         } else {
           // In chat phase, show confirmation dialog
           setShowQuitConfirm(true);
         }
       }
     },
-    [showQuitConfirm, isLoading, phase, trackerOptions, handleTrackerSelect, prdPath, featureName, selectedTrackerFormat, onComplete, onCancel, renderer]
+    [
+      showQuitConfirm,
+      isLoading,
+      phase,
+      performClipboardPasteFallback,
+      runOnComplete,
+      runOnCancel,
+      prdPath,
+      featureName,
+      selectedTrackerFormat,
+      renderer,
+      showTimeoutDialog,
+      timeoutState,
+      handleTimeoutRetry,
+      handleTimeoutCancel,
+      handleTimeoutContinue,
+    ],
   );
 
   useKeyboard(handleKeyboard);
+
+  /**
+   * Handle paste events - try to detect and attach images
+   *
+   * The paste handler uses a two-phase approach:
+   * 1. First, try to read actual image data from the system clipboard (via pngpaste)
+   *    This handles screenshot tools like Shottr that put images in the clipboard
+   * 2. If no clipboard image, try to parse the pasted text as an image path
+   *    This handles pasting file paths to images
+   *
+   * Plain text uses native textarea paste behavior.
+   * We only prevent default for image-like or binary payloads that need
+   * manual handling to avoid inserting opaque escape/control sequences.
+   */
+  const handlePaste = useCallback(
+    async (text: string, event: PasteEvent) => {
+      // Don't process paste if images are disabled - let default paste happen
+      if (!imagesEnabled) {
+        return;
+      }
+
+      lastPasteEventAtRef.current = Date.now();
+
+      const pasteType = classifyPastePayload(text);
+      const hasText = text.trim().length > 0;
+      let feedbackShown = false;
+
+      // Only intercept image-like payloads. For normal text, keep native paste behavior.
+      if (pasteType.intercept) {
+        event.preventDefault();
+      }
+
+      // Check clipboard image when payload is image-like OR text is unavailable.
+      // Some terminals emit empty paste text for clipboard operations.
+      if (pasteType.intercept || !hasText) {
+        const clipboardResult = await attachFromClipboard();
+        feedbackShown = clipboardResult.feedbackShown;
+
+        if (clipboardResult.success && clipboardResult.inlineMarker) {
+          // Insert the plain [Image N] marker at cursor
+          if (insertTextRef.current) {
+            insertTextRef.current(clipboardResult.inlineMarker + ' ');
+          }
+          return;
+        }
+      }
+
+      // For non-intercepted text, allow native paste and avoid image-path detection work.
+      if (!pasteType.intercept) {
+        if (!feedbackShown && hasText) {
+          onTextPaste();
+        }
+        return;
+      }
+
+      // Phase 2: If no clipboard image, try to parse pasted text as image path
+      // This handles cases where user pastes a file path to an image
+      if (hasText) {
+        const textResult = await attachImage(text);
+        if (textResult.success && textResult.inlineMarker) {
+          // Insert the plain [Image N] marker at cursor
+          if (insertTextRef.current) {
+            insertTextRef.current(textResult.inlineMarker + ' ');
+          }
+          return;
+        }
+      }
+
+      if (pasteType.intercept) {
+        // Not an image - optionally fall back to manual text insertion.
+        if (!pasteType.suppressFallbackInsert && text && insertTextRef.current) {
+          insertTextRef.current(text);
+        }
+
+        // For binary-ish payloads, avoid inserting opaque control-sequence noise.
+        if (pasteType.suppressFallbackInsert && !feedbackShown) {
+          toast.showError('Unable to parse pasted image data');
+        }
+
+        if (!feedbackShown && hasText) {
+          onTextPaste();
+        }
+        return;
+      }
+    },
+    [imagesEnabled, attachFromClipboard, attachImage, onTextPaste, toast],
+  );
 
   // Auto-dismiss copy feedback after 2 seconds
   useEffect(() => {
@@ -608,7 +1259,7 @@ Read the PRD and create the appropriate tasks.`;
   // Determine hint text based on phase
   const hint =
     phase === 'review'
-      ? '[1] JSON  [2] Beads  [3] Done  [Enter] Chat  [Esc] Finish'
+      ? 'Send "1"/"2"/"3" for JSON / Beads / Done, or any other message to continue  [Enter] Send  [Esc] Finish'
       : '[Enter] Send  [Shift+Enter/Ctrl+J] Newline  [Esc] Cancel';
 
   // In review phase, show split pane
@@ -638,6 +1289,10 @@ Read the PRD and create the appropriate tasks.`;
             hint={hint}
             agentName={agent.meta.name}
             onSubmit={sendMessage}
+            onPaste={handlePaste}
+            onImageMarkerDeleted={removeImageByNumber}
+            toasts={toast.toasts}
+            insertTextRef={insertTextRef}
           />
         </box>
 
@@ -681,10 +1336,14 @@ Read the PRD and create the appropriate tasks.`;
         streamingSegments={streamingSegments}
         inputPlaceholder="Describe your feature..."
         error={error}
-        inputEnabled={!isLoading && !showQuitConfirm}
+        inputEnabled={!isLoading && !showQuitConfirm && !showTimeoutDialog}
         hint={hint}
         agentName={agent.meta.name}
         onSubmit={sendMessage}
+        onPaste={handlePaste}
+        onImageMarkerDeleted={removeImageByNumber}
+        toasts={toast.toasts}
+        insertTextRef={insertTextRef}
       />
       <ConfirmationDialog
         visible={showQuitConfirm}
@@ -692,6 +1351,13 @@ Read the PRD and create the appropriate tasks.`;
         message="Your progress will be lost."
         hint="[y] Yes, cancel  [n/Esc] No, continue"
       />
+
+      {/* Timeout dialog */}
+      {showTimeoutDialog && timeoutState && (
+        <TimeoutDialog
+          timeoutState={timeoutState}
+        />
+      )}
 
       {/* Copy feedback toast - positioned at bottom right */}
       {copyFeedback && (

@@ -5,10 +5,14 @@
  */
 
 import { spawn } from 'node:child_process';
-import { access, constants, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { access, constants } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { BaseTrackerPlugin } from '../../base.js';
+import { resolveBeadsDir } from '../../beads-dir.js';
+import { parseBeadsJsonArray } from '../../beads-json.js';
+import { sortDottedChildTaskIds } from '../../task-ordering.js';
+import { BEADS_TEMPLATE } from '../../../../templates/builtin.js';
 import type {
   SetupQuestion,
   SyncResult,
@@ -51,6 +55,20 @@ interface BeadJson {
     status: string;
     dependency_type: 'blocks' | 'parent-child';
   }>;
+  external_ref?: string;
+}
+
+/**
+ * Output structure from bd dep list --json.
+ *
+ * Some bd versions serialize relationship type as "dependency_type" while
+ * others use "type". We accept both to stay compatible.
+ */
+interface BdDepListItem {
+  issue_id?: string;
+  depends_on_id?: string;
+  type?: 'blocks' | 'parent-child';
+  dependency_type?: 'blocks' | 'parent-child';
 }
 
 /**
@@ -65,26 +83,17 @@ interface DetectResult {
 }
 
 /**
- * Get the directory containing this module (for locating template.hbs).
- */
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-/**
- * Cache for the template content to avoid repeated file reads.
- */
-let templateCache: string | null = null;
-
-/**
  * Execute a bd command and return the output.
  */
 async function execBd(
   args: string[],
-  cwd?: string
+  cwd?: string,
+  envOverrides?: Record<string, string>
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     const proc = spawn('bd', args, {
       cwd,
-      env: { ...process.env },
+      env: { ...process.env, ...envOverrides },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -230,6 +239,8 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
   private epicId: string = '';
   protected labels: string[] = [];
   private workingDir: string = process.cwd();
+  private detectionError: string | undefined;
+  private beadsDirResolution: ReturnType<typeof resolveBeadsDir> | undefined;
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
     await super.initialize(config);
@@ -259,6 +270,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Validate readiness
     const detection = await this.detect();
     this.ready = detection.available;
+    this.detectionError = detection.error;
   }
 
   /**
@@ -266,8 +278,9 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
    * Checks for .beads/ directory and bd binary.
    */
   async detect(): Promise<DetectResult> {
-    // Check for .beads directory
-    const beadsDirPath = join(this.workingDir, this.beadsDir);
+    const beadsDir = resolveBeadsDir(this.workingDir, this.beadsDir);
+    this.beadsDirResolution = beadsDir;
+    const beadsDirPath = beadsDir.path;
     try {
       await new Promise<void>((resolve, reject) => {
         access(beadsDirPath, constants.R_OK, (err) => {
@@ -278,14 +291,15 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     } catch {
       return {
         available: false,
-        error: `Beads directory not found: ${beadsDirPath}`,
+        error: `Beads directory not found: ${beadsDirPath} (resolved from ${beadsDir.source})`,
       };
     }
 
     // Check for bd binary
     const { stdout, stderr, exitCode } = await execBd(
       ['--version'],
-      this.workingDir
+      this.workingDir,
+      this.getCommandEnv()
     );
 
     if (exitCode !== 0) {
@@ -311,8 +325,16 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     if (!this.ready) {
       const detection = await this.detect();
       this.ready = detection.available;
+      this.detectionError = detection.error;
     }
     return this.ready;
+  }
+
+  private getCommandEnv(): Record<string, string> | undefined {
+    if (this.beadsDirResolution?.explicit) {
+      return { BEADS_DIR: this.beadsDirResolution.path };
+    }
+    return undefined;
   }
 
   getSetupQuestions(): SetupQuestion[] {
@@ -355,7 +377,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
   async getTasks(filter?: TaskFilter): Promise<TrackerTask[]> {
     // Build bd list command args
     // Use --all to include closed issues (TUI filters visibility via showClosedTasks state)
-    const args = ['list', '--json', '--all'];
+    const args = ['list', '--json', '--all', '--limit', '0'];
 
     // Filter by parent (epic) - beads in an epic are children of the epic issue
     if (filter?.parentId) {
@@ -385,7 +407,11 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
       args.push('--label', labelsToFilter.join(','));
     }
 
-    const { stdout, exitCode, stderr } = await execBd(args, this.workingDir);
+    const { stdout, exitCode, stderr } = await execBd(
+      args,
+      this.workingDir,
+      this.getCommandEnv()
+    );
 
     if (exitCode !== 0) {
       console.error('bd list failed:', stderr);
@@ -395,7 +421,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Parse JSON output
     let beads: BeadJson[];
     try {
-      beads = JSON.parse(stdout) as BeadJson[];
+      beads = parseBeadsJsonArray<BeadJson>(stdout);
     } catch (err) {
       console.error('Failed to parse bd list output:', err);
       return [];
@@ -409,14 +435,101 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // (bd list --json doesn't include parent field in output, so filterTasks would incorrectly remove tasks)
     const filterWithoutParent = filter ? { ...filter, parentId: undefined } : undefined;
     tasks = this.filterTasks(tasks, filterWithoutParent);
+    tasks = sortDottedChildTaskIds(tasks);
+
+    // Enrich dependencies after filtering so we only query tasks that will be used.
+    await this.enrichDependencies(tasks, beads);
 
     return tasks;
+  }
+
+  /**
+   * Enrich TrackerTask objects with dependency IDs from bd dep list.
+   *
+   * bd list --json may omit actual dependency IDs and provide only counts in
+   * dependency_count/dependent_count. This enrichment restores dependency edges
+   * needed for accurate parallel graph analysis.
+   */
+  private async enrichDependencies(
+    tasks: TrackerTask[],
+    rawBeads: BeadJson[]
+  ): Promise<void> {
+    const depCountMap = new Map<string, number>();
+    for (const raw of rawBeads) {
+      if (typeof raw.dependency_count === 'number' && raw.dependency_count > 0) {
+        depCountMap.set(raw.id, raw.dependency_count);
+      }
+    }
+
+    const tasksToEnrich = tasks.filter((t) => depCountMap.has(t.id));
+    if (tasksToEnrich.length === 0) {
+      return;
+    }
+
+    // Limit concurrency to avoid spawning too many bd subprocesses at once.
+    const maxConcurrentEnrichCalls = 8;
+
+    for (let i = 0; i < tasksToEnrich.length; i += maxConcurrentEnrichCalls) {
+      const batch = tasksToEnrich.slice(i, i + maxConcurrentEnrichCalls);
+      await Promise.all(batch.map((task) => this.enrichTaskDependencies(task)));
+    }
+  }
+
+  /**
+   * Populate dependsOn for a single task from bd dep list output.
+   */
+  private async enrichTaskDependencies(task: TrackerTask): Promise<void> {
+    const { stdout, stderr, exitCode } = await execBd(
+      ['dep', 'list', task.id, '--json'],
+      this.workingDir,
+      this.getCommandEnv()
+    );
+
+    if (exitCode !== 0) {
+      console.warn(
+        `Dependency enrichment failed for task ${task.id}: bd dep list exited non-zero`,
+        { taskId: task.id, exitCode, stdout, stderr }
+      );
+      return;
+    }
+
+    try {
+      const deps = parseBeadsJsonArray<BdDepListItem>(stdout);
+      const dependsOn: string[] = [];
+
+      for (const dep of deps) {
+        const depType = dep.type ?? dep.dependency_type;
+
+        // dep list can include reverse-direction rows. Keep only dependencies
+        // where the current task is the dependent issue.
+        if (
+          depType === 'blocks' &&
+          dep.issue_id === task.id &&
+          dep.depends_on_id &&
+          dep.depends_on_id !== task.id
+        ) {
+          dependsOn.push(dep.depends_on_id);
+        }
+      }
+
+      if (dependsOn.length > 0) {
+        const mergedDependsOn = [...(task.dependsOn ?? []), ...dependsOn];
+        task.dependsOn = [...new Set(mergedDependsOn)];
+      }
+    } catch (error) {
+      console.warn(
+        `Dependency enrichment failed for task ${task.id}: unable to parse bd dep list output`,
+        { taskId: task.id, error, stdout }
+      );
+      // Fall back to existing dependency data when enrichment parsing fails.
+    }
   }
 
   override async getTask(id: string): Promise<TrackerTask | undefined> {
     const { stdout, exitCode, stderr } = await execBd(
       ['show', id, '--json'],
-      this.workingDir
+      this.workingDir,
+      this.getCommandEnv()
     );
 
     if (exitCode !== 0) {
@@ -427,7 +540,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // bd show --json returns an array with one element
     let beads: BeadJson[];
     try {
-      beads = JSON.parse(stdout) as BeadJson[];
+      beads = parseBeadsJsonArray<BeadJson>(stdout);
     } catch (err) {
       console.error('Failed to parse bd show output:', err);
       return undefined;
@@ -451,7 +564,11 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
       args.push('--reason', reason);
     }
 
-    const { exitCode, stderr, stdout } = await execBd(args, this.workingDir);
+    const { exitCode, stderr, stdout } = await execBd(
+      args,
+      this.workingDir,
+      this.getCommandEnv()
+    );
 
     if (exitCode !== 0) {
       return {
@@ -478,7 +595,11 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     const bdStatus = mapStatusToBd(status);
     const args = ['update', id, '--status', bdStatus];
 
-    const { exitCode, stderr } = await execBd(args, this.workingDir);
+    const { exitCode, stderr } = await execBd(
+      args,
+      this.workingDir,
+      this.getCommandEnv()
+    );
 
     if (exitCode !== 0) {
       console.error(`bd update ${id} --status ${bdStatus} failed:`, stderr);
@@ -490,10 +611,14 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
   }
 
   override async sync(): Promise<SyncResult> {
-    // Run bd sync to synchronize with git
+    // Export tracker state to JSONL only. Use --flush-only to avoid git
+    // operations (pull/push) which can silently destroy locally-created beads
+    // when the branch has no upstream tracking ref.
+    // See: https://github.com/subsy/ralph-tui/issues/314
     const { exitCode, stderr, stdout } = await execBd(
-      ['sync'],
-      this.workingDir
+      ['sync', '--flush-only'],
+      this.workingDir,
+      this.getCommandEnv()
     );
 
     if (exitCode !== 0) {
@@ -507,7 +632,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
 
     return {
       success: true,
-      message: 'Beads synced with git',
+      message: 'Beads tracker data flushed to JSONL',
       syncedAt: new Date().toISOString(),
     };
   }
@@ -531,14 +656,18 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
    */
   override async getEpics(): Promise<TrackerTask[]> {
     // Query for epics using bd list with type filter
-    const args = ['list', '--json', '--type', 'epic'];
+    const args = ['list', '--json', '--type', 'epic', '--limit', '0'];
 
     // Filter by labels if configured
     if (this.labels.length > 0) {
       args.push('--label', this.labels.join(','));
     }
 
-    const { stdout, exitCode, stderr } = await execBd(args, this.workingDir);
+    const { stdout, exitCode, stderr } = await execBd(
+      args,
+      this.workingDir,
+      this.getCommandEnv()
+    );
 
     if (exitCode !== 0) {
       console.error('bd list --type epic failed:', stderr);
@@ -548,7 +677,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Parse JSON output
     let beads: BeadJson[];
     try {
-      beads = JSON.parse(stdout) as BeadJson[];
+      beads = parseBeadsJsonArray<BeadJson>(stdout);
     } catch (err) {
       console.error('Failed to parse bd list output:', err);
       return [];
@@ -571,6 +700,43 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
    * See: https://github.com/subsy/ralph-tui/issues/97
    */
   override async getNextTask(filter?: TaskFilter): Promise<TrackerTask | undefined> {
+    // Check if plugin is ready before making CLI calls
+    if (!(await this.isReady())) {
+      console.error(
+        'Beads tracker detection failed:',
+        this.detectionError ?? 'unknown error'
+      );
+      return undefined;
+    }
+
+    const statuses = filter?.status
+      ? (Array.isArray(filter.status) ? filter.status : [filter.status])
+      : ['open', 'in_progress'];
+
+    if (statuses.includes('in_progress')) {
+      // bd ready only returns unblocked open work, so look up already-started
+      // tasks separately to ensure interrupted work can be resumed.
+      const requestedTypes = filter?.type
+        ? (Array.isArray(filter.type) ? filter.type : [filter.type])
+        : [];
+      const allowsEpics = requestedTypes.includes('epic');
+      const started = (await this.getTasks({
+        ...filter,
+        status: ['in_progress'],
+      })).filter((task) => allowsEpics || task.type !== 'epic');
+      if (started.length > 0) {
+        return started.reduce((selected, task) =>
+          task.priority < selected.priority ? task : selected
+        );
+      }
+    }
+
+    // bd ready only returns open work, so it cannot answer a request that
+    // excludes open tasks.
+    if (!statuses.includes('open')) {
+      return undefined;
+    }
+
     // Build bd ready command args
     const args = ['ready', '--json'];
 
@@ -606,7 +772,11 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
       args.push('--assignee', filter.assignee);
     }
 
-    const { stdout, exitCode, stderr } = await execBd(args, this.workingDir);
+    const { stdout, exitCode, stderr } = await execBd(
+      args,
+      this.workingDir,
+      this.getCommandEnv()
+    );
 
     if (exitCode !== 0) {
       console.error('bd ready failed:', stderr);
@@ -616,7 +786,7 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
     // Parse JSON output
     let beads: BeadJson[];
     try {
-      beads = JSON.parse(stdout) as BeadJson[];
+      beads = parseBeadsJsonArray<BeadJson>(stdout);
     } catch (err) {
       console.error('Failed to parse bd ready output:', err);
       return undefined;
@@ -674,30 +844,89 @@ export class BeadsTrackerPlugin extends BaseTrackerPlugin {
 
   /**
    * Get the prompt template for the Beads tracker.
-   * Reads from the co-located template.hbs file.
+   * Returns the embedded template to avoid path resolution issues in bundled environments.
+   * See: https://github.com/subsy/ralph-tui/issues/248
    */
   override getTemplate(): string {
-    // Return cached template if available
-    if (templateCache !== null) {
-      return templateCache;
+    return BEADS_TEMPLATE;
+  }
+
+  /**
+   * Get PRD context for template rendering.
+   * Checks current task's external_ref, falls back to parent epic.
+   */
+  async getPrdContext(): Promise<{
+    name: string;
+    description?: string;
+    content: string;
+    completedCount: number;
+    totalCount: number;
+  } | null> {
+    // Need current task context - get from epicId or return null
+    const epicId = this.epicId;
+    if (!epicId) {
+      return null;
     }
 
-    // Read template from co-located file
-    const templatePath = join(__dirname, 'template.hbs');
     try {
-      templateCache = readFileSync(templatePath, 'utf-8');
-      return templateCache;
-    } catch (err) {
-      console.error(`Failed to read template from ${templatePath}:`, err);
-      // Return a minimal fallback template
-      return `## Task: {{taskTitle}}
-{{#if taskDescription}}
-{{taskDescription}}
-{{/if}}
+      // Get epic to find external_ref with PRD link
+      const epicResult = await execBd(
+        ['show', epicId, '--json'],
+        this.workingDir,
+        this.getCommandEnv()
+      );
+      if (epicResult.exitCode !== 0) {
+        return null;
+      }
 
-When finished, signal completion with:
-<promise>COMPLETE</promise>
-`;
+      // bd show --json returns an array with one element
+      const epics = parseBeadsJsonArray<BeadJson>(epicResult.stdout);
+      if (epics.length === 0) {
+        return null;
+      }
+      const epic = epics[0]!;
+      const externalRef = epic.external_ref;
+
+      if (!externalRef || !externalRef.startsWith('prd:')) {
+        return null;
+      }
+
+      // Parse path from "prd:./path/to/file.md"
+      const prdPath = externalRef.substring(4); // Remove "prd:" prefix
+      const fullPath = prdPath.startsWith('/')
+        ? prdPath
+        : resolve(this.workingDir, prdPath);
+
+      // Read PRD content
+      const content = await readFile(fullPath, 'utf-8');
+
+      // Get completion stats from epic children
+      const childrenResult = await execBd(
+        ['list', '--json', '--parent', epicId, '--limit', '0'],
+        this.workingDir,
+        this.getCommandEnv()
+      );
+
+      let completedCount = 0;
+      let totalCount = 0;
+
+      if (childrenResult.exitCode === 0) {
+        const children = parseBeadsJsonArray<BeadJson>(childrenResult.stdout);
+        totalCount = children.length;
+        completedCount = children.filter(
+          (c) => c.status === 'closed' || c.status === 'cancelled'
+        ).length;
+      }
+
+      return {
+        name: epic.title,
+        description: epic.description,
+        content,
+        completedCount,
+        totalCount,
+      };
+    } catch {
+      return null;
     }
   }
 }

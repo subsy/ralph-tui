@@ -4,6 +4,9 @@
  * Supports configurable error handling strategies: retry, skip, abort.
  */
 
+import { mkdtemp, open, rm, type FileHandle } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   ActiveAgentState,
   ActiveAgentReason,
@@ -22,13 +25,20 @@ import type {
   IterationRateLimitedEvent,
   RateLimitState,
   SubagentTreeNode,
+  TaskAutoCommittedEvent,
+  TaskAutoCommitFailedEvent,
 } from './types.js';
 import { toEngineSubagentState } from './types.js';
 import type { RalphConfig, RateLimitHandlingConfig } from '../config/types.js';
 import { DEFAULT_RATE_LIMIT_HANDLING } from '../config/types.js';
 import { RateLimitDetector, type RateLimitDetectionResult } from './rate-limit-detector.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
-import type { AgentPlugin, AgentExecutionHandle } from '../plugins/agents/types.js';
+import type {
+  AgentPlugin,
+  AgentPluginConfig,
+  AgentExecutionHandle,
+  AgentExecutionResult,
+} from '../plugins/agents/types.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
 import { SubagentTraceParser } from '../plugins/agents/tracing/parser.js';
@@ -39,10 +49,18 @@ import {
   isOpenCodeTaskTool,
   openCodeTaskToClaudeMessages,
 } from '../plugins/agents/opencode/outputParser.js';
+import {
+  extractModelFromJsonObject,
+  extractTokenUsageFromJsonObject,
+  summarizeTokenUsageFromOutput,
+  TokenUsageAccumulator,
+} from '../plugins/agents/usage.js';
 import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
-import { saveIterationLog, buildSubagentTrace, createProgressEntry, appendProgress, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
+import { saveIterationLog, buildSubagentTrace, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
+import { performAutoCommit, renderCommitMessage } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
+import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
 
 /**
  * Pattern to detect completion signal in agent output
@@ -56,10 +74,95 @@ const PROMISE_COMPLETE_PATTERN = /<promise>\s*COMPLETE\s*<\/promise>/i;
 const PRIMARY_RECOVERY_TEST_TIMEOUT_MS = 5000;
 
 /**
+ * Maximum time to wait for an interrupted iteration to unwind.
+ */
+const ACTIVE_ITERATION_DRAIN_TIMEOUT_MS = 30000;
+
+/**
+ * Poll interval for verifying task resets after a timed-out drain.
+ */
+const TIMED_OUT_RESET_VERIFICATION_INTERVAL_MS = 500;
+
+/**
+ * Maximum time to verify task resets after a timed-out drain.
+ */
+const TIMED_OUT_RESET_VERIFICATION_TIMEOUT_MS = 5000;
+
+/**
+ * Maximum corrective writes for a task that remains in progress.
+ */
+const TIMED_OUT_RESET_MAX_CORRECTIVE_WRITES = 2;
+
+/**
  * Minimal test prompt for checking rate limit status.
  * Kept simple to minimize token usage and allow fast response.
  */
 const PRIMARY_RECOVERY_TEST_PROMPT = 'Reply with just the word "ok".';
+
+interface PendingUserAgentSwap {
+  agentConfig: AgentPluginConfig;
+  agent: AgentPlugin;
+  model: string | undefined;
+  rateLimitConfig: Required<RateLimitHandlingConfig>;
+  previousAgent: string;
+}
+
+/**
+ * Maximum characters kept for live stdout/stderr buffers in engine state.
+ * These buffers are for UI/remote progress display and should stay bounded.
+ */
+const MAX_ENGINE_LIVE_STREAM_CHARS = 250_000;
+
+/**
+ * Maximum characters kept per iteration in in-memory history.
+ * Full raw output is persisted to iteration logs on disk.
+ */
+const MAX_ITERATION_HISTORY_STREAM_CHARS = 100_000;
+
+/**
+ * Prefix used when trimming output retained in memory.
+ */
+const OUTPUT_TRUNCATED_PREFIX = '[...output truncated in memory...]\n';
+
+/**
+ * Append text to an in-memory buffer while enforcing a maximum size.
+ * Keeps the tail because completion markers and recent context are usually at the end.
+ */
+function appendWithCharLimit(
+  current: string,
+  chunk: string,
+  maxChars: number,
+  prefix = OUTPUT_TRUNCATED_PREFIX
+): string {
+  return appendWithSharedCharLimit(current, chunk, maxChars, prefix);
+}
+
+/**
+ * Create a memory-safe copy of an AgentExecutionResult for iteration history.
+ * Keeps disk logs complete while preventing in-memory iteration arrays from growing unbounded.
+ */
+function toMemorySafeAgentResult(agentResult: AgentExecutionResult): AgentExecutionResult {
+  const safeStdout = appendWithCharLimit(
+    '',
+    agentResult.stdout,
+    MAX_ITERATION_HISTORY_STREAM_CHARS
+  );
+  const safeStderr = appendWithCharLimit(
+    '',
+    agentResult.stderr,
+    MAX_ITERATION_HISTORY_STREAM_CHARS
+  );
+
+  if (safeStdout === agentResult.stdout && safeStderr === agentResult.stderr) {
+    return agentResult;
+  }
+
+  return {
+    ...agentResult,
+    stdout: safeStdout,
+    stderr: safeStderr,
+  };
+}
 
 /**
  * Build prompt for the agent based on task using the template system.
@@ -86,11 +189,19 @@ async function buildPrompt(
   // Get PRD context if the tracker supports it
   const prdContext = await tracker?.getPrdContext?.();
 
+  // Build selection reason from bv metadata (if present)
+  const bvReasons = task.metadata?.bvReasons;
+  const selectionReason =
+    Array.isArray(bvReasons) && bvReasons.length > 0
+      ? bvReasons.join('\n')
+      : undefined;
+
   // Build extended template context with PRD data and patterns
   const extendedContext = {
     recentProgress,
     codebasePatterns,
     prd: prdContext ?? undefined,
+    selectionReason,
   };
 
   // Use the template system (tracker template used if no custom/user override)
@@ -124,6 +235,26 @@ async function buildPrompt(
 }
 
 /**
+ * Options for initializing the engine in worker mode.
+ * Used by parallel workers to inject a pre-initialized tracker
+ * and force the engine to work on a specific task.
+ */
+export interface WorkerModeOptions {
+  /** Pre-initialized tracker plugin (avoids re-initializing in worktree) */
+  tracker: TrackerPlugin;
+  /** The specific task this engine should work on */
+  forcedTask: TrackerTask;
+}
+
+/**
+ * Options for initializing the engine in the normal session path.
+ */
+export interface EngineInitializeOptions {
+  /** Pre-initialized tracker plugin to use instead of resolving from registry */
+  tracker?: TrackerPlugin;
+}
+
+/**
  * Execution engine for the agent loop
  */
 export class ExecutionEngine {
@@ -134,6 +265,12 @@ export class ExecutionEngine {
   private state: EngineState;
   private currentExecution: AgentExecutionHandle | null = null;
   private shouldStop = false;
+  private activeIteration: Promise<IterationResult> | null = null;
+  private stopPromise: Promise<void> | null = null;
+  private drainTimedOut = false;
+  private activeIterationSettled = true;
+  private timedOutIteration: Promise<IterationResult> | null = null;
+  private watchingIdle = false;
   /** Track retry attempts per task */
   private retryCountMap: Map<string, number> = new Map();
   /** Track skipped tasks to avoid retrying them */
@@ -152,6 +289,14 @@ export class ExecutionEngine {
   private primaryAgentInstance: AgentPlugin | null = null;
   /** Track agent switches during the current iteration for logging */
   private currentIterationAgentSwitches: AgentSwitchEntry[] = [];
+  /** Agent switches to carry into the next iteration after its reset */
+  private nextIterationAgentSwitches: AgentSwitchEntry[] = [];
+  /** User-requested agent swap waiting for the active execution to finish */
+  private pendingUserAgentSwap: PendingUserAgentSwap | null = null;
+  /** Forced task for worker mode — engine only works on this one task */
+  private forcedTask: TrackerTask | null = null;
+  /** Track if the forced task has been processed (prevents infinite loop on skip/fail) */
+  private forcedTaskProcessed = false;
 
   constructor(config: RalphConfig) {
     this.config = config;
@@ -165,6 +310,7 @@ export class ExecutionEngine {
       startedAt: null,
       currentOutput: '',
       currentStderr: '',
+      currentModel: config.model,
       subagents: new Map(),
       activeAgent: null,
       rateLimitState: null,
@@ -188,9 +334,13 @@ export class ExecutionEngine {
   }
 
   /**
-   * Initialize the engine with plugins
+   * Initialize the engine with plugins.
+   *
+   * @param workerMode - Optional worker mode options for parallel execution.
+   *   When provided, the engine uses the injected tracker and works only on
+   *   the forced task, skipping tracker initialization and sync.
    */
-  async initialize(): Promise<void> {
+  async initialize(workerMode?: WorkerModeOptions, options?: EngineInitializeOptions): Promise<void> {
     // Get agent instance
     const agentRegistry = getAgentRegistry();
     this.agent = await agentRegistry.getInstance(this.config.agent);
@@ -227,16 +377,29 @@ export class ExecutionEngine {
       primaryAgent: this.config.agent.plugin,
     };
 
-    // Get tracker instance
-    const trackerRegistry = getTrackerRegistry();
-    this.tracker = await trackerRegistry.getInstance(this.config.tracker);
+    if (workerMode) {
+      // Worker mode: use injected tracker and forced task.
+      // This avoids re-initializing the tracker in a worktree directory
+      // where the beads/tracker data may not be accessible.
+      this.tracker = workerMode.tracker;
+      this.forcedTask = workerMode.forcedTask;
+      this.state.totalTasks = 1;
+    } else {
+      // Normal mode: initialize tracker from config
+      if (options?.tracker) {
+        this.tracker = options.tracker;
+      } else {
+        const trackerRegistry = getTrackerRegistry();
+        this.tracker = await trackerRegistry.getInstance(this.config.tracker);
+      }
 
-    // Sync tracker
-    await this.tracker.sync();
+      // Sync tracker
+      await this.tracker.sync();
 
-    // Get initial task count
-    const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress'] });
-    this.state.totalTasks = tasks.length;
+      // Get initial task count
+      const tasks = await this.tracker.getTasks({ status: ['open', 'in_progress'] });
+      this.state.totalTasks = tasks.length;
+    }
   }
 
   /**
@@ -303,6 +466,16 @@ export class ExecutionEngine {
       type: 'tasks:refreshed',
       timestamp: new Date().toISOString(),
       tasks,
+    });
+  }
+
+  private emitTaskRefreshWarning(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.emit({
+      type: 'engine:warning',
+      timestamp: new Date().toISOString(),
+      code: 'task-refresh-failed',
+      message: `Task refresh failed while watching: ${message}`,
     });
   }
 
@@ -375,6 +548,11 @@ export class ExecutionEngine {
     this.state.status = 'running';
     this.state.startedAt = new Date().toISOString();
     this.shouldStop = false;
+    this.stopPromise = null;
+    this.drainTimedOut = false;
+    this.activeIterationSettled = true;
+    this.timedOutIteration = null;
+    this.watchingIdle = false;
 
     // Fetch all tasks including completed for TUI display
     // Open/in_progress tasks are actionable; completed tasks are for historical view
@@ -441,6 +619,7 @@ export class ExecutionEngine {
           timestamp: new Date().toISOString(),
           fromIteration: this.state.currentIteration,
         });
+        this.watchingIdle = false;
       }
 
       // Attempt primary agent recovery at the start of each iteration
@@ -464,9 +643,40 @@ export class ExecutionEngine {
         break;
       }
 
-      // Check if all tasks complete
-      const isComplete = await this.tracker!.isComplete();
+      // Check if all tasks complete.
+      // In worker mode, check only the forced task (not the global tracker).
+      const isComplete = this.forcedTask
+        ? this.state.tasksCompleted >= 1
+        : await this.tracker!.isComplete();
       if (isComplete) {
+        if (this.config.watch && !this.forcedTask && !this.shouldStop) {
+          if (!this.watchingIdle) {
+            this.watchingIdle = true;
+            this.emit({
+              type: 'engine:waiting',
+              timestamp: new Date().toISOString(),
+              reason: 'completed',
+              pollIntervalMs: this.config.pollIntervalMs,
+            });
+          }
+          if (this.state.status === 'running') {
+            this.state.status = 'waiting';
+          }
+          await this.waitForPollInterval();
+          if (this.shouldStop) {
+            break;
+          }
+          if (this.getStatus() === 'pausing') {
+            continue;
+          }
+          try {
+            await this.refreshTasks();
+          } catch (error) {
+            this.emitTaskRefreshWarning(error);
+          }
+          continue;
+        }
+
         this.emit({
           type: 'all:complete',
           timestamp: new Date().toISOString(),
@@ -486,6 +696,34 @@ export class ExecutionEngine {
       // Get next task (excluding skipped tasks)
       const task = await this.getNextAvailableTask();
       if (!task) {
+        if (this.config.watch && !this.forcedTask && !this.shouldStop) {
+          if (!this.watchingIdle) {
+            this.watchingIdle = true;
+            this.emit({
+              type: 'engine:waiting',
+              timestamp: new Date().toISOString(),
+              reason: 'no_tasks',
+              pollIntervalMs: this.config.pollIntervalMs,
+            });
+          }
+          if (this.state.status === 'running') {
+            this.state.status = 'waiting';
+          }
+          await this.waitForPollInterval();
+          if (this.shouldStop) {
+            break;
+          }
+          if (this.getStatus() === 'pausing') {
+            continue;
+          }
+          try {
+            await this.refreshTasks();
+          } catch (error) {
+            this.emitTaskRefreshWarning(error);
+          }
+          continue;
+        }
+
         this.emit({
           type: 'engine:stopped',
           timestamp: new Date().toISOString(),
@@ -497,7 +735,20 @@ export class ExecutionEngine {
       }
 
       // Run iteration with error handling
-      const result = await this.runIterationWithErrorHandling(task);
+      this.watchingIdle = false;
+      if (this.state.status === 'waiting') {
+        this.state.status = 'running';
+      }
+      const iterationPromise = this.runIterationWithErrorHandling(task);
+      this.activeIteration = iterationPromise;
+      let result: IterationResult;
+      try {
+        result = await iterationPromise;
+      } finally {
+        if (this.activeIteration === iterationPromise) {
+          this.activeIteration = null;
+        }
+      }
 
       // Check if we should abort
       if (result.status === 'failed' && this.config.errorHandling.strategy === 'abort') {
@@ -529,19 +780,54 @@ export class ExecutionEngine {
    * Get the next available task, excluding skipped ones.
    * Delegates to the tracker's getNextTask() for proper dependency-aware ordering.
    * See: https://github.com/subsy/ralph-tui/issues/97
+   *
+   * In worker mode (forcedTask set), returns the forced task until it's completed,
+   * then returns null to stop the engine.
    */
   private async getNextAvailableTask(): Promise<TrackerTask | null> {
+    // Worker mode: return the forced task until it's been processed (completed, skipped, or failed)
+    if (this.forcedTask) {
+      if (this.state.tasksCompleted >= 1 || this.forcedTaskProcessed) {
+        return null; // Task was processed, stop the engine
+      }
+      return this.forcedTask;
+    }
+
+    // If filteredTaskIds is defined but empty, no tasks are allowed
+    if (this.config.filteredTaskIds && this.config.filteredTaskIds.length === 0) {
+      return null;
+    }
+
     // Convert skipped tasks Set to array for the filter
-    const excludeIds = Array.from(this.skippedTasks);
+    const excludeIds = new Set(this.skippedTasks);
 
-    // Delegate to tracker's getNextTask for dependency-aware ordering
-    // The tracker (e.g., beads) uses bd ready which properly handles dependencies
-    const task = await this.tracker!.getNextTask({
-      status: ['open', 'in_progress'],
-      excludeIds: excludeIds.length > 0 ? excludeIds : undefined,
-    });
+    // Loop to find an allowed task (respecting filteredTaskIds if set)
+    // Keep trying until we find a task in the allowed list or run out
+    while (true) {
+      // Delegate to tracker's getNextTask for dependency-aware ordering
+      // The tracker (e.g., beads) uses bd ready which properly handles dependencies
+      const task = await this.tracker!.getNextTask({
+        status: ['open', 'in_progress'],
+        excludeIds: excludeIds.size > 0 ? Array.from(excludeIds) : undefined,
+      });
 
-    return task ?? null;
+      // No more tasks available
+      if (!task) {
+        return null;
+      }
+
+      // Check if task is in the allowed list (if filtering is enabled)
+      if (this.config.filteredTaskIds && this.config.filteredTaskIds.length > 0) {
+        if (!this.config.filteredTaskIds.includes(task.id)) {
+          // Task is outside the allowed range, skip it and try again
+          excludeIds.add(task.id);
+          continue;
+        }
+      }
+
+      // Task is allowed
+      return task;
+    }
   }
 
   /**
@@ -618,6 +904,10 @@ export class ExecutionEngine {
           this.emitSkipEvent(task, skipReason);
           this.skippedTasks.add(task.id);
           this.retryCountMap.delete(task.id);
+          // Mark forced task as processed to prevent infinite loop
+          if (this.forcedTask?.id === task.id) {
+            this.forcedTaskProcessed = true;
+          }
         }
         break;
       }
@@ -634,6 +924,10 @@ export class ExecutionEngine {
         });
         this.emitSkipEvent(task, errorMessage);
         this.skippedTasks.add(task.id);
+        // Mark forced task as processed to prevent infinite loop
+        if (this.forcedTask?.id === task.id) {
+          this.forcedTaskProcessed = true;
+        }
         break;
       }
 
@@ -647,6 +941,10 @@ export class ExecutionEngine {
           task,
           action: 'abort',
         });
+        // Mark forced task as processed to prevent infinite loop
+        if (this.forcedTask?.id === task.id) {
+          this.forcedTaskProcessed = true;
+        }
         break;
       }
     }
@@ -771,7 +1069,8 @@ export class ExecutionEngine {
     this.subagentParser.reset();
 
     // Reset agent switch tracking for this iteration
-    this.currentIterationAgentSwitches = [];
+    this.currentIterationAgentSwitches = this.nextIterationAgentSwitches;
+    this.nextIterationAgentSwitches = [];
 
     const startedAt = new Date();
     const iteration = this.state.currentIteration;
@@ -790,17 +1089,17 @@ export class ExecutionEngine {
       iteration,
     });
 
-    // Update task status to in_progress
-    await this.tracker!.updateTaskStatus(task.id, 'in_progress');
-
-    // Emit task:activated for crash recovery tracking
-    // This allows the session to track which tasks it "owns" for reset on shutdown
+    // Record ownership before the status write so crash recovery can reset the
+    // task even if the write is interrupted.
     this.emit({
       type: 'task:activated',
       timestamp: new Date().toISOString(),
       task,
       iteration,
     });
+
+    // Update task status to in_progress
+    await this.tracker!.updateTaskStatus(task.id, 'in_progress');
 
     // Build prompt (includes recent progress context + tracker-owned template)
     const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined);
@@ -818,8 +1117,127 @@ export class ExecutionEngine {
     // For Claude and OpenCode, we use the onJsonlMessage callback which gets pre-parsed messages.
     const isDroidAgent = this.agent?.meta.id === 'droid';
     const droidJsonlParser = isDroidAgent ? createDroidStreamingJsonlParser() : null;
+    type RawStreamName = 'stdout' | 'stderr';
+    type RawOutputState = {
+      filePath?: string;
+      fileHandle?: FileHandle;
+      writeChain: Promise<void>;
+    };
+
+    let rawOutputTempDir: string | undefined;
+    const rawOutput: Record<RawStreamName, RawOutputState> = {
+      stdout: { writeChain: Promise.resolve() },
+      stderr: { writeChain: Promise.resolve() },
+    };
+    const iterationUsageAccumulator = new TokenUsageAccumulator();
+    const emitStreamingTelemetry = (message: Record<string, unknown>): void => {
+      const detectedModel = extractModelFromJsonObject(message);
+      if (detectedModel && detectedModel !== this.state.currentModel) {
+        this.state.currentModel = detectedModel;
+        this.emit({
+          type: 'agent:model',
+          timestamp: new Date().toISOString(),
+          taskId: task.id,
+          iteration,
+          model: detectedModel,
+        });
+      }
+
+      const usageSample = extractTokenUsageFromJsonObject(message);
+      if (usageSample) {
+        iterationUsageAccumulator.add(usageSample);
+        if (iterationUsageAccumulator.hasData()) {
+          this.emit({
+            type: 'agent:usage',
+            timestamp: new Date().toISOString(),
+            taskId: task.id,
+            iteration,
+            usage: iterationUsageAccumulator.getSummary(),
+          });
+        }
+      }
+    };
+
+    const closeRawOutputStream = async (stream: RawStreamName): Promise<void> => {
+      const streamState = rawOutput[stream];
+      if (!streamState.fileHandle) {
+        return;
+      }
+
+      try {
+        await streamState.fileHandle.close();
+      } catch {
+        // Ignore close errors for best-effort cleanup.
+      }
+
+      streamState.fileHandle = undefined;
+    };
+
+    const closeRawOutputFiles = async (): Promise<void> => {
+      await Promise.all([
+        closeRawOutputStream('stdout'),
+        closeRawOutputStream('stderr'),
+      ]);
+    };
+
+    const flushRawOutputWrites = async (): Promise<void> => {
+      await Promise.allSettled([
+        rawOutput.stdout.writeChain,
+        rawOutput.stderr.writeChain,
+      ]);
+    };
+
+    const appendRawChunk = (stream: RawStreamName, chunk: string): void => {
+      if (!chunk) {
+        return;
+      }
+
+      const streamState = rawOutput[stream];
+      if (!streamState.fileHandle) {
+        return;
+      }
+
+      streamState.writeChain = streamState.writeChain
+        .then(async () => {
+          if (!streamState.fileHandle) {
+            return;
+          }
+          await streamState.fileHandle.write(chunk, undefined, 'utf-8');
+        })
+        .catch(async () => {
+          // Disable only the failing stream and preserve the other stream if possible.
+          streamState.filePath = undefined;
+          await closeRawOutputStream(stream);
+        });
+    };
+
+    const initRawOutputStream = async (
+      stream: RawStreamName,
+      filename: string,
+    ): Promise<void> => {
+      if (!rawOutputTempDir) {
+        return;
+      }
+
+      const filePath = join(rawOutputTempDir, filename);
+      try {
+        rawOutput[stream].fileHandle = await open(filePath, 'w');
+        rawOutput[stream].filePath = filePath;
+      } catch {
+        rawOutput[stream].filePath = undefined;
+        await closeRawOutputStream(stream);
+      }
+    };
 
     try {
+      try {
+        rawOutputTempDir = await mkdtemp(join(tmpdir(), 'ralph-iter-'));
+        await initRawOutputStream('stdout', 'stdout.raw');
+        await initRawOutputStream('stderr', 'stderr.raw');
+      } catch {
+        rawOutputTempDir = undefined;
+      }
+
       // Execute agent with subagent tracing if supported
       const handle = this.agent!.execute(prompt, [], {
         cwd: this.config.cwd,
@@ -829,6 +1247,8 @@ export class ExecutionEngine {
         // Callback for pre-parsed JSONL messages (used by Claude and OpenCode plugins)
         // This receives raw JSON objects directly from the agent's parsed JSONL output.
         onJsonlMessage: (message: Record<string, unknown>) => {
+          emitStreamingTelemetry(message);
+
           // Check if this is OpenCode format (has 'part' with 'tool' property)
           const part = message.part as Record<string, unknown> | undefined;
           if (message.type === 'tool_use' && part?.tool) {
@@ -863,12 +1283,18 @@ export class ExecutionEngine {
           this.subagentParser.processMessage(claudeMessage);
         },
         onStdout: (data) => {
-          this.state.currentOutput += data;
+          this.state.currentOutput = appendWithCharLimit(
+            this.state.currentOutput,
+            data,
+            MAX_ENGINE_LIVE_STREAM_CHARS
+          );
+          appendRawChunk('stdout', data);
           this.emit({
             type: 'agent:output',
             timestamp: new Date().toISOString(),
             stream: 'stdout',
             data,
+            taskId: task.id,
             iteration,
           });
 
@@ -879,10 +1305,15 @@ export class ExecutionEngine {
             for (const result of results) {
               if (result.success) {
                 if (isDroidJsonlMessage(result.message)) {
+                  emitStreamingTelemetry(result.message.raw);
                   for (const normalized of toClaudeJsonlMessages(result.message)) {
                     this.subagentParser.processMessage(normalized);
                   }
                 } else {
+                  const parsed = result.message as unknown;
+                  if (typeof parsed === 'object' && parsed !== null) {
+                    emitStreamingTelemetry(parsed as Record<string, unknown>);
+                  }
                   this.subagentParser.processMessage(result.message);
                 }
               }
@@ -891,12 +1322,18 @@ export class ExecutionEngine {
 
         },
         onStderr: (data) => {
-          this.state.currentStderr += data;
+          this.state.currentStderr = appendWithCharLimit(
+            this.state.currentStderr,
+            data,
+            MAX_ENGINE_LIVE_STREAM_CHARS
+          );
+          appendRawChunk('stderr', data);
           this.emit({
             type: 'agent:output',
             timestamp: new Date().toISOString(),
             stream: 'stderr',
             data,
+            taskId: task.id,
             iteration,
           });
         },
@@ -914,15 +1351,23 @@ export class ExecutionEngine {
         for (const result of remaining) {
           if (result.success) {
             if (isDroidJsonlMessage(result.message)) {
+              emitStreamingTelemetry(result.message.raw);
               for (const normalized of toClaudeJsonlMessages(result.message)) {
                 this.subagentParser.processMessage(normalized);
               }
             } else {
+              const parsed = result.message as unknown;
+              if (typeof parsed === 'object' && parsed !== null) {
+                emitStreamingTelemetry(parsed as Record<string, unknown>);
+              }
               this.subagentParser.processMessage(result.message);
             }
           }
         }
       }
+
+      await flushRawOutputWrites();
+      await closeRawOutputFiles();
 
       // Check for rate limit condition before processing result
       const rateLimitResult = this.checkForRateLimit(
@@ -972,6 +1417,10 @@ export class ExecutionEngine {
 
           // Pause the engine - user intervention required
           this.pause();
+
+          // Reset per-task rate-limited tracking so future retries/resume attempts
+          // can re-evaluate all configured agents.
+          this.clearRateLimitedAgents();
         }
 
         // Return as failed with rate limit error
@@ -999,12 +1448,21 @@ export class ExecutionEngine {
       const promiseComplete = PROMISE_COMPLETE_PATTERN.test(agentResult.stdout);
 
       // Determine if task was completed
-      const taskCompleted =
-        promiseComplete || agentResult.status === 'completed';
+      // IMPORTANT: Only use the explicit <promise>COMPLETE</promise> signal.
+      // Exit code 0 alone does NOT indicate task completion - an agent may exit
+      // cleanly after asking clarification questions or hitting a blocker.
+      // See: https://github.com/subsy/ralph-tui/issues/259
+      const taskCompleted = promiseComplete;
 
       // Update tracker if task completed
+      // In worker mode (forcedTask set), skip tracker update — the ParallelExecutor
+      // will call completeTask after the merge succeeds. This avoids race conditions
+      // when multiple workers try to update the tracker concurrently.
+      // See: https://github.com/subsy/ralph-tui/issues/275
       if (taskCompleted) {
-        await this.tracker!.completeTask(task.id, 'Completed by agent');
+        if (!this.forcedTask) {
+          await this.tracker!.completeTask(task.id, 'Completed by agent');
+        }
         this.emit({
           type: 'task:completed',
           timestamp: new Date().toISOString(),
@@ -1017,11 +1475,29 @@ export class ExecutionEngine {
         this.clearRateLimitedAgents();
       }
 
+      // Auto-commit after task completion (before iteration log is saved)
+      if (taskCompleted && this.config.autoCommit) {
+        await this.handleAutoCommit(task, iteration);
+      }
+
+      // Refresh task list to pick up any new beads created by the agent.
+      // Skip in worker mode (forcedTask) since workers don't own the TUI.
+      if (taskCompleted && !this.forcedTask) {
+        try {
+          await this.refreshTasks();
+        } catch (error) {
+          console.warn(
+            `[tasks] Refresh failed after completion for task ${task.id}:`,
+            error
+          );
+        }
+      }
+
       // Determine iteration status
       let status: IterationStatus;
       if (agentResult.interrupted) {
         status = 'interrupted';
-      } else if (agentResult.status === 'failed') {
+      } else if (agentResult.status === 'failed' || agentResult.status === 'timeout') {
         status = 'failed';
       } else {
         status = 'completed';
@@ -1031,10 +1507,13 @@ export class ExecutionEngine {
         iteration,
         status,
         task,
-        agentResult,
+        agentResult: toMemorySafeAgentResult(agentResult),
         taskCompleted,
         promiseComplete,
         durationMs,
+        usage: iterationUsageAccumulator.hasData()
+          ? iterationUsageAccumulator.getSummary()
+          : summarizeTokenUsageFromOutput(agentResult.stdout),
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
       };
@@ -1050,21 +1529,18 @@ export class ExecutionEngine {
       const completionSummary = this.buildCompletionSummary(result);
 
       await saveIterationLog(this.config.cwd, result, agentResult.stdout, agentResult.stderr ?? this.state.currentStderr, {
-        config: this.config,
+        config: {
+          ...this.config,
+          model: this.state.currentModel ?? this.config.model,
+        },
+        sessionId: this.config.sessionId,
         subagentTrace,
         agentSwitches: this.currentIterationAgentSwitches.length > 0 ? [...this.currentIterationAgentSwitches] : undefined,
         completionSummary,
         sandboxConfig: this.config.sandbox,
+        rawStdoutFilePath: rawOutput.stdout.filePath,
+        rawStderrFilePath: rawOutput.stderr.filePath,
       });
-
-      // Append progress entry for cross-iteration context
-      // This provides agents with history of what's been done
-      try {
-        const progressEntry = createProgressEntry(result);
-        await appendProgress(this.config.cwd, progressEntry);
-      } catch {
-        // Don't fail iteration if progress append fails
-      }
 
       this.emit({
         type: 'iteration:completed',
@@ -1094,30 +1570,83 @@ export class ExecutionEngine {
         endedAt: endedAt.toISOString(),
       };
 
-      // Append progress entry for failed iterations too
-      try {
-        const progressEntry = createProgressEntry(failedResult);
-        await appendProgress(this.config.cwd, progressEntry);
-      } catch {
-        // Don't fail iteration if progress append fails
-      }
-
       return failedResult;
     } finally {
+      await flushRawOutputWrites();
+      await closeRawOutputFiles();
+      if (rawOutputTempDir) {
+        await rm(rawOutputTempDir, { recursive: true, force: true }).catch(() => {
+          // Ignore cleanup errors for temporary files
+        });
+      }
+      this.currentExecution = null;
+      this.applyPendingUserAgentSwap();
       this.state.currentTask = null;
     }
   }
 
   /**
-   * Stop the execution loop
+   * Wait for the active iteration to finish, up to the supplied timeout.
    */
-  async stop(): Promise<void> {
+  async waitForActiveIteration(timeoutMs = ACTIVE_ITERATION_DRAIN_TIMEOUT_MS): Promise<boolean> {
+    const activeIteration = this.activeIteration;
+    if (!activeIteration) {
+      return true;
+    }
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(false), timeoutMs);
+    });
+
+    try {
+      return await Promise.race([
+        activeIteration.then(
+          () => true,
+          () => true
+        ),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
+  /**
+   * Stop the execution loop.
+   */
+  async stop(timeoutMs = ACTIVE_ITERATION_DRAIN_TIMEOUT_MS): Promise<void> {
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+
+    this.stopPromise = this.stopInternal(timeoutMs);
+    return this.stopPromise;
+  }
+
+  private async stopInternal(timeoutMs: number): Promise<void> {
     this.shouldStop = true;
     this.state.status = 'stopping';
 
     // Interrupt current execution if any
     if (this.currentExecution) {
       this.currentExecution.interrupt();
+    }
+
+    const activeIteration = this.activeIteration;
+    this.drainTimedOut = !(await this.waitForActiveIteration(timeoutMs));
+    if (this.drainTimedOut && activeIteration) {
+      this.activeIterationSettled = false;
+      this.timedOutIteration = activeIteration;
+      void activeIteration
+        .finally(() => {
+          if (this.timedOutIteration === activeIteration) {
+            this.activeIterationSettled = true;
+          }
+        })
+        .catch(() => {});
     }
 
     // Update session status
@@ -1137,7 +1666,7 @@ export class ExecutionEngine {
    * If already pausing or paused, this is a no-op.
    */
   pause(): void {
-    if (this.state.status !== 'running') {
+    if (this.state.status !== 'running' && this.state.status !== 'waiting') {
       return;
     }
 
@@ -1267,6 +1796,14 @@ export class ExecutionEngine {
   }
 
   /**
+   * Update the autoCommit setting at runtime.
+   * Allows the TUI settings view to toggle auto-commit without restarting.
+   */
+  setAutoCommit(value: boolean): void {
+    this.config.autoCommit = value;
+  }
+
+  /**
    * Continue execution after adding more iterations.
    * Call this after addIterations() returns true.
    */
@@ -1281,6 +1818,11 @@ export class ExecutionEngine {
 
     this.state.status = 'running';
     this.shouldStop = false;
+    this.stopPromise = null;
+    this.drainTimedOut = false;
+    this.activeIterationSettled = true;
+    this.timedOutIteration = null;
+    this.watchingIdle = false;
 
     // Emit resumed event
     this.emit({
@@ -1312,6 +1854,18 @@ export class ExecutionEngine {
    */
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Wait for the configured watch interval without blocking shutdown.
+   */
+  private async waitForPollInterval(): Promise<void> {
+    let remainingMs = this.config.pollIntervalMs;
+    while (remainingMs > 0 && !this.shouldStop && this.state.status !== 'pausing') {
+      const delayMs = Math.min(100, remainingMs);
+      await this.delay(delayMs);
+      remainingMs -= delayMs;
+    }
   }
 
   /**
@@ -1351,23 +1905,129 @@ export class ExecutionEngine {
    * @param taskIds - Array of task IDs to reset to open
    * @returns Number of tasks successfully reset
    */
-  async resetTasksToOpen(taskIds: string[]): Promise<number> {
+  async resetTasksToOpen(
+    taskIds: string[],
+    verificationOptions: {
+      intervalMs?: number;
+      timeoutMs?: number;
+    } = {}
+  ): Promise<number> {
     if (!this.tracker || taskIds.length === 0) {
       return 0;
     }
 
     let resetCount = 0;
+    const verificationTaskIds: string[] = [];
     for (const taskId of taskIds) {
       try {
         await this.tracker.updateTaskStatus(taskId, 'open');
         resetCount++;
+        if (this.drainTimedOut) {
+          verificationTaskIds.push(taskId);
+        }
       } catch {
         // Silently continue on individual task reset failures
         // The task may have been deleted or modified externally
       }
     }
 
+    await Promise.all(
+      verificationTaskIds.map((taskId) =>
+        this.verifyTimedOutTaskReset(taskId, verificationOptions)
+      )
+    );
+
     return resetCount;
+  }
+
+  private async verifyTimedOutTaskReset(
+    taskId: string,
+    options: {
+      intervalMs?: number;
+      timeoutMs?: number;
+    }
+  ): Promise<void> {
+    const intervalMs =
+      options.intervalMs ?? TIMED_OUT_RESET_VERIFICATION_INTERVAL_MS;
+    const timeoutMs =
+      options.timeoutMs ?? TIMED_OUT_RESET_VERIFICATION_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    let correctiveWrites = 0;
+    let confirmationPending = false;
+
+    while (Date.now() < deadline) {
+      const remainingMs = deadline - Date.now();
+      await this.delay(Math.min(intervalMs, remainingMs));
+
+      let task: TrackerTask | undefined;
+      try {
+        task = await this.tracker!.getTask(taskId);
+      } catch {
+        return;
+      }
+
+      if (!task) {
+        return;
+      }
+
+      if (task.status !== 'in_progress') {
+        if (confirmationPending) {
+          this.emit({
+            type: 'engine:warning',
+            timestamp: new Date().toISOString(),
+            code: 'task-reset-race',
+            message: `Task '${taskId}' was restored to open after a late in-progress update`,
+          });
+          confirmationPending = false;
+        }
+        if (this.activeIterationSettled) {
+          return;
+        }
+        continue;
+      }
+
+      if (correctiveWrites >= TIMED_OUT_RESET_MAX_CORRECTIVE_WRITES) {
+        this.emit({
+          type: 'engine:warning',
+          timestamp: new Date().toISOString(),
+          code: 'task-reset-race',
+          message: `Task '${taskId}' could not be returned to open after a late in-progress update; it may be owned by another process`,
+        });
+        return;
+      }
+
+      try {
+        const result = await this.tracker!.updateTaskStatus(taskId, 'open');
+        if (result === undefined) {
+          this.emit({
+            type: 'engine:warning',
+            timestamp: new Date().toISOString(),
+            code: 'task-reset-race',
+            message: `Task '${taskId}' could not be returned to open after a late in-progress update; the corrective update failed and it may be owned by another process`,
+          });
+          return;
+        }
+        correctiveWrites++;
+        confirmationPending = true;
+      } catch {
+        this.emit({
+          type: 'engine:warning',
+          timestamp: new Date().toISOString(),
+          code: 'task-reset-race',
+          message: `Task '${taskId}' could not be returned to open after a late in-progress update; the corrective update failed and it may be owned by another process`,
+        });
+        return;
+      }
+    }
+
+    if (confirmationPending) {
+      this.emit({
+        type: 'engine:warning',
+        timestamp: new Date().toISOString(),
+        code: 'task-reset-race',
+        message: `Task '${taskId}' could not be returned to open after a late in-progress update; verification expired before the corrective update was confirmed and it may be owned by another process`,
+      });
+    }
   }
 
   /**
@@ -1517,10 +2177,16 @@ export class ExecutionEngine {
    * Updates state, emits agent:switched event, and persists across iterations.
    *
    * @param newAgentPlugin - Plugin identifier of the agent to switch to
-   * @param reason - Why the switch is happening (primary recovery or fallback)
+   * @param reason - Why the switch is happening
    */
-  private switchAgent(newAgentPlugin: string, reason: ActiveAgentReason): void {
-    const previousAgent = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+  private switchAgent(
+    newAgentPlugin: string,
+    reason: ActiveAgentReason,
+    previousAgentOverride?: string,
+    recordForNextIteration = false
+  ): void {
+    const previousAgent =
+      previousAgentOverride ?? this.state.activeAgent?.plugin ?? this.config.agent.plugin;
     const now = new Date().toISOString();
 
     // Update active agent state
@@ -1543,6 +2209,10 @@ export class ExecutionEngine {
         primaryAgent: this.state.rateLimitState.primaryAgent,
         // Clear limitedAt and fallbackAgent on recovery
       };
+    } else if (reason === 'user-selected') {
+      this.state.rateLimitState = {
+        primaryAgent: newAgentPlugin,
+      };
     }
 
     // Record the agent switch for iteration logging
@@ -1552,14 +2222,18 @@ export class ExecutionEngine {
       to: newAgentPlugin,
       reason,
     };
-    this.currentIterationAgentSwitches.push(switchEntry);
+    if (recordForNextIteration) {
+      this.nextIterationAgentSwitches.push(switchEntry);
+    } else {
+      this.currentIterationAgentSwitches.push(switchEntry);
+    }
 
     // Log the switch to console for visibility
     if (reason === 'fallback') {
       console.log(
         `[agent-switch] Switching to fallback: ${previousAgent} → ${newAgentPlugin} (rate limit)`
       );
-    } else {
+    } else if (reason === 'primary') {
       // Calculate duration on fallback for recovery logging
       let durationOnFallback = '';
       if (this.state.rateLimitState?.limitedAt) {
@@ -1576,6 +2250,10 @@ export class ExecutionEngine {
       }
       console.log(
         `[agent-switch] Recovering to primary: ${previousAgent} → ${newAgentPlugin}${durationOnFallback}`
+      );
+    } else {
+      console.log(
+        `[agent-switch] User selected agent: ${previousAgent} → ${newAgentPlugin}`
       );
     }
 
@@ -1738,6 +2416,89 @@ export class ExecutionEngine {
   }
 
   /**
+   * Switch to a user-selected agent for subsequent iterations.
+   * Validates availability and model compatibility before mutating engine state.
+   *
+   * @param agentConfig - Agent configuration to activate
+   * @param model - Optional model override; undefined clears the runtime model override
+   */
+  async switchToUserAgent(
+    agentConfig: AgentPluginConfig,
+    model: string | undefined
+  ): Promise<void> {
+    const normalizedModel = model?.trim() ? model.trim() : undefined;
+
+    const agentRegistry = getAgentRegistry();
+    const newInstance = await agentRegistry.getInstance(agentConfig);
+
+    const detectResult = await newInstance.detect();
+    if (!detectResult.available) {
+      throw new Error(
+        `Agent '${agentConfig.plugin}' not available: ${detectResult.error ?? 'detection failed'}`
+      );
+    }
+
+    if (normalizedModel !== undefined) {
+      const modelError = newInstance.validateModel(normalizedModel);
+      if (modelError) {
+        throw new Error(modelError);
+      }
+    }
+
+    const previousAgent = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+    const swap: PendingUserAgentSwap = {
+      agentConfig,
+      agent: newInstance,
+      model: normalizedModel,
+      rateLimitConfig: {
+        ...DEFAULT_RATE_LIMIT_HANDLING,
+        ...agentConfig.rateLimitHandling,
+      },
+      previousAgent,
+    };
+
+    if (this.currentExecution || this.state.currentTask) {
+      this.pendingUserAgentSwap = swap;
+      return;
+    }
+
+    this.applyUserAgentSwap(swap, true);
+  }
+
+  private applyUserAgentSwap(
+    swap: PendingUserAgentSwap,
+    recordForNextIteration: boolean
+  ): void {
+    this.config.agent = {
+      ...swap.agentConfig,
+      options: { ...swap.agentConfig.options },
+    };
+    this.config.model = swap.model;
+    this.rateLimitConfig = swap.rateLimitConfig;
+    this.agent = swap.agent;
+    this.primaryAgentInstance = swap.agent;
+    this.rateLimitedAgents.clear();
+    this.state.currentModel = swap.model;
+
+    this.switchAgent(
+      swap.agentConfig.plugin,
+      'user-selected',
+      swap.previousAgent,
+      recordForNextIteration
+    );
+  }
+
+  private applyPendingUserAgentSwap(): void {
+    if (!this.pendingUserAgentSwap) {
+      return;
+    }
+
+    const swap = this.pendingUserAgentSwap;
+    this.pendingUserAgentSwap = null;
+    this.applyUserAgentSwap(swap, true);
+  }
+
+  /**
    * Get the next available fallback agent that hasn't been rate-limited.
    * Returns undefined if no fallback agents are configured or all are rate-limited.
    */
@@ -1860,6 +2621,10 @@ export class ExecutionEngine {
       return `${statusWord} on primary (${currentAgent}) after recovery`;
     }
 
+    if (lastSwitch && lastSwitch.reason === 'user-selected') {
+      return `${statusWord} on user-selected agent (${currentAgent})`;
+    }
+
     // Generic summary for other cases
     return `${statusWord} with ${this.currentIterationAgentSwitches.length} agent switch(es)`;
   }
@@ -1873,6 +2638,62 @@ export class ExecutionEngine {
   }
 
   /**
+   * Perform auto-commit after successful task completion.
+   * Emits task:auto-committed on success, task:auto-commit-failed on error.
+   * Failures never halt engine execution.
+   */
+  private async handleAutoCommit(task: TrackerTask, iteration: number): Promise<void> {
+    try {
+      const rendered = renderCommitMessage(this.config.commitMessageTemplate, {
+        taskId: task.id,
+        taskTitle: task.title,
+        taskType: task.type,
+      });
+      if (rendered.usedFallback) {
+        console.warn(
+          `[auto-commit] commitMessageTemplate fell back to the default for task ${task.id}: ${rendered.fallbackReason}`
+        );
+      }
+      const result = await performAutoCommit(this.config.cwd, rendered.message);
+      if (result.committed) {
+        this.emit({
+          type: 'task:auto-committed',
+          timestamp: new Date().toISOString(),
+          task,
+          iteration,
+          commitMessage: result.commitMessage!,
+          commitSha: result.commitSha,
+          templateFallbackReason: rendered.usedFallback ? rendered.fallbackReason : undefined,
+        });
+      } else if (result.error) {
+        this.emit({
+          type: 'task:auto-commit-failed',
+          timestamp: new Date().toISOString(),
+          task,
+          iteration,
+          error: result.error,
+        });
+      } else if (result.skipReason) {
+        this.emit({
+          type: 'task:auto-commit-skipped',
+          timestamp: new Date().toISOString(),
+          task,
+          iteration,
+          reason: result.skipReason,
+        });
+      }
+    } catch (err) {
+      this.emit({
+        type: 'task:auto-commit-failed',
+        timestamp: new Date().toISOString(),
+        task,
+        iteration,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
    * Dispose of engine resources
    */
   async dispose(): Promise<void> {
@@ -1880,6 +2701,15 @@ export class ExecutionEngine {
     this.listeners = [];
   }
 }
+
+/**
+ * Test-only exports for internal memory helpers.
+ * Do not use from production code.
+ */
+export const __test__ = {
+  appendWithCharLimit,
+  toMemorySafeAgentResult,
+};
 
 // Re-export types
 export type {
@@ -1898,6 +2728,8 @@ export type {
   IterationRateLimitedEvent,
   IterationResult,
   IterationStatus,
+  TaskAutoCommittedEvent,
+  TaskAutoCommitFailedEvent,
   RateLimitState,
   SubagentTreeNode,
 };

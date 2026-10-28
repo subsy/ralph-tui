@@ -300,7 +300,7 @@ For UI stories, also include:
 **Output prd.json:**
 ```json
 {
-  "project": "my-app",
+  "name": "Task Priority System",
   "branchName": "ralph/task-priority",
   "description": "Add priority levels to tasks",
   "userStories": [

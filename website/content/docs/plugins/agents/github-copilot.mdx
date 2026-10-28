@@ -1,0 +1,191 @@
+---
+title: GitHub Copilot
+description: Integrate GitHub Copilot CLI with Ralph TUI for AI-assisted coding.
+---
+
+## GitHub Copilot
+
+The GitHub Copilot agent plugin integrates with GitHub's `copilot` CLI to execute AI coding tasks. It supports model selection and auto-approve mode for autonomous operation.
+
+<Callout type="tip">
+GitHub Copilot leverages your GitHub account and subscription for AI-powered code assistance directly from the command line.
+</Callout>
+
+## Prerequisites
+
+```bash
+# Install Copilot CLI
+brew install copilot-cli
+# Or: npm install -g @github/copilot
+# Or: winget install GitHub.Copilot (Windows)
+# Or: curl -fsSL https://gh.io/copilot-install | bash
+
+# (Optional) Install GitHub CLI for authentication
+# See: https://github.com/cli/cli
+```
+
+Verify installation:
+
+```bash
+copilot --version
+```
+
+Ensure you have an active GitHub Copilot subscription (Individual, Business, or Enterprise).
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with GitHub Copilot">
+    Use the `--agent github-copilot` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent github-copilot
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent github-copilot --model gpt-4
+    ```
+  </Step>
+
+  <Step title="Configure Auto-Approve">
+    Enable auto-approve in config:
+
+    ```toml
+    [agentOptions]
+    autoApprove = true
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "github-copilot"
+
+[agentOptions]
+model = "gpt-4"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-copilot"
+plugin = "github-copilot"
+default = true
+command = "copilot"
+timeout = 300000
+
+[agents.options]
+model = "gpt-4"
+autoApprove = true
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | Model to use (e.g., `gpt-4`, `gpt-3.5-turbo`) |
+| `autoApprove` | boolean | `true` | Auto-approve operations for autonomous execution |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"copilot"` | Path to Copilot CLI executable |
+
+## Auto-Approve Mode
+
+When `autoApprove` is enabled (default), GitHub Copilot will execute operations without prompting for confirmation. This is required for Ralph TUI's autonomous operation.
+
+```toml
+[agentOptions]
+autoApprove = true
+```
+
+<Callout type="warning">
+With `autoApprove` enabled, Copilot will make changes without confirmation. Review your PRD carefully before running.
+</Callout>
+
+## How It Works
+
+When Ralph TUI executes a task with GitHub Copilot:
+
+1. **Build command**: Constructs `copilot [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+copilot \
+  --yolo \                   # When autoApprove enabled (default)
+  --model gpt-4 \            # If model specified
+  < prompt.txt               # Prompt via stdin
+```
+
+## Troubleshooting
+
+### "GitHub Copilot CLI not found"
+
+Ensure Copilot is installed and in your PATH:
+
+```bash
+which copilot
+# Should output: /path/to/copilot
+
+# If not found, install Copilot CLI:
+brew install copilot-cli
+# Or: npm install -g `@github/copilot`
+# Or: curl -fsSL https://gh.io/copilot-install | bash
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "github-copilot"
+plugin = "github-copilot"
+timeout = 600000  # 10 minutes
+```
+
+### "Authentication failed"
+
+Authenticate with GitHub Copilot using one of the following methods:
+
+**Method 1: Interactive Login**
+
+Run the `copilot` command and use the `/login` command at the prompt:
+
+```bash
+copilot
+# In the prompt, type: /login
+```
+
+**Method 2: Non-Interactive (Token)**
+
+Set `GH_TOKEN` or `GITHUB_TOKEN` to a fine-grained Personal Access Token (PAT) that includes the "Copilot Requests" permission:
+
+```bash
+export GH_TOKEN="your_fine_grained_pat"
+# Or: export GITHUB_TOKEN="your_fine_grained_pat"
+```
+
+## Next Steps
+
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Cursor Agent](/docs/plugins/agents/cursor)** - Cursor Agent CLI
+- **[Gemini Agent](/docs/plugins/agents/gemini)** - Google's Gemini CLI
+- **[Configuration](/docs/configuration/options)** - Full options reference

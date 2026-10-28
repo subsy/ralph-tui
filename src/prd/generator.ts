@@ -287,8 +287,10 @@ export function renderPrdMarkdown(prd: GeneratedPrd): string {
 
 /**
  * Convert PRD to prd.json format for the JSON tracker.
+ * @param prd - The generated PRD to convert
+ * @param sourcePrd - Optional path to the source PRD markdown file (relative to JSON output)
  */
-export function convertToPrdJson(prd: GeneratedPrd): object {
+export function convertToPrdJson(prd: GeneratedPrd, sourcePrd?: string): object {
   return {
     name: prd.name,
     description: prd.description,
@@ -306,6 +308,7 @@ export function convertToPrdJson(prd: GeneratedPrd): object {
     metadata: {
       createdAt: prd.createdAt,
       version: '1.0.0',
+      ...(sourcePrd && { sourcePrd }),
     },
   };
 }

@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import type {
   AuthMessage,
   AuthResponseMessage,
+  InterruptMessage,
   PongMessage,
   ErrorMessage,
   StateResponseMessage,
@@ -27,8 +28,11 @@ import type {
   CheckConfigResponseMessage,
   PushConfigMessage,
   PushConfigResponseMessage,
+  OrchestrateStartMessage,
+  OrchestrateStartResponseMessage,
   RemoteEngineState,
 } from '../../src/remote/types.js';
+import type { ExecutionEngine } from '../../src/engine/index.js';
 import { TOKEN_LIFETIMES, DEFAULT_LISTEN_OPTIONS } from '../../src/remote/types.js';
 
 // ============================================================================
@@ -295,6 +299,55 @@ describe('RemoteClient', () => {
     });
   });
 
+  describe('Orchestration', () => {
+    test('sends multiple epic IDs in start payload', async () => {
+      const { RemoteClient } = await import('../../src/remote/client.js');
+
+      const client = new RemoteClient('localhost', 7890, 'test-token', () => {});
+      const connectPromise = client.connect();
+      mockWebSocket.onopen?.();
+
+      const authCall = (mockWebSocket.send as ReturnType<typeof mock>).mock.calls[0];
+      const authMessage = JSON.parse(authCall[0] as string) as AuthMessage;
+      const authResponse: AuthResponseMessage = {
+        type: 'auth_response',
+        id: authMessage.id,
+        timestamp: new Date().toISOString(),
+        success: true,
+      };
+      mockWebSocket.onmessage?.({ data: JSON.stringify(authResponse) });
+      await connectPromise;
+
+      const startPromise = client.startOrchestration({
+        epicIds: ['ui-epic', 'backend-epic'],
+        maxWorkers: 2,
+      });
+      const startCall = (mockWebSocket.send as ReturnType<typeof mock>).mock.calls[1];
+      const startMessage = JSON.parse(startCall[0] as string) as OrchestrateStartMessage;
+
+      expect(startMessage.type).toBe('orchestrate:start');
+      expect(startMessage.epicIds).toEqual(['ui-epic', 'backend-epic']);
+      expect(startMessage.maxWorkers).toBe(2);
+
+      const startResponse: OrchestrateStartResponseMessage = {
+        type: 'orchestrate:start_response',
+        id: startMessage.id,
+        timestamp: new Date().toISOString(),
+        success: true,
+        orchestrationId: 'orch-test',
+        totalTasks: 2,
+        totalGroups: 1,
+        maxParallelism: 2,
+      };
+      mockWebSocket.onmessage?.({ data: JSON.stringify(startResponse) });
+
+      await expect(startPromise).resolves.toMatchObject({
+        success: true,
+        orchestrationId: 'orch-test',
+      });
+    });
+  });
+
   describe('Disconnect', () => {
     test('intentional disconnect does not trigger reconnect', async () => {
       const { RemoteClient } = await import('../../src/remote/client.js');
@@ -385,6 +438,72 @@ describe('RemoteServer', () => {
         expect(typeof type).toBe('string');
         expect(type.length).toBeGreaterThan(0);
       });
+    });
+  });
+
+  describe('Interrupt Handling', () => {
+    test('resets the active task to open after interrupt succeeds', async () => {
+      const { RemoteServer } = await import('../../src/remote/server.js');
+
+      let currentTask: {
+        id: string;
+        title: string;
+        status: 'in_progress';
+      } | null = {
+        id: 'task-123',
+        title: 'Task 123',
+        status: 'in_progress',
+      };
+      const stop = mock(async () => {
+        currentTask = null;
+      });
+      const resetTasksToOpen = mock(() => Promise.resolve(1));
+      const on = mock(() => () => {});
+      const mockEngine = {
+        on,
+        stop,
+        resetTasksToOpen,
+        getState: () => ({
+          currentTask,
+        }),
+      };
+
+      const server = new RemoteServer({
+        port: 7890,
+        hasToken: false,
+        engine: mockEngine as unknown as ExecutionEngine,
+      });
+
+      const ws = {
+        send: mock(() => {}),
+      };
+
+      const message: InterruptMessage = {
+        type: 'interrupt',
+        id: 'interrupt-1',
+        timestamp: new Date().toISOString(),
+      };
+
+      (server as unknown as {
+        handleInterrupt: (
+          ws: unknown,
+          message: InterruptMessage
+        ) => void;
+      }).handleInterrupt(ws, message);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(on).toHaveBeenCalledTimes(1);
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(resetTasksToOpen).toHaveBeenCalledWith(['task-123']);
+
+      const calls = (ws.send as ReturnType<typeof mock>).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const response = JSON.parse(calls[calls.length - 1][0] as string) as OperationResultMessage;
+      expect(response.type).toBe('operation_result');
+      expect(response.operation).toBe('interrupt');
+      expect(response.success).toBe(true);
+      expect(response.id).toBe('interrupt-1');
     });
   });
 });
@@ -582,6 +701,51 @@ describe('InstanceManager', () => {
       expect(DEFAULT_RECONNECT_CONFIG.backoffMultiplier).toBe(2);
       expect(DEFAULT_RECONNECT_CONFIG.maxRetries).toBe(10);
       expect(DEFAULT_RECONNECT_CONFIG.silentRetryThreshold).toBe(3);
+    });
+  });
+
+  describe('Remote-only mode', () => {
+    test('default constructor leaves remoteOnly false and adds local tab on init', async () => {
+      const { InstanceManager } = await import('../../src/remote/instance-manager.js');
+      const manager = new InstanceManager();
+      expect(manager.isRemoteOnly()).toBe(false);
+
+      await manager.initialize();
+      const tabs = manager.getTabs();
+      expect(tabs.some((t) => t.isLocal)).toBe(true);
+      expect(tabs[0]?.isLocal).toBe(true);
+    });
+
+    test('remoteOnly: true skips the local tab', async () => {
+      const { InstanceManager } = await import('../../src/remote/instance-manager.js');
+      const manager = new InstanceManager({ remoteOnly: true });
+      expect(manager.isRemoteOnly()).toBe(true);
+
+      await manager.initialize();
+      const tabs = manager.getTabs();
+      expect(tabs.some((t) => t.isLocal)).toBe(false);
+    });
+
+    test('navigation helpers are safe with zero tabs', async () => {
+      const { InstanceManager } = await import('../../src/remote/instance-manager.js');
+      // Skip initialize() so we don't pull in real remotes from the dev/CI
+      // environment — the construction-time tab list is empty, which is what
+      // we want to validate (matches the remote-only + zero-remotes runtime case).
+      const manager = new InstanceManager({ remoteOnly: true });
+
+      expect(manager.getTabs()).toHaveLength(0);
+      const initialIndex = manager.getSelectedIndex();
+
+      // None of these should throw or move the selected index off the rails.
+      await expect(manager.selectNextTab()).resolves.toBeUndefined();
+      await expect(manager.selectPreviousTab()).resolves.toBeUndefined();
+      await expect(manager.selectTab(Number.NaN)).resolves.toBeUndefined();
+      await expect(manager.selectTab(-1)).resolves.toBeUndefined();
+      await expect(manager.selectTab(10)).resolves.toBeUndefined();
+      await expect(manager.selectTab(1.5)).resolves.toBeUndefined();
+
+      expect(manager.getSelectedIndex()).toBe(initialIndex);
+      expect(manager.getSelectedTab()).toBeUndefined();
     });
   });
 

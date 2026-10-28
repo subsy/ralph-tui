@@ -3,9 +3,12 @@
  * Defines the structure of configuration files and runtime options.
  */
 
-import type { AgentPluginConfig } from '../plugins/agents/types.js';
-import type { TrackerPluginConfig } from '../plugins/trackers/types.js';
-import type { ErrorHandlingConfig, ErrorHandlingStrategy } from '../engine/types.js';
+import type { AgentPluginConfig } from "../plugins/agents/types.js";
+import type { TrackerPluginConfig } from "../plugins/trackers/types.js";
+import type {
+  ErrorHandlingConfig,
+  ErrorHandlingStrategy,
+} from "../engine/types.js";
 
 /**
  * Rate limit handling configuration for agents.
@@ -42,7 +45,7 @@ export const DEFAULT_RATE_LIMIT_HANDLING: Required<RateLimitHandlingConfig> = {
  * - 'moderate': Show events + description + duration
  * - 'full': Show events + nested output + hierarchy panel
  */
-export type SubagentDetailLevel = 'off' | 'minimal' | 'moderate' | 'full';
+export type SubagentDetailLevel = "off" | "minimal" | "moderate" | "full";
 
 /**
  * Sound mode for notifications.
@@ -50,7 +53,7 @@ export type SubagentDetailLevel = 'off' | 'minimal' | 'moderate' | 'full';
  * - 'system': Use OS default notification sound
  * - 'ralph': Play random Ralph Wiggum sound clips
  */
-export type NotificationSoundMode = 'off' | 'system' | 'ralph';
+export type NotificationSoundMode = "off" | "system" | "ralph";
 
 /**
  * Notifications configuration for desktop notifications.
@@ -62,7 +65,42 @@ export interface NotificationsConfig {
   sound?: NotificationSoundMode;
 }
 
-export type SandboxMode = 'auto' | 'bwrap' | 'sandbox-exec' | 'off';
+/**
+ * Image cleanup policy for attached images.
+ * - 'on_exit': Clean up images when ralph-tui exits (default)
+ * - 'manual': Keep images until manually deleted
+ * - 'never': Never clean up images automatically
+ */
+export type ImageCleanupPolicy = "on_exit" | "manual" | "never";
+
+/**
+ * Image attachment configuration.
+ */
+export interface ImageConfig {
+  /** Whether image attachments are enabled (default: true) */
+  enabled?: boolean;
+  /** Cleanup policy for attached images (default: 'on_exit') */
+  cleanup_policy?: ImageCleanupPolicy;
+  /** Skip confirmation prompt when cleaning up images (default: false) */
+  skip_cleanup_confirmation?: boolean;
+  /** Maximum images allowed per message (default: 10, 0 = unlimited) */
+  max_images_per_message?: number;
+  /** Show hint about image paste on first text paste of session (default: true) */
+  show_paste_hints?: boolean;
+}
+
+/**
+ * Default image configuration
+ */
+export const DEFAULT_IMAGE_CONFIG: Required<ImageConfig> = {
+  enabled: true,
+  cleanup_policy: "on_exit",
+  skip_cleanup_confirmation: false,
+  max_images_per_message: 10,
+  show_paste_hints: true,
+};
+
+export type SandboxMode = "auto" | "bwrap" | "sandbox-exec" | "off";
 
 export interface SandboxConfig {
   enabled?: boolean;
@@ -73,12 +111,54 @@ export interface SandboxConfig {
 }
 
 export const DEFAULT_SANDBOX_CONFIG: Required<
-  Pick<SandboxConfig, 'enabled' | 'mode' | 'network'>
+  Pick<SandboxConfig, "enabled" | "mode" | "network">
 > = {
   enabled: false,
-  mode: 'auto',
+  mode: "auto",
   network: true,
 };
+
+/**
+ * Configuration for parallel execution behavior.
+ */
+export interface ParallelConfig {
+  /** Execution mode: 'auto' analyzes dependencies, 'always' forces parallel, 'never' disables */
+  mode?: 'auto' | 'always' | 'never';
+
+  /** Maximum concurrent workers (default: 3) */
+  maxWorkers?: number;
+
+  /** Directory for git worktrees relative to project root (default: '.ralph-tui/worktrees') */
+  worktreeDir?: string;
+
+  /**
+   * Merge directly to the current branch instead of creating a session branch.
+   * When false (default), a session branch `ralph-session/{shortId}` is created
+   * and all worker changes are merged there. When true, uses the legacy behavior
+   * of merging directly to the current branch.
+   */
+  directMerge?: boolean;
+
+  /**
+   * Optional explicit session branch name for parallel runs.
+   * When set, Ralph creates this branch instead of auto-generating ralph-session/*.
+   */
+  targetBranch?: string;
+}
+
+/**
+ * Configuration for AI-powered conflict resolution during parallel execution.
+ */
+export interface ConflictResolutionConfig {
+  /** Whether to attempt AI resolution for merge conflicts (default: true) */
+  enabled?: boolean;
+
+  /** Timeout in milliseconds for AI resolution per file (default: 120000) */
+  timeoutMs?: number;
+
+  /** Maximum files to attempt AI resolution on per conflict (default: 10) */
+  maxFiles?: number;
+}
 
 /**
  * Runtime options that can be passed via CLI flags
@@ -99,6 +179,9 @@ export interface RuntimeOptions {
   /** Epic ID for beads-based trackers */
   epicId?: string;
 
+  /** Epic IDs for multi-epic hierarchy tracker runs */
+  epicIds?: string[];
+
   /** PRD file path for json tracker */
   prdPath?: string;
 
@@ -107,6 +190,15 @@ export interface RuntimeOptions {
 
   /** Delay between iterations in milliseconds */
   iterationDelay?: number;
+
+  /** Keep waiting for new tasks when no work is available */
+  watch?: boolean;
+
+  /** Polling interval in milliseconds when watching */
+  pollIntervalMs?: number;
+
+  /** Reset the progress file before starting a new session */
+  resetProgress?: boolean;
 
   /** Working directory for execution */
   cwd?: string;
@@ -139,6 +231,15 @@ export interface RuntimeOptions {
   notify?: boolean;
 
   sandbox?: SandboxConfig;
+
+  /** Path to custom JSON theme file (absolute or relative to cwd) */
+  themePath?: string;
+
+  /** Force sequential execution (--serial or --sequential) */
+  serial?: boolean;
+
+  /** Enable parallel execution, optionally with worker count (--parallel [N]) */
+  parallel?: number | boolean;
 }
 
 /**
@@ -160,6 +261,12 @@ export interface StoredConfig {
   /** Default iteration delay in milliseconds */
   iterationDelay?: number;
 
+  /** Whether to keep waiting for new tasks */
+  watch?: boolean;
+
+  /** Polling interval in milliseconds when watching */
+  pollIntervalMs?: number;
+
   /** Configured agent plugins */
   agents?: AgentPluginConfig[];
 
@@ -179,6 +286,9 @@ export interface StoredConfig {
 
   /** Shorthand: agent plugin name */
   agent?: string;
+
+  /** Shorthand: model override for the selected agent */
+  model?: string;
 
   /** Legacy alias: agent command name */
   agentCommand?: string;
@@ -217,8 +327,32 @@ export interface StoredConfig {
   /** Shorthand: rate limit handling configuration for the default agent */
   rateLimitHandling?: RateLimitHandlingConfig;
 
+  /**
+   * Shorthand: environment variables to exclude for the default agent.
+   * Use this to prevent sensitive keys from being inherited by agent processes.
+   * Supports exact names (e.g., "ANTHROPIC_API_KEY") or glob patterns (e.g., "*_API_KEY").
+   */
+  envExclude?: string[];
+
+  /**
+   * Shorthand: environment variables to pass through despite matching default exclusion patterns.
+   * Use this to explicitly allow specific keys that are blocked by built-in defaults.
+   * Supports exact names (e.g., "ANTHROPIC_API_KEY") or glob patterns.
+   */
+  envPassthrough?: string[];
+
+  /** Shorthand: preflight check timeout in milliseconds for the default agent (default: 30000) */
+  preflightTimeoutMs?: number;
+
   /** Whether to auto-commit after successful tasks */
   autoCommit?: boolean;
+
+  /**
+   * Handlebars template for auto-commit subject lines. Available variables:
+   * `{{taskId}}`, `{{taskTitle}}`, `{{taskType}}` (falls back to `chore` when
+   * the tracker omits a type). Defaults to `"{{taskType}}: {{taskId}} {{taskTitle}}"`.
+   */
+  commitMessageTemplate?: string;
 
   /** Custom prompt template path (relative to cwd or absolute) */
   prompt_template?: string;
@@ -230,6 +364,15 @@ export interface StoredConfig {
 
   /** Notifications configuration */
   notifications?: NotificationsConfig;
+
+  /** Image attachment configuration */
+  images?: ImageConfig;
+
+  /** Parallel execution configuration */
+  parallel?: ParallelConfig;
+
+  /** Conflict resolution configuration for parallel execution */
+  conflictResolution?: ConflictResolutionConfig;
 }
 
 /**
@@ -248,6 +391,12 @@ export interface RalphConfig {
   /** Delay between iterations in milliseconds */
   iterationDelay: number;
 
+  /** Whether to keep waiting for new tasks */
+  watch: boolean;
+
+  /** Polling interval in milliseconds when watching */
+  pollIntervalMs: number;
+
   /** Working directory */
   cwd: string;
 
@@ -259,6 +408,9 @@ export interface RalphConfig {
 
   /** Epic ID (for beads trackers) */
   epicId?: string;
+
+  /** Epic IDs for multi-epic hierarchy tracker runs */
+  epicIds?: string[];
 
   /** PRD path (for json tracker) */
   prdPath?: string;
@@ -276,6 +428,29 @@ export interface RalphConfig {
 
   /** Custom prompt template path (resolved) */
   promptTemplate?: string;
+
+  /** Session ID for log file naming and tracking */
+  sessionId?: string;
+
+  /** Whether to auto-commit after successful task completion (default: false) */
+  autoCommit?: boolean;
+
+  /**
+   * Handlebars template for auto-commit subject lines. When omitted, the default
+   * `"{{taskType}}: {{taskId}} {{taskTitle}}"` is used (with `taskType` falling
+   * back to `chore` when the tracker omits a type).
+   */
+  commitMessageTemplate?: string;
+
+  /**
+   * Optional list of task IDs to execute. When provided, only tasks with these
+   * IDs will be executed, filtering out any others returned by the tracker.
+   * Used for --task-range filtering.
+   */
+  filteredTaskIds?: string[];
+
+  /** Conflict resolution configuration for parallel execution */
+  conflictResolution?: ConflictResolutionConfig;
 }
 
 /**
@@ -296,7 +471,7 @@ export interface ConfigValidationResult {
  * Default error handling configuration
  */
 export const DEFAULT_ERROR_HANDLING: ErrorHandlingConfig = {
-  strategy: 'skip',
+  strategy: "skip",
   maxRetries: 3,
   retryDelayMs: 5000,
   continueOnNonZeroExit: false,
@@ -305,12 +480,14 @@ export const DEFAULT_ERROR_HANDLING: ErrorHandlingConfig = {
 /**
  * Default configuration values
  */
-export const DEFAULT_CONFIG: Omit<RalphConfig, 'agent' | 'tracker'> = {
+export const DEFAULT_CONFIG: Omit<RalphConfig, "agent" | "tracker"> = {
   maxIterations: 10,
   iterationDelay: 1000,
+  watch: false,
+  pollIntervalMs: 30000,
   cwd: process.cwd(),
-  outputDir: '.ralph-tui/iterations',
-  progressFile: '.ralph-tui/progress.md',
+  outputDir: ".ralph-tui/iterations",
+  progressFile: ".ralph-tui/progress.md",
   showTui: true,
   errorHandling: DEFAULT_ERROR_HANDLING,
   sandbox: DEFAULT_SANDBOX_CONFIG,

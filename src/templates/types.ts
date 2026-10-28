@@ -116,6 +116,15 @@ export interface TemplateContext {
   /** The raw configuration for advanced template use */
   config: Partial<RalphConfig>;
 
+  /** PRD context for templates that rely on nested project data */
+  prd?: {
+    name: string;
+    description?: string;
+    content: string;
+    completedCount: number;
+    totalCount: number;
+  };
+
   /** Epic information if available */
   epic?: {
     id: string;
@@ -162,7 +171,14 @@ export interface TemplateRenderResult {
  * Supported built-in template types.
  * Each tracker type has a corresponding default template.
  */
-export type BuiltinTemplateType = 'default' | 'beads' | 'json' | 'beads-bv';
+export type BuiltinTemplateType =
+  | 'default'
+  | 'beads'
+  | 'beads-rust'
+  | 'json'
+  | 'beads-bv'
+  | 'beads-rust-bv'
+  | 'jira';
 
 /**
  * Template configuration in ralph config.

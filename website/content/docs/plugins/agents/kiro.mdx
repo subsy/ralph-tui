@@ -1,0 +1,228 @@
+---
+title: Kiro Agent
+description: Integrate AWS Kiro CLI with Ralph TUI for AI-assisted coding.
+---
+
+## Kiro Agent
+
+The Kiro agent plugin integrates with AWS's `kiro-cli` to execute AI coding tasks. It supports trust-all-tools mode for autonomous operation and agent selection for specialized workflows.
+
+<Callout type="info">
+Kiro outputs text only (no JSONL), so subagent tracing shows activity indicators rather than detailed tool calls.
+</Callout>
+
+## Prerequisites
+
+Install Kiro CLI using one of these methods:
+
+```bash
+# Option 1: Install via curl
+curl -fsSL https://cli.kiro.dev/install | bash
+
+# Option 2: Install via Homebrew (macOS/Linux)
+brew install kiro-cli
+```
+
+For other platforms, visit the [Kiro Downloads page](https://kiro.dev/downloads/).
+
+Verify installation:
+
+```bash
+kiro-cli -V
+# Should output version like: kiro-cli 1.0.0
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Kiro">
+    Use the `--agent kiro` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent kiro
+    ```
+  </Step>
+
+  <Step title="Select an Agent">
+    Specify a Kiro agent via CLI with `--agent-options`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent kiro --agent-options 'agent=code-reviewer'
+    ```
+
+    Or configure in TOML:
+
+    ```toml
+    [agentOptions]
+    agent = "code-reviewer"
+    ```
+  </Step>
+
+  <Step title="Enable Trust All Tools">
+    Configure auto-approve in config:
+
+    ```toml
+    [agentOptions]
+    trustAllTools = true
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "kiro"
+
+[agentOptions]
+trustAllTools = true
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-kiro"
+plugin = "kiro"
+default = true
+command = "kiro-cli"
+timeout = 300000
+
+[agents.options]
+trustAllTools = true
+agent = "code-reviewer"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `trustAllTools` | boolean | `true` | Skip tool approval prompts for autonomous operation |
+| `agent` | string | - | Specific Kiro agent to use (optional) |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"kiro-cli"` | Path to Kiro CLI executable |
+
+<Callout type="info">
+A `timeout` of `0` means no timeout (unlimited execution time). For production or autonomous runs, consider setting a reasonable timeout like `300000` (5 minutes) or `600000` (10 minutes) to prevent runaway executions.
+</Callout>
+
+## Trust All Tools
+
+When `trustAllTools` is enabled (default), Kiro will skip tool approval prompts and auto-approve all tool invocations. This is required for Ralph TUI's autonomous operation since it cannot relay interactive prompts.
+
+```toml
+[agentOptions]
+trustAllTools = true
+```
+
+<Callout type="warning">
+With trust-all-tools enabled, Kiro can execute any tool without confirmation. Ensure your task is well-defined and you trust the execution environment.
+</Callout>
+
+## Agent Selection
+
+Kiro supports multiple specialized agents. You can select one via the `agent` option:
+
+```toml
+[agentOptions]
+agent = "code-reviewer"
+```
+
+Leave empty to use Kiro's default agent.
+
+## Skills Support
+
+Kiro CLI supports skills similar to other agents:
+
+| Location | Description |
+|----------|-------------|
+| `~/.kiro/skills/` | Personal skills (user-specific) |
+| `.kiro/skills/` | Repository skills (project-specific) |
+
+<Callout type="info">
+Kiro also has "Powers" (`~/.kiro/powers/`) which use a `POWER.md` format - these are similar to skills but follow a different specification.
+</Callout>
+
+## How It Works
+
+When Ralph TUI executes a task with Kiro:
+
+1. **Build command**: Constructs `kiro-cli chat --no-interactive [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Detect completion**: Watches for completion token
+5. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+kiro-cli chat \
+  --no-interactive \               # Non-interactive mode
+  --trust-all-tools \              # When trustAllTools enabled
+  --agent code-reviewer \          # If agent specified
+  < prompt.txt                     # Prompt via stdin
+```
+
+## Text-Only Output
+
+Unlike Claude and Gemini, Kiro outputs plain text rather than structured JSONL. This means:
+
+- Subagent tracing shows activity indicators only
+- No detailed tool call breakdown in the TUI
+- Output is displayed as-is in the main output pane
+
+## Troubleshooting
+
+### "Kiro CLI not found"
+
+Ensure Kiro is installed and in your PATH:
+
+```bash
+which kiro-cli
+# Should output: /path/to/kiro-cli
+
+# If not found, follow installation at https://kiro.dev
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "kiro"
+plugin = "kiro"
+timeout = 600000  # 10 minutes
+```
+
+### "Tool approval required"
+
+Ensure trust-all-tools is enabled:
+
+```toml
+[agentOptions]
+trustAllTools = true
+```
+
+### "Agent not found"
+
+Check available agents in Kiro and ensure the name is correct:
+
+```toml
+[agentOptions]
+agent = "code-reviewer"  # Must match an available Kiro agent
+```
+
+## Next Steps
+
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Gemini Agent](/docs/plugins/agents/gemini)** - Google's Gemini CLI
+- **[Configuration](/docs/configuration/options)** - Full options reference

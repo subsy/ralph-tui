@@ -36,6 +36,7 @@ const mockCheckLock = mock(() => Promise.resolve({
 // This prevents mock pollution affecting other tests
 import {
   checkSession,
+  acquireLockExclusiveResult,
   acquireLock,
   releaseLock,
   cleanStaleLock,
@@ -75,6 +76,7 @@ mock.module('../../src/session/index.js', () => ({
   checkLock: mockCheckLock,
   // Re-export real functions to prevent pollution
   checkSession,
+  acquireLockExclusiveResult,
   acquireLock,
   releaseLock,
   cleanStaleLock,
@@ -528,6 +530,25 @@ describe('status command', () => {
       printStatusHelp();
       const output = consoleOutput.join('\n');
       expect(output).toContain('CI/Script Usage:');
+    });
+  });
+
+  describe('progress bar rendering', () => {
+    test('clamps invalid percent values to avoid RangeError', () => {
+      const { __test__ } = require('../../src/commands/status.js');
+      const { createProgressBar } = __test__ as { createProgressBar: (percent: number, width: number) => string };
+
+      expect(createProgressBar(-10, 10)).toBe('[░░░░░░░░░░]');
+      expect(createProgressBar(150, 10)).toBe('[██████████]');
+      expect(createProgressBar(Number.NaN, 10)).toBe('[░░░░░░░░░░]');
+    });
+
+    test('handles non-finite width safely', () => {
+      const { __test__ } = require('../../src/commands/status.js');
+      const { createProgressBar } = __test__ as { createProgressBar: (percent: number, width: number) => string };
+
+      expect(createProgressBar(50, Number.NaN)).toBe('[]');
+      expect(createProgressBar(50, Number.POSITIVE_INFINITY)).toBe('[]');
     });
   });
 

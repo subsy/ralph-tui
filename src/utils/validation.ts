@@ -3,6 +3,8 @@
  * Provides common validation helpers for strings, numbers, and configurations.
  */
 
+import { compareSemverStrings } from './semver.js';
+
 /**
  * Validation result
  */
@@ -245,4 +247,22 @@ export function validateSlug(value: string, fieldName = 'Slug'): ValidationResul
 export function validateSemver(value: string, fieldName = 'Version'): ValidationResult {
   const semverPattern = /^v?\d+\.\d+\.\d+(?:-[\da-z-]+(?:\.[\da-z-]+)*)?(?:\+[\da-z-]+(?:\.[\da-z-]+)*)?$/i;
   return validatePattern(value, semverPattern, fieldName, 'semantic version (e.g., 1.0.0)');
+}
+
+/**
+ * Check that the running Bun version meets a minimum requirement.
+ *
+ * @param currentVersion - The current Bun.version string (e.g., "1.2.0")
+ * @param minVersion - The minimum required version (e.g., "1.3.6")
+ * @returns null if the version is acceptable, or an error message string if too old
+ */
+export function checkBunVersion(currentVersion: string, minVersion: string): string | null {
+  if (compareSemverStrings(currentVersion, minVersion) < 0) {
+    return (
+      `ralph-tui requires Bun >= ${minVersion}, but you are running Bun ${currentVersion}.\n` +
+      `Run 'bun upgrade' or visit https://bun.sh/docs/installation`
+    );
+  }
+
+  return null;
 }

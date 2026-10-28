@@ -1,0 +1,39 @@
+{
+  "bg": {
+    "primary": "#282a36",
+    "secondary": "#44475a",
+    "tertiary": "#4d5066",
+    "highlight": "#6272a4"
+  },
+  "fg": {
+    "primary": "#f8f8f2",
+    "secondary": "#e6e6dc",
+    "muted": "#6272a4",
+    "dim": "#44475a"
+  },
+  "status": {
+    "success": "#50fa7b",
+    "warning": "#ffb86c",
+    "error": "#ff5555",
+    "info": "#8be9fd"
+  },
+  "task": {
+    "done": "#50fa7b",
+    "active": "#50fa7b",
+    "actionable": "#8be9fd",
+    "pending": "#6272a4",
+    "blocked": "#ff5555",
+    "error": "#ff5555",
+    "closed": "#44475a"
+  },
+  "accent": {
+    "primary": "#bd93f9",
+    "secondary": "#ff79c6",
+    "tertiary": "#f1fa8c"
+  },
+  "border": {
+    "normal": "#6272a4",
+    "active": "#bd93f9",
+    "muted": "#44475a"
+  }
+}

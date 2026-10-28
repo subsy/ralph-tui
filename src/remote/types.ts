@@ -256,6 +256,7 @@ import type {
   RateLimitState,
   SubagentTreeNode,
 } from '../engine/types.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 
 /**
  * Subscribe to engine events from remote instance.
@@ -569,10 +570,167 @@ export interface IterationOutputResponseMessage extends WSMessage {
   endedAt?: string;
   /** Duration in milliseconds */
   durationMs?: number;
+  /** Token usage summary for the iteration (if available) */
+  usage?: TokenUsageSummary;
   /** Whether the iteration is still running */
   isRunning?: boolean;
   /** Error message if not found or failed */
   error?: string;
+}
+
+// ============================================================================
+// Remote Orchestration Message Types
+// ============================================================================
+
+import type { ParallelEvent } from '../parallel/events.js';
+import type { ExecutionScope } from '../plugins/trackers/types.js';
+import type {
+  WorkerDisplayState,
+  MergeOperation,
+} from '../parallel/types.js';
+
+/**
+ * Per-scope orchestration counts for remote multi-epic state.
+ */
+export interface RemoteScopeCount {
+  /** Execution scope ID */
+  scopeId: string;
+  /** Total actionable tasks in this scope */
+  totalTasks: number;
+  /** Currently running tasks in this scope */
+  activeTasks: number;
+  /** Successfully merged tasks in this scope */
+  completedTasks: number;
+  /** Failed, conflicted, or cancelled tasks in this scope */
+  failedTasks: number;
+}
+
+/**
+ * Request to start parallel orchestration on remote.
+ */
+export interface OrchestrateStartMessage extends WSMessage {
+  type: 'orchestrate:start';
+  /** Path to PRD JSON file (for json tracker) */
+  prdPath?: string;
+  /** Epic ID (for beads/beads-rust tracker) */
+  epicId?: string;
+  /** Epic IDs for multi-epic orchestration */
+  epicIds?: string[];
+  /** Maximum workers (default: 3) */
+  maxWorkers?: number;
+  /** Maximum iterations per worker */
+  maxIterations?: number;
+  /** Merge directly to current branch instead of session branch */
+  directMerge?: boolean;
+}
+
+/**
+ * Response to orchestration start request.
+ */
+export interface OrchestrateStartResponseMessage extends WSMessage {
+  type: 'orchestrate:start_response';
+  /** Whether orchestration started successfully */
+  success: boolean;
+  /** Error message if failed */
+  error?: string;
+  /** Unique orchestration session ID */
+  orchestrationId?: string;
+  /** Total number of tasks to execute */
+  totalTasks?: number;
+  /** Number of parallel groups */
+  totalGroups?: number;
+  /** Maximum parallelism achievable */
+  maxParallelism?: number;
+}
+
+/**
+ * Request to pause orchestration.
+ */
+export interface OrchestratePauseMessage extends WSMessage {
+  type: 'orchestrate:pause';
+  orchestrationId: string;
+}
+
+/**
+ * Request to resume paused orchestration.
+ */
+export interface OrchestrateResumeMessage extends WSMessage {
+  type: 'orchestrate:resume';
+  orchestrationId: string;
+}
+
+/**
+ * Request to stop/cancel orchestration.
+ */
+export interface OrchestrateStopMessage extends WSMessage {
+  type: 'orchestrate:stop';
+  orchestrationId: string;
+}
+
+/**
+ * Request current orchestration state.
+ */
+export interface OrchestrateGetStateMessage extends WSMessage {
+  type: 'orchestrate:get_state';
+  orchestrationId: string;
+}
+
+/**
+ * Serializable orchestration state for remote transport.
+ */
+export interface RemoteOrchestrationState {
+  /** Orchestration session ID */
+  orchestrationId: string;
+  /** Current status */
+  status: 'idle' | 'running' | 'paused' | 'completed' | 'failed';
+  /** Current group index being executed */
+  currentGroupIndex: number;
+  /** Total number of parallel groups */
+  totalGroups: number;
+  /** Active worker states */
+  workers: WorkerDisplayState[];
+  /** Pending merge operations */
+  mergeQueue: MergeOperation[];
+  /** Number of tasks completed */
+  totalTasksCompleted: number;
+  /** Total number of tasks */
+  totalTasks: number;
+  /** When orchestration started (ISO 8601) */
+  startedAt: string | null;
+  /** Elapsed time in milliseconds */
+  elapsedMs: number;
+  /** Session branch name (if not using directMerge) */
+  sessionBranch?: string;
+  /** Original branch name (if not using directMerge) */
+  originalBranch?: string;
+  /** Selected execution scopes for multi-epic orchestration */
+  scopes?: ExecutionScope[];
+  /** Per-scope task counts for multi-epic orchestration */
+  scopeCounts?: RemoteScopeCount[];
+}
+
+/**
+ * Response with orchestration state.
+ */
+export interface OrchestrateStateResponseMessage extends WSMessage {
+  type: 'orchestrate:state_response';
+  /** Whether the state was retrieved successfully */
+  success: boolean;
+  /** Error message if failed */
+  error?: string;
+  /** Orchestration state */
+  state?: RemoteOrchestrationState;
+}
+
+/**
+ * Parallel event forwarded to subscribed clients.
+ */
+export interface ParallelEventMessage extends WSMessage {
+  type: 'parallel_event';
+  /** Orchestration session ID */
+  orchestrationId: string;
+  /** The parallel event */
+  event: ParallelEvent;
 }
 
 /**
@@ -602,4 +760,13 @@ export type RemoteWSMessageType =
   | CheckConfigMessage
   | CheckConfigResponseMessage
   | PushConfigMessage
-  | PushConfigResponseMessage;
+  | PushConfigResponseMessage
+  // Orchestration messages
+  | OrchestrateStartMessage
+  | OrchestrateStartResponseMessage
+  | OrchestratePauseMessage
+  | OrchestrateResumeMessage
+  | OrchestrateStopMessage
+  | OrchestrateGetStateMessage
+  | OrchestrateStateResponseMessage
+  | ParallelEventMessage;

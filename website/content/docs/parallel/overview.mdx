@@ -1,0 +1,97 @@
+---
+title: Parallel Execution
+description: Run independent tasks simultaneously using git worktree isolation for faster project completion.
+---
+
+# Parallel Execution
+
+Ralph TUI can execute independent tasks in parallel, using **git worktrees** to isolate each worker's changes. When tasks have no mutual dependencies, they run simultaneously — then merge back to your main branch sequentially.
+
+<Callout type="tip">
+  Default behavior is sequential execution. Use `--parallel` to force parallel mode, or set `parallel.mode = "auto"` to enable automatic detection.
+</Callout>
+
+## Why Parallel?
+
+In a typical project, many tasks are independent. A login page fix doesn't depend on a dashboard refactor. Running them one at a time wastes time waiting for agents to finish sequentially.
+
+With parallel execution:
+
+- **Independent tasks run simultaneously** across multiple workers
+- **Each worker gets its own git worktree** — full isolation, no conflicts during execution
+- **Results merge sequentially** with automatic conflict detection
+- **AI-assisted conflict resolution** handles merge conflicts when they arise
+- **Rollback safety** via backup tags before every merge
+
+## Quick Start
+
+```bash
+# Default behavior (sequential)
+ralph-tui run
+
+# Force parallel execution with 4 workers
+ralph-tui run --parallel 4
+
+# Run one parallel session across multiple epics
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+
+# Force sequential execution (disable parallel)
+ralph-tui run --serial
+```
+
+When `parallel.mode = "auto"`, ralph-tui analyzes your task dependencies and determines whether parallel execution is beneficial. If it finds groups of independent tasks, it switches to parallel mode.
+
+## How It Decides
+
+The auto-detection heuristic checks three conditions:
+
+1. **At least one parallel group** has 2+ tasks that can run simultaneously
+2. **At least 3 total tasks** (overhead isn't worth it for just 2)
+3. **Less than 50% cyclic dependencies** (heavily coupled tasks don't parallelize well)
+
+If all conditions are met, parallel mode activates. Otherwise, ralph-tui stays in sequential execution.
+
+## Multi-Epic Sessions
+
+Parallel execution can span multiple hierarchy-tracker epics in one Ralph session:
+
+```bash
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --parallel --epics ui-epic,backend-epic
+```
+
+This is a single global orchestration session:
+
+- One task graph is built across all selected epics
+- One worker pool schedules tasks globally
+- One repo lock and one session branch protect the main checkout
+- One merge queue merges completed worker branches sequentially
+- TUI "epic tabs" are local filters over the same session, not separate runners
+
+Tasks keep their source scope as metadata. When viewing all scopes in the TUI, task rows and worker/merge details include a compact scope label.
+
+<Callout type="warning">
+External dependencies outside the selected epic set block their dependent task for that run unless the external task is already completed or cancelled. Ralph excludes those tasks from parallel scheduling and shows them as blocked.
+</Callout>
+
+## What Happens
+
+```
+                    ┌─── Worker 1 (worktree) ──→ merge ─┐
+Task Graph ───→     ├─── Worker 2 (worktree) ──→ merge ─┤──→ Main Branch
+Analysis            └─── Worker 3 (worktree) ──→ merge ─┘
+```
+
+1. **Analyze** — Build a dependency graph and group tasks by depth level
+2. **Execute** — Each group runs its tasks in parallel across isolated worktrees
+3. **Merge** — Completed workers merge back to main one at a time
+4. **Resolve** — Conflicts get AI-assisted resolution or safe rollback
+5. **Repeat** — Next group starts after the previous group's merges complete
+
+## Next Steps
+
+- [How It Works](/docs/parallel/how-it-works) — Architecture deep-dive
+- [Task Dependencies](/docs/parallel/task-dependencies) — Structure tasks for parallelism
+- [Configuration](/docs/parallel/configuration) — Tune workers, modes, and smart heuristics
+- [TUI Guide](/docs/parallel/tui-guide) — Monitor parallel execution in the terminal
+- [Remote Orchestration](/docs/cli/remote#remote-parallel-orchestration) — Control parallel execution from remote clients

@@ -9,18 +9,23 @@ import { useState, useCallback, useEffect } from 'react';
 import { useKeyboard } from '@opentui/react';
 import { colors } from '../theme.js';
 import type { StoredConfig, SubagentDetailLevel, NotificationSoundMode } from '../../config/types.js';
-import type { AgentPluginMeta } from '../../plugins/agents/types.js';
+import type { AgentPluginConfig } from '../../plugins/agents/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
+import { isPrintableKeySequence, removeLastCodePoint } from '../../utils/printable-key.js';
+import {
+  listModelsForAgent,
+  normalizeModelValue,
+} from './AgentModelPicker.js';
 
 /**
  * Setting item types for different field kinds
  */
-type SettingType = 'select' | 'number' | 'boolean' | 'text';
+export type SettingType = 'select' | 'number' | 'boolean' | 'text';
 
 /**
  * Individual setting definition
  */
-interface SettingDefinition {
+export interface SettingDefinition {
   key: string;
   label: string;
   type: SettingType;
@@ -41,8 +46,10 @@ export interface SettingsViewProps {
   visible: boolean;
   /** Current stored configuration */
   config: StoredConfig;
-  /** Available agent plugins */
-  agents: AgentPluginMeta[];
+  /** Available agent names for selection */
+  agents: string[];
+  /** Configured agent instances used to resolve agent aliases */
+  agentConfigs?: AgentPluginConfig[];
   /** Available tracker plugins */
   trackers: TrackerPluginMeta[];
   /** Callback when settings should be saved */
@@ -52,12 +59,77 @@ export interface SettingsViewProps {
 }
 
 /**
+ * Resolve the active agent name from stored config using runtime precedence.
+ */
+export function getConfiguredAgentName(config: StoredConfig | undefined): string | undefined {
+  return (
+    config?.agent ??
+    config?.defaultAgent ??
+    config?.agents?.find((agent) => agent.default)?.name ??
+    config?.agents?.[0]?.name
+  );
+}
+
+/**
+ * Build model choices for agents that expose known model names.
+ */
+export function buildModelOptionsForAgent(
+  agentName: string | undefined,
+  agentConfigs: AgentPluginConfig[],
+  currentModel: string | undefined
+): string[] | undefined {
+  if (!agentName) {
+    return undefined;
+  }
+
+  const knownModels = listModelsForAgent(agentName, agentConfigs);
+  if (knownModels.length === 0) {
+    return undefined;
+  }
+
+  const normalizedCurrent = normalizeModelValue(currentModel);
+  return [
+    '',
+    ...(normalizedCurrent && !knownModels.includes(normalizedCurrent)
+      ? [normalizedCurrent]
+      : []),
+    ...knownModels,
+  ];
+}
+
+/**
+ * Apply a model value to stored config, removing the field for the default model.
+ */
+function setModelValue(
+  config: StoredConfig,
+  value: string | number | boolean
+): StoredConfig {
+  const nextConfig = { ...config };
+  const normalized = normalizeModelValue(String(value));
+  if (normalized) {
+    nextConfig.model = normalized;
+  } else {
+    delete nextConfig.model;
+  }
+  return nextConfig;
+}
+
+/**
  * Build setting definitions based on available plugins
  */
-function buildSettingDefinitions(
-  agents: AgentPluginMeta[],
-  trackers: TrackerPluginMeta[]
+export function buildSettingDefinitions(
+  agents: string[],
+  trackers: TrackerPluginMeta[],
+  config: StoredConfig,
+  agentConfigs: AgentPluginConfig[] = []
 ): SettingDefinition[] {
+  const selectedAgent = getConfiguredAgentName(config);
+  const modelOptions = buildModelOptionsForAgent(
+    selectedAgent,
+    agentConfigs,
+    config.model
+  );
+
   return [
     {
       key: 'tracker',
@@ -78,14 +150,24 @@ function buildSettingDefinitions(
       label: 'Agent',
       type: 'select',
       description: 'AI agent plugin to use',
-      options: agents.map((a) => a.id),
-      getValue: (config) => config.agent ?? config.defaultAgent,
+      options: agents,
+      getValue: (config) => getConfiguredAgentName(config),
       setValue: (config, value) => ({
         ...config,
         agent: value as string,
         defaultAgent: value as string,
       }),
-      requiresRestart: true,
+      requiresRestart: false,
+    },
+    {
+      key: 'model',
+      label: 'Model',
+      type: modelOptions ? 'select' : 'text',
+      description: 'Model override for the selected agent',
+      options: modelOptions,
+      getValue: (config) => normalizeModelValue(config.model) ?? '',
+      setValue: setModelValue,
+      requiresRestart: false,
     },
     {
       key: 'maxIterations',
@@ -178,7 +260,7 @@ function buildSettingDefinitions(
  * Format a setting value for display
  */
 function formatValue(value: string | number | boolean | undefined): string {
-  if (value === undefined) return '(not set)';
+  if (value === undefined || value === '') return '(not set)';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return String(value);
 }
@@ -190,6 +272,7 @@ export function SettingsView({
   visible,
   config,
   agents,
+  agentConfigs = [],
   trackers,
   onSave,
   onClose,
@@ -202,7 +285,12 @@ export function SettingsView({
   const [error, setError] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const settings = buildSettingDefinitions(agents, trackers);
+  const settings = buildSettingDefinitions(
+    agents,
+    trackers,
+    editingConfig,
+    agentConfigs
+  );
 
   // Reset state when config changes externally
   useEffect(() => {
@@ -266,12 +354,12 @@ export function SettingsView({
           }
 
           case 'backspace':
-            setEditValue((prev) => prev.slice(0, -1));
+            setEditValue(removeLastCodePoint);
             break;
 
           default:
             // Append character to edit value
-            if (key.sequence && key.sequence.length === 1) {
+            if (isPrintableKeySequence(key.sequence)) {
               setEditValue((prev) => prev + key.sequence);
             }
             break;

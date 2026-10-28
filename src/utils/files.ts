@@ -167,6 +167,61 @@ export function hasExtension(filePath: string, extensions: string[]): boolean {
 }
 
 /**
+ * A single entry in a directory listing
+ */
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+/**
+ * List the contents of a directory, returning entries sorted with directories first
+ */
+export async function listDirectory(
+  dirPath: string,
+  options?: { showHidden?: boolean; extension?: string; filenamePrefix?: string }
+): Promise<DirectoryEntry[]> {
+  const { showHidden = false, extension, filenamePrefix } = options ?? {};
+  const absolutePath = ensureAbsolute(dirPath);
+
+  const entries = await readdir(absolutePath, { withFileTypes: true });
+
+  const result: DirectoryEntry[] = [];
+
+  for (const entry of entries) {
+    if (!showHidden && entry.name.startsWith('.')) {
+      continue;
+    }
+
+    const isDir = entry.isDirectory();
+
+    if (!isDir) {
+      if (extension && !entry.name.endsWith(extension)) {
+        continue;
+      }
+      if (filenamePrefix && !entry.name.startsWith(filenamePrefix)) {
+        continue;
+      }
+    }
+
+    result.push({
+      name: entry.name,
+      path: join(absolutePath, entry.name),
+      isDirectory: isDir,
+    });
+  }
+
+  result.sort((a, b) => {
+    if (a.isDirectory && !b.isDirectory) return -1;
+    if (!a.isDirectory && b.isDirectory) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return result;
+}
+
+/**
  * Find the project root by looking for marker files
  */
 export async function findProjectRoot(

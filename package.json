@@ -1,22 +1,26 @@
 {
   "name": "ralph-tui",
-  "version": "0.3.0",
+  "version": "0.12.0",
   "description": "Ralph TUI - AI Agent Loop Orchestrator",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
     }
   },
   "bin": {
     "ralph-tui": "./dist/cli.js"
   },
   "scripts": {
-    "build": "bun build ./src/cli.tsx --outdir ./dist --target bun --sourcemap=external && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external && cp -r assets dist/ && cp -r skills dist/ && bun run build:templates",
-    "build:templates": "mkdir -p dist/plugins/trackers/builtin/beads dist/plugins/trackers/builtin/beads-bv dist/plugins/trackers/builtin/json && cp src/plugins/trackers/builtin/beads/template.hbs dist/plugins/trackers/builtin/beads/ && cp src/plugins/trackers/builtin/beads-bv/template.hbs dist/plugins/trackers/builtin/beads-bv/ && cp src/plugins/trackers/builtin/json/template.hbs dist/plugins/trackers/builtin/json/",
+    "build": "bun build ./src/cli.tsx --outdir ./dist --target bun --sourcemap=external --external @opentui/core --external @opentui/react --external react && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external --external @opentui/core --external @opentui/react --external react && bun build ./src/plugin.ts --outdir ./dist --target bun --sourcemap=external --external @opentui/core --external @opentui/react --external react && cp -R assets dist/ && cp -R skills dist/ && bun run build:templates",
+    "build:templates": "mkdir -p dist/plugins/trackers/builtin/beads dist/plugins/trackers/builtin/beads-bv dist/plugins/trackers/builtin/json dist/plugins/trackers/builtin/beads-rust dist/plugins/trackers/builtin/jira && cp src/plugins/trackers/builtin/beads/template.hbs dist/plugins/trackers/builtin/beads/ && cp src/plugins/trackers/builtin/beads-bv/template.hbs dist/plugins/trackers/builtin/beads-bv/ && cp src/plugins/trackers/builtin/json/template.hbs dist/plugins/trackers/builtin/json/ && cp src/plugins/trackers/builtin/beads-rust/template.hbs dist/plugins/trackers/builtin/beads-rust/ && cp src/plugins/trackers/builtin/jira/template.hbs dist/plugins/trackers/builtin/jira/",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
@@ -54,7 +58,7 @@
   },
   "packageManager": "bun@1.3.6",
   "engines": {
-    "bun": ">=1.0.0"
+    "bun": ">=1.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
@@ -66,14 +70,15 @@
     "@typescript-eslint/parser": "^8.52.0",
     "bun-types": "^1.3.6",
     "eslint": "^9.39.2",
-    "react": "^19.2.3",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@opentui/core": "^0.1.72",
-    "@opentui/react": "^0.1.72",
+    "@linear/sdk": "^76.0.0",
+    "@opentui/core": "^0.1.99",
+    "@opentui/react": "^0.1.99",
     "handlebars": "^4.7.8",
     "node-notifier": "^8.0.2",
+    "react": "^19.2.3",
     "smol-toml": "^1.6.0",
     "yaml": "^2.8.2",
     "zod": "^4.3.5"

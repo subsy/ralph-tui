@@ -1,0 +1,88 @@
+---
+title: How It Works
+description: Architecture deep-dive into parallel execution — task graph analysis, worktree isolation, and sequential merge.
+---
+
+# How It Works
+
+Parallel execution uses a **wrapper architecture**. The `ParallelExecutor` wraps multiple `ExecutionEngine` instances — the existing sequential engine stays completely untouched. Each worker runs in its own git worktree with a dedicated branch.
+
+## Architecture Overview
+
+```
+ParallelExecutor
+├── TaskGraphAnalyzer     → Groups tasks by dependency depth
+├── WorktreeManager       → Creates/releases git worktrees
+├── Worker[1..N]          → Each wraps an ExecutionEngine
+│   └── ExecutionEngine   → Standard sequential engine (unchanged)
+├── MergeEngine           → Sequential merge queue
+│   └── ConflictResolver  → AI-assisted three-way merge
+└── SessionManager        → Crash recovery state
+```
+
+## Execution Flow
+
+<Steps>
+  <Step title="Task Graph Analysis">
+    Ralph fetches all tasks from your tracker and builds a dependency graph using the `dependsOn` and `blocks` fields. In multi-epic mode, the tracker is wrapped so tasks from every selected epic are fetched and annotated with their execution scope before graph analysis. Tasks are sorted topologically (Kahn's algorithm) and grouped by depth level — tasks at the same depth with no mutual dependencies form a **parallel group**.
+  </Step>
+
+  <Step title="Worktree Creation">
+    For each task in the current group, the WorktreeManager creates a worker-scoped git worktree with a dedicated task branch. Multi-epic task branches include session and scope context: `ralph-parallel/{session}/{scope}/{task}`. Each worktree is a full working copy of your repository branched from the current HEAD.
+  </Step>
+
+  <Step title="Parallel Execution">
+    Workers start simultaneously, each running the standard ExecutionEngine in their isolated worktree. Workers do not call `tracker.getNextTask()` — their task is pre-assigned by the ParallelExecutor. The tracker runs only in the main process to prevent concurrent writes.
+  </Step>
+
+  <Step title="Sequential Merge">
+    As workers complete, their branches enter a merge queue. Merges happen one at a time: fast-forward first (if no prior merge changed HEAD), then fallback to a merge commit. A backup tag is created before each merge for rollback safety.
+  </Step>
+
+  <Step title="Conflict Resolution">
+    If a merge produces conflicts, the ConflictResolver extracts three-way merge data (ours/theirs/base) from git's index stages and sends it to an AI agent for resolution. If AI resolution fails, the merge is aborted and rolled back to the backup tag.
+  </Step>
+
+  <Step title="Group Progression">
+    After all tasks in a group complete and merge, the next group begins. Groups execute in topological order — ensuring that upstream dependencies are always resolved before downstream tasks start.
+  </Step>
+</Steps>
+
+## Wrapper, Not Fork
+
+A critical design decision: the existing `ExecutionEngine` is **wrapped, not modified**. The `Worker` class creates an `ExecutionEngine` with a modified `cwd` (pointing to the worktree) and a pre-assigned task. All engine events are forwarded to the `ParallelExecutor` with a worker ID prefix.
+
+This means:
+- All existing features (rate limiting, error handling, session resumption) work inside workers
+- The sequential execution path is completely unchanged
+- Worker isolation is purely filesystem-based (separate worktree directories)
+
+## Tracker Isolation
+
+The tracker plugin runs **only in the main process**. Workers signal task status changes back to the `ParallelExecutor`, which calls tracker methods on the worker's behalf. This prevents:
+- Concurrent writes to the beads database
+- Race conditions in JSON file updates
+- Inconsistent task state across workers
+
+## Multi-Scope Tracker Wrapper
+
+When multiple epics are selected, Ralph wraps the configured tracker with a multi-scope tracker:
+
+- `getTasks()` fetches children for each selected epic and annotates each task with its execution scope
+- Duplicate task IDs are deduplicated, keeping the first selected scope
+- `getNextTask()` selects the best ready task across all selected scopes by priority, scope order, and task ID
+- `completeTask()`, `updateTaskStatus()`, `sync()`, and `dispose()` delegate to the underlying tracker
+
+Dependencies inside the selected epic set are preserved in the global graph. Dependencies outside the selected set are resolved through the underlying tracker; if the external dependency cannot be found or is not completed/cancelled, the dependent task is marked blocked for this run and excluded from scheduling.
+
+## Failure Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| Single worker fails | Other workers continue; failed task marked as failed |
+| Merge conflict, AI resolves | Resolved content committed, merge completes |
+| Merge conflict, AI fails | Merge aborted, rolled back to backup tag, task re-queued (max 1 retry) |
+| All workers fail | Switch to sequential mode for remaining tasks |
+| Ctrl+C | Stop all workers, wait for current agent calls, merge completed work, cleanup |
+| Ctrl+C ×2 | Force kill immediately |
+| Crash/restart | Session state persisted; orphaned worktrees detected and cleaned up |

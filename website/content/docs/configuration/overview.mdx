@@ -94,6 +94,7 @@ iterationDelay = 1000    # Delay between iterations (ms)
 outputDir = ".ralph-tui/iterations"
 progressFile = ".ralph-tui/progress.md"
 autoCommit = false       # Auto-commit after task completion
+# commitMessageTemplate = "{{taskType}}: {{taskId}} {{taskTitle}}"  # default; Handlebars
 ```
 
 ### Agent Settings
@@ -119,6 +120,10 @@ tracker = "beads-bv"     # Shorthand: use this tracker plugin
 [trackerOptions]
 epicId = "beads-001"
 ```
+
+<Callout type="info">
+For multi-epic runs, select epics at runtime with repeated `--epic` flags or `--epics`. The config file keeps a default single tracker setup; the session stores the selected multi-epic scope for resume.
+</Callout>
 
 ### Error Handling
 

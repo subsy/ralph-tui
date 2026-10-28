@@ -81,11 +81,11 @@ ${BOLD}Commands:${RESET}
   ${CYAN}install${RESET}           Alias for init
 
 ${BOLD}Show Options:${RESET}
-  ${DIM}--tracker <name>${RESET}   Show template for specific tracker (default, beads, beads-bv, json)
+  ${DIM}--tracker <name>${RESET}   Show template for specific tracker (default, beads, beads-rust, beads-bv, beads-rust-bv, json, jira)
   ${DIM}--custom <path>${RESET}    Show template from a custom file path
 
 ${BOLD}Init Options:${RESET}
-  ${DIM}--tracker <name>${RESET}   Use template for specific tracker (default, beads, beads-bv, json)
+  ${DIM}--tracker <name>${RESET}   Use template for specific tracker (default, beads, beads-rust, beads-bv, beads-rust-bv, json, jira)
   ${DIM}--output <path>${RESET}    Custom output path (default: ./ralph-prompt.hbs)
   ${DIM}--global${RESET}           Install all templates to ~/.config/ralph-tui/templates/
   ${DIM}--force${RESET}            Overwrite existing file
@@ -259,4 +259,3 @@ async function handleInitTemplate(args: string[]): Promise<void> {
   console.log(`     ${DIM}prompt_template: ${path.relative(cwd, outputPath)}${RESET}`);
   console.log(`\n${DIM}See 'ralph-tui template show' for available variables${RESET}`);
 }
-

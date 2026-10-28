@@ -25,6 +25,7 @@ import {
   getExtension,
   hasExtension,
   findProjectRoot,
+  listDirectory,
 } from '../../src/utils/files.js';
 
 describe('files utility', () => {
@@ -261,6 +262,82 @@ describe('files utility', () => {
 
     test('is case insensitive', () => {
       expect(hasExtension('file.TS', ['.ts'])).toBe(true);
+    });
+  });
+
+  describe('listDirectory', () => {
+    beforeEach(async () => {
+      // Create test file structure
+      await writeFile(join(tempDir, 'file1.json'), '{}');
+      await writeFile(join(tempDir, 'file2.txt'), 'text');
+      await writeFile(join(tempDir, 'prd-feature.json'), '{}');
+      await writeFile(join(tempDir, '.hidden'), 'hidden');
+      await mkdir(join(tempDir, 'subdir'));
+      await mkdir(join(tempDir, '.hiddendir'));
+    });
+
+    test('lists directory contents with directories first', async () => {
+      const entries = await listDirectory(tempDir);
+      expect(entries.length).toBe(4); // subdir + 3 visible files (hidden excluded by default)
+      expect(entries[0].isDirectory).toBe(true);
+      expect(entries[0].name).toBe('subdir');
+    });
+
+    test('excludes hidden files by default', async () => {
+      const entries = await listDirectory(tempDir);
+      const names = entries.map((e) => e.name);
+      expect(names).not.toContain('.hidden');
+      expect(names).not.toContain('.hiddendir');
+    });
+
+    test('includes hidden files when showHidden is true', async () => {
+      const entries = await listDirectory(tempDir, { showHidden: true });
+      const names = entries.map((e) => e.name);
+      expect(names).toContain('.hidden');
+      expect(names).toContain('.hiddendir');
+    });
+
+    test('filters by extension', async () => {
+      const entries = await listDirectory(tempDir, { extension: '.json' });
+      const files = entries.filter((e) => !e.isDirectory);
+      expect(files.length).toBe(2);
+      expect(files.every((f) => f.name.endsWith('.json'))).toBe(true);
+    });
+
+    test('filters by filename prefix', async () => {
+      const entries = await listDirectory(tempDir, { filenamePrefix: 'prd' });
+      const files = entries.filter((e) => !e.isDirectory);
+      expect(files.length).toBe(1);
+      expect(files[0].name).toBe('prd-feature.json');
+    });
+
+    test('combines extension and prefix filters', async () => {
+      const entries = await listDirectory(tempDir, { extension: '.json', filenamePrefix: 'prd' });
+      const files = entries.filter((e) => !e.isDirectory);
+      expect(files.length).toBe(1);
+      expect(files[0].name).toBe('prd-feature.json');
+    });
+
+    test('includes directories regardless of filters', async () => {
+      const entries = await listDirectory(tempDir, { extension: '.json', filenamePrefix: 'prd' });
+      const dirs = entries.filter((e) => e.isDirectory);
+      expect(dirs.length).toBe(1);
+      expect(dirs[0].name).toBe('subdir');
+    });
+
+    test('returns absolute paths', async () => {
+      const entries = await listDirectory(tempDir);
+      expect(entries.every((e) => e.path.startsWith('/'))).toBe(true);
+      expect(entries.every((e) => e.path.includes(tempDir))).toBe(true);
+    });
+
+    test('sorts entries alphabetically within categories', async () => {
+      await writeFile(join(tempDir, 'aaa.txt'), '');
+      await writeFile(join(tempDir, 'zzz.txt'), '');
+      const entries = await listDirectory(tempDir);
+      const files = entries.filter((e) => !e.isDirectory);
+      const names = files.map((e) => e.name);
+      expect(names).toEqual([...names].sort());
     });
   });
 

@@ -45,7 +45,7 @@ interface RegisteredPlugin {
 /**
  * Result of loading a plugin
  */
-interface PluginLoadResult {
+export interface PluginLoadResult {
   success: boolean;
   pluginId?: string;
   error?: string;
@@ -296,6 +296,8 @@ export class AgentRegistry {
       command: config.command,
       defaultFlags: config.defaultFlags,
       timeout: config.timeout,
+      envExclude: config.envExclude,
+      envPassthrough: config.envPassthrough,
     };
 
     await instance.initialize(initConfig);

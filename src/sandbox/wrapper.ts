@@ -41,6 +41,7 @@ const MACOS_SYSTEM_DIRS = [
   '/Applications',
   '/private/var/db',
   '/private/etc',
+  '/opt/homebrew', // Apple Silicon Homebrew prefix
 ];
 
 export class SandboxWrapper {

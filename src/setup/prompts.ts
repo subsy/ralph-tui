@@ -38,13 +38,69 @@ function formatHelp(help?: string): string {
 }
 
 /**
+ * Check if we're running in an interactive terminal environment
+ */
+export function isInteractiveTerminal(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+/**
+ * Strip mouse tracking and other escape codes from input string
+ */
+export function stripEscapeCodes(input: string): string {
+  // Step 1: Remove ALL mouse tracking patterns first (before they get fragmented)
+  // Pattern: sequences like 35;106;28M (requires semicolon to avoid false positives like "10m")
+  // This catches: 35;106;28M, 100;200M, etc. but NOT "10m"
+  let cleaned = input.replace(/\d+;\d+(?:;\d+)*[Mm]/g, '');
+
+  // Step 2: Remove escape sequences
+  // Use RegExp constructor to avoid Biome linter errors with control characters
+  const csiPattern = new RegExp('\x1b\\[[0-9;?]*[a-zA-Z]', 'g');
+  cleaned = cleaned.replace(csiPattern, '');
+
+  const oscPattern = new RegExp('\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)', 'g');
+  cleaned = cleaned.replace(oscPattern, '');
+
+  // Step 3: Remove any control characters (except space, tab, newline)
+  const controlCharsPattern = new RegExp('[\x00-\x1F\x7F]', 'g');
+  cleaned = cleaned.replace(controlCharsPattern, (char) => {
+    // Keep space (0x20 is already outside this range)
+    // Keep tab (0x09) and newline (0x0A)
+    if (char === '\t' || char === '\n') return char;
+    return '';
+  });
+
+  // Step 4: Clean up any resulting multiple spaces
+  cleaned = cleaned.replace(/\s+/g, ' ');
+
+  return cleaned;
+}
+
+/**
+ * Disable mouse tracking in terminal to prevent escape codes from polluting input
+ */
+export function disableMouseTracking(): void {
+  if (process.stdout.isTTY) {
+    // Disable various mouse tracking modes
+    process.stdout.write('\x1b[?1000l'); // X10 mouse reporting
+    process.stdout.write('\x1b[?1002l'); // Button event tracking
+    process.stdout.write('\x1b[?1003l'); // Any event tracking
+    process.stdout.write('\x1b[?1006l'); // SGR extended reporting
+    process.stdout.write('\x1b[?1015l'); // urxvt extended reporting
+  }
+}
+
+/**
  * Create a readline interface for prompting
  */
 function createReadline(): readline.Interface {
+  // Disable mouse tracking to prevent escape codes in input
+  disableMouseTracking();
+
   return readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    terminal: true,
+    terminal: process.stdin.isTTY ?? false,
   });
 }
 
@@ -71,7 +127,9 @@ export async function promptText(
     rl.question(formatPrompt(prompt, options.required ?? false) + defaultStr + ' ', (answer) => {
       rl.close();
 
-      const value = answer.trim() || options.default || '';
+      // Strip any escape codes that slipped through (fallback for mouse tracking)
+      const cleanedAnswer = stripEscapeCodes(answer);
+      const value = cleanedAnswer.trim() || options.default || '';
 
       // Validate pattern if provided
       if (options.pattern && value) {
@@ -118,7 +176,9 @@ export async function promptBoolean(
     rl.question(formatPrompt(prompt, false) + defaultStr + ' ', (answer) => {
       rl.close();
 
-      const value = answer.trim().toLowerCase();
+      // Strip escape codes from input
+      const cleanedAnswer = stripEscapeCodes(answer);
+      const value = cleanedAnswer.trim().toLowerCase();
 
       if (!value && options.default !== undefined) {
         resolve(options.default);
@@ -186,7 +246,9 @@ export async function promptSelect<T extends string = string>(
     rl.question(`  Enter number (1-${choices.length})${defaultHint}: `, (answer) => {
       rl.close();
 
-      const value = answer.trim();
+      // Strip escape codes from input
+      const cleanedAnswer = stripEscapeCodes(answer);
+      const value = cleanedAnswer.trim();
 
       // Use default if no input
       if (!value && options.default) {
@@ -251,7 +313,9 @@ export async function promptNumber(
     rl.question(formatPrompt(prompt, options.required ?? false) + defaultStr + ' ', (answer) => {
       rl.close();
 
-      const value = answer.trim();
+      // Strip escape codes from input
+      const cleanedAnswer = stripEscapeCodes(answer);
+      const value = cleanedAnswer.trim();
 
       // Use default if no input
       if (!value && options.default !== undefined) {

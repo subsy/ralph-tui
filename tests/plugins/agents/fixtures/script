@@ -1,0 +1,6 @@
+#!/bin/sh
+# ABOUTME: Test-only script command that runs the Droid lifecycle fixture directly.
+
+set -eu
+
+exec "$DROID_FIXTURE_PATH"

@@ -42,7 +42,7 @@ function getStatusDisplay(status: RalphStatus): { indicator: string; color: stri
     case 'executing':
       return { indicator: statusIndicators.executing, color: colors.status.success, label: 'Executing' };
     case 'pausing':
-      return { indicator: statusIndicators.pausing, color: colors.status.warning, label: 'Pausing' };
+      return { indicator: statusIndicators.pausing, color: colors.status.warning, label: 'Pausing (completing in-flight)' };
     case 'paused':
       return { indicator: statusIndicators.paused, color: colors.status.warning, label: 'Paused' };
     case 'stopped':
@@ -51,6 +51,8 @@ function getStatusDisplay(status: RalphStatus): { indicator: string; color: stri
       return { indicator: statusIndicators.complete, color: colors.status.success, label: 'Complete' };
     case 'idle':
       return { indicator: statusIndicators.idle, color: colors.fg.muted, label: 'Idle' };
+    case 'waiting':
+      return { indicator: statusIndicators.waiting, color: colors.fg.muted, label: 'Waiting' };
     case 'error':
       return { indicator: statusIndicators.blocked, color: colors.status.error, label: 'Error' };
   }

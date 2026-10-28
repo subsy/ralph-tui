@@ -36,10 +36,23 @@ import type {
   CheckConfigResponseMessage,
   PushConfigMessage,
   PushConfigResponseMessage,
+  // Orchestration types
+  OrchestrateStartMessage,
+  OrchestrateStartResponseMessage,
+  OrchestratePauseMessage,
+  OrchestrateResumeMessage,
+  OrchestrateStopMessage,
+  OrchestrateGetStateMessage,
+  OrchestrateStateResponseMessage,
+  ParallelEventMessage,
+  RemoteOrchestrationState,
 } from './types.js';
 import { TOKEN_LIFETIMES } from './types.js';
+import { buildRemoteWebSocketUrl } from './url.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { EngineEvent } from '../engine/types.js';
+import type { ParallelEvent } from '../parallel/events.js';
 
 /**
  * Connection status for a remote instance.
@@ -120,6 +133,9 @@ export interface InstanceTab {
   /** Port for remote connections */
   port?: number;
 
+  /** Use secure WebSocket connections */
+  secure?: boolean;
+
   /** Last error message (if status is disconnected due to error) */
   lastError?: string;
 
@@ -140,7 +156,8 @@ export type RemoteClientEvent =
   | { type: 'metrics_updated'; metrics: ConnectionMetrics }
   | { type: 'message'; message: WSMessage }
   | { type: 'engine_event'; event: EngineEvent }
-  | { type: 'token_refreshed'; expiresAt: string };
+  | { type: 'token_refreshed'; expiresAt: string }
+  | { type: 'parallel_event'; orchestrationId: string; event: ParallelEvent };
 
 /**
  * Callback for remote client events
@@ -167,6 +184,7 @@ export class RemoteClient {
   private ws: WebSocket | null = null;
   private host: string;
   private port: number;
+  private secure: boolean;
   /** Server token for initial authentication (long-lived, 90 days) */
   private serverToken: string;
   private eventHandler: RemoteClientEventHandler;
@@ -204,10 +222,12 @@ export class RemoteClient {
     port: number,
     token: string,
     eventHandler: RemoteClientEventHandler,
-    reconnectConfig: Partial<ReconnectConfig> = {}
+    reconnectConfig: Partial<ReconnectConfig> = {},
+    secure = false
   ) {
     this.host = host;
     this.port = port;
+    this.secure = secure;
     this.serverToken = token;
     this.eventHandler = eventHandler;
     this.reconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, ...reconnectConfig };
@@ -258,7 +278,7 @@ export class RemoteClient {
 
     return new Promise<void>((resolve, reject) => {
       try {
-        const url = `ws://${this.host}:${this.port}`;
+        const url = buildRemoteWebSocketUrl(this.host, this.port, this.secure);
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
@@ -432,6 +452,17 @@ export class RemoteClient {
         // Forward engine events to the event handler
         const engineEventMsg = message as EngineEventMessage;
         this.eventHandler({ type: 'engine_event', event: engineEventMsg.event });
+        break;
+      }
+
+      case 'parallel_event': {
+        // Forward parallel events to the event handler
+        const parallelEventMsg = message as ParallelEventMessage;
+        this.eventHandler({
+          type: 'parallel_event',
+          orchestrationId: parallelEventMsg.orchestrationId,
+          event: parallelEventMsg.event,
+        });
         break;
       }
 
@@ -671,6 +702,7 @@ export class RemoteClient {
     startedAt?: string;
     endedAt?: string;
     durationMs?: number;
+    usage?: TokenUsageSummary;
     isRunning?: boolean;
     error?: string;
   }> {
@@ -691,6 +723,7 @@ export class RemoteClient {
       startedAt: outputResponse.startedAt,
       endedAt: outputResponse.endedAt,
       durationMs: outputResponse.durationMs,
+      usage: outputResponse.usage,
       isRunning: outputResponse.isRunning,
       error: outputResponse.error,
     };
@@ -768,6 +801,117 @@ export class RemoteClient {
       backupPath: pushResponse.backupPath,
       migrationTriggered: pushResponse.migrationTriggered,
       requiresRestart: pushResponse.requiresRestart,
+    };
+  }
+
+  // ============================================================================
+  // Remote Orchestration Methods
+  // ============================================================================
+
+  /**
+   * Start parallel orchestration on the remote instance.
+   * Returns orchestration session info on success.
+   */
+  async startOrchestration(options: {
+    prdPath?: string;
+    epicId?: string;
+    epicIds?: string[];
+    maxWorkers?: number;
+    maxIterations?: number;
+    directMerge?: boolean;
+  } = {}): Promise<{
+    success: boolean;
+    error?: string;
+    orchestrationId?: string;
+    totalTasks?: number;
+    totalGroups?: number;
+    maxParallelism?: number;
+  }> {
+    const message: Omit<OrchestrateStartMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:start',
+      ...options,
+    };
+    const response = await this.request<OrchestrateStartMessage>(message);
+    if (response.type !== 'orchestrate:start_response') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    const startResponse = response as OrchestrateStartResponseMessage;
+    return {
+      success: startResponse.success,
+      error: startResponse.error,
+      orchestrationId: startResponse.orchestrationId,
+      totalTasks: startResponse.totalTasks,
+      totalGroups: startResponse.totalGroups,
+      maxParallelism: startResponse.maxParallelism,
+    };
+  }
+
+  /**
+   * Pause orchestration on the remote instance.
+   */
+  async pauseOrchestration(orchestrationId: string): Promise<boolean> {
+    const message: Omit<OrchestratePauseMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:pause',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestratePauseMessage>(message);
+    if (response.type !== 'operation_result') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    return (response as OperationResultMessage).success;
+  }
+
+  /**
+   * Resume paused orchestration on the remote instance.
+   */
+  async resumeOrchestration(orchestrationId: string): Promise<boolean> {
+    const message: Omit<OrchestrateResumeMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:resume',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestrateResumeMessage>(message);
+    if (response.type !== 'operation_result') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    return (response as OperationResultMessage).success;
+  }
+
+  /**
+   * Stop orchestration on the remote instance.
+   */
+  async stopOrchestration(orchestrationId: string): Promise<boolean> {
+    const message: Omit<OrchestrateStopMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:stop',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestrateStopMessage>(message);
+    if (response.type !== 'operation_result') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    return (response as OperationResultMessage).success;
+  }
+
+  /**
+   * Get current orchestration state from the remote instance.
+   */
+  async getOrchestrationState(orchestrationId: string): Promise<{
+    success: boolean;
+    error?: string;
+    state?: RemoteOrchestrationState;
+  }> {
+    const message: Omit<OrchestrateGetStateMessage, 'id' | 'timestamp'> = {
+      type: 'orchestrate:get_state',
+      orchestrationId,
+    };
+    const response = await this.request<OrchestrateGetStateMessage>(message);
+    if (response.type !== 'orchestrate:state_response') {
+      throw new Error(`Unexpected response type: ${response.type}`);
+    }
+    const stateResponse = response as OrchestrateStateResponseMessage;
+    return {
+      success: stateResponse.success,
+      error: stateResponse.error,
+      state: stateResponse.state,
     };
   }
 
@@ -954,7 +1098,7 @@ export class RemoteClient {
    */
   private async attemptReconnect(): Promise<void> {
     try {
-      const url = `ws://${this.host}:${this.port}`;
+      const url = buildRemoteWebSocketUrl(this.host, this.port, this.secure);
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
@@ -996,6 +1140,14 @@ export class RemoteClient {
           } else if (message.type === 'engine_event') {
             const engineEventMsg = message as EngineEventMessage;
             this.eventHandler({ type: 'engine_event', event: engineEventMsg.event });
+          } else if (message.type === 'parallel_event') {
+            // Forward parallel events during reconnect (same as primary handler)
+            const parallelEventMsg = message as ParallelEventMessage;
+            this.eventHandler({
+              type: 'parallel_event',
+              orchestrationId: parallelEventMsg.orchestrationId,
+              event: parallelEventMsg.event,
+            });
           } else {
             // Check for pending request responses
             const pending = this.pendingRequests.get(message.id);
@@ -1095,7 +1247,8 @@ export function createLocalTab(): InstanceTab {
 export function createRemoteTab(
   alias: string,
   host: string,
-  port: number
+  port: number,
+  secure = false
 ): InstanceTab {
   return {
     id: `remote-${alias}`,
@@ -1105,5 +1258,6 @@ export function createRemoteTab(
     alias,
     host,
     port,
+    secure,
   };
 }

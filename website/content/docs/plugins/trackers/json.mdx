@@ -84,6 +84,34 @@ path = "./prd.json"
 The `--prd` flag is recommended over config-file path because you likely have different prd.json files for different features.
 </Callout>
 
+### Interactive File Browser
+
+If you run with the JSON tracker but don't specify a `--prd` path, an interactive file browser appears:
+
+```bash
+# Opens file browser to select a prd.json
+ralph-tui run --tracker json
+```
+
+The file browser provides keyboard-driven navigation:
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate entries |
+| `Enter` / `→` | Enter directory or select file |
+| `Tab` | Select highlighted entry |
+| `Backspace` / `←` | Go to parent directory |
+| `~` | Jump to home directory |
+| `.` | Toggle hidden files |
+| `/` or `g` | Type a path directly |
+| `Esc` | Cancel |
+
+**Fuzzy Search**: Start typing any characters to filter files by name. Results are ranked by match quality — files starting with your query appear first, followed by partial matches. The search uses fzf-style matching, so `prdauth` matches `prd-authentication.json`. Press `Tab` or `Enter` to select the highlighted match.
+
+<Callout type="tip">
+The file browser filters to show only `.json` files and prioritizes files starting with `prd` — perfect for finding your PRD files quickly.
+</Callout>
+
 ## prd.json Schema
 
 The JSON tracker validates your file against a specific schema.

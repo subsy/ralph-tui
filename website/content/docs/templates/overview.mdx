@@ -110,7 +110,7 @@ We are working in a project to implement the following Product Requirements Docu
 2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. Implement this single story following acceptance criteria
 4. Run quality checks: typecheck, lint, etc.
-5. Commit with message: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}`
+5. Commit with message: `\{\{taskType\}\}: \{\{taskId\}\} \{\{taskTitle\}\}` (default; `taskType` falls back to `chore`. Override via the [`commitMessageTemplate`](../configuration/options.mdx) config option.)
 6. Document learnings in `.ralph-tui/progress.md`
 7. Signal completion
 
@@ -165,7 +165,7 @@ We are working in a project to implement the following Product Requirements Docu
 2. Study `.ralph-tui/progress.md` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. Implement the requirements (stay on current branch)
 4. Run your project's quality checks
-5. Commit: `feat: \{\{taskId\}\} - \{\{taskTitle\}\}`
+5. Commit: `\{\{taskType\}\}: \{\{taskId\}\} \{\{taskTitle\}\}` (default; configurable via [`commitMessageTemplate`](../configuration/options.mdx))
 6. Close the bead: `bd close \{\{taskId\}\} --db \{\{beadsDbPath\}\} --reason "..."`
 7. Document learnings in `.ralph-tui/progress.md`
 8. Signal completion

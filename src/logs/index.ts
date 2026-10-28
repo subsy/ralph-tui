@@ -49,14 +49,12 @@ export {
   createStructuredLogger,
 } from './structured-logger.js';
 
-export type { ProgressEntry } from './progress.js';
-
 export {
   PROGRESS_FILE,
-  createProgressEntry,
-  appendProgress,
   readProgress,
   getRecentProgressSummary,
   getCodebasePatternsForPrompt,
   clearProgress,
+  ensureProgressFile,
+  appendProgressSessionMarker,
 } from './progress.js';

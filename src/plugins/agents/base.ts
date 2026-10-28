@@ -5,19 +5,18 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { accessSync, appendFileSync } from 'node:fs';
 import { tmpdir, platform } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 /** Debug log helper - writes to file to avoid TUI interference */
-function debugLog(msg: string): void {
-  if (process.env.RALPH_DEBUG) {
-    try {
-      const logPath = join(tmpdir(), 'ralph-agent-debug.log');
-      appendFileSync(logPath, `${new Date().toISOString()} ${msg}\n`);
-    } catch {
-      // Ignore write errors
-    }
+export function debugLog(msg: string): void {
+  // Always log during debugging phase (TODO: restore RALPH_DEBUG check later)
+  try {
+    const logPath = join(tmpdir(), 'ralph-agent-debug.log');
+    appendFileSync(logPath, `${new Date().toISOString()} ${msg}\n`);
+  } catch {
+    // Ignore write errors
   }
 }
 
@@ -32,6 +31,28 @@ export function findCommandPath(
 ): Promise<{ found: boolean; path: string }> {
   return new Promise((resolve) => {
     const isWindows = platform() === 'win32';
+    const trimmedCommand = command.trim();
+    const normalizedCommand = trimmedCommand.startsWith('"') && trimmedCommand.endsWith('"')
+      ? trimmedCommand.slice(1, -1)
+      : trimmedCommand;
+
+    const isPathLikeCommand =
+      isAbsolute(normalizedCommand) ||
+      normalizedCommand.includes('/') ||
+      normalizedCommand.includes('\\');
+
+    if (isPathLikeCommand) {
+      try {
+        accessSync(normalizedCommand);
+        return resolve({
+          found: true,
+          path: normalizedCommand,
+        });
+      } catch {
+        return resolve({ found: false, path: '' });
+      }
+    }
+
     const whichCmd = isWindows ? 'where' : 'which';
 
     const proc = spawn(whichCmd, [command], {
@@ -61,12 +82,60 @@ export function findCommandPath(
       }
     });
 
-    // Timeout after 5 seconds
+    // Timeout after 15 seconds
     setTimeout(() => {
       proc.kill();
       resolve({ found: false, path: '' });
-    }, 5000);
+    }, 15000);
   });
+}
+
+/**
+ * Quote a command path for Windows shell execution.
+ * When spawn is used with shell: true on Windows, paths containing spaces
+ * must be wrapped in double quotes to prevent cmd.exe from splitting them
+ * at the space (e.g., "C:\Program Files\..." would be parsed as "C:\Program").
+ * Returns the path unchanged if it has no spaces or is already quoted.
+ * Callers should only use this when shell: true is set on Windows.
+ */
+export function quoteForWindowsShell(commandPath: string): string {
+  if (!commandPath.includes(' ')) return commandPath;
+  // Already quoted
+  if (commandPath.startsWith('"') && commandPath.endsWith('"')) return commandPath;
+  return `"${commandPath}"`;
+}
+
+/**
+ * Determine whether a Windows command needs shell execution.
+ * Native executables can be spawned directly, while wrapper scripts require the shell.
+ */
+export function shouldUseWindowsShell(
+  commandPath: string,
+  currentPlatform: NodeJS.Platform = process.platform
+): boolean {
+  if (currentPlatform !== 'win32') {
+    return false;
+  }
+
+  const trimmedCommand = commandPath.trim();
+  const normalizedCommand = trimmedCommand.startsWith('"') && trimmedCommand.endsWith('"')
+    ? trimmedCommand.slice(1, -1)
+    : trimmedCommand;
+  const lowerCommand = normalizedCommand.toLowerCase();
+
+  if (lowerCommand.endsWith('.exe') || lowerCommand.endsWith('.com')) {
+    return false;
+  }
+
+  if (
+    lowerCommand.endsWith('.cmd') ||
+    lowerCommand.endsWith('.bat') ||
+    lowerCommand.endsWith('.ps1')
+  ) {
+    return true;
+  }
+
+  return true;
 }
 
 import { randomUUID } from 'node:crypto';
@@ -85,6 +154,12 @@ import type {
 } from './types.js';
 import { SandboxWrapper, detectSandboxMode } from '../../sandbox/index.js';
 import type { SandboxConfig } from '../../sandbox/types.js';
+import { appendWithCharLimit as appendWithSharedCharLimit } from '../../utils/buffer-limits.js';
+
+type ResolvedCommand = {
+  command: string;
+  executablePath: string;
+};
 
 /**
  * Internal representation of a running execution.
@@ -99,12 +174,198 @@ interface RunningExecution {
   resolve: (result: AgentExecutionResult) => void;
   reject: (error: Error) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
+  options?: AgentExecuteOptions;
+  drainFallbackId?: ReturnType<typeof setTimeout>;
+  exitCode?: number | null;
+  exitSignal?: NodeJS.Signals | null;
+  exitAt?: number;
 }
+
+/**
+ * Default environment variable exclusion patterns.
+ * These patterns are always excluded from agent subprocesses to prevent accidental
+ * API key leakage (e.g., from .env files auto-loaded by Bun) which can cause
+ * unexpected billing. Use the envPassthrough config option to explicitly allow
+ * specific variables matching these patterns through to the agent.
+ */
+export const DEFAULT_ENV_EXCLUDE_PATTERNS: readonly string[] = [
+  '*_API_KEY',
+  '*_SECRET_KEY',
+  '*_SECRET',
+];
+
+/**
+ * Maximum number of characters kept in memory per execution stream.
+ * This prevents unbounded growth when agents emit large outputs.
+ */
+const MAX_EXECUTION_STREAM_CHARS = 2_000_000;
+
+/**
+ * Prefix added when stream output is truncated in memory.
+ */
+const STREAM_TRUNCATED_PREFIX = '[...agent output truncated in memory...]\n';
+
+// Balances capturing late descendant output against delaying completed agents.
+export const STDIO_DRAIN_GRACE_PERIOD_MS = 2000;
+
+// Output arriving this long after exit is attributed to a descendant, not the agent.
+export const STDIO_DRAIN_MAX_WAIT_MS = 10_000;
+
+/**
+ * Append chunk data while enforcing an in-memory size cap.
+ * Keeps the most recent content (tail) to preserve completion markers near the end.
+ */
+function appendWithCharLimit(
+  current: string,
+  chunk: string,
+  maxChars: number,
+  prefix = STREAM_TRUNCATED_PREFIX
+): string {
+  return appendWithSharedCharLimit(current, chunk, maxChars, prefix);
+}
+
+/**
+ * Test-only exports for internal helpers.
+ * Do not use from production code.
+ */
+export const __test__ = {
+  appendWithCharLimit,
+};
 
 /**
  * Abstract base class for agent plugins.
  * Provides sensible defaults and utility methods for executing CLI-based agents.
  */
+/**
+ * Check if a string matches a glob pattern.
+ * Supports * (match any characters) and ? (match single character).
+ */
+function globMatch(pattern: string, str: string): boolean {
+  // Escape regex special characters except * and ?
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  // Convert glob wildcards to regex
+  const regex = new RegExp(
+    '^' + escaped.replace(/\*/g, '.*').replace(/\?/g, '.') + '$'
+  );
+  return regex.test(str);
+}
+
+/**
+ * Filter environment variables by excluding those matching patterns,
+ * with an optional passthrough list that overrides exclusions.
+ * @param env Environment variables object
+ * @param excludePatterns Patterns to exclude (exact names or glob patterns)
+ * @param passthroughPatterns Patterns to allow through despite matching exclusions
+ * @returns Filtered environment object
+ */
+function filterEnvByExcludeWithPassthrough(
+  env: NodeJS.ProcessEnv,
+  excludePatterns: string[],
+  passthroughPatterns: string[]
+): NodeJS.ProcessEnv {
+  if (!excludePatterns || excludePatterns.length === 0) {
+    return env;
+  }
+
+  const filtered: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    const matchesExclude = excludePatterns.some((pattern) =>
+      globMatch(pattern, key)
+    );
+    if (!matchesExclude) {
+      filtered[key] = value;
+    } else if (
+      passthroughPatterns.length > 0 &&
+      passthroughPatterns.some((pattern) => globMatch(pattern, key))
+    ) {
+      // Passthrough overrides exclusion
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
+
+/**
+ * Report of environment variables detected as matching exclusion patterns.
+ */
+export interface EnvExclusionReport {
+  /** Variables that are blocked from reaching the agent process */
+  blocked: string[];
+  /** Variables that match exclusion patterns but are allowed via passthrough */
+  allowed: string[];
+}
+
+/**
+ * Detect environment variables matching default exclusion patterns and categorize them.
+ * Scans the current process.env for vars that would be blocked by default patterns,
+ * then splits them into blocked vs allowed (via passthrough).
+ *
+ * @param env Environment variables to scan (defaults to process.env)
+ * @param passthroughPatterns Patterns that override exclusions
+ * @param additionalExclude Extra exclusion patterns beyond defaults
+ * @returns Report with blocked and allowed variable names
+ */
+export function getEnvExclusionReport(
+  env: NodeJS.ProcessEnv = process.env,
+  passthroughPatterns: string[] = [],
+  additionalExclude: string[] = []
+): EnvExclusionReport {
+  const excludePatterns = [...DEFAULT_ENV_EXCLUDE_PATTERNS, ...additionalExclude];
+  const blocked: string[] = [];
+  const allowed: string[] = [];
+
+  for (const key of Object.keys(env)) {
+    const matchesExclude = excludePatterns.some((pattern) =>
+      globMatch(pattern, key)
+    );
+    if (!matchesExclude) {
+      continue;
+    }
+
+    const matchesPassthrough =
+      passthroughPatterns.length > 0 &&
+      passthroughPatterns.some((pattern) => globMatch(pattern, key));
+
+    if (matchesPassthrough) {
+      allowed.push(key);
+    } else {
+      blocked.push(key);
+    }
+  }
+
+  return { blocked: blocked.sort(), allowed: allowed.sort() };
+}
+
+/**
+ * Format an env exclusion report as human-readable lines for console output.
+ * Always returns output so users can see which patterns are active.
+ *
+ * @param report The exclusion report to format
+ * @returns Array of formatted lines
+ */
+export function formatEnvExclusionReport(report: EnvExclusionReport): string[] {
+  const lines: string[] = [];
+
+  if (report.blocked.length === 0 && report.allowed.length === 0) {
+    lines.push(
+      `Env filter: no vars matched exclusion patterns (${DEFAULT_ENV_EXCLUDE_PATTERNS.join(', ')})`
+    );
+    return lines;
+  }
+
+  lines.push('Env filter:');
+
+  if (report.blocked.length > 0) {
+    lines.push(`  Blocked:     ${report.blocked.join(', ')}`);
+  }
+
+  if (report.allowed.length > 0) {
+    lines.push(`  Passthrough: ${report.allowed.join(', ')}`);
+  }
+
+  return lines;
+}
+
 export abstract class BaseAgentPlugin implements AgentPlugin {
   abstract readonly meta: AgentPluginMeta;
 
@@ -113,6 +374,8 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   protected commandPath?: string;
   protected defaultFlags: string[] = [];
   protected defaultTimeout = 0; // 0 = no timeout
+  protected envExclude: string[] = []; // User-configured environment variables to exclude
+  protected envPassthrough: string[] = []; // Vars to pass through despite matching defaults
 
   /** Map of running executions by ID */
   private executions: Map<string, RunningExecution> = new Map();
@@ -142,6 +405,18 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       this.defaultTimeout = config.timeout;
     }
 
+    if (Array.isArray(config.envExclude)) {
+      this.envExclude = config.envExclude.filter(
+        (p): p is string => typeof p === 'string' && p.length > 0
+      );
+    }
+
+    if (Array.isArray(config.envPassthrough)) {
+      this.envPassthrough = config.envPassthrough.filter(
+        (p): p is string => typeof p === 'string' && p.length > 0
+      );
+    }
+
     this.ready = true;
   }
 
@@ -154,17 +429,117 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   }
 
   /**
+   * Get a report of environment variables that are blocked vs allowed for this agent.
+   * Useful for diagnostics and informing users about which keys from .env files
+   * are being filtered.
+   */
+  getExclusionReport(): EnvExclusionReport {
+    return getEnvExclusionReport(process.env, this.envPassthrough, this.envExclude);
+  }
+
+  /**
+   * Build the ordered command candidate list for auto-detection.
+   * The configured command path always has highest priority and is not included here.
+   */
+  protected getCommandCandidates(): string[] {
+    return [
+      this.meta.defaultCommand,
+      ...(this.meta.commandAliases ?? []),
+    ]
+      .map((command) => command.trim())
+      .filter((command): command is string => command.length > 0);
+  }
+
+  /**
+   * Format a human-readable list of acceptable command names.
+   */
+  protected getExpectedCommandNames(): string {
+    const candidates = this.getCommandCandidates();
+    if (candidates.length === 0) {
+      return 'no configured command';
+    }
+
+    return candidates.map((command) => `\`${command}\``).join(', ');
+  }
+
+  /**
+   * Resolve a command path by checking explicit override first, then command candidates.
+   * Returns the first discovered command path.
+   */
+  protected async resolveCommandPath(): Promise<ResolvedCommand | null> {
+    if (this.commandPath) {
+      const trimmedCommand = this.commandPath.trim();
+      if (!trimmedCommand) {
+        this.commandPath = undefined;
+      } else {
+        const findResult = await findCommandPath(trimmedCommand);
+        if (!findResult.found) {
+          return null;
+        }
+
+        return {
+          command: trimmedCommand,
+          executablePath: findResult.path,
+        };
+      }
+    }
+
+    const candidates = this.getCommandCandidates();
+    const resolvedCommands = new Set<string>();
+    const uniqueCandidates = candidates.filter((command) => {
+      if (resolvedCommands.has(command)) {
+        return false;
+      }
+      resolvedCommands.add(command);
+      return true;
+    });
+
+    for (const command of uniqueCandidates) {
+      const findResult = await findCommandPath(command);
+      if (findResult.found) {
+        this.commandPath = findResult.path;
+        return {
+          command,
+          executablePath: findResult.path,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Build the standard error text for command resolution failures.
+   * Override in plugin implementations to include install-specific links.
+   */
+  protected getCommandNotFoundMessage(): string {
+    return `${this.meta.name} not found in PATH. Expected one of ${this.getExpectedCommandNames()}`;
+  }
+
+  /**
    * Detect if the agent CLI is available.
    * Default implementation tries to run the command with --version.
    * Subclasses can override for custom detection logic.
    */
   async detect(): Promise<AgentDetectResult> {
-    const command = this.commandPath ?? this.meta.defaultCommand;
+    const resolvedCommand = await this.resolveCommandPath();
+
+    if (!resolvedCommand) {
+      return {
+        available: false,
+        error: this.getCommandNotFoundMessage(),
+      };
+    }
+
+    const command = resolvedCommand.command;
+    const commandPath = resolvedCommand.executablePath;
 
     return new Promise((resolve) => {
-      const proc = spawn(command, ['--version'], {
+      const useShell = shouldUseWindowsShell(commandPath);
+      const spawnCmd = useShell ? quoteForWindowsShell(commandPath) : commandPath;
+      const proc = spawn(spawnCmd, ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
+        shell: useShell,
       });
 
       let stdout = '';
@@ -192,24 +567,24 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
           resolve({
             available: true,
             version: versionMatch?.[1],
-            executablePath: command,
+            executablePath: commandPath,
           });
         } else {
           resolve({
             available: false,
-            error: stderr || `${command} exited with code ${code}`,
+            error: stderr || `${commandPath} exited with code ${code}`,
           });
         }
       });
 
-      // Timeout after 5 seconds for version check
+      // Timeout after 15 seconds for version check
       setTimeout(() => {
         proc.kill();
         resolve({
           available: false,
-          error: `Timeout waiting for ${command} --version`,
+          error: `Timeout waiting for ${commandPath} --version`,
         });
-      }, 5000);
+      }, 15000);
     });
   }
 
@@ -268,14 +643,23 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     const startedAt = new Date();
     const timeout = options?.timeout ?? this.defaultTimeout;
 
-    // Merge environment
+    // Merge environment: apply default + user exclusions, then re-include passthrough vars
+    const effectiveExclude = [...DEFAULT_ENV_EXCLUDE_PATTERNS, ...this.envExclude];
+    const baseEnv = filterEnvByExcludeWithPassthrough(
+      process.env,
+      effectiveExclude,
+      this.envPassthrough
+    );
     const env = {
-      ...process.env,
+      ...baseEnv,
       ...options?.env,
     };
 
     // Merge flags
     const allArgs = [...this.defaultFlags, ...(options?.flags ?? []), ...args];
+
+    // Debug: log the command being executed
+    debugLog(`[AGENT] Spawning ${command} with args: ${JSON.stringify(allArgs.slice(0, 10))}... cwd=${options?.cwd}`);
 
     // Create the promise for completion
     let resolvePromise: (result: AgentExecutionResult) => void;
@@ -289,15 +673,16 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
     const startProcess = (spawnCommand: string, spawnArgs: string[]): void => {
       // Spawn the process
-      // Note: On Windows, we need shell: true to execute wrapper scripts (.cmd, .bat, .ps1)
-      // On Unix, shell: false avoids shell interpretation of special characters in args
+      // On Windows, only wrapper scripts need shell execution.
+      // Native executables can be spawned directly to avoid cmd.exe argument rewriting.
       // The prompt will be passed via stdin if getStdinInput returns content
-      const isWindows = platform() === 'win32';
-      const proc = spawn(spawnCommand, spawnArgs, {
+      const useShell = shouldUseWindowsShell(spawnCommand);
+      const resolvedCommand = useShell ? quoteForWindowsShell(spawnCommand) : spawnCommand;
+      const proc = spawn(resolvedCommand, spawnArgs, {
         cwd: options?.cwd ?? process.cwd(),
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: isWindows,
+        shell: useShell,
       });
 
       // Write to stdin if subclass provides input (e.g., prompt content)
@@ -320,6 +705,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
         interrupted: false,
         resolve: resolvePromise!,
         reject: rejectPromise!,
+        options,
       };
 
       this.executions.set(executionId, execution);
@@ -331,15 +717,29 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // Handle stdout
       proc.stdout?.on('data', (data: Buffer) => {
         const text = data.toString();
-        execution.stdout += text;
+        execution.stdout = appendWithCharLimit(
+          execution.stdout,
+          text,
+          MAX_EXECUTION_STREAM_CHARS
+        );
         options?.onStdout?.(text);
+        if (execution.drainFallbackId !== undefined) {
+          this.scheduleDrainFallback(execution);
+        }
       });
 
       // Handle stderr
       proc.stderr?.on('data', (data: Buffer) => {
         const text = data.toString();
-        execution.stderr += text;
+        execution.stderr = appendWithCharLimit(
+          execution.stderr,
+          text,
+          MAX_EXECUTION_STREAM_CHARS
+        );
         options?.onStderr?.(text);
+        if (execution.drainFallbackId !== undefined) {
+          this.scheduleDrainFallback(execution);
+        }
       });
 
       // Handle process error
@@ -354,18 +754,8 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
           debugLog(`[DEBUG] Process close: code=${code}, signal=${signal}, execId=${executionId}`);
         }
 
-        // Determine status
-        let status: AgentExecutionStatus;
-        if (execution.interrupted) {
-          status = 'interrupted';
-        } else if (signal === 'SIGTERM' || signal === 'SIGKILL') {
-          status = execution.timeoutId ? 'timeout' : 'interrupted';
-        } else if (code === 0) {
-          status = 'completed';
-        } else {
-          status = 'failed';
-        }
-
+        this.clearDrainFallback(execution);
+        const status = this.deriveExitStatus(execution, code, signal);
         this.completeExecution(executionId, status, code ?? undefined);
       });
 
@@ -374,8 +764,10 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
         if (process.env.RALPH_DEBUG) {
           debugLog(`[DEBUG] Process exit: code=${code}, signal=${signal}, execId=${executionId}`);
         }
-        // Note: We don't call completeExecution here to avoid double-completion
-        // 'close' should fire after 'exit' once stdio streams are closed
+        execution.exitCode = code;
+        execution.exitSignal = signal;
+        execution.exitAt = Date.now();
+        this.scheduleDrainFallback(execution);
       });
 
       // Set up timeout if specified
@@ -413,16 +805,51 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     };
 
     void resolveSandboxConfig()
-      .then((sandboxConfig) => {
+      .then(async (sandboxConfig) => {
         let spawnCommand = command;
         let spawnArgs = allArgs;
+
+        if (!this.commandPath) {
+          const resolvedCommand = await this.resolveCommandPath();
+          if (!resolvedCommand) {
+            const failedCommandError = this.getCommandNotFoundMessage();
+            const endedAt = new Date();
+            const result = {
+              executionId,
+              status: 'failed' as const,
+              exitCode: undefined,
+              stdout: '',
+              stderr: failedCommandError,
+              durationMs: endedAt.getTime() - startedAt.getTime(),
+              error: failedCommandError,
+              interrupted: false,
+              startedAt: startedAt.toISOString(),
+              endedAt: endedAt.toISOString(),
+            };
+
+            if (options?.onEnd) {
+              try {
+                options.onEnd(result);
+              } catch (err) {
+                if (process.env.RALPH_DEBUG) {
+                  debugLog(`[DEBUG] onEnd hook threw error: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }
+            }
+
+            resolvePromise!(result);
+            return;
+          }
+
+          spawnCommand = resolvedCommand.executablePath;
+        }
 
         if (sandboxConfig) {
           const wrapper = new SandboxWrapper(
             sandboxConfig,
             this.getSandboxRequirements()
           );
-          const wrapped = wrapper.wrapCommand(command, allArgs, {
+          const wrapped = wrapper.wrapCommand(spawnCommand, allArgs, {
             cwd: options?.cwd,
           });
           spawnCommand = wrapped.command;
@@ -433,9 +860,9 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       })
       .catch((error: Error) => {
         const endedAt = new Date();
-        resolvePromise!({
+        const result = {
           executionId,
-          status: 'failed',
+          status: 'failed' as const,
           exitCode: undefined,
           stdout: '',
           stderr: error.message,
@@ -444,7 +871,21 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
           interrupted: false,
           startedAt: startedAt.toISOString(),
           endedAt: endedAt.toISOString(),
-        });
+        };
+
+        // Call onEnd lifecycle hook before resolving (same pattern as completeExecution)
+        if (options?.onEnd) {
+          try {
+            options.onEnd(result);
+          } catch (err) {
+            if (process.env.RALPH_DEBUG) {
+              debugLog(`[DEBUG] onEnd hook threw error: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            // Swallow error - always proceed to resolve
+          }
+        }
+
+        resolvePromise!(result);
       });
 
     // Return the handle
@@ -460,6 +901,71 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       },
       isRunning: () => this.executions.has(executionId),
     };
+  }
+
+  /**
+   * Derive the final execution status from process termination details.
+   */
+  private deriveExitStatus(
+    execution: RunningExecution,
+    code: number | null,
+    signal: NodeJS.Signals | null
+  ): AgentExecutionStatus {
+    if (execution.interrupted) {
+      return 'interrupted';
+    }
+    if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+      return execution.timeoutId ? 'timeout' : 'interrupted';
+    }
+    return code === 0 ? 'completed' : 'failed';
+  }
+
+  /**
+   * Cancel a pending fallback timer for an execution.
+   */
+  private clearDrainFallback(execution: RunningExecution): void {
+    if (execution.drainFallbackId !== undefined) {
+      clearTimeout(execution.drainFallbackId);
+      execution.drainFallbackId = undefined;
+    }
+  }
+
+  /**
+   * Schedule bounded completion after an exited process's stdio goes quiet.
+   */
+  private scheduleDrainFallback(execution: RunningExecution): void {
+    this.clearDrainFallback(execution);
+
+    const remainingBudget =
+      (execution.exitAt ?? Date.now()) + STDIO_DRAIN_MAX_WAIT_MS - Date.now();
+    const delay = Math.min(STDIO_DRAIN_GRACE_PERIOD_MS, remainingBudget);
+    const finalize = (): void => {
+      execution.drainFallbackId = undefined;
+      if (!this.executions.has(execution.executionId)) {
+        return;
+      }
+
+      if (process.env.RALPH_DEBUG) {
+        debugLog(
+          `[DEBUG] Process stdio stayed open after drain: code=${execution.exitCode}, ` +
+            `signal=${execution.exitSignal}, execId=${execution.executionId}`
+        );
+      }
+      const status = this.deriveExitStatus(
+        execution,
+        execution.exitCode ?? null,
+        execution.exitSignal ?? null
+      );
+      this.completeExecution(execution.executionId, status, execution.exitCode ?? undefined);
+      execution.process.stdout?.destroy();
+      execution.process.stderr?.destroy();
+    };
+
+    if (delay <= 0) {
+      finalize();
+      return;
+    }
+    execution.drainFallbackId = setTimeout(finalize, delay);
   }
 
   /**
@@ -487,6 +993,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     if (execution.timeoutId) {
       clearTimeout(execution.timeoutId);
     }
+    this.clearDrainFallback(execution);
 
     const endedAt = new Date();
     const durationMs = endedAt.getTime() - execution.startedAt.getTime();
@@ -508,6 +1015,20 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     this.executions.delete(executionId);
     if (this.currentExecutionId === executionId) {
       this.currentExecutionId = undefined;
+    }
+
+    // Call onEnd lifecycle hook before resolving
+    // This allows plugins to flush buffers or perform cleanup
+    // Wrap in try/catch so exceptions don't prevent resolution
+    if (execution.options?.onEnd) {
+      try {
+        execution.options.onEnd(result);
+      } catch (err) {
+        if (process.env.RALPH_DEBUG) {
+          debugLog(`[DEBUG] onEnd hook threw error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        // Swallow error - always proceed to resolve
+      }
     }
 
     // Resolve the promise
@@ -620,6 +1141,14 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
   }
 
   /**
+   * List known model names for this agent.
+   * Default implementation returns an empty list for open-ended model names.
+   */
+  listModels(): string[] {
+    return [];
+  }
+
+  /**
    * Run a preflight check to verify the agent is fully operational.
    * Default implementation runs a minimal test prompt and checks for any response.
    * Subclasses can override for agent-specific preflight logic.
@@ -647,12 +1176,16 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
       // Run a minimal test prompt
       const testPrompt = 'Respond with exactly: PREFLIGHT_OK';
-      let output = '';
+      let stdoutCapture = '';
+      let stderrCapture = '';
 
       const handle = this.execute(testPrompt, [], {
         timeout,
         onStdout: (data: string) => {
-          output += data;
+          stdoutCapture += data;
+        },
+        onStderr: (data: string) => {
+          stderrCapture += data;
         },
       });
 
@@ -660,36 +1193,60 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       const durationMs = Date.now() - startTime;
 
       // Check if we got any meaningful response
-      if (result.status === 'completed' && output.length > 0) {
+      if (result.status === 'completed' && stdoutCapture.length > 0) {
         return {
           success: true,
           durationMs,
+          stdout: stdoutCapture,
         };
       }
+
+      // Build detailed error message for failures
+      const buildErrorDetails = (baseError: string): string => {
+        const details: string[] = [baseError];
+        if (result.exitCode !== undefined && result.exitCode !== 0) {
+          details.push(`exit code ${result.exitCode}`);
+        }
+        if (stderrCapture.trim()) {
+          // Truncate stderr if too long, but include first meaningful part
+          const truncatedStderr = stderrCapture.trim().slice(0, 500);
+          details.push(`stderr: ${truncatedStderr}`);
+        }
+        return details.join(' - ');
+      };
 
       if (result.status === 'timeout') {
         return {
           success: false,
-          error: 'Agent timed out without responding',
+          error: buildErrorDetails('Agent timed out without responding'),
           suggestion: this.getPreflightSuggestion(),
           durationMs,
+          exitCode: result.exitCode,
+          stderr: stderrCapture,
+          stdout: stdoutCapture,
         };
       }
 
       if (result.status === 'failed') {
         return {
           success: false,
-          error: result.error ?? 'Agent execution failed',
+          error: buildErrorDetails(result.error ?? 'Agent execution failed'),
           suggestion: this.getPreflightSuggestion(),
           durationMs,
+          exitCode: result.exitCode,
+          stderr: stderrCapture,
+          stdout: stdoutCapture,
         };
       }
 
       return {
         success: false,
-        error: 'Agent did not produce any output',
+        error: buildErrorDetails('Agent did not produce any output'),
         suggestion: this.getPreflightSuggestion(),
         durationMs,
+        exitCode: result.exitCode,
+        stderr: stderrCapture,
+        stdout: stdoutCapture,
       };
     } catch (error) {
       return {

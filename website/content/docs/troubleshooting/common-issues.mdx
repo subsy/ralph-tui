@@ -155,6 +155,33 @@ If you don't see real-time output from the agent:
   </TabsContent>
 </TabsRoot>
 
+### Preflight Check Times Out
+
+`ralph-tui doctor` or `ralph-tui setup` reports that the agent failed to respond, but the same agent works fine when you invoke it directly.
+
+The preflight check enforces a 30-second timeout by default. Local reasoning models, slow wrappers, and cold-start scenarios can all exceed this on a perfectly healthy setup.
+
+**Solution:** Raise [`preflightTimeoutMs`](/docs/configuration/options#preflight-timeout) in your config:
+
+```toml
+# .ralph-tui/config.toml
+
+# Global default for the configured agent
+preflightTimeoutMs = 60000  # 60 seconds
+
+# Or set it per-agent (overrides the shorthand)
+[[agents]]
+name = "my-local-model"
+plugin = "opencode"
+preflightTimeoutMs = 180000  # 3 minutes
+```
+
+Valid range: `1000`–`300000` milliseconds (1 second to 5 minutes).
+
+<Callout type="tip">
+If preflight passes but real runs still feel slow, that's a separate concern — `preflightTimeoutMs` only affects the one-shot health check, not iteration execution. For execution timeouts, see the per-agent `timeout` option.
+</Callout>
+
 ---
 
 ## Session Issues
@@ -361,6 +388,39 @@ ralph-tui config show
    ```
 
 ---
+
+## Parallel Execution Issues
+
+### Orphaned Worktrees
+
+If ralph was force-killed during parallel execution, worktrees may be left behind:
+
+```bash
+# List worktrees
+git worktree list
+
+# Remove orphaned worktrees (path is outside project)
+git worktree remove --force ../.ralph-worktrees/your-project/worker-1
+git worktree prune
+
+# Remove stale branches (cross-platform)
+branches=$(git for-each-ref --format='%(refname:short)' refs/heads/ralph-parallel/)
+[ -n "$branches" ] && echo "$branches" | xargs git branch -D
+```
+
+Ralph automatically cleans up orphaned worktrees on the next run.
+
+### Merge Conflicts During Parallel Execution
+
+When parallel workers modify the same files, merge conflicts may occur. Ralph attempts AI-assisted resolution automatically. If AI resolution fails:
+
+1. The merge is rolled back to a backup tag
+2. The conflicting task is re-queued to run sequentially
+3. If it fails again, the task is marked as failed
+
+To prevent frequent conflicts, structure tasks to touch different directories and set explicit `dependsOn` relationships for tasks that share files.
+
+See the [Parallel Execution Troubleshooting](/docs/parallel/troubleshooting) guide for more details.
 
 ## Getting More Help
 

@@ -1,0 +1,300 @@
+---
+title: Beads-Rust Tracker
+description: Git-backed issue tracking with the high-performance br CLI (Rust rewrite of Beads).
+---
+
+## Beads-Rust Tracker
+
+The Beads-Rust tracker integrates with **[beads-rust](https://github.com/Dicklesworthstone/beads_rust)**, a high-performance Rust rewrite of the Beads issue tracker. It offers the same features as Beads with improved performance and SQLite-based storage.
+
+<Callout type="tip">
+Beads-Rust (`br`) is a drop-in replacement for Beads (`bd`) with better performance. If you're starting fresh, consider using Beads-Rust.
+</Callout>
+
+## Prerequisites
+
+Install the Beads-Rust CLI (`br`) from the **[beads-rust releases](https://github.com/Dicklesworthstone/beads_rust/releases)**.
+
+Initialize Beads in your project:
+
+```bash
+cd your-project
+br init
+```
+
+This creates a `.beads/` directory with your issue tracker (SQLite database + JSONL export).
+
+## Basic Usage
+
+<Steps>
+  <Step title="Create an Epic">
+    Epics group related tasks:
+
+    ```bash
+    br create --title "User Authentication" --type epic
+    # Created: ralph-tui-abc123
+    ```
+  </Step>
+
+  <Step title="Add Tasks as Children of the Epic">
+    Tasks must be **children** of the epic (using `--parent`) to appear when running with `--epic`:
+
+    ```bash
+    br create --title "Login form" --type task --parent ralph-tui-abc123
+    br create --title "Auth API" --type task --parent ralph-tui-abc123
+    ```
+
+    <Callout type="info">
+    The `--parent` flag creates a parent-child relationship. Without it, tasks won't appear when filtering by epic.
+    </Callout>
+  </Step>
+
+  <Step title="Add Dependencies (Optional)">
+    If tasks depend on each other, add dependencies so Ralph works on them in the right order:
+
+    ```bash
+    # Login form depends on Auth API being done first
+    br dep add ralph-tui-login ralph-tui-api
+    ```
+  </Step>
+
+  <Step title="Run Ralph TUI">
+    Run with the epic ID:
+
+    ```bash
+    ralph-tui run --tracker beads-rust --epic ralph-tui-abc123
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### CLI Flags
+
+Run with epic and tracker:
+
+```bash
+ralph-tui run --tracker beads-rust --epic ralph-tui-abc123
+```
+
+Run one parallel session across multiple epics:
+
+```bash
+ralph-tui run --tracker beads-rust --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --tracker beads-rust --parallel --epics ui-epic,backend-epic
+```
+
+### Config File
+
+Set defaults in TOML:
+
+```toml
+# .ralph-tui/config.toml
+tracker = "beads-rust"
+
+[trackerOptions]
+beadsDir = ".beads"
+# labels = "frontend,backend"  # Optional: filter by labels
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `beadsDir` | string | `.beads` | Path to .beads directory, relative to `workingDir` unless absolute |
+| `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
+| `labels` | string | (empty) | Optional comma-separated label filter |
+| `workingDir` | string | `.` | Working directory for br commands |
+
+<Callout type="info">
+The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
+</Callout>
+
+The Beads-Rust store can live outside the working directory. Set `BEADS_DIR`
+to the store path, or use an absolute `beadsDir` path. This supports shared or
+remote tracker setups, such as a Dolt-server-backed Beads store.
+
+## Multi-Epic Parallel Execution
+
+Beads-Rust supports running one Ralph parallel session across multiple selected epics:
+
+```bash
+ralph-tui run --tracker beads-rust --parallel --epic ui-epic --epic backend-epic
+```
+
+This is one orchestration session with one scheduler and one merge queue. Ralph fetches child tasks for every selected epic with `br`, annotates each task with its execution scope, and builds a single dependency graph across the combined task set.
+
+Cross-epic dependencies are respected when both tasks are in the selected epic set. If a dependency points outside the selected set, Ralph checks the external task with `br show`; unresolved or missing external dependencies block the dependent task for that run.
+
+When launched without `--epic` in the TUI, the epic picker supports multi-select with `Space`, `a` to toggle all visible epics, and `Enter` to accept.
+
+## PRD Context Injection
+
+<Callout type="tip">
+**New in Beads-Rust:** When an epic has a PRD reference, the PRD content is automatically injected into the agent's context for better task understanding.
+</Callout>
+
+Link a PRD to your epic using `--external-ref`:
+
+```bash
+br create --type epic \
+  --title "Authentication Feature" \
+  --external-ref "prd:./docs/auth-prd.md"
+```
+
+When working on tasks under this epic, Ralph TUI will:
+1. Read the PRD file
+2. Include it in the agent's context
+3. Show progress (completed vs total tasks)
+
+## Beads Concepts
+
+### Epics
+
+Epics are top-level containers for related work:
+
+```bash
+# Create an epic
+br create --title "Feature: Dark Mode" --type epic
+
+# List epics
+br list --type epic
+```
+
+### Tasks
+
+Tasks are individual work items, optionally under an epic:
+
+```bash
+# Create standalone task
+br create --title "Fix login bug" --type task
+
+# Create task under epic
+br create --title "Add toggle switch" --type task --parent ralph-tui-xyz
+```
+
+### Dependencies
+
+Tasks can depend on (be blocked by) other tasks:
+
+```bash
+# Add dependency: task-b depends on task-a
+br dep add ralph-tui-task-b ralph-tui-task-a
+
+# View dependencies
+br show ralph-tui-task-b
+```
+
+### Statuses
+
+| Beads Status | Ralph TUI Status | Description |
+|--------------|------------------|-------------|
+| `open` | `open` | Ready to work |
+| `in_progress` | `in_progress` | Currently being worked on |
+| `closed` | `completed` | Finished |
+| `cancelled` | `cancelled` | Won't do |
+
+### Priorities
+
+Beads uses 0-4 priority scale (0 = critical):
+
+| Priority | Meaning |
+|----------|---------|
+| 0 | Critical |
+| 1 | High |
+| 2 | Medium (default) |
+| 3 | Low |
+| 4 | Backlog |
+
+## Task Selection
+
+The Beads-Rust tracker selects the next task by:
+
+1. Filter to tasks within the configured epic and label scope
+2. Resume an already-`in_progress` task within the configured scope, preferring the lowest priority number
+3. Otherwise use `br ready` to select open work with no unresolved dependencies
+4. Return the first matching task
+
+## Git Sync
+
+Beads-Rust stores issues in SQLite and exports to JSONL for git tracking:
+
+```bash
+# Export to JSONL for git
+br sync --flush-only
+
+# Commit the JSONL
+git add .beads/
+git commit -m "Update issues"
+```
+
+Ralph TUI calls `br sync` automatically when completing tasks.
+
+## Creating Tasks from PRDs
+
+Use the `ralph-tui-create-beads-rust` skill (via Claude Code):
+
+```bash
+# In Claude Code
+/ralph-tui-create-beads-rust
+```
+
+This converts a PRD into:
+- An epic with PRD reference (`--external-ref prd:./path/to/prd.md`)
+- Child tasks for each user story
+- Dependencies between tasks
+
+## Beads-Rust vs Beads (Go)
+
+| Feature | Beads (`bd`) | Beads-Rust (`br`) |
+|---------|--------------|-------------------|
+| Performance | Good | Better (Rust) |
+| Storage | JSONL only | SQLite + JSONL |
+| Daemon mode | Yes | No (direct mode) |
+| PRD injection | No | Yes |
+| Plugin name | `beads` | `beads-rust` |
+| Command | `bd` | `br` |
+
+<Callout type="info">
+If you have both `bd` and `br` installed, use `--tracker beads` for bd or `--tracker beads-rust` for br.
+</Callout>
+
+## Troubleshooting
+
+### "br binary not available"
+
+Install the Beads-Rust CLI from the **[beads-rust releases](https://github.com/Dicklesworthstone/beads_rust/releases)**.
+
+### "Beads directory not found"
+
+Initialize Beads in your project:
+
+```bash
+br init
+```
+
+If the store is outside the working directory, verify that `BEADS_DIR` points
+to it or that `beadsDir` is configured with its absolute path.
+
+### "No tasks available"
+
+Check that:
+1. **Tasks are children of the epic**: `br list --parent <epic>`
+2. **Tasks are `open` or `in_progress` status**: `br list --all` (tasks stuck in another status, such as `blocked`, won't be selected)
+3. **Dependencies are met**: `br show <task-id>`
+4. **Label filter matches** (if configured): `br list --label <your-label>`
+
+### "Tasks not syncing"
+
+Export to JSONL manually:
+
+```bash
+br sync --flush-only
+```
+
+## Next Steps
+
+- **[Beads Tracker](/docs/plugins/trackers/beads)** - Original Go-based tracker
+- **[Beads-BV Tracker](/docs/plugins/trackers/beads-bv)** - Smart task selection with graph analysis
+- **[JSON Tracker](/docs/plugins/trackers/json)** - Simple file-based tracking
+- **[Configuration](/docs/configuration/options)** - Full options reference

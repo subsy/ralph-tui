@@ -13,9 +13,12 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+const actualAgentRegistryModule = await import('../plugins/agents/registry.js?test-reload') as typeof import('../plugins/agents/registry.js');
 
 // Types for mock results
 interface MockDetectResult {
@@ -34,22 +37,45 @@ interface MockPreflightResult {
 // Store mock implementations that can be changed per test
 let mockDetectResult: MockDetectResult = { available: true, version: '1.0.0', executablePath: '/usr/bin/mock' };
 let mockPreflightResult: MockPreflightResult = { success: true, durationMs: 100 };
+let mockDiscoveredPlugin = false;
+let mockUserPluginResults: Array<{ success: boolean; pluginId?: string; error?: string }> = [];
+
+// Capture the last config passed to getInstance for verification
+let lastGetInstanceConfig: unknown = null;
+
+// Capture the options passed to preflight() for verification (e.g. timeout)
+let lastPreflightOptions: { timeout?: number } | null = null;
 
 // Mock agent instance
-const createMockAgentInstance = () => ({
-  meta: { id: 'claude', name: 'Claude Code' },
-  detect: () => Promise.resolve(mockDetectResult),
-  preflight: () => Promise.resolve(mockPreflightResult),
-  initialize: () => Promise.resolve(),
-  dispose: () => Promise.resolve(),
-});
+const createMockAgentInstance = (config?: unknown) => {
+  const plugin = (config as { plugin?: string } | undefined)?.plugin ?? 'claude';
+  return {
+    meta: { id: plugin, name: plugin === 'echo' ? 'Echo Agent' : 'Claude Code' },
+    detect: () => Promise.resolve(mockDetectResult),
+    preflight: (opts?: { timeout?: number }) => {
+      lastPreflightOptions = opts ?? null;
+      return Promise.resolve(mockPreflightResult);
+    },
+    initialize: () => Promise.resolve(),
+    dispose: () => Promise.resolve(),
+  };
+};
 
 // Mock the agent registry
 mock.module('../plugins/agents/registry.js', () => ({
+  ...actualAgentRegistryModule,
   getAgentRegistry: () => ({
-    getInstance: () => Promise.resolve(createMockAgentInstance()),
-    hasPlugin: (name: string) => name === 'claude' || name === 'opencode',
+    getInstance: (config: unknown) => {
+      lastGetInstanceConfig = config;
+      return Promise.resolve(createMockAgentInstance(config));
+    },
+    hasPlugin: (name: string) =>
+      name === 'claude' || name === 'opencode' || (name === 'echo' && mockDiscoveredPlugin),
     registerBuiltin: () => {},
+    initialize: () => {
+      mockDiscoveredPlugin = true;
+      return Promise.resolve(mockUserPluginResults);
+    },
     getRegisteredPlugins: () => [
       { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
       { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
@@ -97,6 +123,8 @@ describe('doctor command', () => {
     // Reset mock values
     mockDetectResult = { available: true, version: '1.0.0', executablePath: '/usr/bin/mock' };
     mockPreflightResult = { success: true, durationMs: 100 };
+    mockDiscoveredPlugin = false;
+    mockUserPluginResults = [];
 
     // Spy on console
     consoleLogSpy = spyOn(console, 'log').mockImplementation((...args) => {
@@ -198,6 +226,54 @@ describe('doctor command', () => {
       expect(result.detection.available).toBe(true);
       expect(result.preflight?.success).toBe(true);
       expect(result.message).toContain('healthy');
+    });
+
+    test('discovers user-only agents before resolving the requested plugin', async () => {
+      try {
+        await executeDoctorCommand(['--agent', 'echo', '--cwd', tempDir]);
+      } catch {
+        // Expected - process.exit is called
+      }
+
+      const output = capturedOutput.join('\n');
+      expect(output).toContain('HEALTHY');
+      expect(output).not.toContain('Unknown agent plugin');
+    });
+
+    test('warns about failed user plugin loads in human-readable output', async () => {
+      mockUserPluginResults = [{
+        success: false,
+        error: 'Failed to load plugin broken-agent.ts: import exploded',
+      }];
+
+      try {
+        await executeDoctorCommand(['--cwd', tempDir]);
+      } catch {
+        // Expected - process.exit is called
+      }
+
+      const output = capturedOutput.join('\n');
+      expect(output).toContain('⚠ Failed to load plugin broken-agent.ts: import exploded');
+      expect(output).toContain('HEALTHY');
+    });
+
+    test('does not emit plugin debug results when debug flag is 0', async () => {
+      const originalDebugFlag = process.env.RALPH_TUI_DEBUG_PLUGINS;
+      process.env.RALPH_TUI_DEBUG_PLUGINS = '0';
+
+      try {
+        await executeDoctorCommand(['--cwd', tempDir]);
+      } catch {
+        // Expected - process.exit is called
+      } finally {
+        if (originalDebugFlag === undefined) {
+          delete process.env.RALPH_TUI_DEBUG_PLUGINS;
+        } else {
+          process.env.RALPH_TUI_DEBUG_PLUGINS = originalDebugFlag;
+        }
+      }
+
+      expect(capturedErrors.join('\n')).not.toContain('DEBUG user plugin load results:');
     });
 
     test('reports unhealthy when detection fails', async () => {
@@ -368,5 +444,225 @@ describe('doctor result structure', () => {
     expect(jsonLine).toBeDefined();
     const result = JSON.parse(jsonLine!) as DoctorResult;
     expect(result.preflight?.durationMs).toBe(250);
+  });
+});
+
+// Helper to write TOML config
+async function writeTomlConfig(path: string, config: Record<string, unknown>): Promise<void> {
+  const { stringify } = await import('smol-toml');
+  const content = stringify(config);
+  await writeFile(path, content, 'utf-8');
+}
+
+describe('doctor config propagation', () => {
+  let tempDir: string;
+  let consoleLogSpy: ReturnType<typeof spyOn>;
+  let processExitSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+    lastGetInstanceConfig = null;
+    lastPreflightOptions = null;
+    mockDetectResult = { available: true, version: '1.0.0', executablePath: '/usr/bin/mock' };
+    mockPreflightResult = { success: true, durationMs: 100 };
+
+    consoleLogSpy = spyOn(console, 'log').mockImplementation(() => {});
+    processExitSpy = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+    consoleLogSpy.mockRestore();
+    processExitSpy.mockRestore();
+  });
+
+  test('passes envExclude from config to agent getInstance', async () => {
+    // Create project config with envExclude
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude',
+      envExclude: ['ANTHROPIC_API_KEY', '*_SECRET'],
+    });
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    // Verify envExclude was passed to getInstance
+    expect(lastGetInstanceConfig).toBeDefined();
+    const config = lastGetInstanceConfig as Record<string, unknown>;
+    expect(config.envExclude).toEqual(['ANTHROPIC_API_KEY', '*_SECRET']);
+  });
+
+  test('passes command from config to agent getInstance', async () => {
+    // Create project config with command
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude',
+      command: 'custom-claude',
+    });
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    // Verify command was passed to getInstance
+    expect(lastGetInstanceConfig).toBeDefined();
+    const config = lastGetInstanceConfig as Record<string, unknown>;
+    expect(config.command).toBe('custom-claude');
+  });
+
+  test('handles config without envExclude', async () => {
+    // Create project config without envExclude
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude',
+    });
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    // Verify getInstance was called (envExclude will be undefined)
+    expect(lastGetInstanceConfig).toBeDefined();
+    const config = lastGetInstanceConfig as Record<string, unknown>;
+    expect(config.envExclude).toBeUndefined();
+  });
+
+  test('uses agent from [[agents]] array with default=true and custom command', async () => {
+    // Create project config with agents array containing a default agent with custom command
+    // This tests that getDefaultAgentConfig properly resolves agents from the array
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude-custom"
+plugin = "claude"
+default = true
+command = "claude-glm"
+envPassthrough = ["CUSTOM_VAR"]
+`,
+      'utf-8'
+    );
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    // Verify the full agent config from the array was passed to getInstance
+    expect(lastGetInstanceConfig).toBeDefined();
+    const config = lastGetInstanceConfig as Record<string, unknown>;
+    expect(config.name).toBe('claude-custom');
+    expect(config.plugin).toBe('claude');
+    expect(config.command).toBe('claude-glm');
+    expect(config.envPassthrough).toEqual(['CUSTOM_VAR']);
+  });
+
+  test('uses default 30s preflight timeout when not configured', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude',
+    });
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    expect(lastPreflightOptions?.timeout).toBe(30000);
+  });
+
+  test('uses top-level preflightTimeoutMs from config', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude',
+      preflightTimeoutMs: 90000,
+    });
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    expect(lastPreflightOptions?.timeout).toBe(90000);
+  });
+
+  test('uses per-agent preflightTimeoutMs over top-level', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+preflightTimeoutMs = 60000
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude-local"
+plugin = "claude"
+default = true
+preflightTimeoutMs = 180000
+`,
+      'utf-8'
+    );
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    expect(lastPreflightOptions?.timeout).toBe(180000);
+  });
+
+  test('agent-level command in [[agents]] takes precedence over top-level command', async () => {
+    // Test that agent-specific command overrides top-level command shorthand
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+command = "top-level-command"
+tracker = "beads-bv"
+
+[[agents]]
+name = "custom-agent"
+plugin = "claude"
+command = "agent-level-command"
+default = true
+`,
+      'utf-8'
+    );
+
+    try {
+      await executeDoctorCommand(['--json', '--cwd', tempDir]);
+    } catch {
+      // Expected - process.exit is called
+    }
+
+    // Agent-level command should win
+    expect(lastGetInstanceConfig).toBeDefined();
+    const config = lastGetInstanceConfig as Record<string, unknown>;
+    expect(config.command).toBe('agent-level-command');
   });
 });

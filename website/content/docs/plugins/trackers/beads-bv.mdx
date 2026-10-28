@@ -5,7 +5,7 @@ description: Smart task selection using PageRank, critical path, and graph analy
 
 ## Beads-BV Tracker
 
-The Beads-BV tracker extends the standard Beads tracker with intelligent task selection powered by [bv](https://github.com/steveyegge/bv) (Beads Viewer). It uses graph algorithms like PageRank and critical path analysis to pick tasks that unblock the most downstream work.
+The Beads-BV tracker extends the standard Beads tracker with intelligent task selection powered by [bv](https://github.com/Dicklesworthstone/beads_viewer) (Beads Viewer). It uses graph algorithms like PageRank and critical path analysis to pick tasks that unblock the most downstream work.
 
 <Callout type="tip">
 Beads-BV is ideal for large projects with complex dependency graphs. It automatically prioritizes bottleneck tasks.
@@ -31,16 +31,12 @@ bd init
 
 ## Basic Usage
 
-<Callout type="warning">
-**Important:** By default, Ralph TUI only shows issues with the `ralph` label. Either add this label to your issues, or change the label filter during setup (leave blank to see all issues).
-</Callout>
-
 <Steps>
   <Step title="Create an Epic">
-    First, create an epic to group your tasks. Add the `ralph` label:
+    First, create an epic to group your tasks:
 
     ```bash
-    bd create --title "Backend Refactor" --type epic --label ralph
+    bd create --title "Backend Refactor" --type epic
     # Created: beads-xyz
     ```
   </Step>
@@ -49,13 +45,13 @@ bd init
     Tasks must be **children** of the epic (using `--parent`) to appear when running with `--epic`:
 
     ```bash
-    bd create --title "Database schema" --type task --parent beads-xyz --label ralph
+    bd create --title "Database schema" --type task --parent beads-xyz
     # Created: beads-schema
 
-    bd create --title "API endpoints" --type task --parent beads-xyz --label ralph
+    bd create --title "API endpoints" --type task --parent beads-xyz
     # Created: beads-api
 
-    bd create --title "Frontend UI" --type task --parent beads-xyz --label ralph
+    bd create --title "Frontend UI" --type task --parent beads-xyz
     # Created: beads-frontend
     ```
 
@@ -98,6 +94,12 @@ bd init
 ralph-tui run --tracker beads-bv --epic beads-xyz
 ```
 
+```bash
+# One parallel session across multiple epics
+ralph-tui run --tracker beads-bv --parallel --epic beads-ui --epic beads-backend
+ralph-tui run --tracker beads-bv --parallel --epics beads-ui,beads-backend
+```
+
 ### Config File
 
 ```toml
@@ -106,7 +108,7 @@ tracker = "beads-bv"
 
 [trackerOptions]
 beadsDir = ".beads"
-labels = "ralph"
+# labels = "frontend,backend"  # Optional: filter by labels
 ```
 
 ### Options Reference
@@ -117,11 +119,32 @@ Same as the base Beads tracker:
 |--------|------|---------|-------------|
 | `beadsDir` | string | `.beads` | Path to .beads directory |
 | `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
-| `labels` | string | `ralph` | Comma-separated label filter (issues must have these labels) |
+| `labels` | string | (empty) | Optional comma-separated label filter |
 | `workingDir` | string | `.` | Working directory for commands |
 
 <Callout type="info">
-See the [Beads Tracker docs](/docs/plugins/trackers/beads#label-filtering) for details on label filtering.
+See the [Beads Tracker docs](/docs/plugins/trackers/beads#label-filtering-optional) for details on label filtering.
+</Callout>
+
+<Callout type="info">
+`bv`'s robot flags do not apply label scoping to `--robot-next`. Ralph therefore
+verifies each `bv` pick against the configured labels and falls back to `bd`'s
+native label filtering when it does not match. Epic scoping remains the primary
+mechanism for narrowing smart selections.
+</Callout>
+
+## Multi-Epic Parallel Execution
+
+Beads-BV can participate in multi-epic parallel orchestration the same way as the base Beads tracker:
+
+```bash
+ralph-tui run --tracker beads-bv --parallel --epic beads-ui --epic beads-backend
+```
+
+Ralph wraps the tracker so children from each selected epic are fetched and combined into one scoped task set. The global parallel scheduler then analyzes dependencies across all selected epics.
+
+<Callout type="info">
+BV's graph-based ranking still applies through the underlying tracker, but the multi-epic scheduler is global. Worker count is shared across all selected epics, and merges remain sequential in one queue.
 </Callout>
 
 ## How BV Selects Tasks

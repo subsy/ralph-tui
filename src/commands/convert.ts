@@ -1,16 +1,17 @@
 /**
  * ABOUTME: Convert command for ralph-tui.
- * Converts PRD markdown files to prd.json or Beads format.
+ * Converts PRD markdown files to prd.json, Beads, Linear, or Jira format.
  */
 
 import { readFile, writeFile, access, constants, mkdir } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import {
   parsePrdMarkdown,
   parsedPrdToGeneratedPrd,
   convertToPrdJson,
 } from '../prd/index.js';
+import { loadStoredConfig } from '../config/index.js';
 import {
   promptText,
   promptBoolean,
@@ -23,11 +24,23 @@ import {
   validatePrdJsonSchema,
   PrdJsonSchemaError,
 } from '../plugins/trackers/builtin/json/index.js';
+import {
+  createLinearClient,
+  LinearApiError,
+} from '../plugins/trackers/builtin/linear/client.js';
+import type { RalphLinearClient, CreatedIssue, IssueCreateInput } from '../plugins/trackers/builtin/linear/client.js';
+import { buildStoryIssueBody } from '../plugins/trackers/builtin/linear/body.js';
+import {
+  createJiraClient,
+} from '../plugins/trackers/builtin/jira/client.js';
+import type { RalphJiraClient } from '../plugins/trackers/builtin/jira/client.js';
+import { JiraApiError } from '../plugins/trackers/builtin/jira/types.js';
+import type { AdfDocument, AdfNode } from '../plugins/trackers/builtin/jira/types.js';
 
 /**
  * Supported conversion target formats.
  */
-export type ConvertFormat = 'json' | 'beads';
+export type ConvertFormat = 'json' | 'beads' | 'linear' | 'jira';
 
 /**
  * Command-line arguments for the convert command.
@@ -45,7 +58,7 @@ export interface ConvertArgs {
   /** Branch name (optional, will prompt if not provided) */
   branch?: string;
 
-  /** Labels to apply (optional, for beads format) */
+  /** Labels to apply (optional, for beads and linear formats) */
   labels?: string[];
 
   /** Skip confirmation prompts */
@@ -53,6 +66,15 @@ export interface ConvertArgs {
 
   /** Show verbose output */
   verbose?: boolean;
+
+  /** Linear team key (required for linear format) */
+  team?: string;
+
+  /** Linear project name or ID (optional, for linear format) */
+  project?: string;
+
+  /** Linear parent issue key or UUID (optional, for linear format) */
+  parent?: string;
 }
 
 /**
@@ -66,26 +88,65 @@ export function parseConvertArgs(args: string[]): ConvertArgs | null {
   let labels: string[] | undefined;
   let force = false;
   let verbose = false;
+  let team: string | undefined;
+  let project: string | undefined;
+  let parent: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
     if (arg === '--to' || arg === '-t') {
       const format = args[++i];
-      if (format === 'json' || format === 'beads') {
+      if (format === 'json' || format === 'beads' || format === 'linear' || format === 'jira') {
         to = format;
       } else {
         console.error(`Unsupported format: ${format}`);
-        console.log('Supported formats: json, beads');
+        console.log('Supported formats: json, beads, linear, jira');
         return null;
       }
     } else if (arg === '--output' || arg === '-o') {
+      const val = args[i + 1];
+      if (!val || val.startsWith('-')) {
+        console.error(`Error: ${arg} requires a value`);
+        return null;
+      }
       output = args[++i];
     } else if (arg === '--branch' || arg === '-b') {
+      const val = args[i + 1];
+      if (!val || val.startsWith('-')) {
+        console.error(`Error: ${arg} requires a value`);
+        return null;
+      }
       branch = args[++i];
     } else if (arg === '--labels' || arg === '-l') {
+      const val = args[i + 1];
+      if (!val || val.startsWith('-')) {
+        console.error(`Error: ${arg} requires a value`);
+        return null;
+      }
       const labelsStr = args[++i];
       labels = labelsStr ? labelsStr.split(',').map((l) => l.trim()).filter((l) => l.length > 0) : [];
+    } else if (arg === '--team') {
+      const val = args[i + 1];
+      if (!val || val.startsWith('-')) {
+        console.error('Error: --team requires a team key (e.g., --team ENG)');
+        return null;
+      }
+      team = args[++i];
+    } else if (arg === '--project') {
+      const val = args[i + 1];
+      if (!val || val.startsWith('-')) {
+        console.error('Error: --project requires a project name or ID');
+        return null;
+      }
+      project = args[++i];
+    } else if (arg === '--parent') {
+      const val = args[i + 1];
+      if (!val || val.startsWith('-')) {
+        console.error('Error: --parent requires an issue key or UUID');
+        return null;
+      }
+      parent = args[++i];
     } else if (arg === '--force' || arg === '-f') {
       force = true;
     } else if (arg === '--verbose' || arg === '-v') {
@@ -112,7 +173,21 @@ export function parseConvertArgs(args: string[]): ConvertArgs | null {
     return null;
   }
 
-  return { to, input, output, branch, labels, force, verbose };
+  // Validate Linear-specific requirements
+  if (to === 'linear' && !team) {
+    console.error('Error: --team <team-key> is required for Linear conversion');
+    console.log('Example: ralph-tui convert --to linear --team ENG ./prd.md');
+    return null;
+  }
+
+  // Validate Jira-specific requirements
+  if (to === 'jira' && !project) {
+    console.error('Error: --project <project-key> is required for Jira conversion');
+    console.log('Example: ralph-tui convert --to jira --project SNSP ./prd.md');
+    return null;
+  }
+
+  return { to, input, output, branch, labels, force, verbose, team, project, parent };
 }
 
 /**
@@ -120,7 +195,7 @@ export function parseConvertArgs(args: string[]): ConvertArgs | null {
  */
 export function printConvertHelp(): void {
   console.log(`
-ralph-tui convert - Convert PRD markdown to JSON or Beads format
+ralph-tui convert - Convert PRD markdown to JSON, Beads, or Linear format
 
 Usage: ralph-tui convert --to <format> <input-file> [options]
 
@@ -128,14 +203,25 @@ Arguments:
   <input-file>           Path to the PRD markdown file to convert
 
 Options:
-  --to, -t <format>      Target format (required): json, beads
+  --to, -t <format>      Target format (required): json, beads, linear, jira
   --output, -o <path>    Output file path (default: ./prd.json, only for json format)
   --branch, -b <name>    Git branch name (prompts if not provided)
-  --labels, -l <labels>  Labels to apply (comma-separated, beads format only)
-                         Default: "ralph" is always included for beads format
+  --labels, -l <labels>  Labels to apply (comma-separated, for beads and linear formats)
+                         Default: uses labels from config.toml [trackerOptions].labels
+                         Note: "ralph" is always included for beads format
   --force, -f            Overwrite existing files without prompting
   --verbose, -v          Show detailed parsing output
   --help, -h             Show this help message
+
+Linear-specific options:
+  --team <key>           Linear team key (required for linear format)
+  --project <name>       Linear project name or ID (optional for linear; required for jira)
+  --parent <issue>       Parent issue key or UUID (optional; auto-creates parent if omitted)
+
+Jira-specific options:
+  --project <key>        Jira project key (required for jira format, e.g., SNSP)
+  --parent <issue>       Existing epic key (optional; auto-creates epic if omitted)
+  --labels <list>        Comma-separated labels to apply
 
 Description:
   The convert command parses a PRD markdown file and extracts:
@@ -152,9 +238,16 @@ Description:
     - Creates an epic bead for the feature
     - Creates child beads for each user story
     - Sets up dependencies based on story order or explicit deps
-    - Applies the 'ralph' label to all created beads
+    - Applies the 'ralph' label plus any configured/CLI labels
     - Runs bd sync after creation
     - Displays all created bead IDs
+
+  For Linear format (--to linear):
+    - Creates a parent issue (or uses --parent) in the specified --team
+    - Creates child issues for each user story under the parent
+    - Sets up native Linear blocking relations from PRD dependencies
+    - Applies --labels to all created issues
+    - Requires LINEAR_API_KEY env var or apiKey in config
 
 Examples:
   # Convert to JSON format
@@ -164,6 +257,16 @@ Examples:
   # Convert to Beads format
   ralph-tui convert --to beads ./tasks/prd-feature.md
   ralph-tui convert --to beads ./prd.md --labels "frontend,sprint-1"
+
+  # Convert to Linear format
+  ralph-tui convert --to linear --team ENG ./prd.md
+  ralph-tui convert --to linear --team ENG --parent ENG-123 ./prd.md
+  ralph-tui convert --to linear --team ENG --project "Q1 Sprint" --labels "backend,mvp" ./prd.md
+
+  # Convert to Jira format
+  ralph-tui convert --to jira --project SNSP ./prd.md
+  ralph-tui convert --to jira --project SNSP --parent SNSP-54 ./prd.md
+  ralph-tui convert --to jira --project MYN --labels "backend,sprint-1" ./prd.md
 `);
 }
 
@@ -232,7 +335,8 @@ interface BeadsConversionResult {
 async function convertToBeads(
   parsed: import('../prd/parser.js').ParsedPrd,
   labels: string[],
-  verbose: boolean
+  verbose: boolean,
+  prdPath?: string
 ): Promise<BeadsConversionResult> {
   const storyIds: string[] = [];
 
@@ -251,6 +355,11 @@ async function convertToBeads(
     '--priority', '1',
     '--silent',
   ];
+
+  // Include PRD link if available
+  if (prdPath) {
+    epicArgs.splice(-1, 0, '--external-ref', `prd:${prdPath}`);
+  }
 
   if (verbose) {
     console.log(`  bd ${epicArgs.join(' ')}`);
@@ -396,8 +505,8 @@ export async function executeConvertCommand(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const formatLabel = to === 'beads' ? 'Beads' : 'JSON';
-  printSection(`PRD to ${formatLabel} Conversion`);
+  const formatLabels: Record<ConvertFormat, string> = { json: 'JSON', beads: 'Beads', linear: 'Linear', jira: 'Jira' };
+  printSection(`PRD to ${formatLabels[to]} Conversion`);
 
   // Read input file
   printInfo(`Reading: ${inputPath}`);
@@ -447,11 +556,340 @@ export async function executeConvertCommand(args: string[]): Promise<void> {
   }
 
   // Branch to format-specific handling
-  if (to === 'beads') {
-    await executeBeadsConversion(parsed, labels || [], verbose ?? false);
+  if (to === 'jira') {
+    await executeJiraConversion(parsed, parsedArgs);
+  } else if (to === 'linear') {
+    await executeLinearConversion(parsed, parsedArgs);
+  } else if (to === 'beads') {
+    await executeBeadsConversion(parsed, labels || [], verbose ?? false, input);
   } else {
-    await executeJsonConversion(parsed, output, branch, force ?? false);
+    await executeJsonConversion(parsed, output, branch, force ?? false, inputPath);
   }
+}
+
+/**
+ * Result of Linear conversion.
+ */
+interface LinearConversionResult {
+  success: boolean;
+  parentIssue?: CreatedIssue;
+  childIssues: CreatedIssue[];
+  relationsCreated: number;
+  error?: string;
+}
+
+/**
+ * Parse configured labels from either a comma-separated string or string array.
+ */
+export function parseConfiguredLabels(configLabels: unknown): string[] {
+  if (typeof configLabels === 'string') {
+    return configLabels.split(',').map((l) => l.trim()).filter(Boolean);
+  }
+
+  if (Array.isArray(configLabels)) {
+    return configLabels
+      .filter((l): l is string => typeof l === 'string')
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+/**
+ * Resolve labels from CLI args or config fallback.
+ * Returns an array of label name strings.
+ */
+async function resolveLinearLabels(cliLabels?: string[]): Promise<string[]> {
+  if (cliLabels && cliLabels.length > 0) {
+    return cliLabels;
+  }
+
+  // Fall back to config labels
+  const storedConfig = await loadStoredConfig();
+  return parseConfiguredLabels(storedConfig.trackerOptions?.labels);
+}
+
+/**
+ * Resolve or create a parent issue for the Linear conversion.
+ * If `parentIdOrKey` is provided, resolves the existing issue.
+ * Otherwise, creates a new parent issue from the PRD name and description.
+ */
+async function resolveOrCreateParent(
+  client: RalphLinearClient,
+  teamId: string,
+  parentIdOrKey: string | undefined,
+  prdName: string,
+  prdDescription: string,
+  labelIds: string[],
+  projectId: string | undefined,
+  verbose: boolean,
+): Promise<CreatedIssue> {
+  if (parentIdOrKey) {
+    // Resolve existing parent
+    printInfo(`Resolving parent issue: ${parentIdOrKey}`);
+    const issue = await client.getIssue(parentIdOrKey);
+
+    return {
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      url: issue.url,
+    };
+  }
+
+  // Create a new parent issue from PRD metadata
+  printInfo('Creating parent issue from PRD...');
+
+  const input: IssueCreateInput = {
+    teamId,
+    title: prdName,
+    description: prdDescription,
+    labelIds: labelIds.length > 0 ? labelIds : undefined,
+    projectId: projectId ?? undefined,
+  };
+
+  if (verbose) {
+    console.log(`  Creating parent: "${prdName}"`);
+  }
+
+  return await client.createIssue(input);
+}
+
+/**
+ * Convert parsed PRD stories into Linear child issues under a parent.
+ */
+async function convertToLinear(
+  client: RalphLinearClient,
+  parsed: import('../prd/parser.js').ParsedPrd,
+  teamId: string,
+  parentIssue: CreatedIssue,
+  labelIds: string[],
+  projectId: string | undefined,
+  verbose: boolean,
+): Promise<LinearConversionResult> {
+  const childIssues: CreatedIssue[] = [];
+
+  // Map story IDs to created Linear issue IDs for dependency resolution
+  const storyToLinearId = new Map<string, string>();
+
+  printInfo(`Creating ${parsed.userStories.length} child issues...`);
+
+  for (const story of parsed.userStories) {
+    const title = `${story.id}: ${story.title}`;
+    const body = buildStoryIssueBody({
+      storyId: story.id,
+      ralphPriority: story.priority,
+      description: story.description,
+      acceptanceCriteria: story.acceptanceCriteria,
+    });
+
+    const input: IssueCreateInput = {
+      teamId,
+      title,
+      description: body,
+      parentId: parentIssue.id,
+      labelIds: labelIds.length > 0 ? labelIds : undefined,
+      projectId: projectId ?? undefined,
+    };
+
+    try {
+      const created = await client.createIssue(input);
+      childIssues.push(created);
+      storyToLinearId.set(story.id, created.id);
+
+      if (verbose) {
+        printSuccess(`  Created: ${created.identifier} (${title})`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      printError(`Failed to create story ${story.id}: ${message}`);
+    }
+  }
+
+  // Create blocking relations from PRD dependsOn
+  printInfo('Setting up dependency relations...');
+  let relationsCreated = 0;
+
+  for (const story of parsed.userStories) {
+    if (!story.dependsOn || story.dependsOn.length === 0) continue;
+
+    const blockedIssueId = storyToLinearId.get(story.id);
+    if (!blockedIssueId) continue;
+
+    for (const depId of story.dependsOn) {
+      const blockingIssueId = storyToLinearId.get(depId);
+
+      if (!blockingIssueId) {
+        printInfo(`  Warning: dependency ${depId} not found for ${story.id}, skipping`);
+        continue;
+      }
+
+      try {
+        await client.createBlockingRelation(blockingIssueId, blockedIssueId);
+        relationsCreated++;
+
+        if (verbose) {
+          console.log(`  ${depId} blocks ${story.id}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        printError(`  Failed to create relation ${depId} -> ${story.id}: ${message}`);
+      }
+    }
+  }
+
+  if (relationsCreated > 0) {
+    printSuccess(`Created ${relationsCreated} dependency relations`);
+  } else if (parsed.userStories.some((s) => s.dependsOn && s.dependsOn.length > 0)) {
+    printInfo('No dependency relations created (referenced stories may not have been found)');
+  }
+
+  return {
+    success: childIssues.length > 0,
+    parentIssue,
+    childIssues,
+    relationsCreated,
+  };
+}
+
+/**
+ * Execute Linear format conversion.
+ * Creates parent/child issues in Linear from parsed PRD stories.
+ */
+export async function executeLinearConversion(
+  parsed: import('../prd/parser.js').ParsedPrd,
+  args: ConvertArgs
+): Promise<void> {
+  if (!args.team) {
+    printError('executeLinearConversion: --team is required but was not provided');
+    process.exit(1);
+  }
+  const teamKey = args.team;
+
+  // Create Linear client (uses LINEAR_API_KEY env var or config apiKey)
+  let client: RalphLinearClient;
+  try {
+    const storedConfig = await loadStoredConfig();
+    const linearTracker = storedConfig.trackers?.find((t) => t.plugin === 'linear');
+    client = createLinearClient(linearTracker?.options);
+  } catch (err) {
+    if (err instanceof LinearApiError) {
+      printError(err.message);
+    } else {
+      printError(`Failed to initialize Linear client: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(1);
+  }
+
+  // Resolve team
+  let teamId: string;
+  try {
+    printInfo(`Resolving team: ${teamKey}`);
+    const team = await client.resolveTeam(teamKey);
+    teamId = team.id;
+    printSuccess(`Team resolved: ${team.name} (${team.key})`);
+  } catch (err) {
+    if (err instanceof LinearApiError) {
+      printError(err.message);
+    } else {
+      printError(`Failed to resolve team: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(1);
+  }
+
+  // Resolve labels
+  const labelNames = await resolveLinearLabels(args.labels);
+  let labelIds: string[] = [];
+
+  if (labelNames.length > 0) {
+    try {
+      printInfo(`Resolving labels: ${labelNames.join(', ')}`);
+      labelIds = await client.resolveLabelIds(labelNames);
+      printSuccess(`Resolved ${labelIds.length} labels`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      printInfo(`Warning: Could not resolve labels: ${message}`);
+      // Continue without labels rather than failing
+    }
+  }
+
+  // Resolve project (optional)
+  let projectId: string | undefined;
+  if (args.project) {
+    try {
+      printInfo(`Resolving project: ${args.project}`);
+      const project = await client.resolveProject(args.project);
+      projectId = project.id;
+      printSuccess(`Project resolved: ${project.name}`);
+    } catch (err) {
+      if (err instanceof LinearApiError) {
+        printError(err.message);
+      } else {
+        printError(`Failed to resolve project: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      process.exit(1);
+    }
+  }
+
+  // Resolve or create parent issue
+  let parentIssue: CreatedIssue;
+  try {
+    parentIssue = await resolveOrCreateParent(
+      client,
+      teamId,
+      args.parent,
+      parsed.name,
+      parsed.description,
+      labelIds,
+      projectId,
+      args.verbose ?? false,
+    );
+    printSuccess(`Parent issue: ${parentIssue.identifier} - ${parentIssue.title}`);
+  } catch (err) {
+    if (err instanceof LinearApiError) {
+      printError(err.message);
+    } else {
+      printError(`Failed to resolve/create parent: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(1);
+  }
+
+  // Create child issues and dependency relations
+  console.log();
+  const result = await convertToLinear(
+    client,
+    parsed,
+    teamId,
+    parentIssue,
+    labelIds,
+    projectId,
+    args.verbose ?? false,
+  );
+
+  if (!result.success) {
+    printError('No child issues were created. Conversion failed.');
+    process.exit(1);
+  }
+
+  // Print summary
+  console.log();
+  printSuccess('Conversion complete!');
+  console.log();
+  console.log('Summary:');
+  console.log(`  PRD: ${parsed.name}`);
+  console.log(`  Parent: ${parentIssue.identifier} - ${parentIssue.title}`);
+  console.log(`  URL: ${parentIssue.url}`);
+  console.log(`  Children: ${result.childIssues.length}`);
+  console.log(`  Dependencies: ${result.relationsCreated}`);
+  console.log();
+  console.log('Created issues:');
+  console.log(`  Parent: ${parentIssue.identifier}`);
+  for (const child of result.childIssues) {
+    console.log(`  Child:  ${child.identifier} - ${child.title}`);
+  }
+  console.log();
+  printInfo(`Run with: ralph-tui run --tracker linear --epic ${parentIssue.identifier}`);
 }
 
 /**
@@ -461,7 +899,8 @@ async function executeJsonConversion(
   parsed: import('../prd/parser.js').ParsedPrd,
   output: string | undefined,
   branch: string | undefined,
-  force: boolean
+  force: boolean,
+  inputPath: string
 ): Promise<void> {
   // Prompt for branch name if not provided
   let branchName = branch || parsed.branchName;
@@ -503,7 +942,12 @@ async function executeJsonConversion(
   }
 
   const generatedPrd = parsedPrdToGeneratedPrd(parsed, branchName);
-  const prdJson = convertToPrdJson(generatedPrd);
+
+  // Compute relative path from output directory to input PRD
+  const outputDir = dirname(outputPath);
+  const sourcePrdPath = relative(outputDir, inputPath);
+
+  const prdJson = convertToPrdJson(generatedPrd, sourcePrdPath);
 
   try {
     validatePrdJsonSchema(prdJson, outputPath);
@@ -519,7 +963,6 @@ async function executeJsonConversion(
     throw err;
   }
 
-  const outputDir = dirname(outputPath);
   try {
     await mkdir(outputDir, { recursive: true });
   } catch {
@@ -554,8 +997,9 @@ async function executeJsonConversion(
  */
 async function executeBeadsConversion(
   parsed: import('../prd/parser.js').ParsedPrd,
-  labels: string[],
-  verbose: boolean
+  cliLabels: string[],
+  verbose: boolean,
+  prdPath?: string
 ): Promise<void> {
   // Check that beads is available
   const { exitCode, stderr } = await execBd(['--version']);
@@ -565,9 +1009,17 @@ async function executeBeadsConversion(
     process.exit(1);
   }
 
+  // Determine labels: CLI takes precedence, then config, then no labels
+  let labels = cliLabels;
+  if (labels.length === 0) {
+    // Load labels from config if not provided via CLI
+    const storedConfig = await loadStoredConfig();
+    labels = parseConfiguredLabels(storedConfig.trackerOptions?.labels);
+  }
+
   // Perform the conversion
   console.log();
-  const result = await convertToBeads(parsed, labels, verbose);
+  const result = await convertToBeads(parsed, labels, verbose, prdPath);
 
   if (!result.success) {
     printError(result.error || 'Conversion failed');
@@ -590,4 +1042,309 @@ async function executeBeadsConversion(
   }
   console.log();
   printInfo(`Run with: ralph-tui run --epic ${result.epicId}`);
+}
+
+// ─── Jira conversion ────────────────────────────────────────────────────
+
+/**
+ * Build an ADF description for a Jira story from PRD data.
+ * Includes description text and acceptance criteria as a bullet list.
+ */
+function buildJiraStoryAdf(
+  story: import('../prd/parser.js').ParsedPrd['userStories'][0],
+): AdfDocument {
+  const content: AdfNode[] = [];
+
+  // Description
+  if (story.description) {
+    content.push({
+      type: 'paragraph',
+      content: [{ type: 'text', text: story.description }],
+    });
+  }
+
+  // Acceptance criteria
+  if (story.acceptanceCriteria.length > 0) {
+    content.push({
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [{ type: 'text', text: 'Acceptance Criteria' }],
+    });
+
+    content.push({
+      type: 'bulletList',
+      content: story.acceptanceCriteria.map((criterion) => ({
+        type: 'listItem',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: criterion }],
+          },
+        ],
+      })),
+    });
+  }
+
+  // Dependencies note
+  if (story.dependsOn && story.dependsOn.length > 0) {
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Depends on: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: story.dependsOn.join(', ') },
+      ],
+    });
+  }
+
+  return {
+    version: 1,
+    type: 'doc',
+    content: content.length > 0 ? content : [
+      { type: 'paragraph', content: [{ type: 'text', text: story.title }] },
+    ],
+  };
+}
+
+/**
+ * Created Jira issue reference.
+ */
+interface CreatedJiraIssue {
+  key: string;
+  id: string;
+  summary: string;
+  url: string;
+}
+
+/**
+ * Execute Jira format conversion.
+ * Creates an epic and child stories in Jira from parsed PRD.
+ */
+export async function executeJiraConversion(
+  parsed: import('../prd/parser.js').ParsedPrd,
+  args: ConvertArgs,
+): Promise<void> {
+  const projectKey = args.project;
+  if (!projectKey) {
+    printError('--project <key> is required for Jira conversion');
+    process.exit(1);
+  }
+
+  // Create Jira client
+  let client: RalphJiraClient;
+  try {
+    const storedConfig = await loadStoredConfig();
+    const jiraTracker = storedConfig.trackers?.find((t) => t.plugin === 'jira');
+    client = createJiraClient(jiraTracker?.options);
+  } catch (err) {
+    if (err instanceof JiraApiError) {
+      printError(err.message);
+    } else {
+      printError(`Failed to initialize Jira client: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(1);
+  }
+
+  // Validate connection
+  try {
+    printInfo('Validating Jira connection...');
+    await client.validateConnection();
+    printSuccess('Connected to Jira');
+  } catch (err) {
+    if (err instanceof JiraApiError) {
+      printError(err.message);
+    } else {
+      printError(`Jira connection failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(1);
+  }
+
+  // Resolve labels: CLI takes precedence, then config fallback
+  let labels = args.labels ?? [];
+  if (labels.length === 0) {
+    const storedConfig = await loadStoredConfig();
+    labels = parseConfiguredLabels(storedConfig.trackerOptions?.labels);
+  }
+
+  // Get issue types for the project to find Epic and Story type IDs
+  let epicTypeId: string | undefined;
+  let storyTypeId: string | undefined;
+  try {
+    printInfo(`Fetching issue types for project ${projectKey}...`);
+    // Fetch project metadata to get issue types
+    const response = await client.request<{ issueTypes: { id: string; name: string }[] }>('GET', `/rest/api/3/project/${encodeURIComponent(projectKey)}`);
+    for (const issueType of response.issueTypes) {
+      const typeName = issueType.name.trim().toLowerCase();
+      if (typeName === 'epic') epicTypeId = issueType.id;
+      if (typeName === 'story' || typeName === 'user story') storyTypeId = issueType.id;
+    }
+    if (!epicTypeId) {
+      printError(`No 'Epic' issue type found in project ${projectKey}`);
+      process.exit(1);
+    }
+    if (!storyTypeId) {
+      printError(`No 'Story' issue type found in project ${projectKey}`);
+      process.exit(1);
+    }
+    printSuccess(`Found Epic (${epicTypeId}) and Story (${storyTypeId}) issue types`);
+  } catch (err) {
+    printError(`Failed to fetch project issue types: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
+  // Resolve or create epic
+  let epicKey: string;
+  let epicUrl: string;
+
+  if (args.parent) {
+    // Use existing epic
+    printInfo(`Using existing epic: ${args.parent}`);
+    try {
+      const epic = await client.getIssue(args.parent);
+      epicKey = epic.key;
+      epicUrl = `${client.baseUrl}/browse/${epicKey}`;
+      printSuccess(`Epic: ${epicKey} - ${epic.fields.summary}`);
+    } catch (err) {
+      printError(`Failed to resolve epic ${args.parent}: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  } else {
+    // Create new epic
+    printInfo('Creating epic from PRD...');
+    try {
+      const epicDescription: AdfDocument = {
+        version: 1,
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: parsed.description }],
+          },
+        ],
+      };
+
+      const response = await client.request<{ key: string; id: string }>('POST', '/rest/api/3/issue', {
+        fields: {
+          project: { key: projectKey },
+          summary: parsed.name,
+          issuetype: { id: epicTypeId },
+          description: epicDescription,
+          labels,
+        },
+      });
+
+      epicKey = response.key;
+      epicUrl = `${client.baseUrl}/browse/${epicKey}`;
+      printSuccess(`Created epic: ${epicKey} - ${parsed.name}`);
+    } catch (err) {
+      printError(`Failed to create epic: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
+
+  // Create child stories
+  const createdStories: CreatedJiraIssue[] = [];
+  const storyKeyMap = new Map<string, string>(); // PRD story ID → Jira key
+
+  printInfo(`Creating ${parsed.userStories.length} stories...`);
+
+  for (const story of parsed.userStories) {
+    const title = `${story.id}: ${story.title}`;
+    const description = buildJiraStoryAdf(story);
+
+    try {
+      const response = await client.request<{ key: string; id: string }>('POST', '/rest/api/3/issue', {
+        fields: {
+          project: { key: projectKey },
+          parent: { key: epicKey },
+          summary: title,
+          issuetype: { id: storyTypeId },
+          description,
+          labels,
+        },
+      });
+
+      const baseUrl = client.baseUrl;
+      createdStories.push({
+        key: response.key,
+        id: response.id,
+        summary: title,
+        url: `${baseUrl}/browse/${response.key}`,
+      });
+      storyKeyMap.set(story.id, response.key);
+
+      if (args.verbose) {
+        printSuccess(`  Created: ${response.key} (${title})`);
+      }
+    } catch (err) {
+      printError(`Failed to create story ${story.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Small delay to avoid rate limits
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  // Create blocking links for dependencies
+  let linksCreated = 0;
+
+  const storiesWithDeps = parsed.userStories.filter((s) => s.dependsOn && s.dependsOn.length > 0);
+  if (storiesWithDeps.length > 0) {
+    printInfo('Setting up dependency links...');
+
+    for (const story of storiesWithDeps) {
+      const blockedKey = storyKeyMap.get(story.id);
+      if (!blockedKey) continue;
+
+      for (const depId of story.dependsOn ?? []) {
+        const blockingKey = storyKeyMap.get(depId);
+        if (!blockingKey) {
+          if (args.verbose) {
+            printInfo(`  Skipping: ${depId} not found for ${story.id}`);
+          }
+          continue;
+        }
+
+        try {
+          await client.request<unknown>('POST', '/rest/api/3/issueLink', {
+            type: { name: 'Blocks' },
+            inwardIssue: { key: blockedKey },
+            outwardIssue: { key: blockingKey },
+          });
+          linksCreated++;
+
+          if (args.verbose) {
+            console.log(`  ${blockingKey} blocks ${blockedKey}`);
+          }
+        } catch (err) {
+          printError(`  Failed to create link ${depId} → ${story.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    if (linksCreated > 0) {
+      printSuccess(`Created ${linksCreated} dependency links`);
+    }
+  }
+
+  // Summary
+  console.log();
+  if (createdStories.length === 0) {
+    printError('Conversion failed: no stories were created');
+    process.exit(1);
+  }
+  printSuccess('Jira conversion complete!');
+  console.log();
+  console.log('Summary:');
+  console.log(`  PRD: ${parsed.name}`);
+  console.log(`  Epic: ${epicKey}`);
+  console.log(`  URL: ${epicUrl}`);
+  console.log(`  Stories: ${createdStories.length}`);
+  console.log(`  Dependencies: ${linksCreated}`);
+  console.log();
+  console.log('Created issues:');
+  console.log(`  Epic:  ${epicKey}`);
+  for (const story of createdStories) {
+    console.log(`  Story: ${story.key} - ${story.summary}`);
+  }
+  console.log();
+  printInfo(`Run with: ralph-tui run --tracker jira --epic ${epicKey}`);
 }

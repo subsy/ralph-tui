@@ -1,0 +1,226 @@
+---
+title: Codex Agent
+description: Integrate OpenAI's Codex CLI with Ralph TUI for AI-assisted coding.
+---
+
+## Codex Agent
+
+The Codex agent plugin integrates with OpenAI's `codex` CLI to execute AI coding tasks. It supports full-auto mode for autonomous operation and configurable sandbox modes for security.
+
+<Callout type="tip">
+Codex supports **subagent tracing** via JSONL output - Ralph TUI can show tool calls in real-time as Codex works.
+</Callout>
+
+## Prerequisites
+
+Install Codex CLI:
+
+```bash
+npm install -g @openai/codex
+```
+
+Verify installation:
+
+```bash
+codex --version
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Codex">
+    Use the `--agent codex` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent codex
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent codex --model gpt-4
+    ```
+  </Step>
+
+  <Step title="Configure Sandbox Mode">
+    Set sandbox restrictions in config:
+
+    ```toml
+    [agentOptions]
+    sandbox = "workspace-write"
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "codex"
+
+[agentOptions]
+model = "gpt-4"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-codex"
+plugin = "codex"
+default = true
+command = "codex"
+timeout = 300000
+
+[agents.options]
+model = "gpt-4"
+fullAuto = true
+sandbox = "workspace-write"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | OpenAI model to use (e.g., `gpt-4`, `gpt-4-turbo`) |
+| `fullAuto` | boolean | `true` | Enable full-auto mode for autonomous operation |
+| `sandbox` | string | `"workspace-write"` | Sandbox mode for file access restrictions |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"codex"` | Path to Codex CLI executable |
+
+## Sandbox Modes
+
+Codex supports three sandbox levels for security:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `read-only` | No file modifications allowed | Safe exploration, code review |
+| `workspace-write` | Can modify workspace files only | Normal development (default) |
+| `danger-full-access` | Full system access | Trusted operations only |
+
+Configure via CLI or config:
+
+```bash
+# CLI (via agentOptions)
+ralph-tui run --prd ./prd.json --agent codex
+
+# Config
+[agentOptions]
+sandbox = "workspace-write"
+```
+
+<Callout type="warning">
+Use `danger-full-access` only when absolutely necessary. It grants Codex full system access without restrictions.
+</Callout>
+
+## Full-Auto Mode
+
+When `fullAuto` is enabled (default), Codex will auto-approve all actions without prompting. This is required for Ralph TUI's autonomous operation since it cannot relay interactive prompts.
+
+```toml
+[agentOptions]
+fullAuto = true
+```
+
+<Callout type="info">
+**Codex Custom Sandbox Behavior**: When `fullAuto` is enabled with a custom sandbox mode (`read-only` or `danger-full-access`), Ralph TUI uses Codex's `-a on-request` flag instead of `--full-auto`. This is because Codex's `--full-auto` flag forces `workspace-write` and would override your custom sandbox setting. This behavior is specific to the Codex agent.
+</Callout>
+
+## Subagent Tracing
+
+Codex emits structured JSONL via `--json` (always enabled). Ralph TUI parses this to display:
+
+- Tool invocations and their output
+- Duration and status of each operation
+
+### Enabling Tracing
+
+```toml
+subagentTracingDetail = "full"
+```
+
+Or toggle in TUI:
+- Press `t` to cycle through detail levels
+- Press `T` (Shift+T) to toggle the subagent tree panel
+
+## How It Works
+
+When Ralph TUI executes a task with Codex:
+
+1. **Build command**: Constructs `codex exec [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Parse JSONL**: Extracts structured tool call data (always enabled)
+5. **Detect completion**: Watches for completion token
+6. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+# Default: fullAuto with workspace-write sandbox
+codex exec \
+  --full-auto \                    # When fullAuto enabled with default sandbox
+  --json \                         # Always used for structured output
+  --model gpt-4 \                  # If model specified
+  --sandbox workspace-write \      # Default sandbox mode
+  < prompt.txt                     # Prompt via stdin
+
+# Custom sandbox: fullAuto with read-only or danger-full-access
+codex \
+  -a on-request \                  # Global approval flag (before exec)
+  exec \
+  --json \                         # Always used for structured output
+  --model gpt-4 \                  # If model specified
+  --sandbox danger-full-access \   # Custom sandbox is honored
+  < prompt.txt                     # Prompt via stdin
+```
+
+## Troubleshooting
+
+### "Codex CLI not found"
+
+Ensure Codex is installed and in your PATH:
+
+```bash
+which codex
+# Should output: /path/to/codex
+
+# If not found, install:
+npm install -g @openai/codex
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "codex"
+plugin = "codex"
+timeout = 600000  # 10 minutes
+```
+
+### "Permission denied"
+
+Check your sandbox mode. If Codex needs to modify files outside the workspace:
+
+```toml
+[agentOptions]
+sandbox = "danger-full-access"
+```
+
+## Next Steps
+
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Gemini Agent](/docs/plugins/agents/gemini)** - Google's Gemini CLI
+- **[Configuration](/docs/configuration/options)** - Full options reference

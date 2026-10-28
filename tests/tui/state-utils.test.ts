@@ -351,4 +351,198 @@ describe('state-utils', () => {
       expect(blocker.status).toBe('in_progress');
     });
   });
+
+  describe('computeBlocksMap', () => {
+    /**
+     * Compute the inverse relationship: which tasks does each task block?
+     * If task A dependsOn task B, then B blocks A.
+     * This mirrors the logic added to convertTasksWithDependencyStatus in RunApp.tsx.
+     */
+    function computeBlocksMap(tasks: Array<{ id: string; dependsOn?: string[] }>): Map<string, string[]> {
+      const blocksMap = new Map<string, string[]>();
+      for (const task of tasks) {
+        if (task.dependsOn && task.dependsOn.length > 0) {
+          for (const depId of task.dependsOn) {
+            const existing = blocksMap.get(depId) || [];
+            existing.push(task.id);
+            blocksMap.set(depId, existing);
+          }
+        }
+      }
+      return blocksMap;
+    }
+
+    test('should return empty map for tasks with no dependencies', () => {
+      const tasks = [
+        { id: 'task-1' },
+        { id: 'task-2' },
+      ];
+      const result = computeBlocksMap(tasks);
+      expect(result.size).toBe(0);
+    });
+
+    test('should compute blocks for single dependency', () => {
+      const tasks = [
+        { id: 'task-1' },
+        { id: 'task-2', dependsOn: ['task-1'] },
+      ];
+      const result = computeBlocksMap(tasks);
+      expect(result.get('task-1')).toEqual(['task-2']);
+      expect(result.get('task-2')).toBeUndefined();
+    });
+
+    test('should compute blocks for multiple tasks depending on same task', () => {
+      const tasks = [
+        { id: 'task-1' },
+        { id: 'task-2', dependsOn: ['task-1'] },
+        { id: 'task-3', dependsOn: ['task-1'] },
+      ];
+      const result = computeBlocksMap(tasks);
+      expect(result.get('task-1')).toEqual(['task-2', 'task-3']);
+    });
+
+    test('should compute blocks for chained dependencies', () => {
+      // task-3 depends on task-2, which depends on task-1
+      const tasks = [
+        { id: 'task-1' },
+        { id: 'task-2', dependsOn: ['task-1'] },
+        { id: 'task-3', dependsOn: ['task-2'] },
+      ];
+      const result = computeBlocksMap(tasks);
+      expect(result.get('task-1')).toEqual(['task-2']);
+      expect(result.get('task-2')).toEqual(['task-3']);
+      expect(result.get('task-3')).toBeUndefined();
+    });
+
+    test('should compute blocks for task with multiple dependencies', () => {
+      // task-3 depends on both task-1 and task-2
+      const tasks = [
+        { id: 'task-1' },
+        { id: 'task-2' },
+        { id: 'task-3', dependsOn: ['task-1', 'task-2'] },
+      ];
+      const result = computeBlocksMap(tasks);
+      expect(result.get('task-1')).toEqual(['task-3']);
+      expect(result.get('task-2')).toEqual(['task-3']);
+    });
+
+    test('should handle empty dependsOn array', () => {
+      const tasks = [
+        { id: 'task-1', dependsOn: [] },
+        { id: 'task-2', dependsOn: [] },
+      ];
+      const result = computeBlocksMap(tasks);
+      expect(result.size).toBe(0);
+    });
+
+    test('should handle complex dependency graph', () => {
+      // US-001 to US-004: no dependencies (completed)
+      // US-005 depends on US-001
+      // US-011 depends on US-005 and US-002
+      // US-012 depends on US-011
+      // US-013 depends on US-012
+      const tasks = [
+        { id: 'US-001' },
+        { id: 'US-002' },
+        { id: 'US-003' },
+        { id: 'US-004' },
+        { id: 'US-005', dependsOn: ['US-001'] },
+        { id: 'US-011', dependsOn: ['US-005', 'US-002'] },
+        { id: 'US-012', dependsOn: ['US-011'] },
+        { id: 'US-013', dependsOn: ['US-012'] },
+      ];
+      const result = computeBlocksMap(tasks);
+
+      // US-001 blocks US-005
+      expect(result.get('US-001')).toEqual(['US-005']);
+      // US-002 blocks US-011
+      expect(result.get('US-002')).toEqual(['US-011']);
+      // US-005 blocks US-011
+      expect(result.get('US-005')).toEqual(['US-011']);
+      // US-011 blocks US-012
+      expect(result.get('US-011')).toEqual(['US-012']);
+      // US-012 blocks US-013
+      expect(result.get('US-012')).toEqual(['US-013']);
+      // US-013 blocks nothing
+      expect(result.get('US-013')).toBeUndefined();
+      // US-003 and US-004 block nothing
+      expect(result.get('US-003')).toBeUndefined();
+      expect(result.get('US-004')).toBeUndefined();
+    });
+
+    test('should handle external dependencies (not in task list)', () => {
+      const tasks = [
+        { id: 'task-1', dependsOn: ['external-task'] },
+      ];
+      const result = computeBlocksMap(tasks);
+      // external-task blocks task-1
+      expect(result.get('external-task')).toEqual(['task-1']);
+    });
+  });
+
+  describe('applyBlocksToTasks', () => {
+    /**
+     * Apply computed blocks to tasks, but only if tracker didn't provide blocks.
+     * This mirrors the logic in convertTasksWithDependencyStatus in RunApp.tsx.
+     */
+    function applyBlocksToTasks(
+      tasks: TaskItem[],
+      blocksMap: Map<string, string[]>
+    ): TaskItem[] {
+      return tasks.map((task) => {
+        // Only apply computed blocks if tracker didn't provide them
+        if (!task.blocks || task.blocks.length === 0) {
+          const blocksIds = blocksMap.get(task.id);
+          if (blocksIds && blocksIds.length > 0) {
+            return { ...task, blocks: blocksIds };
+          }
+        }
+        return task;
+      });
+    }
+
+    test('should add computed blocks to task without blocks', () => {
+      const tasks: TaskItem[] = [
+        { id: 'task-1', title: 'Task 1', status: 'pending' },
+        { id: 'task-2', title: 'Task 2', status: 'pending', dependsOn: ['task-1'] },
+      ];
+      const blocksMap = new Map([['task-1', ['task-2']]]);
+
+      const result = applyBlocksToTasks(tasks, blocksMap);
+      expect(result[0]?.blocks).toEqual(['task-2']);
+      expect(result[1]?.blocks).toBeUndefined();
+    });
+
+    test('should preserve tracker-provided blocks', () => {
+      const tasks: TaskItem[] = [
+        { id: 'task-1', title: 'Task 1', status: 'pending', blocks: ['task-2', 'task-3'] },
+      ];
+      const blocksMap = new Map([['task-1', ['task-2']]]);
+
+      const result = applyBlocksToTasks(tasks, blocksMap);
+      // Should preserve the tracker-provided blocks, not overwrite
+      expect(result[0]?.blocks).toEqual(['task-2', 'task-3']);
+    });
+
+    test('should apply blocks when tracker provided empty array', () => {
+      const tasks: TaskItem[] = [
+        { id: 'task-1', title: 'Task 1', status: 'pending', blocks: [] },
+      ];
+      const blocksMap = new Map([['task-1', ['task-2']]]);
+
+      const result = applyBlocksToTasks(tasks, blocksMap);
+      // Empty array counts as "not provided", so computed value is used
+      expect(result[0]?.blocks).toEqual(['task-2']);
+    });
+
+    test('should not add blocks if none computed', () => {
+      const tasks: TaskItem[] = [
+        { id: 'task-1', title: 'Task 1', status: 'pending' },
+      ];
+      const blocksMap = new Map<string, string[]>();
+
+      const result = applyBlocksToTasks(tasks, blocksMap);
+      expect(result[0]?.blocks).toBeUndefined();
+    });
+  });
 });

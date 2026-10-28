@@ -6,13 +6,15 @@
 import type { TrackerTask } from '../plugins/trackers/types.js';
 import type { AgentExecutionResult } from '../plugins/agents/types.js';
 import type { SubagentState as ParserSubagentState } from '../plugins/agents/tracing/types.js';
+import type { TokenUsageSummary } from '../plugins/agents/usage.js';
 
 /**
  * Reason why an agent is currently active.
  * - 'primary': The configured primary agent
  * - 'fallback': A fallback agent due to rate limiting of primary
+ * - 'user-selected': A user-selected agent for subsequent iterations
  */
-export type ActiveAgentReason = 'primary' | 'fallback';
+export type ActiveAgentReason = 'primary' | 'fallback' | 'user-selected';
 
 /**
  * Tracks which agent is currently active and why.
@@ -177,6 +179,9 @@ export interface IterationResult {
   /** Duration of the iteration in milliseconds */
   durationMs: number;
 
+  /** Token usage summary extracted from agent output (if available) */
+  usage?: TokenUsageSummary;
+
   /** Error message if failed */
   error?: string;
 
@@ -193,6 +198,7 @@ export interface IterationResult {
 export type EngineEventType =
   | 'engine:started'
   | 'engine:stopped'
+  | 'engine:waiting'
   | 'engine:paused'
   | 'engine:resumed'
   | 'engine:warning'
@@ -207,12 +213,40 @@ export type EngineEventType =
   | 'task:selected'
   | 'task:activated'
   | 'task:completed'
+  | 'task:auto-committed'
+  | 'task:auto-commit-failed'
+  | 'task:auto-commit-skipped'
   | 'agent:output'
+  | 'agent:usage'
+  | 'agent:model'
   | 'agent:switched'
   | 'agent:all-limited'
   | 'agent:recovery-attempted'
   | 'all:complete'
-  | 'tasks:refreshed';
+  | 'tasks:refreshed'
+  // Parallel execution events (see src/parallel/events.ts for full definitions)
+  | 'worker:created'
+  | 'worker:started'
+  | 'worker:progress'
+  | 'worker:completed'
+  | 'worker:failed'
+  | 'worker:output'
+  | 'merge:queued'
+  | 'merge:started'
+  | 'merge:completed'
+  | 'merge:failed'
+  | 'merge:rolled-back'
+  | 'conflict:detected'
+  | 'conflict:ai-resolving'
+  | 'conflict:ai-resolved'
+  | 'conflict:ai-failed'
+  | 'conflict:resolved'
+  | 'parallel:started'
+  | 'parallel:session-branch-created'
+  | 'parallel:group-started'
+  | 'parallel:group-completed'
+  | 'parallel:completed'
+  | 'parallel:failed';
 
 /**
  * Base engine event
@@ -252,6 +286,17 @@ export interface EngineStoppedEvent extends EngineEventBase {
 }
 
 /**
+ * Engine waiting event - emitted when watch mode enters an idle state.
+ */
+export interface EngineWaitingEvent extends EngineEventBase {
+  type: 'engine:waiting';
+  /** Why the engine became idle */
+  reason: 'no_tasks' | 'completed';
+  /** Polling interval in milliseconds */
+  pollIntervalMs: number;
+}
+
+/**
  * Engine paused event
  */
 export interface EnginePausedEvent extends EngineEventBase {
@@ -275,7 +320,7 @@ export interface EngineResumedEvent extends EngineEventBase {
 export interface EngineWarningEvent extends EngineEventBase {
   type: 'engine:warning';
   /** Warning code for programmatic handling */
-  code: 'sandbox-network-conflict';
+  code: 'sandbox-network-conflict' | 'task-refresh-failed' | 'task-reset-race';
   /** Human-readable warning message */
   message: string;
 }
@@ -435,6 +480,55 @@ export interface TaskCompletedEvent extends EngineEventBase {
 }
 
 /**
+ * Task auto-committed event - emitted when auto-commit creates a git commit after task completion
+ */
+export interface TaskAutoCommittedEvent extends EngineEventBase {
+  type: 'task:auto-committed';
+  /** Task that was committed */
+  task: TrackerTask;
+  /** Iteration number */
+  iteration: number;
+  /** Commit message used */
+  commitMessage: string;
+  /** Short SHA of the commit (if available) */
+  commitSha?: string;
+  /**
+   * Populated when a configured `commitMessageTemplate` failed to render
+   * (Handlebars error or empty/whitespace result) and the engine fell back
+   * to the default template. Always undefined when no template was set or
+   * the template rendered cleanly.
+   */
+  templateFallbackReason?: string;
+}
+
+/**
+ * Task auto-commit failed event - emitted when auto-commit encounters an error
+ */
+export interface TaskAutoCommitFailedEvent extends EngineEventBase {
+  type: 'task:auto-commit-failed';
+  /** Task that failed to be committed */
+  task: TrackerTask;
+  /** Iteration number */
+  iteration: number;
+  /** Error message describing the failure */
+  error: string;
+}
+
+/**
+ * Task auto-commit skipped event - emitted when auto-commit has nothing to commit.
+ * Common causes: files are gitignored, agent made no file changes, or changes were already committed.
+ */
+export interface TaskAutoCommitSkippedEvent extends EngineEventBase {
+  type: 'task:auto-commit-skipped';
+  /** Task that had no changes to commit */
+  task: TrackerTask;
+  /** Iteration number */
+  iteration: number;
+  /** Reason the commit was skipped (e.g., "no uncommitted changes") */
+  reason: string;
+}
+
+/**
  * Agent output event (streaming)
  */
 export interface AgentOutputEvent extends EngineEventBase {
@@ -443,8 +537,38 @@ export interface AgentOutputEvent extends EngineEventBase {
   stream: 'stdout' | 'stderr';
   /** Output data */
   data: string;
+  /** Task that emitted this output (if available) */
+  taskId?: string;
   /** Iteration number */
   iteration: number;
+}
+
+/**
+ * Agent token usage event (streaming).
+ * Emitted when structured JSONL usage telemetry is observed during execution.
+ */
+export interface AgentUsageEvent extends EngineEventBase {
+  type: 'agent:usage';
+  /** Task that emitted this usage update (if available) */
+  taskId?: string;
+  /** Iteration number */
+  iteration: number;
+  /** Aggregated usage summary up to this point in the iteration */
+  usage: TokenUsageSummary;
+}
+
+/**
+ * Agent model event (streaming).
+ * Emitted when the engine detects the effective model from agent JSONL telemetry.
+ */
+export interface AgentModelEvent extends EngineEventBase {
+  type: 'agent:model';
+  /** Task that emitted this model update (if available) */
+  taskId?: string;
+  /** Iteration number */
+  iteration: number;
+  /** Detected model identifier (may be provider/model or shorthand) */
+  model: string;
 }
 
 /**
@@ -520,6 +644,7 @@ export interface TasksRefreshedEvent extends EngineEventBase {
 export type EngineEvent =
   | EngineStartedEvent
   | EngineStoppedEvent
+  | EngineWaitingEvent
   | EnginePausedEvent
   | EngineResumedEvent
   | EngineWarningEvent
@@ -534,7 +659,12 @@ export type EngineEvent =
   | TaskSelectedEvent
   | TaskActivatedEvent
   | TaskCompletedEvent
+  | TaskAutoCommittedEvent
+  | TaskAutoCommitFailedEvent
+  | TaskAutoCommitSkippedEvent
   | AgentOutputEvent
+  | AgentUsageEvent
+  | AgentModelEvent
   | AgentSwitchedEvent
   | AllAgentsLimitedEvent
   | AgentRecoveryAttemptedEvent
@@ -554,7 +684,7 @@ export type EngineEventListener = (event: EngineEvent) => void;
  * - 'paused': Paused, waiting to resume
  * - 'stopping': Stop requested, shutting down
  */
-export type EngineStatus = 'idle' | 'running' | 'pausing' | 'paused' | 'stopping';
+export type EngineStatus = 'idle' | 'running' | 'waiting' | 'pausing' | 'paused' | 'stopping';
 
 /**
  * Engine state snapshot
@@ -586,6 +716,9 @@ export interface EngineState {
 
   /** Current iteration stderr buffer */
   currentStderr: string;
+
+  /** Current effective model (configured or detected from runtime telemetry) */
+  currentModel?: string;
 
   /**
    * Subagents tracked during the current iteration.

@@ -8,9 +8,9 @@ import {
   describe,
   expect,
   test,
+  beforeAll,
   beforeEach,
   afterEach,
-  beforeAll,
   afterAll,
   mock,
   spyOn,
@@ -20,38 +20,30 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 
-import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
-
 // Store mock implementations that can be changed per test
 let mockPromptSelect: (prompt: string, choices: unknown[], options?: unknown) => Promise<string>;
 let mockPromptNumber: (prompt: string, options?: unknown) => Promise<number>;
 let mockPromptBoolean: (prompt: string, options?: unknown) => Promise<boolean>;
-
-// Mock the prompts module before importing wizard
-mock.module('./prompts.js', () => ({
-  promptSelect: (...args: Parameters<typeof mockPromptSelect>) => mockPromptSelect(...args),
-  promptNumber: (...args: Parameters<typeof mockPromptNumber>) => mockPromptNumber(...args),
-  promptBoolean: (...args: Parameters<typeof mockPromptBoolean>) => mockPromptBoolean(...args),
-  promptText: () => Promise.resolve(''),
-  promptPath: () => Promise.resolve(''),
-  promptQuestion: () => Promise.resolve(''),
-  printSection: () => {},
-  printSuccess: () => {},
-  printInfo: () => {},
-  printError: () => {},
-}));
+let mockIsInteractiveTerminal: () => boolean;
 
 // Mock skill-installer to avoid file system operations during tests
-mock.module('./skill-installer.js', () => ({
-  listBundledSkills: () => Promise.resolve([]),
-  installSkill: () => Promise.resolve({ success: true }),
-  isSkillInstalled: () => Promise.resolve(false),
-}));
+let mockBundledSkills: Array<{ name: string; description: string; path: string }> = [];
+let mockInstallViaAddSkillResult = { success: true, output: '' };
 
-// Mock agent preflight to avoid timeouts in tests
+// Mock tracker plugin instances for deterministic detection results.
+// Beads-family trackers have detect() returning unavailable; json has no detect().
+// Override mockTrackerDetectOverride per-test to change detect() behavior.
+let mockTrackerDetectOverride: ((id: string) => Promise<{ available: boolean; error?: string }>) | null = null;
+
+// Capture the options passed to preflight() for verification (e.g. timeout)
+let lastPreflightOptions: { timeout?: number } | null = null;
+
 // Create a function to generate mock agent instances
 const createMockAgentInstance = (id: string, name: string) => ({
-  preflight: () => Promise.resolve({ success: true, durationMs: 100 }),
+  preflight: (opts?: { timeout?: number }) => {
+    lastPreflightOptions = opts ?? null;
+    return Promise.resolve({ success: true, durationMs: 100 });
+  },
   meta: { id, name, description: `${name} AI`, version: '1.0.0' },
   detect: () => Promise.resolve({ available: true, version: '1.0.0' }),
   initialize: () => Promise.resolve(),
@@ -60,47 +52,159 @@ const createMockAgentInstance = (id: string, name: string) => ({
   getSetupQuestions: () => [],
 });
 
-// Mock the agent registry to return our mock instance
-mock.module('../plugins/agents/registry.js', () => ({
-  getAgentRegistry: () => ({
-    getInstance: () => Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
+const createMockTrackerInstance = (id: string) => {
+  const isBeadsFamily = id === 'beads' || id === 'beads-bv' || id === 'beads-rust';
+  return {
     initialize: () => Promise.resolve(),
-    getRegisteredPlugins: () => [
-      { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
-      { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
-      { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
-    ],
-    createInstance: (id: string) => createMockAgentInstance(id, id),
-    hasPlugin: (name: string) => ['claude', 'opencode', 'droid'].includes(name),
-    // Mock registerBuiltin to prevent errors when registerBuiltinAgents is called
-    registerBuiltin: () => {},
-  }),
-  registerAgentPlugin: () => {},
-}));
+    dispose: () => Promise.resolve(),
+    isReady: () => Promise.resolve(!isBeadsFamily),
+    getSetupQuestions: () => [],
+    meta: { id, name: id, description: `${id} tracker`, version: '1.0.0' },
+    ...(isBeadsFamily
+      ? {
+          detect: () => {
+            if (mockTrackerDetectOverride) {
+              return mockTrackerDetectOverride(id);
+            }
+            return Promise.resolve({
+              available: false,
+              error: `.beads directory not found: /tmp/.beads`,
+            });
+          },
+        }
+      : {}),
+  };
+};
 
-// Import after mocking
-import {
-  projectConfigExists,
-  runSetupWizard,
-  checkAndRunSetup,
-} from './wizard.js';
+const trackerPluginMeta = [
+  { id: 'json', name: 'JSON', description: 'JSON file tracker', version: '1.0.0' },
+  { id: 'beads', name: 'Beads', description: 'Beads tracker', version: '1.0.0' },
+  { id: 'beads-bv', name: 'Beads + BV', description: 'Beads + BV tracker', version: '1.0.0' },
+  { id: 'beads-rust', name: 'Beads Rust', description: 'Beads Rust tracker', version: '1.0.0' },
+];
+
+const mockAgentPlugins = [
+  { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
+  { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
+  { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
+  { id: 'gemini', name: 'Gemini CLI', description: 'Google Gemini CLI', version: '1.0.0' },
+];
+
+// Declare wizard module exports to be populated after dynamic import
+let projectConfigExists: typeof import('./wizard.js').projectConfigExists;
+let runSetupWizard: typeof import('./wizard.js').runSetupWizard;
+let checkAndRunSetup: typeof import('./wizard.js').checkAndRunSetup;
+let formatTrackerUnavailableReason: typeof import('./wizard.js').formatTrackerUnavailableReason;
 
 // Helper to create a temp directory for each test
 async function createTempDir(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'ralph-tui-wizard-test-'));
 }
 
-// Register built-in tracker plugins before tests (agents are mocked)
-beforeAll(() => {
-  registerBuiltinTrackers();
-});
+describe('wizard', () => {
+  // Set up all mocks in beforeAll and dynamically import the module under test
+  // This follows the Bun Mock Module Pattern to prevent mock leakage to other test files
+  beforeAll(async () => {
+    // Mock the prompts module
+    mock.module('./prompts.js', () => ({
+      promptSelect: (...args: Parameters<typeof mockPromptSelect>) => mockPromptSelect(...args),
+      promptNumber: (...args: Parameters<typeof mockPromptNumber>) => mockPromptNumber(...args),
+      promptBoolean: (...args: Parameters<typeof mockPromptBoolean>) => mockPromptBoolean(...args),
+      promptText: () => Promise.resolve(''),
+      promptPath: () => Promise.resolve(''),
+      promptQuestion: () => Promise.resolve(''),
+      printSection: (...args: unknown[]) => { console.log(...args); },
+      printSuccess: (...args: unknown[]) => { console.log(...args); },
+      printInfo: (...args: unknown[]) => { console.log(...args); },
+      printError: (...args: unknown[]) => { console.log(...args); },
+      isInteractiveTerminal: () => mockIsInteractiveTerminal(),
+    }));
 
-// Restore mocks after all tests to prevent leakage to other test files
-afterAll(() => {
-  mock.restore();
-});
+    // Mock skill-installer with all exports that might be used by dependent modules
+    mock.module('./skill-installer.js', () => ({
+      listBundledSkills: () => Promise.resolve(mockBundledSkills),
+      isSkillInstalledAt: () => Promise.resolve(false),
+      isSkillInstalledAtAnyPath: () => Promise.resolve(false),
+      resolveSkillsPath: (p: string) => p.replace(/^~/, '/home/test'),
+      getSkillSearchPaths: (skillsPaths: { personal: string; repo: string }, cwd?: string) => ({
+        personal: [skillsPaths.personal.replace(/^~/, '/home/test')],
+        repo: [cwd ? `${cwd}/${skillsPaths.repo}` : skillsPaths.repo],
+      }),
+      installViaAddSkill: () => Promise.resolve(mockInstallViaAddSkillResult),
+      resolveAddSkillAgentId: (id: string) => (id === 'claude' ? 'claude-code' : id),
+      buildAddSkillInstallArgs: () => [],
+      expandTilde: (p: string) => p.replace(/^~/, '/home/test'),
+      computeSkillsPath: (dir: string) => `${dir}/skills`,
+      getBundledSkillsDir: () => '/mock/skills',
+      isEloopOnlyFailure: () => false,
+      getSkillStatusForAgent: () => Promise.resolve({ installed: [], available: [] }),
+      AGENT_ID_MAP: { claude: 'claude-code', opencode: 'opencode' },
+    }));
 
-describe('projectConfigExists', () => {
+    // Mock tracker registry
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const actualTrackerRegistryModule = await import('../plugins/trackers/registry.js?test-reload') as typeof import('../plugins/trackers/registry.js');
+    mock.module('../plugins/trackers/registry.js', () => ({
+      ...actualTrackerRegistryModule,
+      getTrackerRegistry: () => ({
+        initialize: () => Promise.resolve(),
+        getRegisteredPlugins: () => trackerPluginMeta,
+        createInstance: (id: string) => createMockTrackerInstance(id),
+        hasPlugin: (name: string) => trackerPluginMeta.some((p) => p.id === name),
+        registerBuiltin: () => {},
+      }),
+    }));
+
+    // Mock registerBuiltinTrackers to no-op since registry is fully mocked
+    mock.module('../plugins/trackers/builtin/index.js', () => ({
+      registerBuiltinTrackers: () => {},
+    }));
+
+    // Mock the agent registry to return our mock instance
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const actualAgentRegistryModule = await import('../plugins/agents/registry.js?test-reload') as typeof import('../plugins/agents/registry.js');
+    mock.module('../plugins/agents/registry.js', () => ({
+      ...actualAgentRegistryModule,
+      getAgentRegistry: () => ({
+        getInstance: () => Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
+        initialize: () => Promise.resolve(),
+        getRegisteredPlugins: () => mockAgentPlugins,
+        getPluginMeta: (id: string) => ({
+          id,
+          name: id === 'claude' ? 'Claude Code' : id,
+          description: `${id} AI`,
+          version: '1.0.0',
+          ...(id === 'gemini' ? { defaultCommand: 'gemini-cli' } : { defaultCommand: id }),
+          supportsStreaming: true,
+          supportsInterrupt: true,
+          supportsFileContext: true,
+          supportsSubagentTracing: true,
+          skillsPaths: {
+            personal: `~/.${id}/skills`,
+            repo: `.${id}/skills`,
+          },
+        }),
+        createInstance: (id: string) => createMockAgentInstance(id, id),
+        hasPlugin: (name: string) => mockAgentPlugins.some((p) => p.id === name),
+        registerBuiltin: () => {},
+      }),
+      registerAgentPlugin: () => {},
+    }));
+
+    // Dynamically import the module under test after mocks are set up
+    const wizardModule = await import('./wizard.js');
+    projectConfigExists = wizardModule.projectConfigExists;
+    runSetupWizard = wizardModule.runSetupWizard;
+    checkAndRunSetup = wizardModule.checkAndRunSetup;
+    formatTrackerUnavailableReason = wizardModule.formatTrackerUnavailableReason;
+  });
+
+  // Restore mocks after all tests to prevent leakage to other test files
+  afterAll(() => {
+    mock.restore();
+  });
+
+  describe('projectConfigExists', () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -142,6 +246,7 @@ describe('runSetupWizard', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     capturedOutput = [];
+    lastPreflightOptions = null;
 
     // Spy on console.log to capture output
     consoleLogSpy = spyOn(console, 'log').mockImplementation((...args) => {
@@ -152,11 +257,24 @@ describe('runSetupWizard', () => {
     mockPromptSelect = () => Promise.resolve('json');
     mockPromptNumber = () => Promise.resolve(10);
     mockPromptBoolean = () => Promise.resolve(false);
+    mockIsInteractiveTerminal = () => true;
   });
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
     consoleLogSpy.mockRestore();
+  });
+
+  test('fails with helpful message when not in interactive terminal', async () => {
+    // Simulate non-TTY environment (like running in container or piped input)
+    mockIsInteractiveTerminal = () => false;
+
+    const result = await runSetupWizard({ cwd: tempDir });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('interactive terminal');
+    expect(result.error).toContain('TTY');
+    expect(result.error).toContain('.ralph-tui/config.toml');
   });
 
   test('creates config file in .ralph-tui directory', async () => {
@@ -174,6 +292,19 @@ describe('runSetupWizard', () => {
     // Verify file was created
     const configContent = await readFile(result.configPath!, 'utf-8');
     expect(configContent).toContain('tracker');
+  });
+
+  test('preflight uses default 30s timeout when no preflightTimeoutMs is configured', async () => {
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    const result = await runSetupWizard({ cwd: tempDir });
+
+    expect(result.success).toBe(true);
+    expect(lastPreflightOptions?.timeout).toBe(30000);
   });
 
   test('saves correct tracker and agent in config', async () => {
@@ -202,6 +333,28 @@ describe('runSetupWizard', () => {
     expect(parsed.autoCommit).toBe(true);
   });
 
+  test('accepts gemini CLI selection without command mismatch', async () => {
+    let selectedAgent: string | undefined;
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) {
+        selectedAgent = 'gemini';
+        return Promise.resolve('gemini');
+      }
+      return Promise.resolve('');
+    };
+
+    const result = await runSetupWizard({ cwd: tempDir });
+
+    expect(result.success).toBe(true);
+    expect(result.answers?.agent).toBe('gemini');
+    expect(selectedAgent).toBe('gemini');
+
+    const configContent = await readFile(result.configPath!, 'utf-8');
+    const parsed = parseToml(configContent);
+    expect(parsed.agent).toBe('gemini');
+  });
+
   test('shows PRD-specific instructions for json tracker', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('json');
@@ -217,7 +370,7 @@ describe('runSetupWizard', () => {
     expect(output).toContain('ralph-tui run --prd');
   });
 
-  test('shows standard instructions for beads tracker', async () => {
+  test('shows epic-specific instructions for beads tracker', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('beads');
       if (prompt.includes('agent')) return Promise.resolve('claude');
@@ -226,13 +379,16 @@ describe('runSetupWizard', () => {
 
     await runSetupWizard({ cwd: tempDir });
 
-    // Check that standard instructions were printed (not PRD-specific)
+    // Check that beads-specific epic instructions were printed
     const output = capturedOutput.join('\n');
     expect(output).toContain('ralph-tui run');
+    expect(output).toContain('--epic');
+    expect(output).toContain('Interactive epic selection');
+    expect(output).toContain('ralph-tui convert --to beads');
     expect(output).not.toContain('ralph-tui run --prd');
   });
 
-  test('shows standard instructions for beads-bv tracker', async () => {
+  test('shows epic-specific instructions for beads-bv tracker', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('beads-bv');
       if (prompt.includes('agent')) return Promise.resolve('claude');
@@ -241,9 +397,28 @@ describe('runSetupWizard', () => {
 
     await runSetupWizard({ cwd: tempDir });
 
-    // Check that standard instructions were printed
+    // Check that beads-specific instructions were printed
     const output = capturedOutput.join('\n');
     expect(output).toContain('ralph-tui run');
+    expect(output).toContain('--epic');
+    expect(output).toContain('ralph-tui convert --to beads');
+    expect(output).not.toContain('ralph-tui run --prd');
+  });
+
+  test('shows epic-specific instructions for beads-rust tracker', async () => {
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('beads-rust');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    await runSetupWizard({ cwd: tempDir });
+
+    // Check that beads-specific instructions were printed
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('ralph-tui run');
+    expect(output).toContain('--epic');
+    expect(output).toContain('ralph-tui convert --to beads');
     expect(output).not.toContain('ralph-tui run --prd');
   });
 
@@ -308,6 +483,7 @@ describe('checkAndRunSetup', () => {
     mockPromptSelect = () => Promise.resolve('json');
     mockPromptNumber = () => Promise.resolve(10);
     mockPromptBoolean = () => Promise.resolve(false);
+    mockIsInteractiveTerminal = () => true;
 
     // Suppress console output
     consoleLogSpy = spyOn(console, 'log').mockImplementation(() => {});
@@ -361,6 +537,8 @@ describe('wizard output messages', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     capturedOutput = [];
+    mockBundledSkills = [];
+    mockInstallViaAddSkillResult = { success: true, output: '' };
 
     consoleLogSpy = spyOn(console, 'log').mockImplementation((...args) => {
       capturedOutput.push(args.join(' '));
@@ -369,6 +547,7 @@ describe('wizard output messages', () => {
     mockPromptSelect = () => Promise.resolve('json');
     mockPromptNumber = () => Promise.resolve(10);
     mockPromptBoolean = () => Promise.resolve(false);
+    mockIsInteractiveTerminal = () => true;
   });
 
   afterEach(async () => {
@@ -401,4 +580,332 @@ describe('wizard output messages', () => {
     const output = capturedOutput.join('\n');
     expect(output).toContain('ralph-tui config show');
   });
+
+  test('installs skills via installViaAddSkill on success', async () => {
+    mockBundledSkills = [
+      { name: 'ralph-tui-prd', description: 'PRD generator', path: '/skills/ralph-tui-prd' },
+    ];
+    mockInstallViaAddSkillResult = { success: true, output: '' };
+
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+    mockPromptBoolean = () => Promise.resolve(true);
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('Installed');
+    expect(output).toContain('ralph-tui-prd');
+  });
+
+  test('shows error when installViaAddSkill fails', async () => {
+    mockBundledSkills = [
+      { name: 'ralph-tui-prd', description: 'PRD generator', path: '/skills/ralph-tui-prd' },
+    ];
+    mockInstallViaAddSkillResult = { success: false, output: 'ENOENT: not found' };
+
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+    mockPromptBoolean = () => Promise.resolve(true);
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('Failed');
+    expect(output).toContain('ENOENT');
+  });
+
+  test('describes skill discovery paths without implying install targets', async () => {
+    mockBundledSkills = [
+      { name: 'ralph-tui-prd', description: 'PRD generator', path: '/skills/ralph-tui-prd' },
+    ];
+
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('gemini');
+      return Promise.resolve('');
+    };
+    mockPromptBoolean = () => Promise.resolve(false);
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('Checking for already installed skills in:');
+    expect(output).not.toContain('Skills will be installed to:');
+  });
 });
+
+describe('tracker detection and unavailability', () => {
+  let tempDir: string;
+  let consoleLogSpy: ReturnType<typeof spyOn>;
+  let capturedOutput: string[];
+  let capturedTrackerChoices: Array<{ value: string; label: string; description: string }>;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+    capturedOutput = [];
+    capturedTrackerChoices = [];
+    mockTrackerDetectOverride = null;
+
+    consoleLogSpy = spyOn(console, 'log').mockImplementation((...args) => {
+      capturedOutput.push(args.join(' '));
+    });
+
+    mockPromptNumber = () => Promise.resolve(10);
+    mockPromptBoolean = () => Promise.resolve(false);
+    mockIsInteractiveTerminal = () => true;
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+    consoleLogSpy.mockRestore();
+  });
+
+  test('marks beads trackers as unavailable when .beads dir and CLI missing', async () => {
+    // Capture the tracker choices passed to promptSelect
+    mockPromptSelect = (prompt: string, choices: unknown[]) => {
+      if (prompt.includes('tracker')) {
+        capturedTrackerChoices = choices as typeof capturedTrackerChoices;
+        return Promise.resolve('json');
+      }
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    await runSetupWizard({ cwd: tempDir });
+
+    // In test environment without .beads dir or CLIs, beads trackers should be unavailable
+    const beadsChoice = capturedTrackerChoices.find((c) => c.value === 'beads');
+    expect(beadsChoice).toBeDefined();
+    expect(beadsChoice!.label).toContain('unavailable');
+
+    const beadsBvChoice = capturedTrackerChoices.find((c) => c.value === 'beads-bv');
+    expect(beadsBvChoice).toBeDefined();
+    expect(beadsBvChoice!.label).toContain('unavailable');
+
+    const beadsRustChoice = capturedTrackerChoices.find((c) => c.value === 'beads-rust');
+    expect(beadsRustChoice).toBeDefined();
+    expect(beadsRustChoice!.label).toContain('unavailable');
+  });
+
+  test('marks json tracker as available', async () => {
+    mockPromptSelect = (prompt: string, choices: unknown[]) => {
+      if (prompt.includes('tracker')) {
+        capturedTrackerChoices = choices as typeof capturedTrackerChoices;
+        return Promise.resolve('json');
+      }
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const jsonChoice = capturedTrackerChoices.find((c) => c.value === 'json');
+    expect(jsonChoice).toBeDefined();
+    expect(jsonChoice!.label).not.toContain('unavailable');
+  });
+
+  test('shows helpful reason for unavailable beads trackers', async () => {
+    mockPromptSelect = (prompt: string, choices: unknown[]) => {
+      if (prompt.includes('tracker')) {
+        capturedTrackerChoices = choices as typeof capturedTrackerChoices;
+        return Promise.resolve('json');
+      }
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    await runSetupWizard({ cwd: tempDir });
+
+    // Check that unavailable tracker descriptions contain helpful reasons
+    const beadsChoice = capturedTrackerChoices.find((c) => c.value === 'beads');
+    expect(beadsChoice).toBeDefined();
+    // Should mention either missing directory or missing CLI
+    const desc = beadsChoice!.description;
+    const hasHelpfulReason =
+      desc.includes('.beads') ||
+      desc.includes('CLI not found') ||
+      desc.includes('not found') ||
+      desc.includes('init');
+    expect(hasHelpfulReason).toBe(true);
+  });
+
+  test('shows beads-rust unavailable reason mentioning br CLI', async () => {
+    mockPromptSelect = (prompt: string, choices: unknown[]) => {
+      if (prompt.includes('tracker')) {
+        capturedTrackerChoices = choices as typeof capturedTrackerChoices;
+        return Promise.resolve('json');
+      }
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    await runSetupWizard({ cwd: tempDir });
+
+    // beads-rust description should mention "br" CLI specifically (not "bd")
+    const beadsRustChoice = capturedTrackerChoices.find((c) => c.value === 'beads-rust');
+    expect(beadsRustChoice).toBeDefined();
+    const desc = beadsRustChoice!.description;
+    // If the error is about missing directory, it'll say ".beads"
+    // If the error is about missing CLI, it should say "br" not "bd"
+    if (desc.includes('CLI not found')) {
+      expect(desc).toContain('br');
+    } else {
+      // Directory not found case - also valid
+      expect(desc.includes('.beads') || desc.includes('init')).toBe(true);
+    }
+  });
+
+  test('handles detect() throwing an error gracefully', async () => {
+    // Override detect to throw an error for beads trackers
+    mockTrackerDetectOverride = () => {
+      throw new Error('Unexpected detection failure');
+    };
+
+    mockPromptSelect = (prompt: string, choices: unknown[]) => {
+      if (prompt.includes('tracker')) {
+        capturedTrackerChoices = choices as typeof capturedTrackerChoices;
+        return Promise.resolve('json');
+      }
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    await runSetupWizard({ cwd: tempDir });
+
+    // Beads trackers should still be unavailable (error caught)
+    const beadsChoice = capturedTrackerChoices.find((c) => c.value === 'beads');
+    expect(beadsChoice).toBeDefined();
+    expect(beadsChoice!.label).toContain('unavailable');
+
+    // JSON should still be available (no detect() method, so no error)
+    const jsonChoice = capturedTrackerChoices.find((c) => c.value === 'json');
+    expect(jsonChoice).toBeDefined();
+    expect(jsonChoice!.label).not.toContain('unavailable');
+
+    // Reset override
+    mockTrackerDetectOverride = null;
+  });
+
+  test('defaults to first available tracker (json) when beads unavailable', async () => {
+    let trackerDefault: string | undefined;
+    mockPromptSelect = (prompt: string, _choices: unknown[], options?: unknown) => {
+      if (prompt.includes('tracker')) {
+        trackerDefault = (options as { default?: string })?.default;
+        return Promise.resolve('json');
+      }
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    await runSetupWizard({ cwd: tempDir });
+
+    // Default should be json since beads trackers are unavailable
+    expect(trackerDefault).toBe('json');
+  });
+});
+
+describe('formatTrackerUnavailableReason', () => {
+  test('returns directory guidance when error mentions directory not found', () => {
+    const result = formatTrackerUnavailableReason({
+      id: 'beads',
+      name: 'Beads',
+      description: 'Beads tracker',
+      available: false,
+      error: 'Beads directory not found: /tmp/.beads',
+    });
+    expect(result).toContain('.beads');
+    expect(result).toContain('bd init');
+    expect(result).toContain('br init');
+  });
+
+  test('returns bd CLI guidance for beads tracker when binary not available', () => {
+    const result = formatTrackerUnavailableReason({
+      id: 'beads',
+      name: 'Beads',
+      description: 'Beads tracker',
+      available: false,
+      error: 'bd binary not available: spawn bd ENOENT',
+    });
+    expect(result).toContain('bd CLI not found');
+  });
+
+  test('returns bd CLI guidance for beads-bv tracker when binary not available', () => {
+    const result = formatTrackerUnavailableReason({
+      id: 'beads-bv',
+      name: 'Beads + BV',
+      description: 'Beads + bv tracker',
+      available: false,
+      error: 'bd binary not available: command not found',
+    });
+    expect(result).toContain('bd CLI not found');
+  });
+
+  test('returns br CLI guidance for beads-rust tracker when binary not available', () => {
+    const result = formatTrackerUnavailableReason({
+      id: 'beads-rust',
+      name: 'Beads Rust',
+      description: 'Beads Rust tracker',
+      available: false,
+      error: 'br binary not available: spawn br ENOENT',
+    });
+    expect(result).toContain('br CLI not found');
+  });
+
+  test('returns raw error when error does not match known patterns', () => {
+    const result = formatTrackerUnavailableReason({
+      id: 'beads',
+      name: 'Beads',
+      description: 'Beads tracker',
+      available: false,
+      error: 'Some unexpected error occurred',
+    });
+    expect(result).toBe('Some unexpected error occurred');
+  });
+
+  test('returns description fallback when no error provided', () => {
+    const result = formatTrackerUnavailableReason({
+      id: 'beads',
+      name: 'Beads',
+      description: 'Beads tracker',
+      available: false,
+    });
+    expect(result).toContain('Beads tracker');
+    expect(result).toContain('not detected');
+  });
+
+  test('skips beads heuristics for non-beads trackers and returns raw error', () => {
+    // A non-beads tracker with a "directory not found" error should NOT get beads-specific guidance
+    const result = formatTrackerUnavailableReason({
+      id: 'custom-tracker',
+      name: 'Custom',
+      description: 'Custom tracker',
+      available: false,
+      error: 'directory not found at /some/path',
+    });
+    // Should return raw error, not beads-specific ".beads directory" guidance
+    expect(result).toBe('directory not found at /some/path');
+    expect(result).not.toContain('bd init');
+    expect(result).not.toContain('br init');
+  });
+
+  test('skips beads heuristics for non-beads tracker with "not available" error', () => {
+    const result = formatTrackerUnavailableReason({
+      id: 'custom-tracker',
+      name: 'Custom',
+      description: 'Custom tracker',
+      available: false,
+      error: 'binary not available: some-binary',
+    });
+    // Should return raw error, not beads-specific CLI guidance
+    expect(result).toBe('binary not available: some-binary');
+    expect(result).not.toContain('CLI not found');
+  });
+});
+}); // end describe('wizard')

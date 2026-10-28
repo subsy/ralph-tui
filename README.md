@@ -8,7 +8,7 @@
 
 **AI Agent Loop Orchestrator** - A terminal UI for orchestrating AI coding agents to work through task lists autonomously.
 
-Ralph TUI connects your AI coding assistant (Claude Code, OpenCode, Factory Droid) to your task tracker and runs them in an autonomous loop, completing tasks one-by-one with intelligent selection, error handling, and full visibility.
+Ralph TUI connects your AI coding assistant (Claude Code, OpenCode, Factory Droid, Cursor CLI, Gemini CLI, Codex, Kiro CLI) to your task tracker and runs them in an autonomous loop, completing tasks one-by-one with intelligent selection, error handling, and full visibility.
 
 ![Ralph TUI Screenshot](docs/images/ralph-tui.png)
 
@@ -67,7 +67,7 @@ Ralph selects the highest-priority task, builds a prompt, executes your AI agent
 ## Features
 
 - **Task Trackers**: prd.json (simple), Beads (git-backed with dependencies)
-- **AI Agents**: Claude Code, OpenCode
+- **AI Agents**: Claude Code, OpenCode, Factory Droid, Cursor CLI, Gemini CLI, Codex, Kiro CLI
 - **Session Persistence**: Pause anytime, resume later, survive crashes
 - **Real-time TUI**: Watch agent output, control execution with keyboard shortcuts
 - **Subagent Tracing**: See nested agent calls in real-time
@@ -103,6 +103,10 @@ ralph-tui run --prd ./prd.json
 # Run with a Beads epic
 ralph-tui run --epic my-epic-id
 
+# Run one parallel session across multiple Beads epics
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --parallel --epics ui-epic,backend-epic
+
 # Override agent or model
 ralph-tui run --agent claude --model sonnet
 ralph-tui run --agent opencode --model anthropic/claude-3-5-sonnet
@@ -113,9 +117,15 @@ ralph-tui run --iterations 5
 # Run headless (no TUI)
 ralph-tui run --headless
 
+# Reset accumulated progress before starting a new session
+ralph-tui run --reset-progress
+
 # Run agent in isolated sandbox (bwrap on Linux, sandbox-exec on macOS)
 # Requires bwrap to be installed and on PATH (Linux) or uses built-in sandbox-exec (macOS)
 ralph-tui run --sandbox
+
+# Use a bundled color theme by name
+ralph-tui run --theme dracula
 ```
 
 ### Create PRD Options
@@ -142,18 +152,25 @@ ralph-tui create-prd --output ./docs
 | `s` | Start execution |
 | `p` | Pause/Resume |
 | `d` | Toggle dashboard |
+| `g` | Cycle scope filter in multi-epic sessions |
+| `G` | Reset scope filter to All |
 | `T` | Toggle subagent tree panel (Shift+T) |
 | `t` | Cycle subagent detail level |
 | `o` | Cycle right panel views |
+| `a` | Open agent/model picker (local tab only) |
 | `,` | Open settings (local tab only) |
 | `C` | Open read-only config viewer (Shift+C, works on local and remote tabs) |
+| `Alt+C` (Linux) / `Cmd+C` (macOS) / `Ctrl+C` (Windows) | Copy selected text |
+| `Ctrl+C` | Interrupt (with confirmation) |
 | `q` | Quit |
 | `?` | Show help |
 | `1-9` | Switch to tab 1-9 (remote instances) |
 | `[` / `]` | Previous/Next tab |
-| `a` | Add new remote instance |
+| `A` | Add new remote instance |
 | `e` | Edit current remote (when viewing remote tab) |
 | `x` | Delete current remote (when viewing remote tab) |
+
+**Multi-epic sessions:** Repeated `--epic` and comma-separated `--epics` create one Ralph session across all selected hierarchy-tracker epics. Ralph uses one scheduler, one repo lock, one session branch, one merge queue, and task-scoped worktrees. The TUI scope filter (`g`/`G`) is only a local view filter over that session.
 
 **Dashboard (`d` key):** Toggle a status panel showing:
 - Current execution status and active task
@@ -166,15 +183,43 @@ ralph-tui create-prd --output ./docs
 
 See the [full CLI reference](https://ralph-tui.com/docs/cli/overview) for all options.
 
+### Custom Themes
+
+Ralph TUI supports custom color themes via the `--theme` option:
+
+```bash
+# Use a bundled theme by name
+ralph-tui run --theme dracula
+
+# Or use a custom theme file
+ralph-tui run --theme ./my-custom-theme.json
+```
+
+![Custom Theme Example](docs/images/theme-example.png)
+
+Bundled themes: `bright`, `catppuccin`, `dracula`, `high-contrast`, `solarized-light`
+
+See the [Themes documentation](https://ralph-tui.com/docs/configuration/themes) for the full theme schema and creating custom themes.
+
 ### Using Skills Directly in Your Agent
 
-After running `ralph-tui setup`, skills are installed to your agent's skills directory:
+Install ralph-tui skills to your agent using [add-skill](https://github.com/vercel-labs/add-skill):
 
-| Agent | Skills Location |
-|-------|-----------------|
-| Claude Code | `~/.claude/skills/` |
-| OpenCode | `~/.config/opencode/skills/` |
-| Factory Droid | `~/.factory/skills/` |
+```bash
+# Install all skills to all detected agents globally
+bunx add-skill subsy/ralph-tui --all
+
+# Install to a specific agent
+bunx add-skill subsy/ralph-tui -a claude-code -g -y
+bunx add-skill subsy/ralph-tui -a kiro-cli -g -y
+
+# Or use the ralph-tui wrapper (maps agent IDs automatically)
+ralph-tui skills install
+ralph-tui skills install --agent claude
+ralph-tui skills install --agent kiro
+# If symlinked installs are problematic, copy files instead:
+ralph-tui skills install --copy
+```
 
 Use these slash commands in your agent:
 
@@ -362,7 +407,7 @@ The first tab is always "Local" (your current machine). Remote tabs show the ali
 
 You can add, edit, and delete remote servers directly from the TUI without leaving the interface:
 
-**Add Remote (`a` key):**
+**Add Remote (`A` key):**
 Opens a form dialog to configure a new remote:
 - **Alias**: A short name for the remote (e.g., "prod", "dev-server")
 - **Host**: The server address (e.g., "192.168.1.100", "server.example.com")
@@ -430,6 +475,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md#testing) for detailed testing documentatio
 - Using factories and mocks
 - Writing new tests
 - Coverage requirements
+
+### Pull Request Requirements
+
+PRs must meet these requirements before being merged:
+- **>50% test coverage** on new/changed lines (enforced by Codecov)
+- **Documentation updates** for any new or changed features
+- All CI checks passing (typecheck, lint, tests)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#pull-request-guidelines) for full PR guidelines.
 
 ### Project Structure
 

@@ -191,14 +191,22 @@ export function TabBar({
           flexGrow: 1,
         }}
       >
-        {tabs.map((tab, index) => (
-          <Tab
-            key={tab.id}
-            tab={tab}
-            isSelected={index === selectedIndex}
-            index={index}
-          />
-        ))}
+        {tabs.length === 0 ? (
+          <box style={{ paddingLeft: 1 }}>
+            <text fg={colors.fg.dim}>
+              No remotes configured. Press A to add a remote.
+            </text>
+          </box>
+        ) : (
+          tabs.map((tab, index) => (
+            <Tab
+              key={tab.id}
+              tab={tab}
+              isSelected={index === selectedIndex}
+              index={index}
+            />
+          ))
+        )}
       </box>
 
       {/* Add remote button */}

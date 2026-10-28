@@ -10,8 +10,20 @@ import {
   beforeEach,
   afterEach,
 } from 'bun:test';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { BaseAgentPlugin } from './base.js';
+// Import the module to test internal functions via a workaround
+// We'll test the public interface and behavior
+import {
+  BaseAgentPlugin,
+  DEFAULT_ENV_EXCLUDE_PATTERNS,
+  findCommandPath,
+  getEnvExclusionReport,
+  formatEnvExclusionReport,
+  shouldUseWindowsShell,
+} from './base.js';
 import type {
   AgentPluginMeta,
   AgentFileContext,
@@ -139,6 +151,47 @@ describe('BaseAgentPlugin', () => {
 
   beforeEach(() => {
     agent = new TestAgentPlugin();
+  });
+
+  describe('findCommandPath', () => {
+    test('resolves explicit absolute command paths directly on the filesystem', async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'ralph-find-cmd-'));
+      const commandPath = join(tempDir, 'claude-test.bin');
+      try {
+        await writeFile(commandPath, '');
+        const result = await findCommandPath(commandPath);
+
+        expect(result.found).toBe(true);
+        expect(result.path).toBe(commandPath);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    test('returns not found for missing explicit command paths', async () => {
+      const result = await findCommandPath('/definitely/not/a/real/command');
+
+      expect(result.found).toBe(false);
+      expect(result.path).toBe('');
+    });
+  });
+
+  describe('shouldUseWindowsShell', () => {
+    test('returns false for native Windows executables', () => {
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.exe', 'win32')).toBe(false);
+      expect(shouldUseWindowsShell('"C:\\Program Files\\OpenCode\\opencode.exe"', 'win32')).toBe(false);
+    });
+
+    test('returns true for Windows wrapper scripts', () => {
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.cmd', 'win32')).toBe(true);
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.bat', 'win32')).toBe(true);
+      expect(shouldUseWindowsShell('C:\\Tools\\opencode.ps1', 'win32')).toBe(true);
+    });
+
+    test('returns false outside Windows', () => {
+      expect(shouldUseWindowsShell('/usr/local/bin/opencode', 'linux')).toBe(false);
+      expect(shouldUseWindowsShell('/usr/local/bin/opencode', 'darwin')).toBe(false);
+    });
   });
 
   afterEach(async () => {
@@ -298,6 +351,219 @@ describe('BaseAgentPlugin', () => {
     test('returns null for any model (accepts all by default)', () => {
       const result = agent.validateModel('any-model-name');
       expect(result).toBeNull();
+    });
+  });
+});
+
+/**
+ * Tests for BaseAgentPlugin execute lifecycle (onStdout, onEnd, onStart callbacks)
+ * and envExclude functionality that require real process execution are located in
+ * tests/plugins/agents/base-execute.test.ts. Those tests use Bun.spawn directly
+ * to avoid mock pollution from test files that mock node:child_process, because
+ * Bun's mock.restore() does not reliably restore builtin modules.
+ *
+ * See: https://github.com/oven-sh/bun/issues/7823
+ */
+
+describe('BaseAgentPlugin envExclude (unit tests)', () => {
+  describe('getEnvExclusionReport', () => {
+    test('reports blocked vars that match default patterns', () => {
+      const testEnv: NodeJS.ProcessEnv = {
+        ANTHROPIC_API_KEY: 'key1',
+        OPENAI_API_KEY: 'key2',
+        DB_SECRET: 'sec1',
+        AWS_SECRET_KEY: 'sec2',
+        SAFE_VAR: 'safe',
+        HOME: '/home/user',
+      };
+
+      const report = getEnvExclusionReport(testEnv);
+
+      expect(report.blocked).toContain('ANTHROPIC_API_KEY');
+      expect(report.blocked).toContain('OPENAI_API_KEY');
+      expect(report.blocked).toContain('DB_SECRET');
+      expect(report.blocked).toContain('AWS_SECRET_KEY');
+      expect(report.blocked).not.toContain('SAFE_VAR');
+      expect(report.blocked).not.toContain('HOME');
+      expect(report.allowed).toHaveLength(0);
+    });
+
+    test('reports allowed vars when passthrough is configured', () => {
+      const testEnv: NodeJS.ProcessEnv = {
+        ANTHROPIC_API_KEY: 'key1',
+        OPENAI_API_KEY: 'key2',
+        DB_SECRET: 'sec1',
+      };
+
+      const report = getEnvExclusionReport(testEnv, ['ANTHROPIC_API_KEY']);
+
+      expect(report.blocked).toContain('OPENAI_API_KEY');
+      expect(report.blocked).toContain('DB_SECRET');
+      expect(report.blocked).not.toContain('ANTHROPIC_API_KEY');
+      expect(report.allowed).toContain('ANTHROPIC_API_KEY');
+    });
+
+    test('supports glob patterns in passthrough', () => {
+      const testEnv: NodeJS.ProcessEnv = {
+        ANTHROPIC_API_KEY: 'key1',
+        OPENAI_API_KEY: 'key2',
+        MY_SECRET: 'sec1',
+      };
+
+      const report = getEnvExclusionReport(testEnv, ['*_API_KEY']);
+
+      expect(report.allowed).toContain('ANTHROPIC_API_KEY');
+      expect(report.allowed).toContain('OPENAI_API_KEY');
+      expect(report.blocked).toContain('MY_SECRET');
+    });
+
+    test('includes additional exclude patterns in report', () => {
+      const testEnv: NodeJS.ProcessEnv = {
+        CUSTOM_VAR: 'val',
+        ANTHROPIC_API_KEY: 'key1',
+      };
+
+      const report = getEnvExclusionReport(testEnv, [], ['CUSTOM_VAR']);
+
+      expect(report.blocked).toContain('CUSTOM_VAR');
+      expect(report.blocked).toContain('ANTHROPIC_API_KEY');
+    });
+
+    test('returns sorted arrays', () => {
+      const testEnv: NodeJS.ProcessEnv = {
+        ZEBRA_API_KEY: 'z',
+        ALPHA_API_KEY: 'a',
+        MY_SECRET: 'm',
+      };
+
+      const report = getEnvExclusionReport(testEnv);
+
+      expect(report.blocked).toEqual(['ALPHA_API_KEY', 'MY_SECRET', 'ZEBRA_API_KEY']);
+    });
+
+    test('returns empty arrays when no matches', () => {
+      const testEnv: NodeJS.ProcessEnv = {
+        HOME: '/home/user',
+        PATH: '/usr/bin',
+      };
+
+      const report = getEnvExclusionReport(testEnv);
+
+      expect(report.blocked).toHaveLength(0);
+      expect(report.allowed).toHaveLength(0);
+    });
+  });
+
+  describe('formatEnvExclusionReport', () => {
+    test('shows blocked vars', () => {
+      const report = { blocked: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], allowed: [] };
+      const lines = formatEnvExclusionReport(report);
+
+      expect(lines).toContain('Env filter:');
+      expect(lines.some(l => l.includes('Blocked:') && l.includes('ANTHROPIC_API_KEY'))).toBe(true);
+    });
+
+    test('shows allowed vars', () => {
+      const report = { blocked: ['OPENAI_API_KEY'], allowed: ['ANTHROPIC_API_KEY'] };
+      const lines = formatEnvExclusionReport(report);
+
+      expect(lines).toContain('Env filter:');
+      expect(lines.some(l => l.includes('Passthrough:') && l.includes('ANTHROPIC_API_KEY'))).toBe(true);
+      expect(lines.some(l => l.includes('Blocked:') && l.includes('OPENAI_API_KEY'))).toBe(true);
+    });
+
+    test('shows "no vars matched" when both arrays are empty', () => {
+      const report = { blocked: [], allowed: [] };
+      const lines = formatEnvExclusionReport(report);
+
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines.some(l => l.includes('no vars matched exclusion patterns'))).toBe(true);
+      expect(lines.some(l => l.includes('*_API_KEY'))).toBe(true);
+    });
+
+    test('always returns non-empty array', () => {
+      const emptyReport = { blocked: [], allowed: [] };
+      const lines = formatEnvExclusionReport(emptyReport);
+      expect(lines.length).toBeGreaterThan(0);
+    });
+
+    test('shows only blocked when no passthrough configured', () => {
+      const report = { blocked: ['MY_SECRET'], allowed: [] };
+      const lines = formatEnvExclusionReport(report);
+
+      expect(lines.some(l => l.includes('Blocked:'))).toBe(true);
+      expect(lines.some(l => l.includes('Passthrough:'))).toBe(false);
+    });
+
+    test('shows only passthrough when all blocked vars are allowed', () => {
+      const report = { blocked: [], allowed: ['ANTHROPIC_API_KEY'] };
+      const lines = formatEnvExclusionReport(report);
+
+      expect(lines.some(l => l.includes('Passthrough:'))).toBe(true);
+      expect(lines.some(l => l.includes('Blocked:'))).toBe(false);
+    });
+  });
+
+  describe('BaseAgentPlugin.getExclusionReport', () => {
+    test('returns report using agent passthrough config', async () => {
+      const agent = new TestAgentPlugin();
+      await agent.initialize({
+        envPassthrough: ['TEST_API_KEY'],
+      });
+
+      const origApiKey = process.env.TEST_API_KEY;
+      const origSecret = process.env.TEST_SECRET;
+      process.env.TEST_API_KEY = 'val1';
+      process.env.TEST_SECRET = 'val2';
+
+      const report = agent.getExclusionReport();
+
+      expect(report.allowed).toContain('TEST_API_KEY');
+      expect(report.blocked).toContain('TEST_SECRET');
+
+      if (origApiKey === undefined) {
+        delete process.env.TEST_API_KEY;
+      } else {
+        process.env.TEST_API_KEY = origApiKey;
+      }
+      if (origSecret === undefined) {
+        delete process.env.TEST_SECRET;
+      } else {
+        process.env.TEST_SECRET = origSecret;
+      }
+
+      await agent.dispose();
+    });
+
+    test('includes user envExclude in report', async () => {
+      const agent = new TestAgentPlugin();
+      await agent.initialize({
+        envExclude: ['CUSTOM_BLOCK'],
+      });
+
+      const origCustom = process.env.CUSTOM_BLOCK;
+      process.env.CUSTOM_BLOCK = 'blocked-val';
+
+      const report = agent.getExclusionReport();
+
+      expect(report.blocked).toContain('CUSTOM_BLOCK');
+
+      if (origCustom === undefined) {
+        delete process.env.CUSTOM_BLOCK;
+      } else {
+        process.env.CUSTOM_BLOCK = origCustom;
+      }
+
+      await agent.dispose();
+    });
+  });
+
+  describe('DEFAULT_ENV_EXCLUDE_PATTERNS', () => {
+    test('is exported and contains expected patterns', () => {
+      expect(DEFAULT_ENV_EXCLUDE_PATTERNS).toContain('*_API_KEY');
+      expect(DEFAULT_ENV_EXCLUDE_PATTERNS).toContain('*_SECRET_KEY');
+      expect(DEFAULT_ENV_EXCLUDE_PATTERNS).toContain('*_SECRET');
+      expect(DEFAULT_ENV_EXCLUDE_PATTERNS.length).toBeGreaterThanOrEqual(3);
     });
   });
 });

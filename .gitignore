@@ -54,4 +54,13 @@ Thumbs.db
 examples/
 prd-example.json
 coverage/
-.beads/
+package-lock.json
+
+# Manual testing (workspace path file, workspace is external in ~/.cache)
+testing/.test-workspace-path
+
+# Personal context (not for upstream)
+.kiro/
+
+# Ralph TUI parallel execution worktrees
+.ralph-tui/worktrees/

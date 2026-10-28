@@ -26,26 +26,22 @@ This creates a `.beads/` directory with your issue tracker.
 
 ## Basic Usage
 
-<Callout type="warning">
-**Important:** By default, Ralph TUI only shows issues with the `ralph` label. Either add this label to your issues, or change the label filter during setup (leave blank to see all issues).
-</Callout>
-
 <Steps>
   <Step title="Create an Epic">
-    Epics group related tasks. Add the `ralph` label so Ralph TUI can see it:
+    Epics group related tasks:
 
     ```bash
-    bd create --title "User Authentication" --type epic --label ralph
+    bd create --title "User Authentication" --type epic
     # Created: beads-abc123
     ```
   </Step>
 
   <Step title="Add Tasks as Children of the Epic">
-    Tasks must be **children** of the epic (using `--parent`) to appear when running with `--epic`. Also add the `ralph` label:
+    Tasks must be **children** of the epic (using `--parent`) to appear when running with `--epic`:
 
     ```bash
-    bd create --title "Login form" --type task --parent beads-abc123 --label ralph
-    bd create --title "Auth API" --type task --parent beads-abc123 --label ralph
+    bd create --title "Login form" --type task --parent beads-abc123
+    bd create --title "Auth API" --type task --parent beads-abc123
     ```
 
     <Callout type="info">
@@ -81,6 +77,13 @@ Run with epic and tracker:
 ralph-tui run --tracker beads --epic beads-abc123
 ```
 
+Run one parallel session across multiple epics:
+
+```bash
+ralph-tui run --tracker beads --parallel --epic beads-ui --epic beads-backend
+ralph-tui run --tracker beads --parallel --epics beads-ui,beads-backend
+```
+
 ### Config File
 
 Set defaults in TOML:
@@ -91,21 +94,44 @@ tracker = "beads"
 
 [trackerOptions]
 beadsDir = ".beads"
-labels = "ralph"
+# labels = "frontend,backend"  # Optional: filter by labels
 ```
 
 ### Options Reference
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `beadsDir` | string | `.beads` | Path to .beads directory |
+| `beadsDir` | string | `.beads` | Path to .beads directory, relative to `workingDir` unless absolute |
 | `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
-| `labels` | string | `ralph` | Comma-separated label filter (issues must have these labels) |
+| `labels` | string | (empty) | Optional comma-separated label filter |
 | `workingDir` | string | `.` | Working directory for bd commands |
 
 <Callout type="info">
 The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
 </Callout>
+
+The Beads store can live outside the working directory. Set `BEADS_DIR` to
+the store path, or use an absolute `beadsDir` path. This supports shared or
+remote tracker setups, such as a Dolt-server-backed Beads store.
+
+### JSON Output Compatibility
+
+The Beads tracker reads both legacy `bd --json` payloads and the
+`BD_JSON_ENVELOPE=1` format, which wraps payloads in `{ schema_version, data }`.
+The envelope is also the default in bd v2.0, so no tracker configuration is
+needed for either format.
+
+## Multi-Epic Parallel Execution
+
+The Beads tracker supports multi-epic parallel runs when tasks are organized as children of epics:
+
+```bash
+ralph-tui run --tracker beads --parallel --epic beads-ui --epic beads-backend
+```
+
+Ralph fetches children for each selected epic, annotates each task with its source epic, builds one dependency graph, and schedules ready tasks across all selected epics with one worker pool. The first selected epic remains the compatibility `epicId`; the full selected set is saved as `epicIds` for resume.
+
+Cross-epic dependencies are honored when both tasks are inside the selected epic set. Dependencies outside the selected set must already be closed/cancelled, otherwise the dependent task is shown as blocked and excluded from scheduling.
 
 ## Beads Concepts
 
@@ -170,51 +196,50 @@ Beads uses 0-4 priority scale (0 = critical):
 
 The Beads tracker selects the next task by:
 
-1. Filter to tasks under the specified epic
-2. Filter to tasks with status `open`
-3. Filter to tasks with no unresolved dependencies
-4. Sort by priority (lowest number first)
-5. Return the first matching task
+1. Filter to tasks within the configured epic and label scope
+2. Resume an already-`in_progress` task within the configured scope, preferring the lowest priority number
+3. Otherwise use `bd ready` to select open work with no unresolved dependencies
+4. Return the first matching task
 
 ## Git Sync
 
 Beads stores issues in `.beads/beads.jsonl`. Sync with your team:
 
 ```bash
-# Pull latest changes
-bd sync
+# Export tracker state to JSONL (safe, no git side effects)
+bd sync --flush-only
 
-# Or manually
-git pull
+# Then commit and push manually
+git add .beads/ && git commit -m "Update beads" && git push
 ```
 
-Ralph TUI calls `bd sync` automatically when you run.
+Ralph TUI calls `bd sync --flush-only` automatically when you run, which exports tracker state to JSONL without performing any git operations. This prevents data loss on branches that haven't been pushed to a remote.
 
-## Label Filtering
+## Label Filtering (Optional)
 
-By default, Ralph TUI filters to issues with the `ralph` label. This lets you separate "Ralph-managed" work from other issues in the same beads repo.
+You can optionally filter issues by labels to separate different types of work in the same beads repo.
 
 ### Adding Labels to Issues
 
 ```bash
 # Add label when creating
-bd create --title "My task" --type task --label ralph
+bd create --title "My task" --type task --label frontend
 
 # Add label to existing issue
-bd label add beads-xyz ralph
+bd label add beads-xyz backend
 ```
 
-### Changing the Label Filter
+### Configuring the Label Filter
 
 ```toml
 # .ralph-tui/config.toml
 [trackerOptions]
-labels = "ralph,frontend"  # Multiple labels (comma-separated)
-# labels = ""              # Empty = show all issues (no filter)
+labels = "frontend,backend"  # Only show issues with these labels
+# labels = ""                # Empty (default) = show all issues
 ```
 
-<Callout type="warning">
-If no tasks appear, check that your issues have the `ralph` label (or whatever labels you configured).
+<Callout type="info">
+By default, no label filter is applied - all issues are visible. Configure labels if you want to filter.
 </Callout>
 
 ## How It Works
@@ -227,7 +252,7 @@ When Ralph TUI runs with the Beads tracker:
 4. **Update**: Set task to `in_progress` via `bd update`
 5. **Execute**: Run agent with task prompt
 6. **Complete**: Set task to `closed` via `bd update`
-7. **Sync**: Run `bd sync` to push changes
+7. **Sync**: Run `bd sync --flush-only` to export state to JSONL
 
 ### bd Commands Used
 
@@ -237,15 +262,16 @@ When Ralph TUI runs with the Beads tracker:
 | Get task | `bd show <id> --json` |
 | Start task | `bd update <id> --status in_progress` |
 | Complete task | `bd update <id> --status closed` |
-| Sync | `bd sync` |
+| Sync | `bd sync --flush-only` |
 
 ## Switching Epics
 
-Change epics mid-session by pressing `l` in the TUI:
+Change epics while execution is idle by pressing `l` in the TUI:
 
 1. Press `l` to open epic selector
-2. Choose from available epics
-3. Task list updates to show new epic's tasks
+2. Use `Space` to select one or more epics
+3. Press `Enter` to accept the selected epic set
+4. Task list updates to show the selected epic scope
 
 Or restart with a different `--epic` flag.
 
@@ -259,6 +285,9 @@ Initialize Beads in your project:
 bd init
 ```
 
+If the store is outside the working directory, verify that `BEADS_DIR` points
+to it or that `beadsDir` is configured with its absolute path.
+
 ### "bd binary not available"
 
 Install the Beads CLI from the **[Beads GitHub repo](https://github.com/steveyegge/beads)**.
@@ -266,17 +295,18 @@ Install the Beads CLI from the **[Beads GitHub repo](https://github.com/steveyeg
 ### "No tasks available"
 
 Check that:
-1. **Tasks have the `ralph` label**: `bd list --label ralph` (or run `bd label add <task> ralph`)
-2. **Tasks are children of the epic**: `bd list --parent <epic>` (create with `--parent <epic>`)
-3. **Tasks are `open` status**: `bd list --status open`
-4. **Dependencies are met**: `bd show <task-id>` (blocked tasks won't be selected)
+1. **Tasks are children of the epic**: `bd list --parent <epic>` (create with `--parent <epic>`)
+2. **Tasks are `open` or `in_progress` status**: `bd list --all` (tasks stuck in another status, such as `blocked`, won't be selected)
+3. **Dependencies are met**: `bd show <task-id>` (blocked tasks won't be selected)
+4. **Label filter matches** (if configured): `bd list --label <your-label>`
 
 ### "Tasks not syncing"
 
 Run sync manually:
 
 ```bash
-bd sync
+bd sync --flush-only
+git add .beads/ && git commit -m "Sync beads"
 ```
 
 Check for git conflicts in `.beads/beads.jsonl`.

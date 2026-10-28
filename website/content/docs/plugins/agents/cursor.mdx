@@ -1,0 +1,206 @@
+---
+title: Cursor Agent
+description: Integrate Cursor's CLI with Ralph TUI for AI-assisted coding.
+---
+
+## Cursor Agent
+
+The Cursor agent plugin integrates with Cursor's `agent` CLI command to execute AI coding tasks. It supports multiple execution modes, auto-approve for autonomous operation, and model selection.
+
+<Callout type="tip">
+Cursor supports **subagent tracing** via JSONL output - Ralph TUI can show tool calls in real-time as Cursor works.
+</Callout>
+
+## Prerequisites
+
+Install Cursor CLI from [docs.cursor.com/cli](https://docs.cursor.com/cli).
+
+Verify installation:
+
+```bash
+agent --version
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Cursor">
+    Use the `--agent cursor` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent cursor
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model`:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent cursor --model claude-4.5-sonnet
+    ```
+  </Step>
+
+  <Step title="Configure Execution Mode">
+    Set the execution mode in config:
+
+    ```toml
+    [agentOptions]
+    mode = "agent"
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "cursor"
+
+[agentOptions]
+model = "claude-4.5-sonnet"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-cursor"
+plugin = "cursor"
+default = true
+command = "agent"
+timeout = 300000
+
+[agents.options]
+model = "claude-4.5-sonnet"
+force = true
+mode = "agent"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | Model to use (e.g., `claude-4.5-sonnet`, `gpt-5.2`) |
+| `force` | boolean | `true` | Auto-approve file modifications for autonomous operation |
+| `mode` | string | `"agent"` | Execution mode: `agent`, `plan`, or `ask` |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"agent"` | Path to Cursor CLI executable |
+
+## Execution Modes
+
+Cursor supports three execution modes:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `agent` | Full agent mode with code execution | Normal development (default) |
+| `plan` | Planning only, no execution | Review approach before running |
+| `ask` | Question answering mode | Code exploration, learning |
+
+Configure in your config file:
+
+```toml
+[agentOptions]
+mode = "agent"
+```
+
+## Force Mode
+
+When `force` is enabled (default), Cursor will auto-approve all file modifications without prompting. This is required for Ralph TUI's autonomous operation since it cannot relay interactive prompts.
+
+```toml
+[agentOptions]
+force = true
+```
+
+<Callout type="warning">
+With `force` enabled, Cursor will make changes without confirmation. Review your PRD carefully before running.
+</Callout>
+
+## Subagent Tracing
+
+Cursor emits structured JSONL via `--output-format stream-json` (always enabled). Ralph TUI parses this to display:
+
+- Tool invocations and their output
+- Duration and status of each operation
+
+### Enabling Tracing
+
+```toml
+subagentTracingDetail = "full"
+```
+
+Or toggle in TUI:
+- Press `t` to cycle through detail levels
+- Press `T` (Shift+T) to toggle the subagent tree panel
+
+## How It Works
+
+When Ralph TUI executes a task with Cursor:
+
+1. **Build command**: Constructs `agent [options]`
+2. **Pass prompt via stdin**: Avoids shell escaping issues with special characters
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Parse JSONL**: Extracts structured tool call data (always enabled)
+5. **Detect completion**: Watches for completion token
+6. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+agent \
+  --print \                        # Non-interactive output mode
+  --force \                        # When force enabled (default)
+  --output-format stream-json \    # Always used for structured output
+  --model claude-4.5-sonnet \      # If model specified
+  --mode plan \                    # If mode is not 'agent'
+  < prompt.txt                     # Prompt via stdin
+```
+
+## Troubleshooting
+
+### "Cursor CLI not found"
+
+Ensure Cursor is installed and in your PATH:
+
+```bash
+which agent
+# Should output: /path/to/agent
+
+# If not found, install from:
+# https://docs.cursor.com/cli
+```
+
+### "Execution timeout"
+
+Increase the timeout for complex tasks:
+
+```toml
+[[agents]]
+name = "cursor"
+plugin = "cursor"
+timeout = 600000  # 10 minutes
+```
+
+### "Permission denied"
+
+Ensure `force` mode is enabled for autonomous operation:
+
+```toml
+[agentOptions]
+force = true
+```
+
+## Next Steps
+
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Codex Agent](/docs/plugins/agents/codex)** - OpenAI's Codex CLI
+- **[Gemini Agent](/docs/plugins/agents/gemini)** - Google's Gemini CLI
+- **[Configuration](/docs/configuration/options)** - Full options reference

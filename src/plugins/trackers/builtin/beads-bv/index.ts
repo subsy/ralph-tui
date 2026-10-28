@@ -6,11 +6,12 @@
  */
 
 import { spawn } from 'node:child_process';
-import { access, constants } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { access } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { join } from 'node:path';
 import { BeadsTrackerPlugin } from '../beads/index.js';
+import { parseBeadsJsonArray } from '../../beads-json.js';
+import { BEADS_BV_TEMPLATE } from '../../../../templates/builtin.js';
 import type {
   TrackerPluginMeta,
   TrackerPluginFactory,
@@ -38,6 +39,43 @@ interface BvRecommendation {
   reasons: string[];
   unblocks?: number;
 }
+
+const TRIAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
+const EPIC_CHILDREN_CACHE_TTL_MS = 30_000;
+
+/**
+ * Output from bv --robot-next when an actionable task exists.
+ * Unlike --robot-triage recommendations, --robot-next is guaranteed
+ * to return only an unblocked task.
+ */
+interface BvRobotNextTask {
+  generated_at: string;
+  data_hash: string;
+  output_format: string;
+  id: string;
+  title: string;
+  score: number;
+  reasons: string[];
+  unblocks: number;
+  claim_command: string;
+  show_command: string;
+}
+
+/**
+ * Output from bv --robot-next when no actionable items are available.
+ */
+interface BvRobotNextEmpty {
+  generated_at: string;
+  data_hash: string;
+  output_format: string;
+  message: string;
+}
+
+/**
+ * Discriminated union for bv --robot-next output.
+ * Use `'message' in output` to narrow between the two shapes.
+ */
+type BvRobotNextOutput = BvRobotNextTask | BvRobotNextEmpty;
 
 /**
  * Top pick from bv quick_ref section.
@@ -116,25 +154,17 @@ export interface TaskReasoning {
   };
 }
 
-/**
- * Get the directory containing this module (for locating template.hbs).
- */
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Cache for the template content to avoid repeated file reads.
+ * Execute a CLI command and return stdout/stderr plus exit code.
  */
-let templateCache: string | null = null;
-
-/**
- * Execute a bv command and return the output.
- */
-async function execBv(
+async function execCommand(
+  bin: string,
   args: string[],
   cwd?: string
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    const proc = spawn('bv', args, {
+    const proc = spawn(bin, args, {
       cwd,
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -160,6 +190,16 @@ async function execBv(
       resolve({ stdout, stderr, exitCode: 1 });
     });
   });
+}
+
+/**
+ * Execute a bv command and return the output.
+ */
+async function execBv(
+  args: string[],
+  cwd?: string
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return execCommand('bv', args, cwd);
 }
 
 /**
@@ -169,100 +209,26 @@ async function execBd(
   args: string[],
   cwd?: string
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve) => {
-    const proc = spawn('bd', args, {
-      cwd,
-      env: { ...process.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? 1 });
-    });
-
-    proc.on('error', (err) => {
-      stderr += err.message;
-      resolve({ stdout, stderr, exitCode: 1 });
-    });
-  });
+  return execCommand('bd', args, cwd);
 }
 
-/**
- * Convert bv priority (0-4) to TaskPriority.
- */
-function mapPriority(priority: number): TaskPriority {
-  const clamped = Math.max(0, Math.min(4, priority));
-  return clamped as TaskPriority;
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
-/**
- * Convert bv status to TrackerTaskStatus.
- */
-function mapStatus(status: string): TrackerTaskStatus {
-  switch (status) {
-    case 'open':
-      return 'open';
-    case 'in_progress':
-      return 'in_progress';
-    case 'closed':
-      return 'completed';
-    case 'cancelled':
-      return 'cancelled';
-    default:
-      return 'open';
-  }
+function hasMessageField(value: unknown): value is { message: string } {
+  return isObjectRecord(value) && typeof value.message === 'string';
 }
 
-/**
- * Convert TrackerTaskStatus back to bd status.
- */
-function mapStatusToBd(status: TrackerTaskStatus): string {
-  switch (status) {
-    case 'open':
-      return 'open';
-    case 'in_progress':
-      return 'in_progress';
-    case 'completed':
-      return 'closed';
-    case 'cancelled':
-      return 'cancelled';
-    case 'blocked':
-      return 'open';
-    default:
-      return 'open';
-  }
+function hasValidTaskId(value: unknown): value is { id: string } {
+  return (
+    isObjectRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.trim().length > 0
+  );
 }
 
-/**
- * Convert a BvRecommendation to TrackerTask.
- */
-function recommendationToTask(rec: BvRecommendation): TrackerTask {
-  return {
-    id: rec.id,
-    title: rec.title,
-    status: mapStatus(rec.status),
-    priority: mapPriority(rec.priority),
-    labels: rec.labels,
-    type: rec.type,
-    metadata: {
-      bvScore: rec.score,
-      bvReasons: rec.reasons,
-      bvUnblocks: rec.unblocks,
-      bvBreakdown: rec.breakdown,
-    },
-  };
-}
+
 
 /**
  * Beads + bv tracker plugin implementation.
@@ -284,6 +250,14 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
   private bvAvailable = false;
   private lastTriageOutput: BvTriageOutput | null = null;
   private taskReasoningCache: Map<string, TaskReasoning> = new Map();
+  private epicChildrenCache = new Map<
+    string,
+    { ids: string[]; cachedAt: number }
+  >();
+  private triageRefreshInFlight: Promise<void> | null = null;
+  private pendingForcedTriageRefresh = false;
+  private lastTriageRefreshAt = 0;
+  private labelScopeWarningShown = false;
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
     // Initialize base beads plugin
@@ -368,8 +342,15 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
 
   /**
    * Get the next task using bv's smart algorithms.
-   * Uses bv --robot-triage for optimal task selection.
+   * Uses bv --robot-next which returns only the single best *unblocked* task.
    * Falls back to base beads behavior if bv is unavailable.
+   *
+   * Note: --robot-next is used instead of --robot-triage because triage
+   * recommendations include blocked tasks ranked by score. A blocked task
+   * with high graph importance (e.g., a review bead that unblocks many
+   * downstream tasks) can outscore actionable tasks, causing ralph-tui to
+   * select tasks whose dependencies haven't been completed yet.
+   * See: https://github.com/subsy/ralph-tui/issues/327
    */
   override async getNextTask(
     filter?: TaskFilter
@@ -380,8 +361,24 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     }
 
     try {
-      // Build bv command args
-      const args = ['--robot-triage'];
+      const statusFilter = this.normalizeStatusFilter(filter?.status);
+
+      // --robot-next only returns actionable tasks (open/in_progress).
+      // If a caller asks for only non-actionable statuses, there is no
+      // valid --robot-next result by definition.
+      if (
+        statusFilter &&
+        !statusFilter.some(
+          (status) => status === 'open' || status === 'in_progress'
+        )
+      ) {
+        return super.getNextTask(filter);
+      }
+
+      // Use --robot-next for task selection: guaranteed to return only
+      // an unblocked task, unlike --robot-triage which includes blocked
+      // tasks in its recommendations array.
+      const args = ['--robot-next'];
 
       // Apply label filter if configured
       const labels = this.getLabels();
@@ -394,71 +391,114 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
       const { stdout, exitCode, stderr } = await execBv(args, this.getWorkingDir());
 
       if (exitCode !== 0) {
-        console.error('bv --robot-triage failed:', stderr);
+        console.error('bv --robot-next failed:', stderr);
         // Fall back to base beads behavior
         return super.getNextTask(filter);
       }
 
       // Parse bv output
-      let triageOutput: BvTriageOutput;
+      let nextOutputRaw: unknown;
       try {
-        triageOutput = JSON.parse(stdout) as BvTriageOutput;
-        this.lastTriageOutput = triageOutput;
+        nextOutputRaw = JSON.parse(stdout) as BvRobotNextOutput;
       } catch (err) {
         console.error('Failed to parse bv output:', err);
         return super.getNextTask(filter);
       }
 
-      // Cache reasoning for all recommendations
-      this.cacheTaskReasoning(triageOutput);
+      // --robot-next returns { message: "No actionable items available" }
+      // when nothing is unblocked. Validate shape before accessing task fields.
+      if (hasMessageField(nextOutputRaw)) {
+        return super.getNextTask(filter);
+      }
 
-      // Filter recommendations to epic children if epicId is set
-      let recommendations = triageOutput.triage.recommendations;
+      if (!hasValidTaskId(nextOutputRaw)) {
+        console.error(
+          'Invalid bv --robot-next output (missing task id):',
+          nextOutputRaw
+        );
+        return super.getNextTask(filter);
+      }
 
+      const nextOutput = nextOutputRaw as BvRobotNextTask;
+
+      // Verify the selected task belongs to the epic if epicId is set
       const epicId = this.getEpicId();
       if (filter?.parentId || epicId) {
         const parentId = filter?.parentId ?? epicId;
-        // Get all epic children to filter recommendations
-        const epicChildren = await this.getEpicChildrenIds(parentId);
-        recommendations = recommendations.filter((rec) =>
-          epicChildren.includes(rec.id)
+        const epicChildren = await this.getCachedEpicChildrenIds(parentId);
+        if (!epicChildren.includes(nextOutput.id)) {
+          // bv's top pick isn't in our epic — fall back to base beads
+          // which filters by epic natively
+          return super.getNextTask(filter);
+        }
+      }
+
+      const labelsToVerify =
+        filter?.labels && filter.labels.length > 0
+          ? filter.labels
+          : this.getLabels();
+      if (labelsToVerify.length > 0 && !this.labelScopeWarningShown) {
+        this.labelScopeWarningShown = true;
+        console.warn(
+          "bv's --robot-next does not apply label scoping. ralph-tui verifies bv's pick against the configured labels and falls back to bd's native label filtering when it does not match."
         );
       }
 
-      // Filter by status if specified
-      if (filter?.status) {
-        const statuses = Array.isArray(filter.status)
-          ? filter.status
-          : [filter.status];
-        const bdStatuses = statuses.map(mapStatusToBd);
-        recommendations = recommendations.filter((rec) =>
-          bdStatuses.includes(rec.status)
-        );
+      // Fetch full task details before accepting bv's pick. The --label option
+      // on bv --robot-next is ineffective, so mirror bd's --label AND
+      // semantics: the task must carry every label in the effective scope.
+      const fullTask = await this.getTask(nextOutput.id);
+      if (
+        labelsToVerify.length > 0 &&
+        (!fullTask ||
+          !labelsToVerify.every((label) => fullTask.labels?.includes(label)))
+      ) {
+        return super.getNextTask(filter);
       }
 
-      // Return the top recommendation
-      if (recommendations.length === 0) {
-        return undefined;
-      }
+      // Refresh triage data in background for metadata enrichment.
+      this.scheduleTriageRefresh();
 
-      const topRec = recommendations[0]!;
+      const cachedBreakdown = this.getCachedBreakdown(nextOutput.id);
 
-      // Get full task details from bd for complete information
-      const fullTask = await this.getTask(topRec.id);
       if (fullTask) {
-        // Augment with bv metadata
+        if (statusFilter && !statusFilter.includes(fullTask.status)) {
+          return super.getNextTask(filter);
+        }
+
+        // Augment with bv metadata from --robot-next
         fullTask.metadata = {
           ...fullTask.metadata,
-          bvScore: topRec.score,
-          bvReasons: topRec.reasons,
-          bvUnblocks: topRec.unblocks,
-          bvBreakdown: topRec.breakdown,
+          bvScore: nextOutput.score,
+          bvReasons: nextOutput.reasons,
+          bvUnblocks: nextOutput.unblocks,
+          // --robot-next does not include breakdown details, so reuse cached
+          // triage breakdown when available for metadata compatibility.
+          bvBreakdown: cachedBreakdown,
         };
         return fullTask;
       }
 
-      // Fallback to recommendation data if bd show fails
-      return recommendationToTask(topRec);
+      if (statusFilter && !statusFilter.includes('open')) {
+        return super.getNextTask(filter);
+      }
+
+      // Fallback: construct task from --robot-next output
+      // (--robot-next doesn't include priority, default to P2)
+      return {
+        id: nextOutput.id,
+        title: nextOutput.title,
+        status: 'open' as TrackerTaskStatus,
+        priority: 2 as TaskPriority,
+        metadata: {
+          bvScore: nextOutput.score,
+          bvReasons: nextOutput.reasons,
+          bvUnblocks: nextOutput.unblocks,
+          // --robot-next does not include breakdown details, so reuse cached
+          // triage breakdown when available for metadata compatibility.
+          bvBreakdown: cachedBreakdown,
+        },
+      };
     } catch (err) {
       console.error('Error in getNextTask:', err);
       return super.getNextTask(filter);
@@ -532,6 +572,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
       try {
         this.lastTriageOutput = JSON.parse(stdout) as BvTriageOutput;
         this.cacheTaskReasoning(this.lastTriageOutput);
+        this.lastTriageRefreshAt = Date.now();
       } catch {
         // Ignore parse errors
       }
@@ -580,11 +621,12 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
 
     // Clear cached reasoning for completed task
     this.taskReasoningCache.delete(id);
+    this.invalidateEpicChildrenCache();
 
     // Refresh triage data asynchronously
     if (result.success && this.bvAvailable) {
       // Don't await - let it refresh in background
-      void this.refreshTriage();
+      this.scheduleTriageRefresh(true);
     }
 
     return result;
@@ -601,7 +643,8 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
 
     // Refresh triage data asynchronously
     if (result && this.bvAvailable) {
-      void this.refreshTriage();
+      this.invalidateEpicChildrenCache();
+      this.scheduleTriageRefresh(true);
     }
 
     return result;
@@ -670,7 +713,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
    */
   private async getEpicChildrenIds(epicId: string): Promise<string[]> {
     const { stdout, exitCode } = await execBd(
-      ['list', '--json', '--parent', epicId],
+      ['list', '--json', '--parent', epicId, '--limit', '0'],
       this.getWorkingDir()
     );
 
@@ -679,11 +722,29 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     }
 
     try {
-      const beads = JSON.parse(stdout) as Array<{ id: string }>;
+      const beads = parseBeadsJsonArray<{ id: string }>(stdout);
       return beads.map((b) => b.id);
     } catch {
       return [];
     }
+  }
+
+  private async getCachedEpicChildrenIds(epicId: string): Promise<string[]> {
+    const cached = this.epicChildrenCache.get(epicId);
+    if (
+      cached &&
+      Date.now() - cached.cachedAt < EPIC_CHILDREN_CACHE_TTL_MS
+    ) {
+      return cached.ids;
+    }
+
+    const ids = await this.getEpicChildrenIds(epicId);
+    this.epicChildrenCache.set(epicId, { ids, cachedAt: Date.now() });
+    return ids;
+  }
+
+  private invalidateEpicChildrenCache(): void {
+    this.epicChildrenCache.clear();
   }
 
   // Helper methods to access config values (since parent properties are protected)
@@ -702,31 +763,64 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
 
   /**
    * Get the prompt template for the Beads+bv tracker.
-   * Reads from the co-located template.hbs file.
+   * Returns the embedded template to avoid path resolution issues in bundled environments.
+   * See: https://github.com/subsy/ralph-tui/issues/248
    */
   override getTemplate(): string {
-    // Return cached template if available
-    if (templateCache !== null) {
-      return templateCache;
+    return BEADS_BV_TEMPLATE;
+  }
+
+  private normalizeStatusFilter(
+    statusFilter: TaskFilter['status']
+  ): TrackerTaskStatus[] | undefined {
+    if (statusFilter === undefined) {
+      return undefined;
     }
 
-    // Read template from co-located file
-    const templatePath = join(__dirname, 'template.hbs');
-    try {
-      templateCache = readFileSync(templatePath, 'utf-8');
-      return templateCache;
-    } catch (err) {
-      console.error(`Failed to read template from ${templatePath}:`, err);
-      // Return a minimal fallback template
-      return `## Task: {{taskTitle}}
-{{#if taskDescription}}
-{{taskDescription}}
-{{/if}}
+    return Array.isArray(statusFilter) ? statusFilter : [statusFilter];
+  }
 
-When finished, signal completion with:
-<promise>COMPLETE</promise>
-`;
+  private getCachedBreakdown(
+    taskId: string
+  ): Record<string, number | string | Record<string, unknown>> | undefined {
+    return this.lastTriageOutput?.triage.recommendations.find(
+      (rec) => rec.id === taskId
+    )?.breakdown;
+  }
+
+  private scheduleTriageRefresh(force = false): void {
+    if (!this.bvAvailable) {
+      return;
     }
+
+    if (this.triageRefreshInFlight) {
+      if (force) {
+        this.pendingForcedTriageRefresh = true;
+      }
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      !force &&
+      this.lastTriageRefreshAt > 0 &&
+      now - this.lastTriageRefreshAt < TRIAGE_REFRESH_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    this.triageRefreshInFlight = this.refreshTriage()
+      .catch((err) => {
+        console.error('Failed to refresh bv triage data:', err);
+      })
+      .finally(() => {
+        this.triageRefreshInFlight = null;
+
+        if (this.pendingForcedTriageRefresh) {
+          this.pendingForcedTriageRefresh = false;
+          this.scheduleTriageRefresh(true);
+        }
+      });
   }
 }
 

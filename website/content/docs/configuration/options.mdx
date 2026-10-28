@@ -18,16 +18,19 @@ These control basic execution behavior.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `agent` | string | - | Agent plugin to use (e.g., "claude", "opencode") |
+| `model` | string | - | Default model override for the selected agent. The TUI Agent & Model picker saves here when **Save as default** is enabled. |
 | `command` | string | - | Custom command/executable for the agent (e.g., "ccr code") |
 | `tracker` | string | - | Tracker plugin to use (e.g., "beads-bv", "json") |
 | `maxIterations` | number | `10` | Maximum iterations per session (0 = unlimited, max 1000) |
 | `iterationDelay` | number | `1000` | Delay between iterations in milliseconds (max 300000) |
 | `outputDir` | string | `.ralph-tui/iterations` | Directory for iteration log files |
 | `progressFile` | string | `.ralph-tui/progress.md` | Progress file for cross-iteration context |
-| `autoCommit` | boolean | `false` | Auto-commit after each completed task |
+| `autoCommit` | boolean | `false` | Ensures a git commit after each successful task. When `true`, ralph-tui stages and commits all uncommitted changes after task completion. When `false`, no automatic commit is made by ralph-tui, though the agent may still commit on its own if instructed by templates or CLAUDE.md. |
+| `commitMessageTemplate` | string | `"{{taskType}}: {{taskId}} {{taskTitle}}"` | Handlebars template used for the auto-commit subject when `autoCommit = true`. Available variables: `{{taskId}}`, `{{taskTitle}}`, `{{taskType}}` (falls back to `chore` when the tracker omits a type). If the rendered string is empty/whitespace or the template fails to compile, ralph-tui falls back to the default and logs a warning. |
 | `prompt_template` | string | - | Custom Handlebars template path |
 | `subagentTracingDetail` | string | `"off"` | Subagent visibility level |
 | `skills_dir` | string | - | Directory containing custom PRD skills |
+| `preflightTimeoutMs` | number | `30000` | Preflight check timeout in ms for the default agent (1000–300000). See [Preflight Timeout](#preflight-timeout). |
 
 ### subagentTracingDetail Values
 
@@ -48,14 +51,16 @@ The simplest way to configure an agent:
 
 ```toml
 agent = "claude"
+model = "sonnet"
 
 [agentOptions]
-model = "claude-sonnet-4-20250514"
+# Plugin-specific options go here.
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `agent` | string | - | Agent plugin name |
+| `model` | string | - | Model passed to the selected agent. If omitted, plugin-specific defaults apply. |
 | `command` | string | - | Custom command/executable path (see below) |
 | `agentOptions` | object | `{}` | Plugin-specific options |
 
@@ -115,9 +120,49 @@ timeout = 300000
 | `command` | string | (from plugin) | Override executable command |
 | `defaultFlags` | string[] | `[]` | Additional CLI flags |
 | `timeout` | number | `0` | Execution timeout (ms, 0 = no timeout) |
+| `preflightTimeoutMs` | number | `30000` | Preflight check timeout in ms (1000–300000). See [Preflight Timeout](#preflight-timeout). |
 | `options` | object | `{}` | Plugin-specific options |
 | `fallbackAgents` | string[] | `[]` | Agents to try on rate limit |
 | `rateLimitHandling` | object | - | Rate limit configuration |
+| `envExclude` | string[] | `[]` | Additional env var patterns to exclude |
+| `envPassthrough` | string[] | `[]` | Env vars to allow through despite exclusion patterns |
+
+### Preflight Timeout
+
+`preflightTimeoutMs` controls how long Ralph TUI waits for the agent to respond during the preflight health check run by [`ralph-tui doctor`](/docs/cli/doctor) and [`ralph-tui setup`](/docs/cli/setup).
+
+The default is **30 seconds**, which is plenty for hosted models. Increase it when:
+
+- You're running a **local reasoning model** (e.g. via Ollama, LM Studio, or a self-hosted endpoint) whose first response can legitimately exceed 30s while it warms up or thinks.
+- You're routing through a wrapper (such as Claude Code Router) that adds latency on cold start.
+- You see intermittent `preflight check failed` errors on a setup that is otherwise healthy.
+
+```toml
+# Top-level shorthand — applies to the default agent
+preflightTimeoutMs = 60000
+```
+
+Or per-agent for finer control:
+
+```toml
+[[agents]]
+name = "my-local-model"
+plugin = "opencode"
+preflightTimeoutMs = 120000  # 2 minutes for a slow local reasoning model
+
+  [agents.options]
+  model = "qwen2.5-coder:32b"
+```
+
+| Constraint | Value |
+|------------|-------|
+| Minimum | `1000` (1 second) |
+| Maximum | `300000` (5 minutes) |
+| Default | `30000` (30 seconds) |
+
+<Callout type="tip">
+The top-level `preflightTimeoutMs` only applies to the default agent. Per-agent settings in `[[agents]]` override the shorthand.
+</Callout>
 
 ## Tracker Options
 
@@ -182,6 +227,10 @@ For basic Beads integration:
 |--------|------|-------------|
 | `epicId` | string | Epic ID to filter tasks |
 
+<Callout type="info">
+Multi-epic selection is a runtime option. Use repeated `--epic` flags or `--epics` on `ralph-tui run`; Ralph stores the selected set as `epicIds` in session state for resume.
+</Callout>
+
 ## Error Handling
 
 Controls how Ralph responds to task failures.
@@ -235,6 +284,162 @@ recoverPrimaryBetweenIterations = true
 | `rateLimitHandling.baseBackoffMs` | number | `5000` | Base backoff time (0-300000 ms) |
 | `rateLimitHandling.recoverPrimaryBetweenIterations` | boolean | `true` | Try primary between iterations |
 
+## Environment Variable Exclusion
+
+Controls which environment variables are passed to agent subprocesses. This is essential when your shell environment contains API keys that conflict with the agent's authentication method.
+
+### The Problem
+
+When you run ralph-tui from a directory containing a `.env` or `.env.local` file, runtimes like **Bun** or tools like **direnv** and **dotenv-cli** may automatically load these variables into your shell environment. If one of these variables is an API key (e.g., `ANTHROPIC_API_KEY`), the agent CLI will use it instead of your intended authentication method (like a Max subscription), causing unexpected billing.
+
+### Default Exclusion Patterns
+
+Ralph TUI automatically excludes environment variables matching these patterns from agent subprocesses:
+
+- `*_API_KEY` — blocks `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.
+- `*_SECRET_KEY` — blocks `AWS_SECRET_KEY`, etc.
+- `*_SECRET` — blocks `DB_SECRET`, `JWT_SECRET`, etc.
+
+These defaults are always active, even without any configuration. You'll see which variables are blocked (and which are allowed through) in the startup output of `ralph-tui run`, `ralph-tui prime`, `ralph-tui doctor`, and `ralph-tui info`.
+
+<Callout type="info">
+The defaults protect against the most common accidental credential leakage. If no environment variables match these patterns, you'll see a message confirming the filter is active but found nothing to block.
+</Callout>
+
+### envPassthrough: Allowing Specific Variables
+
+If you need a blocked variable to reach the agent (e.g., when the agent genuinely needs the API key), use `envPassthrough` to override the exclusion:
+
+```toml
+# Allow ANTHROPIC_API_KEY through despite matching *_API_KEY
+envPassthrough = ["ANTHROPIC_API_KEY"]
+```
+
+Passthrough supports glob patterns:
+
+```toml
+# Allow all *_API_KEY variables through
+envPassthrough = ["*_API_KEY"]
+```
+
+### envExclude: Additional Exclusions
+
+The `envExclude` option adds patterns on top of the defaults. Use it to block variables not covered by the default patterns:
+
+```toml
+# Block tokens and passwords in addition to defaults
+envExclude = ["*_TOKEN", "*_PASSWORD"]
+```
+
+### Three-Layer Filtering
+
+Environment variables are filtered through three layers (in order):
+
+1. **Default patterns** — `*_API_KEY`, `*_SECRET_KEY`, `*_SECRET` (always applied)
+2. **User envExclude** — additional patterns you configure (stacked on defaults)
+3. **envPassthrough** — overrides both defaults and user excludes
+
+```
+process.env variables
+  │
+  ├─ Matches default pattern? ──── BLOCKED (unless in passthrough)
+  ├─ Matches envExclude?      ──── BLOCKED (unless in passthrough)
+  ├─ Matches envPassthrough?  ──── ALLOWED (overrides exclusion)
+  └─ No pattern match         ──── ALLOWED (passed through)
+```
+
+### Shorthand Configuration
+
+Apply to the default agent with top-level settings:
+
+```toml
+agent = "claude"
+envExclude = ["*_TOKEN"]
+envPassthrough = ["ANTHROPIC_API_KEY"]
+```
+
+### Per-Agent Configuration
+
+Apply to specific agents in the `[[agents]]` array:
+
+```toml
+[[agents]]
+name = "claude-max"
+plugin = "claude"
+# Uses defaults - ANTHROPIC_API_KEY is blocked
+
+[[agents]]
+name = "claude-api"
+plugin = "claude"
+envPassthrough = ["ANTHROPIC_API_KEY"]
+# Explicitly allows the API key through for API-based auth
+```
+
+### Glob Pattern Syntax
+
+Both `envExclude` and `envPassthrough` patterns support glob-style wildcards:
+
+| Pattern | Matches |
+|---------|---------|
+| `ANTHROPIC_API_KEY` | Exact match only |
+| `*_API_KEY` | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc. |
+| `*_SECRET` | `DB_SECRET`, `JWT_SECRET`, etc. |
+| `AWS_*` | All AWS environment variables |
+| `*TOKEN*` | Any variable containing "TOKEN" |
+
+### Common Use Cases
+
+**Use Max subscription (default behavior, no config needed):**
+```toml
+# ANTHROPIC_API_KEY is blocked by default
+agent = "claude"
+```
+
+**Explicitly use API key authentication:**
+```toml
+agent = "claude"
+envPassthrough = ["ANTHROPIC_API_KEY"]
+```
+
+**Block additional sensitive variables:**
+```toml
+envExclude = ["*_TOKEN", "*_PASSWORD", "DATABASE_URL"]
+```
+
+**Multiple agents with different auth methods:**
+```toml
+[[agents]]
+name = "claude-max"
+plugin = "claude"
+# Default: ANTHROPIC_API_KEY blocked, uses Max subscription
+
+[[agents]]
+name = "claude-api"
+plugin = "claude"
+envPassthrough = ["ANTHROPIC_API_KEY"]
+# Uses API key from environment
+```
+
+### Diagnostics
+
+Run `ralph-tui doctor` to see which variables are blocked vs. allowed:
+
+```
+Env filter:
+  Blocked:     ANTHROPIC_API_KEY, OPENAI_API_KEY
+  Passthrough: (none)
+```
+
+Or if nothing matches:
+
+```
+Env filter: no vars matched exclusion patterns (*_API_KEY, *_SECRET_KEY, *_SECRET)
+```
+
+<Callout type="tip">
+If you're experiencing unexpected API credit usage while using a Max subscription, run `ralph-tui doctor` to verify that `ANTHROPIC_API_KEY` is listed under "Blocked". If it's not, check whether Bun is loading it from a `.env` file.
+</Callout>
+
 ## Notifications
 
 Configure desktop notifications for iteration events.
@@ -257,6 +462,45 @@ sound = "off"
 | `"off"` | No sound |
 | `"system"` | Use OS default notification sound |
 | `"ralph"` | Play random Ralph Wiggum sound clips |
+
+## Parallel Execution
+
+Configure parallel execution behavior.
+
+```toml
+[parallel]
+mode = "never"
+maxWorkers = 3
+directMerge = false
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `mode` | string | `"never"` | Execution mode |
+| `maxWorkers` | number | `3` | Maximum concurrent workers |
+| `directMerge` | boolean | `false` | Merge directly to current branch (vs session branch) |
+| `worktreeDir` | string | `".ralph-tui/worktrees"` | Directory for git worktrees |
+
+### Mode Values
+
+| Value | Description |
+|-------|-------------|
+| `"auto"` | Analyze task dependencies; use parallel when beneficial |
+| `"always"` | Force parallel execution regardless of dependency analysis |
+| `"never"` | Disable parallel execution; always run sequentially |
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--serial`, `--sequential` | Force sequential (overrides config) |
+| `--parallel` | Force parallel with default workers |
+| `--parallel N` | Force parallel with N workers |
+| `--direct-merge` | Merge directly to current branch |
+| `--epic <id>` | Select an epic. May be repeated for hierarchy trackers. |
+| `--epics <ids>` | Select comma-separated epic IDs for hierarchy trackers. |
+
+See the [Parallel Execution guide](/docs/parallel/overview) for detailed documentation.
 
 ## Custom Skills Directory
 
@@ -349,7 +593,8 @@ These flags override config file settings. Use with any execution command.
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
 | `--tracker <name>` | `-t` | string | Tracker to use |
-| `--epic <id>` | `-e` | string | Epic ID (beads trackers) |
+| `--epic <id>` | `-e` | string | Epic ID (hierarchy trackers). May be repeated. |
+| `--epics <ids>` | | string | Comma-separated epic IDs (hierarchy trackers) |
 | `--prd <path>` | `-p` | string | PRD file path (json tracker) |
 
 ### Error Handling Options
@@ -399,6 +644,7 @@ All numeric options have validation constraints:
 | `errorHandling.retryDelayMs` | 0 | 300000 |
 | `rateLimitHandling.maxRetries` | 0 | 10 |
 | `rateLimitHandling.baseBackoffMs` | 0 | 300000 |
+| `preflightTimeoutMs` | 1000 | 300000 |
 
 ## Environment Variables
 
@@ -407,6 +653,20 @@ Ralph TUI respects these environment variables:
 | Variable | Description |
 |----------|-------------|
 | `XDG_CONFIG_HOME` | Override global config location (default: `~/.config`) |
+
+### Environment Variable Filtering
+
+Ralph TUI automatically excludes variables matching `*_API_KEY`, `*_SECRET_KEY`, and `*_SECRET` from agent subprocesses. Use `envPassthrough` to allow specific variables through, or `envExclude` to block additional patterns:
+
+```toml
+# Allow a specific key through (overrides default block)
+envPassthrough = ["ANTHROPIC_API_KEY"]
+
+# Block additional patterns beyond defaults
+envExclude = ["*_TOKEN", "DATABASE_URL"]
+```
+
+See [Environment Variable Exclusion](#environment-variable-exclusion) for the full three-layer filtering details.
 
 ## Next Steps
 

@@ -1,32 +1,44 @@
 /**
  * ABOUTME: Skill installation utility for ralph-tui.
- * Provides functions to install skills to agent-specific skills directories.
- * Skills are bundled with ralph-tui and can be installed during setup.
- * Supports multiple agents (Claude Code, OpenCode, Factory Droid) via plugin-defined paths.
+ * Provides functions to list bundled skills, check installation status,
+ * and install skills via Vercel's add-skill CLI.
  */
 
-import { readFile, writeFile, mkdir, access, constants, readdir } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { readFile, access, constants, readdir } from 'node:fs/promises';
 import { join, dirname, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import type { AgentSkillsPaths } from '../plugins/agents/types.js';
 
 /**
- * Result of a skill installation attempt.
+ * Mapping from ralph-tui agent IDs to add-skill agent IDs.
  */
-export interface SkillInstallResult {
-  /** Whether the installation was successful */
-  success: boolean;
+export const AGENT_ID_MAP: Record<string, string> = {
+  claude: 'claude-code',
+  opencode: 'opencode',
+  codex: 'codex',
+  gemini: 'gemini-cli',
+  kimi: 'kimi-cli',
+  kiro: 'kiro-cli',
+  cursor: 'cursor',
+  'github-copilot': 'github-copilot',
+  pi: 'pi',
+  grok: 'grok',
+  antigravity: 'antigravity',
+};
 
-  /** Path where the skill was installed */
-  path?: string;
-
-  /** Error message if installation failed */
-  error?: string;
-
-  /** Whether the skill already existed and was skipped */
-  skipped?: boolean;
-}
+/**
+ * Agents whose skills are also discovered from the shared .agents/skills locations.
+ * These aliases are used by the current upstream skills CLI during install/sync flows.
+ */
+const SHARED_SKILLS_AGENT_IDS = new Set([
+  'codex',
+  'cursor',
+  'gemini',
+  'github-copilot',
+  'kimi',
+  'opencode',
+]);
 
 /**
  * Information about an available skill.
@@ -43,34 +55,17 @@ export interface SkillInfo {
 }
 
 /**
- * Result of installing a skill to a specific target (personal or repo).
+ * Options for installing skills via add-skill CLI.
  */
-export interface SkillTargetResult {
-  /** Target type ('personal' or 'repo') */
-  target: 'personal' | 'repo';
-
-  /** The installation result */
-  result: SkillInstallResult;
-}
-
-/**
- * Result of installing skills for a specific agent.
- */
-export interface AgentSkillInstallResult {
-  /** Agent plugin ID */
+export interface AddSkillInstallOptions {
+  /** Ralph-tui agent ID (e.g., 'claude', 'opencode') */
   agentId: string;
-
-  /** Agent display name */
-  agentName: string;
-
-  /** Results for each skill installed, with per-target results */
-  skills: Map<string, SkillTargetResult[]>;
-
-  /** Whether any skills were successfully installed */
-  hasInstalls: boolean;
-
-  /** Whether all skills were skipped (already installed) */
-  allSkipped: boolean;
+  /** Specific skill to install (if not set, installs all) */
+  skillName?: string;
+  /** Install globally (default: true) */
+  global?: boolean;
+  /** Copy skills instead of symlinking (recommended when symlinks fail) */
+  copy?: boolean;
 }
 
 /**
@@ -78,12 +73,19 @@ export interface AgentSkillInstallResult {
  * Supports both POSIX (~/) and Windows (~\) style paths.
  */
 export function expandTilde(path: string): string {
+  const runtimeHome =
+    process.env.HOME ||
+    process.env.USERPROFILE ||
+    (process.env.HOMEDRIVE && process.env.HOMEPATH
+      ? join(process.env.HOMEDRIVE, process.env.HOMEPATH)
+      : homedir());
+
   // Handle ~/ (POSIX) and ~\ (Windows)
   if (path.startsWith('~/') || path.startsWith('~\\')) {
-    return join(homedir(), path.slice(2));
+    return join(runtimeHome, path.slice(2));
   }
   if (path === '~') {
-    return homedir();
+    return runtimeHome;
   }
   return path;
 }
@@ -113,11 +115,28 @@ export function resolveSkillsPath(skillsPath: string, cwd?: string): string {
 }
 
 /**
- * Get the path to the user's Claude Code skills directory.
- * @deprecated Use resolveSkillsPath with plugin.meta.skillsPaths instead
+ * Resolve every skills discovery path for an agent, including shared aliases.
+ * Shared aliases are checked first because upstream skills tooling gives them precedence.
  */
-export function getClaudeSkillsDir(): string {
-  return join(homedir(), '.claude', 'skills');
+export function getSkillSearchPaths(
+  skillsPaths: { personal: string; repo: string },
+  cwd?: string,
+  agentId?: string
+): { personal: string[]; repo: string[] } {
+  const personalPaths = [
+    ...(agentId && SHARED_SKILLS_AGENT_IDS.has(agentId) ? ['~/.agents/skills'] : []),
+    skillsPaths.personal,
+  ].map((path) => resolveSkillsPath(path));
+
+  const repoPaths = [
+    ...(agentId && SHARED_SKILLS_AGENT_IDS.has(agentId) ? ['.agents/skills'] : []),
+    skillsPaths.repo,
+  ].map((path) => resolveSkillsPath(path, cwd));
+
+  return {
+    personal: [...new Set(personalPaths)],
+    repo: [...new Set(repoPaths)],
+  };
 }
 
 /**
@@ -212,228 +231,130 @@ export async function isSkillInstalledAt(skillName: string, targetDir: string): 
 }
 
 /**
- * Check if a skill is already installed (Claude Code path).
- * @deprecated Use isSkillInstalledAt with plugin paths instead
+ * Check if a skill is installed in any of the given directories.
  */
-export async function isSkillInstalled(skillName: string): Promise<boolean> {
-  return isSkillInstalledAt(skillName, getClaudeSkillsDir());
+export async function isSkillInstalledAtAnyPath(skillName: string, targetDirs: string[]): Promise<boolean> {
+  for (const targetDir of targetDirs) {
+    if (await isSkillInstalledAt(skillName, targetDir)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
- * Install a bundled skill to a specific target directory.
- *
- * @param skillName - Name of the bundled skill to install
- * @param targetDir - Absolute path to the skills directory
- * @param options - Installation options
+ * Resolve the add-skill agent ID from a ralph-tui agent ID.
+ * Returns the original ID if no mapping exists (add-skill may support it directly).
  */
-export async function installSkillTo(
-  skillName: string,
-  targetDir: string,
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<SkillInstallResult> {
-  const sourcePath = join(getBundledSkillsDir(), skillName);
-  const targetPath = join(targetDir, skillName);
+export function resolveAddSkillAgentId(ralphTuiId: string): string {
+  return AGENT_ID_MAP[ralphTuiId] ?? ralphTuiId;
+}
 
-  try {
-    // Check if source exists
-    const sourceSkillMd = join(sourcePath, 'SKILL.md');
-    try {
-      await access(sourceSkillMd, constants.F_OK);
-    } catch {
-      return {
+/**
+ * Build the bunx add-skill command arguments from install options.
+ */
+export function buildAddSkillInstallArgs(options: AddSkillInstallOptions): string[] {
+  const args = ['add-skill', 'subsy/ralph-tui'];
+
+  // Skill selection
+  if (options.skillName) {
+    args.push('-s', options.skillName);
+  }
+
+  // Agent targeting
+  const addSkillId = resolveAddSkillAgentId(options.agentId);
+  args.push('-a', addSkillId);
+
+  // Global vs local
+  if (options.global !== false) {
+    args.push('-g');
+  }
+
+  // Copy mode (disable symlink install strategy)
+  if (options.copy) {
+    args.push('--copy');
+  }
+
+  // Non-interactive
+  args.push('-y');
+
+  return args;
+}
+
+/**
+ * Check if a non-zero exit from add-skill is due only to ELOOP errors.
+ * ELOOP errors are harmless when agent skill directories are symlinked
+ * to a shared location (e.g., ~/.agents/skills/). The skill is still
+ * accessible via the symlink even though mkdir fails inside it.
+ */
+export function isEloopOnlyFailure(output: string): boolean {
+  return output.includes('ELOOP') &&
+    !output.includes('ENOENT') && !output.includes('EACCES');
+}
+
+/**
+ * Install skills for an agent via Vercel's add-skill CLI.
+ * Spawns bunx add-skill as a subprocess with piped output.
+ *
+ * @returns Object with success boolean and captured output
+ */
+export async function installViaAddSkill(options: AddSkillInstallOptions): Promise<{
+  success: boolean;
+  output: string;
+}> {
+  const args = buildAddSkillInstallArgs(options);
+
+  return new Promise((resolve) => {
+    const child = spawn('bunx', args, {
+      stdio: 'pipe',
+      cwd: process.cwd(),
+    });
+
+    let output = '';
+
+    child.stdout?.on('data', (data: Buffer) => {
+      output += data.toString();
+    });
+
+    child.stderr?.on('data', (data: Buffer) => {
+      output += data.toString();
+    });
+
+    child.on('error', (err) => {
+      resolve({
         success: false,
-        error: `Skill '${skillName}' not found in bundled skills`,
-      };
-    }
+        output: `Failed to run add-skill: ${err.message}`,
+      });
+    });
 
-    // Check if already installed
-    if (!options.force && (await isSkillInstalledAt(skillName, targetDir))) {
-      return {
-        success: true,
-        path: targetPath,
-        skipped: true,
-      };
-    }
-
-    // Ensure target directory exists
-    await mkdir(targetPath, { recursive: true });
-
-    // Read source SKILL.md
-    const skillContent = await readFile(sourceSkillMd, 'utf-8');
-
-    // Write to target
-    const targetSkillMd = join(targetPath, 'SKILL.md');
-    await writeFile(targetSkillMd, skillContent, 'utf-8');
-
-    return {
-      success: true,
-      path: targetPath,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-/**
- * Install a bundled skill to the user's Claude Code skills directory.
- * @deprecated Use installSkillTo with plugin paths instead
- */
-export async function installSkill(
-  skillName: string,
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<SkillInstallResult> {
-  return installSkillTo(skillName, getClaudeSkillsDir(), options);
-}
-
-/**
- * Install the ralph-tui-prd skill specifically.
- * @deprecated Use installSkillTo with plugin paths instead
- */
-export async function installRalphTuiPrdSkill(
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<SkillInstallResult> {
-  return installSkill('ralph-tui-prd', options);
-}
-
-/**
- * Install all bundled skills to a specific directory.
- *
- * @param targetDir - Absolute path to the skills directory
- * @param options - Installation options
- */
-export async function installAllSkillsTo(
-  targetDir: string,
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<Map<string, SkillInstallResult>> {
-  const results = new Map<string, SkillInstallResult>();
-  const skills = await listBundledSkills();
-
-  for (const skill of skills) {
-    const result = await installSkillTo(skill.name, targetDir, options);
-    results.set(skill.name, result);
-  }
-
-  return results;
-}
-
-/**
- * Install all bundled skills to Claude Code skills directory.
- * @deprecated Use installAllSkillsTo with plugin paths instead
- */
-export async function installAllSkills(
-  options: {
-    force?: boolean;
-  } = {}
-): Promise<Map<string, SkillInstallResult>> {
-  return installAllSkillsTo(getClaudeSkillsDir(), options);
-}
-
-/**
- * Install skills for an agent using its plugin-defined paths.
- *
- * @param agentId - Agent plugin ID (e.g., 'claude', 'opencode', 'droid')
- * @param agentName - Agent display name for reporting
- * @param skillsPaths - Agent's skill paths from plugin.meta.skillsPaths
- * @param options - Installation options
- */
-export async function installSkillsForAgent(
-  agentId: string,
-  agentName: string,
-  skillsPaths: AgentSkillsPaths,
-  options: {
-    force?: boolean;
-    /** Install to personal (global) directory. Default: true */
-    personal?: boolean;
-    /** Install to repo-local directory */
-    repo?: boolean;
-    /** Working directory for repo-relative paths */
-    cwd?: string;
-    /** Specific skill to install (if not set, installs all) */
-    skillName?: string;
-  } = {}
-): Promise<AgentSkillInstallResult> {
-  const { force = false, personal = true, repo = false, cwd, skillName } = options;
-  const allResults = new Map<string, SkillTargetResult[]>();
-
-  // Build list of targets with their resolved paths and labels
-  const targets: Array<{ label: 'personal' | 'repo'; dir: string }> = [];
-  if (personal) {
-    targets.push({ label: 'personal', dir: resolveSkillsPath(skillsPaths.personal) });
-  }
-  if (repo) {
-    targets.push({ label: 'repo', dir: resolveSkillsPath(skillsPaths.repo, cwd) });
-  }
-
-  // Get skills to install
-  const bundledSkills = await listBundledSkills();
-  const skillsToInstall = skillName
-    ? bundledSkills.filter(s => s.name === skillName)
-    : bundledSkills;
-
-  // Install to each target directory, preserving per-target results
-  for (const skill of skillsToInstall) {
-    const skillResults: SkillTargetResult[] = [];
-    for (const target of targets) {
-      const result = await installSkillTo(skill.name, target.dir, { force });
-      skillResults.push({ target: target.label, result });
-    }
-    allResults.set(skill.name, skillResults);
-  }
-
-  // Compute summary flags by checking all target results
-  let hasInstalls = false;
-  let allSkipped = true;
-
-  for (const targetResults of allResults.values()) {
-    for (const { result } of targetResults) {
-      if (result.success && !result.skipped) {
-        hasInstalls = true;
-        allSkipped = false;
-      } else if (!result.success) {
-        allSkipped = false;
-      }
-    }
-  }
-
-  return {
-    agentId,
-    agentName,
-    skills: allResults,
-    hasInstalls,
-    allSkipped,
-  };
+    child.on('close', (code) => {
+      const eloopOnly = code !== 0 && isEloopOnlyFailure(output);
+      resolve({
+        success: code === 0 || eloopOnly,
+        output,
+      });
+    });
+  });
 }
 
 /**
  * Get the installation status of skills for an agent.
  *
- * @param skillsPaths - Agent's skill paths from plugin.meta.skillsPaths
+ * @param skillsPaths - Object with personal and repo path strings
  * @param cwd - Working directory for repo-relative paths
  */
 export async function getSkillStatusForAgent(
-  skillsPaths: AgentSkillsPaths,
-  cwd?: string
+  skillsPaths: { personal: string; repo: string },
+  cwd?: string,
+  agentId?: string
 ): Promise<Map<string, { personal: boolean; repo: boolean }>> {
   const status = new Map<string, { personal: boolean; repo: boolean }>();
   const bundledSkills = await listBundledSkills();
-
-  const personalDir = resolveSkillsPath(skillsPaths.personal);
-  const repoDir = resolveSkillsPath(skillsPaths.repo, cwd);
+  const searchPaths = getSkillSearchPaths(skillsPaths, cwd, agentId);
 
   for (const skill of bundledSkills) {
-    const personalInstalled = await isSkillInstalledAt(skill.name, personalDir);
-    const repoInstalled = await isSkillInstalledAt(skill.name, repoDir);
+    const personalInstalled = await isSkillInstalledAtAnyPath(skill.name, searchPaths.personal);
+    const repoInstalled = await isSkillInstalledAtAnyPath(skill.name, searchPaths.repo);
     status.set(skill.name, { personal: personalInstalled, repo: repoInstalled });
   }
 
