@@ -41,6 +41,15 @@ if (mode === 'exact-limit') {
     process.stdout.write('\\n');
     setInterval(() => {}, 100);
   }
+} else if (mode?.startsWith('api-retry')) {
+  console.log(JSON.stringify({type:'system',subtype:'api_retry',attempt:1,max_retries:3,retry_delay_ms:1000,error_status:429,error:'rate_limit'}));
+  console.log(text('Recovered after retry'));
+  process.stdout.write(JSON.stringify(mode === 'api-retry-success'
+    ? {type:'result',subtype:'success',is_error:false,result:'Recovered after retry'}
+    : {type:'result',subtype:'error_during_execution',is_error:true,errors:['Terminal provider failure']}));
+} else if (mode === 'system-diagnostic') {
+  console.log(JSON.stringify({type:'system',subtype:'plugin_install',status:'failed',name:'optional-plugin',error:'Optional plugin install failed'}));
+  process.stdout.write(JSON.stringify({type:'result',subtype:'success',is_error:false,result:'Completed despite optional plugin error'}));
 } else if (mode === 'tool-only') {
   console.log(JSON.stringify({type:'user',message:{content:[{type:'tool_result',is_error:true,content:'Recoverable tool error'}]}}));
   process.stdout.write(text('Recovered'));
@@ -373,6 +382,55 @@ for (const Plugin of [MiniMaxAgentPlugin, ZaiAgentPlugin]) {
       const result = await plugin.execute('test', [], { env: { FAKE_MODE: 'structured-error' } }).promise;
       expect(result.status).toBe('completed');
       expect(result.error).toBeUndefined();
+    });
+
+    for (const mode of ['api-retry-success', 'api-retry-failure']) {
+      test(`${mode} does not promote the recoverable retry to a terminal error`, async () => {
+        await plugin.initialize({ command });
+        let display = '';
+        const messages: Record<string, unknown>[] = [];
+        const ended: AgentExecutionResult[] = [];
+        const result = await plugin.execute('test', [], {
+          env: { FAKE_MODE: mode },
+          onStdout: (data) => { display += data; },
+          onJsonlMessage: (message) => { messages.push(message); },
+          onEnd: (result) => { ended.push({ ...result }); },
+        }).promise;
+        expect(messages[0].subtype).toBe('api_retry');
+        expect(display).toContain('Recovered after retry');
+        expect(display).not.toContain('rate_limit');
+        expect(ended).toHaveLength(1);
+        if (mode === 'api-retry-success') {
+          expect(result.status).toBe('completed');
+          expect(result.error).toBeUndefined();
+        } else {
+          expect(result.status).toBe('failed');
+          expect(result.error).toBe('Terminal provider failure');
+          expect(display).toContain('Terminal provider failure');
+        }
+        expect(ended[0].status).toBe(result.status);
+        expect(ended[0].error).toBe(result.error);
+      });
+    }
+
+    test('non-retry system diagnostics remain visible without overriding final success', async () => {
+      await plugin.initialize({ command });
+      let display = '';
+      const result = await plugin.execute('test', [], {
+        env: { FAKE_MODE: 'system-diagnostic' },
+        onStdout: (data) => { display += data; },
+      }).promise;
+      expect(result.status).toBe('completed');
+      expect(result.error).toBeUndefined();
+      expect(display).toContain('Optional plugin install failed');
+    });
+
+    test('a result with api_retry subtype still retains its terminal error', async () => {
+      await writeFile(command, `#!/usr/bin/env bun\nprocess.stdout.write(JSON.stringify({type:'result',subtype:'api_retry',is_error:true,error:'Terminal error'}));\n`);
+      await plugin.initialize({ command });
+      const result = await plugin.execute('test').promise;
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe('Terminal error');
     });
 
     test('subagent tracing requests structured output even in text mode', async () => {

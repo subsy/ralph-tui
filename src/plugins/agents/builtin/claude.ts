@@ -422,6 +422,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   }
 
   private getClaudeErrorMessage(event: Record<string, unknown>): string | undefined {
+    if (event.type === 'system' && event.subtype === 'api_retry') return undefined;
     const isErrorResult = event.type === 'result' &&
       (event.is_error === true || (typeof event.subtype === 'string' && event.subtype.startsWith('error')));
     if (event.type !== 'error' && !event.error && !isErrorResult) return undefined;
@@ -508,7 +509,9 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
               try {
                 const rawJson = JSON.parse(trimmed) as Record<string, unknown>;
                 if (rawJson && typeof rawJson === 'object') {
-                  executionError ??= this.getClaudeErrorMessage(rawJson);
+                  if (rawJson.type === 'error' || rawJson.type === 'result') {
+                    executionError ??= this.getClaudeErrorMessage(rawJson);
+                  }
                   options?.onJsonlMessage?.(rawJson);
                 }
               } catch {
