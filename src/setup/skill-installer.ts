@@ -294,6 +294,18 @@ export function isEloopOnlyFailure(output: string): boolean {
     !output.includes('ENOENT') && !output.includes('EACCES');
 }
 
+/** Return an isolated Claude environment for targeted global cc-mirror installs. */
+export function getAddSkillEnv(
+  agentId: string | null,
+  global = true
+): NodeJS.ProcessEnv | undefined {
+  if (!global || (agentId !== 'minimax' && agentId !== 'zai')) return undefined;
+  return {
+    ...process.env,
+    CLAUDE_CONFIG_DIR: join(homedir(), '.cc-mirror', agentId, 'config'),
+  };
+}
+
 /**
  * Install skills for an agent via Vercel's add-skill CLI.
  * Spawns bunx add-skill as a subprocess with piped output.
@@ -310,9 +322,7 @@ export async function installViaAddSkill(options: AddSkillInstallOptions): Promi
     const child = spawn('bunx', args, {
       stdio: 'pipe',
       cwd: process.cwd(),
-      ...(['minimax', 'zai'].includes(options.agentId) ? {
-        env: { ...process.env, CLAUDE_CONFIG_DIR: join(homedir(), '.cc-mirror', options.agentId, 'config') },
-      } : {}),
+      env: getAddSkillEnv(options.agentId, options.global),
     });
 
     let output = '';

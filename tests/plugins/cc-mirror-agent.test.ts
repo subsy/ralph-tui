@@ -3,7 +3,7 @@
  * Exercises shared Claude execution with deterministic local wrapper stand-ins.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import createMiniMaxAgent, { MiniMaxAgentPlugin } from '../../src/plugins/agents
 import createZaiAgent, { ZaiAgentPlugin } from '../../src/plugins/agents/builtin/zai.js';
 import { registerBuiltinAgents } from '../../src/plugins/agents/builtin/index.js';
 import { getAgentRegistry } from '../../src/plugins/agents/registry.js';
+import { BaseAgentPlugin } from '../../src/plugins/agents/base.js';
 import type { AgentExecuteOptions, AgentFileContext } from '../../src/plugins/agents/types.js';
 
 const wrapperSource = `#!/usr/bin/env bun
@@ -73,6 +74,31 @@ for (const [id, factory] of [['minimax', createMiniMaxAgent], ['zai', createZaiA
       expect(await plugin.validateSetup({ model: '   ' })).not.toBeNull();
       expect(await plugin.validateSetup({ printMode: 'invalid' })).toContain('print mode');
       expect(plugin.listModels!()).toEqual(['sonnet', 'opus', 'haiku']);
+    });
+
+    test('delivers complete JSONL records before bounding an oversized pending line', async () => {
+      const plugin = factory();
+      await plugin.initialize({});
+      const messages: Record<string, unknown>[] = [];
+      let display = '';
+      const execution = spyOn(BaseAgentPlugin.prototype, 'execute').mockImplementation((_prompt, _files, options) => {
+        const first = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'First record' }] } });
+        const middle = JSON.stringify({ type: 'system', subtype: 'init', padding: 'x'.repeat(2_000_000) });
+        const last = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Last record' }] } });
+        options?.onStdout?.(`${first}\n${middle}\n${last}\n${'x'.repeat(2_000_001)}`);
+        const result = { executionId: 'buffer-test', status: 'completed' as const, stdout: '', stderr: '', durationMs: 0, interrupted: false, startedAt: '', endedAt: '' };
+        options?.onEnd?.(result);
+        return { executionId: result.executionId, promise: Promise.resolve(result), interrupt() {}, isRunning: () => false };
+      });
+      try {
+        await plugin.execute('test', undefined, { onStdout: (data) => { display += data; }, onJsonlMessage: (message) => { messages.push(message); } }).promise;
+        expect(messages.map((message) => message.type)).toEqual(['assistant', 'system', 'assistant']);
+        expect(display).toContain('First record');
+        expect(display).toContain('Last record');
+      } finally {
+        execution.mockRestore();
+        await plugin.dispose();
+      }
     });
   });
 }

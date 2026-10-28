@@ -472,11 +472,11 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       // Legacy string callback or wrapper that calls both callbacks and JSONL message callback
       onStdout: isStreamingJson && (options?.onStdout || options?.onStdoutSegments || options?.onJsonlMessage)
         ? (data: string) => {
-            pendingOutput = appendWithCharLimit(pendingOutput, data, 2_000_000, '');
-            const boundary = pendingOutput.lastIndexOf('\n');
+            data = pendingOutput + data;
+            const boundary = data.lastIndexOf('\n');
+            pendingOutput = appendWithCharLimit('', data.slice(boundary + 1), 2_000_000, '');
             if (boundary < 0) return;
-            data = pendingOutput.slice(0, boundary + 1);
-            pendingOutput = pendingOutput.slice(boundary + 1);
+            data = data.slice(0, boundary + 1);
             // Parse each line for JSONL messages and display events
             for (const line of data.split('\n')) {
               const trimmed = line.trim();

@@ -116,6 +116,16 @@ describe('installViaAddSkill', () => {
     });
   }
 
+  test('keeps local wrapper installs and other agent environments unchanged', async () => {
+    for (const agentId of ['minimax', 'zai']) {
+      await installViaAddSkill({ agentId, global: false });
+      const opts = mockSpawnArgs.at(-1)?.opts as { env?: NodeJS.ProcessEnv };
+      expect(opts.env).toBeUndefined();
+    }
+    await installViaAddSkill({ agentId: 'claude', global: true });
+    expect((mockSpawnArgs.at(-1)?.opts as { env?: NodeJS.ProcessEnv }).env).toBeUndefined();
+  });
+
   test('returns success for ELOOP-only failures', async () => {
     mockSpawnStdout = 'Installation complete\n';
     mockSpawnStderr = 'ELOOP: too many symbolic links encountered, mkdir\n';

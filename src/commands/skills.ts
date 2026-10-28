@@ -12,6 +12,7 @@ import {
   AGENT_ID_MAP,
   resolveAddSkillAgentId,
   isEloopOnlyFailure,
+  getAddSkillEnv,
 } from '../setup/skill-installer.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
@@ -419,6 +420,7 @@ async function handleInstallSkills(args: string[]): Promise<void> {
     const child = spawn('bunx', addSkillArgs, {
       stdio: 'pipe',
       cwd: process.cwd(),
+      env: getAddSkillEnv(options.agentId, options.global),
     });
 
     let captured = '';
