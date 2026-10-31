@@ -1,0 +1,66 @@
+---
+title: Amp Agent
+description: Run Amp CLI tasks with stdin prompts and structured streaming output.
+---
+
+## Amp Agent
+
+The `ampcode` plugin runs [Amp](https://ampcode.com) in execute mode. Prompts go through stdin rather than command-line arguments, and Claude Code-compatible JSONL output provides text, tool display, and subagent tracing.
+
+<Callout variant="warning">
+Amp runs tools without approval by default. Setting `dangerouslyAllowAll = false` only omits a legacy flag; it does **not** restrict current Amp's tool access. For untrusted repositories or inputs, use an isolated environment or an Amp policy plugin. See [Amp's tools and permissions documentation](https://ampcode.com/docs/tools).
+</Callout>
+
+## Prerequisites
+
+Install and authenticate Amp using the [official instructions](https://ampcode.com/docs). The npm package is `@ampcode/cli` (`@sourcegraph/amp` is the legacy package name).
+
+```bash
+npm install -g @ampcode/cli
+amp --version
+amp login
+```
+
+Check the installed version's interface with `amp --help` before choosing a mode. Authentication is managed by Amp; Ralph TUI does not create accounts or install permission policies.
+
+## Usage
+
+```bash
+ralph-tui run --prd ./prd.json --agent ampcode
+```
+
+```toml
+# .ralph-tui/config.toml
+agent = "ampcode"
+
+[agentOptions]
+mode = "medium"
+streamJson = true
+dangerouslyAllowAll = false
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `mode` | string | Amp's default | Passed to `--mode`; supports built-in and custom modes from your installed CLI |
+| `streamJson` | boolean | `true` | Parse structured output; tracing also enables JSONL regardless of this setting |
+| `dangerouslyAllowAll` | boolean | `false` | Opt in to the legacy `--dangerously-allow-all` flag; false is not a current-Amp permission boundary |
+| `timeout` | number | `0` | Execution timeout in milliseconds; zero means no timeout |
+| `command` | string | `"amp"` | Override the executable path |
+
+Current built-in modes include `low`, `medium`, `high`, `ultra`, and `claude-code`; custom modes and older CLI mode names are passed through unchanged. Leave `mode` unset to follow Amp's default. Use `agentOptions.mode`, not Ralph TUI's `--model`, because Amp selects models through modes.
+
+If using `AMP_API_KEY` rather than saved login credentials, explicitly allow it through Ralph TUI's environment filter in the agent configuration:
+
+```toml
+[[agents]]
+name = "amp"
+plugin = "ampcode"
+default = true
+envPassthrough = ["AMP_API_KEY"]
+```
+
+## Output and Completion
+
+Structured mode displays assistant text and tool calls, buffers partial JSONL lines, and forwards parsed events for tracing. Only root assistant text and successful result text count toward `<promise>COMPLETE</promise>` detection; tool inputs, tool results, thinking, child-agent output, metadata, and malformed protocol records do not complete tasks. An error result fails the execution even if Amp exits with code zero.
+
+Explicit `streamJson = false` preserves unstructured text output when tracing is off. That mode cannot distinguish assistant text from tool output; use the default structured mode for reliable completion detection.
