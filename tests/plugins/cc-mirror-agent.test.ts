@@ -25,7 +25,14 @@ if (process.argv.includes('--fail-provider')) {
 }
 const mode = process.env.FAKE_MODE;
 const text = (value) => JSON.stringify({type:'assistant',message:{content:[{type:'text',text:value}]}});
-if (mode === 'exact-limit') {
+if (mode?.startsWith('completion')) {
+  process.stdout.write(await Bun.file(process.env.FAKE_OUTPUT_FILE).text());
+  if (mode === 'completion-hang') {
+    setInterval(() => {}, 100);
+  } else {
+    process.exit(Number(process.env.FAKE_EXIT_CODE || 0));
+  }
+} else if (mode === 'exact-limit') {
   const line = text('At limit');
   process.stdout.write(' '.repeat(2_000_000 - line.length) + line);
 } else if (mode?.startsWith('overflow')) {
@@ -215,6 +222,94 @@ for (const Plugin of [MiniMaxAgentPlugin, ZaiAgentPlugin]) {
       expect(result.stdout).not.toContain('--output-format');
       expect(result.stdout).not.toContain('--dangerously-skip-permissions');
       expect(result.stdout).toContain('custom');
+    });
+
+    const marker = '<promise>COMPLETE</promise>';
+    const assistant = (content: unknown[]) => JSON.stringify({ type: 'assistant', message: { content } });
+    const narrative = (text: string) => assistant([{ type: 'text', text }]);
+    const boundaries = [
+      assistant([{ type: 'tool_use', name: 'Bash', input: { command: marker } }]),
+      assistant([{ type: 'thinking', thinking: marker }]),
+      assistant([{ type: 'redacted_thinking', data: marker }]),
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: marker }] } }),
+      JSON.stringify({ type: 'system', prompt: marker }),
+      JSON.stringify({ type: 'unknown', payload: marker }),
+      JSON.stringify({ payload: marker }),
+      `{invalid ${marker}`,
+      marker,
+    ];
+
+    for (const [index, boundary] of boundaries.entries()) {
+      test(`completion boundary ${index} excludes hidden/raw markers and splits narrative`, async () => {
+        await plugin.initialize({});
+        expect(plugin.extractAgentText(boundary)).not.toMatch(/<promise>COMPLETE<\/promise>/);
+        const stdout = [narrative('<promise>COM'), boundary, narrative('PLETE</promise>')].join('\n');
+        expect(plugin.extractAgentText(stdout)).not.toMatch(/<promise>COMPLETE<\/promise>/);
+      });
+    }
+
+    const completionCases = [
+      ...boundaries.map((stdout, index) => ({ name: `boundary-${index}`, stdout, complete: false })),
+      { name: 'assistant', stdout: narrative(marker), complete: true },
+      { name: 'adjacent', stdout: [narrative('<promise>COM'), narrative('PLETE</promise>')].join('\n'), complete: true },
+      { name: 'success-result', stdout: JSON.stringify({ type: 'result', subtype: 'success', result: marker }), complete: true },
+      { name: 'error-result', stdout: JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: marker }), complete: false },
+      { name: 'error-event', stdout: JSON.stringify({ type: 'error', error: marker }), complete: false },
+      ...['tool_use', 'thinking'].map((type) => ({
+        name: `oversized-${type}`,
+        stdout: assistant([{ type, name: 'Bash', input: { command: 'x'.repeat(2_100_000) + marker }, thinking: 'x'.repeat(2_100_000) + marker }]),
+        complete: false,
+      })),
+    ];
+
+    for (const { name, stdout, complete } of completionCases) {
+      test(`subprocess ${name} retains only completion-bearing assistant text`, async () => {
+        const outputFile = join(directory, 'completion.jsonl');
+        await writeFile(outputFile, stdout);
+        await plugin.initialize({ command });
+        const result = await plugin.execute('test', [], {
+          env: { FAKE_MODE: 'completion', FAKE_OUTPUT_FILE: outputFile },
+        }).promise;
+        const text = plugin.extractAgentText(result.stdout);
+        expect(text).toBeDefined();
+        expect(/<promise>COMPLETE<\/promise>/.test(text!)).toBe(complete);
+        if (complete) expect(result.status).toBe('completed');
+        if (name.startsWith('error-')) expect(result.status).toBe('failed');
+      });
+    }
+
+    test('a genuine narrative marker cannot complete an unsuccessful subprocess', async () => {
+      const outputFile = join(directory, 'completion.jsonl');
+      await writeFile(outputFile, narrative(marker));
+      await plugin.initialize({ command });
+      const result = await plugin.execute('test', [], {
+        env: { FAKE_MODE: 'completion', FAKE_OUTPUT_FILE: outputFile, FAKE_EXIT_CODE: '7' },
+      }).promise;
+      expect(plugin.extractAgentText(result.stdout)).toBe(marker);
+      expect(result.status).toBe('failed');
+      expect(result.exitCode).toBe(7);
+    });
+
+    test('text fallback is explicit and disabled by tracing or recognized JSONL', async () => {
+      await plugin.initialize({ printMode: 'text' });
+      expect(plugin.extractAgentText(marker)).toBeUndefined();
+      expect(plugin.extractAgentText(marker, { subagentTracing: true })).toBe('');
+      expect(plugin.extractAgentText(boundaries[0]!)).toBe('');
+    });
+
+    test('a narrative marker does not erase interruption status', async () => {
+      const outputFile = join(directory, 'completion.jsonl');
+      await writeFile(outputFile, narrative(marker) + '\n');
+      await plugin.initialize({ command });
+      let handle: ReturnType<typeof plugin.execute>;
+      handle = plugin.execute('test', [], {
+        env: { FAKE_MODE: 'completion-hang', FAKE_OUTPUT_FILE: outputFile },
+        onJsonlMessage: () => handle.interrupt(),
+      });
+      const result = await handle.promise;
+      expect(plugin.extractAgentText(result.stdout)).toBe(marker);
+      expect(result.status).toBe('interrupted');
+      expect(result.interrupted).toBe(true);
     });
 
     for (const mode of ['overflow-delimited', 'overflow-eof']) {

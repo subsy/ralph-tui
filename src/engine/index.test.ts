@@ -217,7 +217,8 @@ describe('ExecutionEngine', () => {
       { kind: 'tool_result', printMode: 'json', tracing: false, completed: false },
       { kind: 'thinking', printMode: 'text', tracing: true, completed: false },
       { kind: 'plain', printMode: 'text', tracing: false, completed: true },
-      { kind: 'adjacent', printMode: 'stream', tracing: false, completed: true },
+      { kind: 'adjacent', printMode: 'stream', tracing: false, completed: false },
+      { kind: 'adjacent-valid', printMode: 'stream', tracing: false, completed: true },
       { kind: 'result-error', printMode: 'stream', tracing: true, completed: false },
       { kind: 'result-error-subtype', printMode: 'stream', tracing: true, completed: false },
       { kind: 'result-error-metadata', printMode: 'stream', tracing: true, completed: false },
@@ -226,7 +227,7 @@ describe('ExecutionEngine', () => {
       const directory = await mkdtemp(join(tmpdir(), 'ralph-completion-capture-'));
       try {
         const marker = '<promise>COMPLETE</promise>';
-        const payload = 'x'.repeat(2_100_000) + marker;
+        const payload = 'x'.repeat(kind === 'adjacent-valid' ? 10 : 2_100_000) + marker;
         const block = kind === 'tool_use'
           ? { type: kind, id: 'tool-1', name: 'Read', input: { data: payload } }
           : kind === 'tool_result'
@@ -243,22 +244,28 @@ describe('ExecutionEngine', () => {
           ...(kind === 'result-error-metadata' ? { error: { message: marker } } : {}),
           ...(kind === 'result-success' ? { is_error: false, subtype: 'success' } : {}),
         }) : undefined;
-        const stdout = resultRecord ?? (kind === 'plain' ? payload : kind === 'adjacent'
+        const stdout = resultRecord ?? (kind === 'plain' ? payload : kind.startsWith('adjacent')
           ? [record, ...['<promise>COM', 'PLETE</promise>'].map((text) => JSON.stringify({
             type: 'assistant', message: { content: [{ type: 'text', text }] },
           }))].join('\n') : record);
         const fixture = join(directory, 'stdout.jsonl');
         await writeFile(fixture, stdout + '\n');
+        const overflow = stdout.length > 2_000_000 && (printMode !== 'text' || tracing);
         const plugin = new class extends ClaudeAgentPlugin {
           override readonly meta = { ...new ClaudeAgentPlugin().meta, supportsSubagentTracing: tracing };
           protected override buildArgs(): string[] {
-            return ['-e', `await Bun.stdin.text(); process.stdout.write(await Bun.file(${JSON.stringify(fixture)}).text())`];
+            return ['-e', `await Bun.stdin.text();
+              const output = await Bun.file(${JSON.stringify(fixture)}).text();
+              ${overflow ? `await new Promise(resolve => process.stdout.write(output.slice(0, 2_000_001), resolve));
+                await Bun.sleep(80);
+                process.stdout.write(output.slice(2_000_001));` : 'process.stdout.write(output);'}`];
           }
         }();
         await plugin.initialize({ command: process.execPath, printMode, skipPermissions: false });
         let captured = '';
         let exitCode: number | undefined;
         let status: string | undefined;
+        let error: string | undefined;
         const execute = plugin.execute.bind(plugin);
         plugin.execute = (...args) => {
           const handle = execute(...args);
@@ -266,6 +273,7 @@ describe('ExecutionEngine', () => {
             captured = result.stdout;
             exitCode = result.exitCode;
             status = result.status;
+            error = result.error;
             return result;
           }) };
         };
@@ -283,7 +291,10 @@ describe('ExecutionEngine', () => {
         const result = await internals.runIteration(task);
 
         expect(exitCode).toBe(0);
-        expect(status).toBe('completed');
+        expect(status).toBe(overflow || kind.startsWith('result-error') ? 'failed' : 'completed');
+        if (overflow) expect(error).toContain('buffer limit');
+        else if (kind.startsWith('result-error')) expect(error).toBe(marker);
+        else expect(error).toBeUndefined();
         expect(captured.length).toBe(Math.min(2_000_000, stdout.length + 1));
         expect(captured.startsWith('[...agent output truncated in memory...]\n')).toBe(stdout.length + 1 > 2_000_000);
         expect(captured).toContain(marker);
