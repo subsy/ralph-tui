@@ -22,7 +22,15 @@ Install the Factory Droid CLI and authenticate:
 droid --version
 ```
 
-Set `FACTORY_API_KEY` in your environment (or run `droid auth`).
+Use Droid's stored login (`droid auth`), or set `FACTORY_API_KEY` in your environment and explicitly allow Ralph TUI to pass it to Droid:
+
+```toml
+# .ralph-tui/config.toml
+agent = "droid"
+envPassthrough = ["FACTORY_API_KEY"]
+```
+
+Ralph TUI filters inherited `*_API_KEY` variables by default. Setting the key in your shell alone is not sufficient; `envPassthrough` opts this specific key into the agent environment. For a full `[[agents]]` configuration, put `envPassthrough` alongside `name` and `plugin`, not inside `[agents.options]`. See [environment filtering](/docs/configuration/options#envpassthrough-allowing-specific-variables) for exclusion and passthrough precedence.
 
 ## Basic Usage
 
@@ -49,7 +57,7 @@ agent = "droid"
 [agentOptions]
 model = "claude-opus-4-5-20251101"
 reasoningEffort = "medium"
-enableTracing = true
+outputFormat = "stream-json"
 ```
 
 ### Full Config
@@ -65,7 +73,7 @@ default = true
 [agents.options]
 model = "claude-opus-4-5-20251101"
 reasoningEffort = "high"
-enableTracing = true
+outputFormat = "stream-json"
 ```
 
 ### Options Reference
@@ -74,7 +82,54 @@ enableTracing = true
 |--------|------|---------|-------------|
 | `model` | string | - | Model name passed to the droid CLI via `--model` |
 | `reasoningEffort` | `low` \| `medium` \| `high` | - | Reasoning effort level passed via `--reasoning-effort` |
-| `enableTracing` | boolean | `true` | Enables JSONL stream output (`--output-format stream-json`) |
+| `outputFormat` | `stream-json` \| `json` \| `text` | `stream-json` | Output format passed via `--output-format`; structured formats keep completion scanning scoped to eligible assistant narrative |
+| `enableTracing` | boolean | `true` | Legacy tracing toggle; does not select the output format or enable unsupported subagent tracing |
+
+### Output Format and Migration
+
+Ralph TUI explicitly requests `stream-json` by default, even when tracing is disabled.
+Previously, Droid could run in its CLI's default plaintext mode when subagent tracing
+was unavailable. **`enableTracing = false` is not an implicit plaintext opt-out.**
+
+For plaintext compatibility, explicitly select `text`:
+
+```toml
+agent = "droid"
+
+[agentOptions]
+outputFormat = "text"
+```
+
+In full config, set `outputFormat = "text"` under `[agents.options]` instead.
+Existing top-level agent flags also work:
+
+```toml
+[[agents]]
+name = "droid"
+plugin = "droid"
+default = true
+defaultFlags = ["--output-format", "text"]
+```
+
+Do not put `defaultFlags` under `[agentOptions]` or `[agents.options]`; the registry
+reads them from the agent entry. Supported flag forms are `--output-format text`,
+`--output-format=text`, `-o text`, and `-o=text` (each token is a separate array entry
+for the space-separated forms). Plugin callers can use the same forms in
+`AgentExecuteOptions.flags`.
+
+Precedence is `outputFormat` (default `stream-json`), then `defaultFlags`, then
+per-execution flags. The last format declaration before `--` wins. Arguments after
+`--`, the prompt, and values of other CLI options are not format declarations.
+Missing or unsupported formats never enable raw fallback. `stream-jsonrpc` is an
+interactive protocol, not a supported completion-narrative format for this plugin.
+
+In structured modes, only supported assistant narrative and successful result
+summaries can complete a task; malformed, truncated, unknown, tool, hidden, metadata,
+and error output cannot. `json` is parsed as one complete document; `stream-json`
+is parsed record by record. In explicit `text` mode Ralph scans raw stdout instead,
+so protocol-shaped JSON examples followed by a plaintext completion marker work,
+but tool/diagnostic provenance cannot be separated. Prefer the structured default
+unless plaintext compatibility is required.
 
 ## Models and Reasoning Effort
 
@@ -90,16 +145,16 @@ reasoningEffort = "high"
 
 ## Output Tracing
 
-When `enableTracing = true`, Ralph TUI requests JSONL stream output and parses:
+The default `outputFormat = "stream-json"` requests JSONL stream output, independently
+of `enableTracing`. Ralph TUI parses:
 
 - Tool calls and arguments
 - Assistant messages and result events
 - Error/status events
 - Cost metrics (tokens, cache stats, USD)
 
-Toggle tracing in the TUI:
-- Press `t` to cycle tracing detail levels (minimal → moderate → full)
-- Press `T` (Shift+T) to toggle the subagent tree panel visibility
+Subagent tracing and the subagent tree are not supported for Droid; selecting a
+structured format does not change that capability.
 
 ## Autonomous Operation
 
@@ -115,17 +170,17 @@ Ralph TUI builds a command similar to:
 
 ```bash
 droid exec \
+  --output-format stream-json \
   --model claude-opus-4-5-20251101 \
   --reasoning-effort high \
   --skip-permissions-unsafe \
-  --output-format stream-json \
   --cwd /path/to/project \
   "<prompt>"
 ```
 
 Key behaviors:
 1. **Non-interactive mode**: Uses `droid exec` subcommand with prompt as argument
-2. **Tracing**: `--output-format stream-json` when tracing is enabled
+2. **Output contract**: Always requests a format, defaulting to `stream-json`; explicit text opt-out is independent of tracing
 3. **Working directory**: `--cwd` set to the current task workspace
 
 ## Troubleshooting
@@ -141,13 +196,13 @@ which droid
 
 ### "Authentication failed"
 
-Set `FACTORY_API_KEY` or run `droid auth`.
+Run `droid auth`, or verify both that `FACTORY_API_KEY` is set and that the selected agent has `envPassthrough = ["FACTORY_API_KEY"]` configured. Other API keys remain filtered unless explicitly allowed.
 
 ### "Tracing not showing"
 
-1. Ensure `enableTracing = true`
-2. Ensure `subagentTracingDetail` is not `"off"`
-3. Press `T` (Shift+T) to toggle the subagent tree panel
+1. Use `outputFormat = "stream-json"` for structured streaming output.
+2. Check that `defaultFlags` or per-execution flags do not override it with `text`.
+3. Subagent tracing is not supported for Droid; the subagent tree will not appear.
 
 ## Next Steps
 

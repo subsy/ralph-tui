@@ -53,7 +53,8 @@ iterationDelay = 1000
 # Output directory for iteration logs
 outputDir = ".ralph-tui/iterations"
 
-# Progress file for cross-iteration context
+# Main progress file for cross-iteration context (relative to the project directory,
+# or absolute). Parallel workers use isolated .ralph-tui/progress.md files.
 progressFile = ".ralph-tui/progress.md"
 
 # Auto-commit: when true, ralph-tui stages and commits all changes after each

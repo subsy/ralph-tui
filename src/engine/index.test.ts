@@ -8,11 +8,20 @@
  */
 
 import { describe, test, expect } from 'bun:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { AgentRegistry } from '../plugins/agents/registry.js';
+import { ClaudeAgentPlugin } from '../plugins/agents/builtin/claude.js';
+import { AntigravityAgentPlugin } from '../plugins/agents/builtin/antigravity.js';
+import { DroidAgentPlugin } from '../plugins/agents/droid/index.js';
 import type { AgentPlugin } from '../plugins/agents/types.js';
 import type { TrackerPlugin, TrackerTask, TaskFilter } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
 import { ExecutionEngine } from './index.js';
+import { Worker } from '../parallel/worker.js';
+import { resolveWorkerProgressFile } from '../logs/progress.js';
+import { resolve } from 'node:path';
 
 /**
  * Creates a minimal mock tracker for testing.
@@ -82,7 +91,10 @@ function createMockConfig(): RalphConfig {
   };
 }
 
-function createMockAgent(): AgentPlugin {
+function createMockAgent(
+  stdout = '',
+  extractAgentText?: AgentPlugin['extractAgentText']
+): AgentPlugin {
   return {
     meta: {
       id: 'engine-test-agent',
@@ -109,7 +121,7 @@ function createMockAgent(): AgentPlugin {
       promise: Promise.resolve({
         executionId: 'engine-test-execution',
         status: 'completed',
-        stdout: '',
+        stdout,
         stderr: '',
         durationMs: 0,
         interrupted: false,
@@ -119,6 +131,7 @@ function createMockAgent(): AgentPlugin {
       interrupt: () => undefined,
       isRunning: () => false,
     }),
+    extractAgentText,
     interrupt: () => false,
     interruptAll: () => undefined,
     getCurrentExecution: () => undefined,
@@ -131,7 +144,305 @@ function createMockAgent(): AgentPlugin {
   };
 }
 
+function createExecutionTracker(completeCalls: string[]): TrackerPlugin {
+  const task = createMockTask();
+  return {
+    ...createMockTracker([task]),
+    updateTaskStatus: async () => task,
+    completeTask: async (id: string) => {
+      completeCalls.push(id);
+      return {
+        success: true,
+        message: 'Completed',
+        task,
+      };
+    },
+  } as TrackerPlugin;
+}
+
 describe('ExecutionEngine', () => {
+  describe('completion detection', () => {
+    test.each([
+      { kind: 'empty', options: {}, completed: false },
+      { kind: 'malformed', options: {}, completed: false },
+      { kind: 'unknown', options: {}, completed: false },
+      { kind: 'narrative', options: {}, completed: true },
+      { kind: 'example', options: {}, completed: false },
+      { kind: 'example', options: { outputFormat: 'text' }, completed: true },
+      { kind: 'example', options: { defaultFlags: ['-o=text'] }, completed: true },
+      { kind: 'example', options: { outputFormat: 'text', defaultFlags: ['--output-format', 'stream-json'] }, completed: false },
+      { kind: 'example', options: { defaultFlags: ['-o', 'stream-json', '--output-format=text'] }, completed: true },
+      { kind: 'narrative', options: { defaultFlags: ['-o', 'text', '--output-format=stream-json'] }, completed: true },
+    ])(
+      'honors the effective Droid format in the engine: %j', async ({ kind, options, completed }) => {
+        const marker = '<promise>COMPLETE</promise>';
+        const stdout = kind === 'empty' ? '' : kind === 'malformed' ? `not-json ${marker}`
+          : kind === 'example' ? `{"type":"example"}\n${marker}` : JSON.stringify(kind === 'narrative'
+            ? { type: 'message', role: 'assistant', text: marker }
+            : { futureAgentField: marker });
+        const plugin = new DroidAgentPlugin();
+        await plugin.initialize({ ...options, enableTracing: false });
+        expect(plugin.meta.supportsSubagentTracing).toBe(false);
+        const completeCalls: string[] = [];
+        const task = createMockTask();
+        const engine = new ExecutionEngine(createMockConfig());
+        const internals = engine as unknown as {
+          agent: AgentPlugin;
+          tracker: TrackerPlugin;
+          runIteration: (task: TrackerTask) => Promise<{ taskCompleted: boolean }>;
+        };
+        let executedFlags: string[] | undefined;
+        let extractedFlags: string[] | undefined;
+        const agent = createMockAgent(stdout, (output, options) => {
+          extractedFlags = options?.flags;
+          return plugin.extractAgentText(output, options);
+        });
+        const execute = agent.execute;
+        agent.execute = (prompt, files, options) => {
+          executedFlags = options?.flags;
+          return execute(prompt, files, options);
+        };
+        internals.agent = agent;
+        internals.tracker = createExecutionTracker(completeCalls);
+        const result = await internals.runIteration(task);
+        expect(extractedFlags).toEqual(executedFlags);
+        expect(result.taskCompleted).toBe(completed);
+        expect(completeCalls).toEqual(completed ? [task.id] : []);
+      }
+    );
+
+    test.each([
+      { kind: 'tool_use', printMode: 'stream', tracing: false, completed: false },
+      { kind: 'thinking', printMode: 'stream', tracing: false, completed: false },
+      { kind: 'tool_result', printMode: 'json', tracing: false, completed: false },
+      { kind: 'thinking', printMode: 'text', tracing: true, completed: false },
+      { kind: 'plain', printMode: 'text', tracing: false, completed: true },
+      { kind: 'adjacent', printMode: 'stream', tracing: false, completed: true },
+      { kind: 'result-error', printMode: 'stream', tracing: true, completed: false },
+      { kind: 'result-error-subtype', printMode: 'stream', tracing: true, completed: false },
+      { kind: 'result-error-metadata', printMode: 'stream', tracing: true, completed: false },
+      { kind: 'result-success', printMode: 'stream', tracing: true, completed: true },
+    ])('handles actual Claude capture: $kind/$printMode/tracing=$tracing', async ({ kind, printMode, tracing, completed }) => {
+      const directory = await mkdtemp(join(tmpdir(), 'ralph-completion-capture-'));
+      try {
+        const marker = '<promise>COMPLETE</promise>';
+        const payload = 'x'.repeat(2_100_000) + marker;
+        const block = kind === 'tool_use'
+          ? { type: kind, id: 'tool-1', name: 'Read', input: { data: payload } }
+          : kind === 'tool_result'
+            ? { type: kind, tool_use_id: 'tool-1', content: payload }
+            : { type: 'thinking', thinking: payload };
+        const record = JSON.stringify({
+          type: kind === 'tool_result' ? 'user' : 'assistant',
+          message: { content: [block] },
+        });
+        const resultRecord = kind.startsWith('result-') ? JSON.stringify({
+          type: 'result', result: marker,
+          ...(kind === 'result-error' ? { is_error: true, subtype: 'error_during_execution' } : {}),
+          ...(kind === 'result-error-subtype' ? { subtype: 'error_max_turns' } : {}),
+          ...(kind === 'result-error-metadata' ? { error: { message: marker } } : {}),
+          ...(kind === 'result-success' ? { is_error: false, subtype: 'success' } : {}),
+        }) : undefined;
+        const stdout = resultRecord ?? (kind === 'plain' ? payload : kind === 'adjacent'
+          ? [record, ...['<promise>COM', 'PLETE</promise>'].map((text) => JSON.stringify({
+            type: 'assistant', message: { content: [{ type: 'text', text }] },
+          }))].join('\n') : record);
+        const fixture = join(directory, 'stdout.jsonl');
+        await writeFile(fixture, stdout + '\n');
+        const plugin = new class extends ClaudeAgentPlugin {
+          override readonly meta = { ...new ClaudeAgentPlugin().meta, supportsSubagentTracing: tracing };
+          protected override buildArgs(): string[] {
+            return ['-e', `await Bun.stdin.text(); process.stdout.write(await Bun.file(${JSON.stringify(fixture)}).text())`];
+          }
+        }();
+        await plugin.initialize({ command: process.execPath, printMode, skipPermissions: false });
+        let captured = '';
+        let exitCode: number | undefined;
+        let status: string | undefined;
+        const execute = plugin.execute.bind(plugin);
+        plugin.execute = (...args) => {
+          const handle = execute(...args);
+          return { ...handle, promise: handle.promise.then((result) => {
+            captured = result.stdout;
+            exitCode = result.exitCode;
+            status = result.status;
+            return result;
+          }) };
+        };
+        const completeCalls: string[] = [];
+        const task = createMockTask();
+        const engine = new ExecutionEngine({ ...createMockConfig(), model: undefined, cwd: directory });
+        const internals = engine as unknown as {
+          agent: AgentPlugin;
+          tracker: TrackerPlugin;
+          runIteration: (task: TrackerTask) => Promise<{ taskCompleted: boolean }>;
+        };
+        internals.agent = plugin;
+        internals.tracker = createExecutionTracker(completeCalls);
+
+        const result = await internals.runIteration(task);
+
+        expect(exitCode).toBe(0);
+        expect(status).toBe('completed');
+        expect(captured.length).toBe(Math.min(2_000_000, stdout.length + 1));
+        expect(captured.startsWith('[...agent output truncated in memory...]\n')).toBe(stdout.length + 1 > 2_000_000);
+        expect(captured).toContain(marker);
+        expect(result.taskCompleted).toBe(completed);
+        expect(completeCalls).toEqual(completed ? [task.id] : []);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+
+    test.each([
+      {
+        name: 'thinking-only Claude output does not fall back to raw JSON',
+        plugin: new ClaudeAgentPlugin(),
+        stdout: JSON.stringify({
+          type: 'assistant',
+          message: { content: [{ type: 'thinking', thinking: '<promise>COMPLETE</promise>' }] },
+        }),
+        completed: false,
+      },
+      {
+        name: 'plain text retains completion detection',
+        plugin: new ClaudeAgentPlugin(),
+        stdout: '<promise>COMPLETE</promise>',
+        completed: true,
+      },
+      {
+        name: 'adjacent Antigravity deltas complete the task',
+        plugin: new AntigravityAgentPlugin(),
+        stdout: ['<promise>COM', 'PLETE</promise>'].map((text_delta) => JSON.stringify({
+          event: 'step_update', step_update: { step_type: 'agent_response', text_delta },
+        })).join('\n'),
+        completed: true,
+      },
+      {
+        name: 'Antigravity tool boundaries cannot form a completion marker',
+        plugin: new AntigravityAgentPlugin(),
+        stdout: [
+          { event: 'step_update', step_update: { step_type: 'agent_response', text_delta: '<promise>' } },
+          { event: 'step_update', step_update: { step_type: 'tool', state: 'DONE' } },
+          { event: 'step_update', step_update: { step_type: 'agent_response', text_delta: 'COMPLETE</promise>' } },
+        ].map((record) => JSON.stringify(record)).join('\n'),
+        completed: false,
+      },
+    ])('$name', async ({ plugin, stdout, completed }) => {
+      const completeCalls: string[] = [];
+      const task = createMockTask();
+      const engine = new ExecutionEngine(createMockConfig());
+      const internals = engine as unknown as {
+        agent: AgentPlugin;
+        tracker: TrackerPlugin;
+        runIteration: (task: TrackerTask) => Promise<{ taskCompleted: boolean }>;
+      };
+      internals.agent = createMockAgent(stdout, plugin.extractAgentText.bind(plugin));
+      internals.tracker = createExecutionTracker(completeCalls);
+
+      const result = await internals.runIteration(task);
+
+      expect(result.taskCompleted).toBe(completed);
+      expect(completeCalls).toEqual(completed ? [task.id] : []);
+    });
+
+    test('ignores completion markers in structured tool results', async () => {
+      const stdout = [
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Which database should I use?' }],
+          },
+        }),
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                content: '<promise>COMPLETE</promise>',
+              },
+            ],
+          },
+        }),
+      ].join('\n');
+      const claude = new ClaudeAgentPlugin();
+      const completeCalls: string[] = [];
+      const task = createMockTask();
+      const engine = new ExecutionEngine(createMockConfig());
+      const internals = engine as unknown as {
+        agent: AgentPlugin;
+        tracker: TrackerPlugin;
+        runIteration: (task: TrackerTask) => Promise<{ taskCompleted: boolean }>;
+      };
+      internals.agent = createMockAgent(stdout, claude.extractAgentText.bind(claude));
+      internals.tracker = createExecutionTracker(completeCalls);
+
+      const result = await internals.runIteration(task);
+
+      expect(result.taskCompleted).toBe(false);
+      expect(completeCalls).toHaveLength(0);
+    });
+
+    test('completes when the marker is in assistant narrative text', async () => {
+      const stdout = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: '<promise>COMPLETE</promise>' }],
+        },
+      });
+      const claude = new ClaudeAgentPlugin();
+      const completeCalls: string[] = [];
+      const task = createMockTask();
+      const engine = new ExecutionEngine(createMockConfig());
+      const internals = engine as unknown as {
+        agent: AgentPlugin;
+        tracker: TrackerPlugin;
+        runIteration: (task: TrackerTask) => Promise<{ taskCompleted: boolean }>;
+      };
+      internals.agent = createMockAgent(stdout, claude.extractAgentText.bind(claude));
+      internals.tracker = createExecutionTracker(completeCalls);
+
+      const result = await internals.runIteration(task);
+
+      expect(result.taskCompleted).toBe(true);
+      expect(completeCalls).toEqual([task.id]);
+    });
+  });
+
+  test.each(['notes/progress.md', '/tmp/shared-progress.md', '../progress.md', '.ralph-tui/progress.md', '', '   '])
+    ('isolates worker config and prompt instructions from main path %j', async (progressFile) => {
+      const registry = AgentRegistry.getInstance();
+      if (!registry.hasPlugin('engine-test-agent')) registry.registerBuiltin(createMockAgent);
+      const config = createMockConfig();
+      config.progressFile = progressFile;
+      config.promptTemplate = resolve(import.meta.dir, '../plugins/trackers/builtin/json/template.hbs');
+      config.agent = {
+        name: 'engine-test-agent', plugin: 'engine-test-agent', options: { customOption: 'preserved' },
+      };
+      const task = createMockTask();
+      const tracker = createMockTracker([task]);
+      const worktreePath = '/tmp/ralph-isolated-worker-nonexistent';
+      const worker = new Worker({
+        id: 'path-worker', task, cwd: config.cwd, worktreePath, branchName: 'worker-branch',
+      }, 2);
+      await worker.initialize(config, tracker);
+      const engine = (worker as unknown as { engine: ExecutionEngine }).engine;
+      const workerConfig = (engine as unknown as { config: RalphConfig }).config;
+      expect(workerConfig.cwd).toBe(worktreePath);
+      expect(workerConfig.progressFile).toBe(resolveWorkerProgressFile(worktreePath));
+      expect(workerConfig.autoCommit).toBe(true);
+      expect(workerConfig.agent.options).toEqual({ customOption: 'preserved' });
+      const preview = await engine.generatePromptPreview(task.id);
+      expect(preview.success).toBe(true);
+      if (preview.success) {
+        expect(preview.source).toBe(config.promptTemplate);
+        expect(preview.prompt).toContain('APPEND to `.ralph-tui/progress.md`');
+        expect(preview.prompt).toContain('Study `.ralph-tui/progress.md`');
+      }
+      expect(config.progressFile).toBe(progressFile);
+    });
+
   describe('initialize', () => {
     test('uses an injected tracker in normal mode', async () => {
       const registry = AgentRegistry.getInstance();

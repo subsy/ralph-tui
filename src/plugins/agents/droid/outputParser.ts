@@ -279,6 +279,12 @@ function parseToolResult(value: unknown): DroidToolResult | null {
   return null;
 }
 
+function isToolResultPayload(payload: Record<string, unknown>): boolean {
+  const payloadType = (readString(payload.type) ?? readString(payload.event) ?? readString(payload.kind))
+    ?.toLowerCase().replace(/[-_]/g, '');
+  return payloadType === 'toolresult' || readString(payload.role)?.toLowerCase() === 'tool';
+}
+
 function extractToolResults(payload: Record<string, unknown>): DroidToolResult[] {
   const results: DroidToolResult[] = [];
   const toolResults = payload.tool_results ?? payload.toolResults;
@@ -300,8 +306,7 @@ function extractToolResults(payload: Record<string, unknown>): DroidToolResult[]
 
   // Handle droid's top-level tool_result format where the entire payload IS the tool result
   // e.g., {"type":"tool_result","id":"call_xxx","toolId":"LS","value":"..."}
-  const payloadType = readString(payload.type);
-  if (payloadType === 'tool_result' && results.length === 0) {
+  if (isToolResultPayload(payload) && results.length === 0) {
     const parsed = parseToolResult(payload);
     if (parsed) {
       results.push(parsed);
@@ -579,6 +584,57 @@ export function parseDroidMessageToEvents(message: DroidJsonlMessage): AgentDisp
   return events;
 }
 
+/** Extract completion narrative without the display parser's permissive flattening. */
+export function parseDroidCompletionEvents(message: DroidJsonlMessage, line: string): AgentDisplayEvent[] {
+  const { raw } = message;
+  const discriminator = ['type', 'event', 'kind'].find((key) => Object.prototype.hasOwnProperty.call(raw, key));
+  const value = discriminator ? raw[discriminator] : undefined;
+  const type = typeof value === 'string' ? value.toLowerCase() : undefined;
+  const role = typeof raw.role === 'string' ? raw.role.toLowerCase() : raw.role;
+  const boundary: AgentDisplayEvent = { type: 'system' };
+  try {
+    JSON.parse(stripAnsi(line).trim());
+  } catch {
+    return [boundary];
+  }
+  if (
+    !['message', 'completion', 'result'].includes(type ?? '') ||
+    (role !== undefined && role !== 'assistant') ||
+    raw.is_error === true || raw.isError === true || raw.error || raw.error_message || raw.errorMessage ||
+    raw.status === 'error' || raw.status === 'failed' ||
+    (typeof raw.subtype === 'string' && raw.subtype.startsWith('error_'))
+  ) {
+    return [boundary];
+  }
+
+  const fields = type === 'message'
+    ? ['message', 'content', 'delta', 'text']
+    : ['result', 'output', 'finalText', 'final_text'];
+  const field = fields.find((key) => Object.prototype.hasOwnProperty.call(raw, key));
+  const content = field ? raw[field] : undefined;
+  const events: AgentDisplayEvent[] = [];
+  if (typeof content === 'string') {
+    events.push({ type: 'text', content });
+  } else if (type === 'message' && field === 'content' && Array.isArray(content)) {
+    for (const value of content) {
+      const block = asRecord(value);
+      if (block?.type === 'text' && typeof block.text === 'string' &&
+          (block.role === undefined || block.role === 'assistant')) {
+        events.push({ type: 'text', content: block.text });
+      } else {
+        events.push(boundary);
+      }
+    }
+  }
+
+  const hasTools = !!(message.toolCalls?.length || message.toolResults?.length);
+  return [
+    ...(type !== 'message' || hasTools ? [boundary] : []),
+    ...(events.length ? events : [boundary]),
+    ...(hasTools ? [boundary] : []),
+  ];
+}
+
 /**
  * Format a DroidJsonlMessage for display using shared logic.
  * @deprecated Use parseDroidMessageToEvents + processAgentEvents instead
@@ -641,14 +697,15 @@ export function parseDroidJsonlLine(line: string): DroidJsonlParseResult {
       return { success: false, raw: line, error: 'Invalid JSON object' };
     }
 
+    const isToolResult = isToolResultPayload(payload);
     const message: DroidJsonlMessage = {
       source: 'droid',
       type:
         readString(payload.type) ??
         readString(payload.event) ??
         readString(payload.kind),
-      message: extractMessageText(payload),
-      result: extractResultText(payload),
+      message: isToolResult ? undefined : extractMessageText(payload),
+      result: isToolResult ? undefined : extractResultText(payload),
       toolCalls: undefined,
       toolResults: undefined,
       error: undefined,

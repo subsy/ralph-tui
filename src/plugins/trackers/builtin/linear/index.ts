@@ -9,6 +9,7 @@ import { BaseTrackerPlugin } from '../../base.js';
 import {
   createLinearClient,
   LinearApiError,
+  type LinearIssueSnapshot,
   type RalphLinearClient,
   type WorkflowStateSummary,
 } from './client.js';
@@ -26,7 +27,13 @@ import type {
   TrackerTaskStatus,
   SyncResult,
 } from '../../types.js';
-import type { Issue } from '@linear/sdk';
+
+/**
+ * How long fetched child issues are reused before refetching. The engine and TUI
+ * call getTasks several times per iteration; this collapses those bursts into a
+ * single API request while still picking up external edits within seconds.
+ */
+const CHILD_CACHE_TTL_MS = 5_000;
 
 /**
  * Map a Linear workflow state type to TrackerTaskStatus.
@@ -75,26 +82,19 @@ function clampPriority(ralphPriority: number): TaskPriority {
 }
 
 /**
- * Convert a Linear Issue into a TrackerTask.
+ * Convert a Linear issue snapshot into a TrackerTask.
  * Parses the issue body for Ralph metadata (priority, description, acceptance criteria).
+ * `siblingIdentifiers` maps sibling UUIDs to identifiers; blockers outside the
+ * sibling set are ignored.
  */
-async function linearIssueToTask(
-  issue: Issue,
-  blockingIssueIds?: string[],
-): Promise<TrackerTask> {
-  const state = await issue.state;
-  const stateType = state?.type ?? 'unstarted';
-  const status = mapLinearStateToStatus(stateType);
+function linearIssueToTask(
+  issue: LinearIssueSnapshot,
+  siblingIdentifiers: Map<string, string>,
+): TrackerTask {
+  const status = mapLinearStateToStatus(issue.stateType ?? 'unstarted');
 
   const parsed = parseStoryIssueBody(issue.description ?? '');
   const ralphPriority = parsed.ralphPriority;
-
-  // Extract labels
-  const labelsConnection = await issue.labels();
-  const labels = labelsConnection.nodes.map((l) => l.name);
-
-  // Extract assignee
-  const assignee = await issue.assignee;
 
   const metadata: Record<string, unknown> = {
     ralphPriority,
@@ -110,7 +110,9 @@ async function linearIssueToTask(
     metadata.acceptanceCriteria = parsed.acceptanceCriteria;
   }
 
-  const parent = await issue.parent;
+  const blockingIdentifiers = issue.blockedByIds
+    .map((uuid) => siblingIdentifiers.get(uuid))
+    .filter((id): id is string => id !== undefined);
 
   return {
     id: issue.identifier,
@@ -118,17 +120,24 @@ async function linearIssueToTask(
     status,
     priority: clampPriority(ralphPriority),
     description: parsed.description || issue.description || undefined,
-    labels: labels.length > 0 ? labels : undefined,
+    labels: issue.labels.length > 0 ? [...issue.labels] : undefined,
     type: 'task',
-    parentId: parent?.identifier,
-    dependsOn: blockingIssueIds && blockingIssueIds.length > 0
-      ? blockingIssueIds
-      : undefined,
-    assignee: assignee?.displayName ?? assignee?.name,
-    createdAt: issue.createdAt.toISOString(),
-    updatedAt: issue.updatedAt.toISOString(),
+    parentId: issue.parentIdentifier ?? undefined,
+    dependsOn: blockingIdentifiers.length > 0 ? blockingIdentifiers : undefined,
+    assignee: issue.assigneeName ?? undefined,
+    createdAt: new Date(issue.createdAt).toISOString(),
+    updatedAt: new Date(issue.updatedAt).toISOString(),
     metadata,
   };
+}
+
+/**
+ * Count children that are done (completed or canceled).
+ */
+function countCompletedChildren(children: LinearIssueSnapshot[]): number {
+  return children.filter(
+    (c) => c.stateType === 'completed' || c.stateType === 'canceled',
+  ).length;
 }
 
 /**
@@ -153,11 +162,17 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
   /** Cache of workflow states per team to avoid repeated API calls. */
   private workflowStatesCache: WorkflowStateSummary[] | null = null;
 
-  /** Map from Linear UUID to issue identifier (e.g., "ENG-123") for dependency resolution. */
-  private issueIdMap = new Map<string, string>();
+  /** Short-lived cache of child issue snapshots, keyed by parent ID. */
+  private childCache = new Map<
+    string,
+    { expiresAt: number; snapshots: Promise<LinearIssueSnapshot[]> }
+  >();
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
     await super.initialize(config);
+    this.invalidateChildCache();
+    this.workflowStatesCache = null;
+    this.teamId = '';
 
     if (typeof config.epicId === 'string' && config.epicId) {
       this.epicId = config.epicId;
@@ -176,10 +191,9 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     // Resolve the team from the epic issue so we can look up workflow states
     if (this.epicId) {
       try {
-        const epicIssue = await this.client.getIssue(this.epicId);
-        const team = await epicIssue.team;
-        if (team) {
-          this.teamId = team.id;
+        const epicIssue = await this.client.getIssueSnapshot(this.epicId);
+        if (epicIssue.teamId) {
+          this.teamId = epicIssue.teamId;
         }
       } catch (err) {
         this.ready = false;
@@ -196,7 +210,7 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     this.epicId = epicId;
     // Reset caches when epic changes since team may differ
     this.workflowStatesCache = null;
-    this.issueIdMap.clear();
+    this.invalidateChildCache();
   }
 
   getEpicId(): string {
@@ -204,19 +218,40 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
   }
 
   /**
-   * Ensure the issueIdMap is populated from the epic's children.
-   * Shared by getTasks and getTask so dependency resolution works
-   * regardless of call order.
+   * Get child issue snapshots for a parent, reusing a recent fetch when possible.
+   * Concurrent callers share the same in-flight request.
    */
-  private async ensureIssueIdMap(): Promise<void> {
-    if (this.issueIdMap.size > 0 || !this.epicId) {
-      return;
+  private getChildSnapshots(parentId: string): Promise<LinearIssueSnapshot[]> {
+    const now = Date.now();
+    const cached = this.childCache.get(parentId);
+    if (cached && cached.expiresAt > now) {
+      return cached.snapshots;
     }
 
-    const childIssues = await this.client.getChildIssues(this.epicId);
-    for (const issue of childIssues) {
-      this.issueIdMap.set(issue.id, issue.identifier);
-    }
+    const entry: { expiresAt: number; snapshots: Promise<LinearIssueSnapshot[]> } = {
+      expiresAt: Infinity,
+      snapshots: this.client.getChildIssueSnapshots(parentId).then((children) => {
+        if (this.childCache.get(parentId) !== entry) {
+          return this.getChildSnapshots(parentId);
+        }
+        entry.expiresAt = Date.now() + CHILD_CACHE_TTL_MS;
+        return children;
+      }).catch((err: unknown) => {
+        if (this.childCache.get(parentId) === entry) {
+          this.childCache.delete(parentId);
+        }
+        throw err;
+      }),
+    };
+    this.childCache.set(parentId, entry);
+    return entry.snapshots;
+  }
+
+  /**
+   * Drop cached child snapshots so the next read reflects our own writes.
+   */
+  private invalidateChildCache(): void {
+    this.childCache.clear();
   }
 
   override async getTasks(filter?: TaskFilter): Promise<TrackerTask[]> {
@@ -225,43 +260,22 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
       return [];
     }
 
-    const childIssues = await this.client.getChildIssues(parentId);
-
-    // Rebuild UUID → identifier map for dependency resolution
-    this.issueIdMap.clear();
-    for (const issue of childIssues) {
-      this.issueIdMap.set(issue.id, issue.identifier);
-    }
-
-    // Fetch blocking relations for all children and convert to tasks
-    const tasks = await Promise.all(
-      childIssues.map(async (issue) => {
-        const blockingUuids = await this.client.getBlockingIssueIds(issue.id);
-        // Map UUIDs to identifiers for the tasks we know about
-        const blockingIdentifiers = blockingUuids
-          .map((uuid) => this.issueIdMap.get(uuid))
-          .filter((id): id is string => id !== undefined);
-
-        return linearIssueToTask(issue, blockingIdentifiers);
-      }),
-    );
+    const children = await this.getChildSnapshots(parentId);
+    const siblingIdentifiers = new Map(children.map((c) => [c.id, c.identifier]));
+    const tasks = children.map((child) => linearIssueToTask(child, siblingIdentifiers));
 
     return this.filterTasks(tasks, filter ? { ...filter, parentId: undefined } : undefined);
   }
 
   override async getTask(id: string): Promise<TrackerTask | undefined> {
     try {
-      // Ensure the map is populated so blocking UUIDs can be resolved
-      await this.ensureIssueIdMap();
+      const issue = await this.client.getIssueSnapshot(id);
 
-      const issue = await this.client.getIssue(id);
+      // Resolve blockers against the epic's children (served from cache when fresh)
+      const siblings = this.epicId ? await this.getChildSnapshots(this.epicId) : [];
+      const siblingIdentifiers = new Map(siblings.map((c) => [c.id, c.identifier]));
 
-      const blockingUuids = await this.client.getBlockingIssueIds(issue.id);
-      const blockingIdentifiers = blockingUuids
-        .map((uuid) => this.issueIdMap.get(uuid))
-        .filter((identifier): identifier is string => identifier !== undefined);
-
-      return await linearIssueToTask(issue, blockingIdentifiers);
+      return linearIssueToTask(issue, siblingIdentifiers);
     } catch (err) {
       if (err instanceof LinearApiError && err.kind === 'not_found') {
         return undefined;
@@ -308,16 +322,15 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     id: string,
     status: TrackerTaskStatus,
   ): Promise<TrackerTask | undefined> {
-    const issue = await this.client.getIssue(id);
-    const team = await issue.team;
+    const issue = await this.client.getIssueSnapshot(id);
 
-    if (!team) {
+    if (!issue.teamId) {
       console.error(`Linear tracker: issue "${id}" has no team`);
       return undefined;
     }
 
     const targetStateType = mapStatusToLinearStateType(status);
-    const states = await this.getWorkflowStates(team.id);
+    const states = await this.getWorkflowStates(issue.teamId);
     const targetState = states.find((s) => s.type === targetStateType);
 
     if (!targetState) {
@@ -328,6 +341,7 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     }
 
     await this.client.updateIssueState(issue.id, targetState.id);
+    this.invalidateChildCache();
 
     return this.getTask(id);
   }
@@ -337,10 +351,9 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     reason?: string,
   ): Promise<TaskCompletionResult> {
     try {
-      const issue = await this.client.getIssue(id);
-      const team = await issue.team;
+      const issue = await this.client.getIssueSnapshot(id);
 
-      if (!team) {
+      if (!issue.teamId) {
         return {
           success: false,
           message: `Issue "${id}" has no team`,
@@ -349,7 +362,7 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
       }
 
       // Move to completed state
-      const states = await this.getWorkflowStates(team.id);
+      const states = await this.getWorkflowStates(issue.teamId);
       const completedState = states.find((s) => s.type === 'completed');
 
       if (!completedState) {
@@ -361,6 +374,7 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
       }
 
       await this.client.updateIssueState(issue.id, completedState.id);
+      this.invalidateChildCache();
 
       // Post completion comment
       const commentBody = reason
@@ -391,13 +405,12 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     }
 
     try {
-      const issue = await this.client.getIssue(this.epicId);
-      const state = await issue.state;
-      const stateType = state?.type ?? 'unstarted';
+      const issue = await this.client.getIssueSnapshot(this.epicId);
+      const stateType = issue.stateType ?? 'unstarted';
 
-      const childIssues = await this.client.getChildIssues(this.epicId);
+      const childIssues = await this.getChildSnapshots(this.epicId);
       const totalCount = childIssues.length;
-      const completedCount = await this.countCompletedChildren(childIssues);
+      const completedCount = countCompletedChildren(childIssues);
 
       return [
         {
@@ -445,10 +458,10 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     }
 
     try {
-      const issue = await this.client.getIssue(this.epicId);
-      const childIssues = await this.client.getChildIssues(this.epicId);
+      const issue = await this.client.getIssueSnapshot(this.epicId);
+      const childIssues = await this.getChildSnapshots(this.epicId);
       const totalCount = childIssues.length;
-      const completedCount = await this.countCompletedChildren(childIssues);
+      const completedCount = countCompletedChildren(childIssues);
 
       return {
         name: issue.title,
@@ -474,14 +487,6 @@ export class LinearTrackerPlugin extends BaseTrackerPlugin {
     this.teamId = teamId;
     this.workflowStatesCache = states;
     return states;
-  }
-
-  /**
-   * Count completed children from a set of child issues.
-   */
-  private async countCompletedChildren(children: Issue[]): Promise<number> {
-    const states = await Promise.all(children.map((child) => child.state));
-    return states.filter((s) => s?.type === 'completed' || s?.type === 'canceled').length;
   }
 }
 

@@ -130,6 +130,7 @@ describe('ExecutionEngine', () => {
     if (engine) {
       await engine.dispose();
     }
+    delete mockTrackerInstance.subscribeChanges;
   });
 
   describe('state machine transitions', () => {
@@ -759,6 +760,58 @@ describe('ExecutionEngine', () => {
   });
 
   describe('execution result handling', () => {
+    for (const [status, exitCode, interrupted, eligible] of [
+      ['completed', 0, false, true],
+      ['failed', 1, false, false],
+      ['failed', 0, false, false],
+      ['timeout', 0, false, false],
+      ['interrupted', 0, true, false],
+      ['interrupted', 0, false, false],
+      ['completed', 0, true, false],
+    ] as const) {
+      test(`completion eligibility for status=${status}, exit=${exitCode}, interrupted=${interrupted}`, async () => {
+        const cwd = await mkdtemp(join(tmpdir(), 'ralph-completion-outcome-'));
+        const originalExecute = mockAgentInstance.execute;
+        const result = createSuccessfulExecution('Earlier narrative: <promise>COMPLETE</promise>', {
+          status, exitCode, interrupted,
+        });
+        mockAgentInstance.execute = mock(() => ({
+          promise: Promise.resolve(result),
+          interrupt: mock(() => true),
+          isRunning: () => false,
+        })) as AgentPlugin['execute'];
+        config = createTestConfig({ cwd, maxIterations: 1, autoCommit: true });
+        engine = new ExecutionEngine(config);
+        engine.on(event => events.push(event));
+        const task = createTrackerTask({ id: 'task-outcome', title: 'Outcome test' });
+        (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(() => Promise.resolve([task]));
+        (mockTrackerInstance.getNextTask as ReturnType<typeof mock>)
+          .mockImplementationOnce(() => Promise.resolve(task))
+          .mockImplementation(() => Promise.resolve(undefined));
+        (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(() => Promise.resolve(false));
+        const completeBefore = (mockTrackerInstance.completeTask as ReturnType<typeof mock>).mock.calls.length;
+        const autoCommit = spyOn(
+          engine as unknown as { handleAutoCommit: () => Promise<void> },
+          'handleAutoCommit'
+        ).mockResolvedValue(undefined);
+        try {
+          await engine.initialize();
+          await engine.start();
+          const iteration = engine.getState().iterations[0];
+          expect(iteration?.promiseComplete).toBe(true);
+          expect(iteration?.taskCompleted).toBe(eligible);
+          expect(engine.getState().tasksCompleted).toBe(eligible ? 1 : 0);
+          expect((mockTrackerInstance.completeTask as ReturnType<typeof mock>).mock.calls.length - completeBefore).toBe(eligible ? 1 : 0);
+          expect(autoCommit).toHaveBeenCalledTimes(eligible ? 1 : 0);
+          expect(events.some(event => event.type === 'task:completed')).toBe(eligible);
+        } finally {
+          mockAgentInstance.execute = originalExecute;
+          autoCommit.mockRestore();
+          await rm(cwd, { recursive: true, force: true });
+        }
+      });
+    }
+
     test('treats timeout execution as a failed iteration', async () => {
       const originalExecute = mockAgentInstance.execute;
       mockAgentInstance.execute = mock(() => {
@@ -1592,6 +1645,299 @@ describe('ExecutionEngine', () => {
   });
 
   describe('watch mode', () => {
+    const until = async (check: () => boolean): Promise<void> => {
+      const deadline = Date.now() + 3000;
+      while (!check()) {
+        if (Date.now() > deadline) throw new Error('Watch state did not settle');
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    };
+
+    test('coalesces idle wakeups and retains notifications delivered during refresh', async () => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true, pollIntervalMs: 30_000 }));
+      let notify!: () => void;
+      const unsubscribe = mock(async () => {});
+      mockTrackerInstance.subscribeChanges = (listener) => { notify = listener; return unsubscribe; };
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => []);
+      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>).mockImplementation(async () => undefined);
+      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(async () => false);
+      engine.on((e) => events.push(e));
+      await engine.initialize();
+      const run = engine.start();
+      await until(() => events.some((e) => e.type === 'engine:waiting'));
+      let reads = 0;
+      let active = 0;
+      let maxActive = 0;
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => {
+        reads++;
+        maxActive = Math.max(maxActive, ++active);
+        if (reads === 1) {
+          notify();
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        active--;
+        return [];
+      });
+      for (let i = 0; i < 50; i++) notify();
+      await until(() => events.filter((e) => e.type === 'tasks:refreshed').length >= 2);
+      expect(reads).toBe(2);
+      expect(maxActive).toBe(1);
+      await engine.stop();
+      await run;
+      notify();
+      await engine.dispose();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      expect(reads).toBe(2);
+    });
+
+    test('retains a change delivered during initial baseline and pauses without refreshing', async () => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true, pollIntervalMs: 30_000 }));
+      let notify!: () => void;
+      mockTrackerInstance.subscribeChanges = (listener) => { notify = listener; return async () => {}; };
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => []);
+      (mockTrackerInstance.getNextTask as ReturnType<typeof mock>).mockImplementation(async () => undefined);
+      (mockTrackerInstance.isComplete as ReturnType<typeof mock>).mockImplementation(async () => false);
+      engine.on((e) => events.push(e));
+      await engine.initialize();
+      let reads = 0;
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => {
+        if (++reads === 1) notify();
+        return [];
+      });
+      const run = engine.start();
+      await until(() => events.some((e) => e.type === 'tasks:refreshed'));
+      engine.pause();
+      await until(() => engine.getStatus() === 'paused');
+      const before = reads;
+      notify();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(reads).toBe(before);
+      expect(engine.getStatus()).toBe('paused');
+      engine.resume();
+      await until(() => reads > before);
+      await engine.stop();
+      await run;
+    });
+
+    test('cleans up a subscription if the initial baseline fails', async () => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true }));
+      const unsubscribe = mock(async () => {});
+      mockTrackerInstance.subscribeChanges = () => unsubscribe;
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => []);
+      await engine.initialize();
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => {
+        throw new Error('baseline failed');
+      });
+      await expect(engine.start()).rejects.toThrow('baseline failed');
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
+
+    test.each(['throw', 'reject'])('contains unsubscribe %s and allows watch restart', async (failure) => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true, pollIntervalMs: 30_000 }));
+      const unsubscribe = mock((): Promise<void> => {
+        if (failure === 'throw') throw new Error('cleanup failed');
+        return Promise.reject(new Error('cleanup failed'));
+      });
+      mockTrackerInstance.subscribeChanges = () => unsubscribe;
+      mockTrackerInstance.getTasks = mock(async () => []);
+      mockTrackerInstance.isComplete = mock(async () => true);
+      engine.on((event) => events.push(event));
+      await engine.initialize();
+      const run = engine.start();
+      await until(() => engine.getStatus() === 'waiting');
+      await engine.stop();
+      await run;
+      expect(engine.getStatus()).toBe('idle');
+      expect(events.filter((event) => event.type === 'engine:stopped')).toHaveLength(1);
+      const continued = engine.continueExecution();
+      await until(() => engine.getStatus() === 'waiting');
+      await engine.stop();
+      await continued;
+      expect(engine.getStatus()).toBe('idle');
+      expect(events.filter((event) => event.type === 'engine:stopped')).toHaveLength(2);
+      expect(events.filter((event) => event.type === 'engine:warning' &&
+        event.code === 'tracker-cleanup-failed')).toHaveLength(2);
+      await engine.dispose();
+      expect(unsubscribe).toHaveBeenCalledTimes(2);
+    });
+
+    test('retains the original baseline error when subscription cleanup rejects', async () => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true }));
+      mockTrackerInstance.subscribeChanges = () => async () => { throw new Error('cleanup failed'); };
+      mockTrackerInstance.getTasks = mock(async () => []);
+      await engine.initialize();
+      mockTrackerInstance.getTasks = mock(async () => { throw new Error('baseline failed'); });
+      await expect(engine.start()).rejects.toThrow('baseline failed');
+      expect(engine.getStatus()).toBe('idle');
+      await engine.dispose();
+    });
+
+    test('coalesces overlapping manual task refreshes', async () => {
+      engine = new ExecutionEngine(createTestConfig());
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => []);
+      await engine.initialize();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const getTasks = mock(async () => { await gate; return []; });
+      mockTrackerInstance.getTasks = getTasks;
+      const first = engine.refreshTasks();
+      const second = engine.refreshTasks();
+      expect(getTasks).toHaveBeenCalledTimes(1);
+      release();
+      await Promise.all([first, second]);
+    });
+
+    test('concurrent disposal awaits cleanup already started by a failed baseline', async () => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true }));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let cleaning = false;
+      mockTrackerInstance.subscribeChanges = () => async () => {
+        cleaning = true;
+        await gate;
+      };
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => []);
+      await engine.initialize();
+      (mockTrackerInstance.getTasks as ReturnType<typeof mock>).mockImplementation(async () => {
+        throw new Error('baseline failed');
+      });
+      const run = engine.start().catch(() => {});
+      await until(() => cleaning);
+      let disposed = false;
+      const disposal = engine.dispose().then(() => { disposed = true; });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(disposed).toBe(false);
+      release();
+      await Promise.all([disposal, run]);
+      expect(disposed).toBe(true);
+    });
+
+    test.each([true, false])('refreshes after a pre-change manual read (complete=%s)', async (complete) => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true, pollIntervalMs: 30_000 }));
+      let notify!: () => void;
+      mockTrackerInstance.subscribeChanges = (listener) => { notify = listener; return async () => {}; };
+      mockTrackerInstance.getTasks = mock(async () => []);
+      mockTrackerInstance.getNextTask = mock(async () => undefined);
+      mockTrackerInstance.isComplete = mock(async () => complete);
+      engine.on((event) => events.push(event));
+      await engine.initialize();
+      const run = engine.start();
+      await until(() => engine.getStatus() === 'waiting');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let reads = 0;
+      let active = 0;
+      let maxActive = 0;
+      const task = createTrackerTask({ id: 'new-task' });
+      const getTasks = mock(async (): Promise<TrackerTask[]> => {
+        const beforeChange = ++reads === 1;
+        maxActive = Math.max(maxActive, ++active);
+        if (beforeChange) await gate;
+        active--;
+        return beforeChange ? [] : [task];
+      });
+      mockTrackerInstance.getTasks = getTasks;
+      const manual = engine.refreshTasks();
+      notify();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const beforeRelease = reads;
+      release();
+      await manual;
+      await until(() => events.some((event) => event.type === 'tasks:refreshed' &&
+        event.tasks.some((task) => task.id === 'new-task')));
+      expect(beforeRelease).toBe(1);
+      expect(reads).toBe(2);
+      expect(maxActive).toBe(1);
+      await engine.stop();
+      await run;
+    });
+
+    test.each(['pause', 'stop'])('does not start a trailing change read after %s', async (action) => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true, pollIntervalMs: 30_000 }));
+      let notify!: () => void;
+      mockTrackerInstance.subscribeChanges = (listener) => { notify = listener; return async () => {}; };
+      mockTrackerInstance.getTasks = mock(async () => []);
+      mockTrackerInstance.isComplete = mock(async () => true);
+      await engine.initialize();
+      const run = engine.start();
+      await until(() => engine.getStatus() === 'waiting');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const getTasks = mock(async () => { await gate; return []; });
+      mockTrackerInstance.getTasks = getTasks;
+      const manual = engine.refreshTasks();
+      notify();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (action === 'pause') engine.pause();
+      else await engine.stop();
+      release();
+      await manual;
+      if (action === 'pause') {
+        await until(() => engine.getStatus() === 'paused');
+        expect(getTasks).toHaveBeenCalledTimes(1);
+        engine.resume();
+        await until(() => getTasks.mock.calls.length === 2);
+        await engine.stop();
+      }
+      await run;
+      expect(getTasks).toHaveBeenCalledTimes(action === 'pause' ? 2 : 1);
+    });
+
+    test('continued watch execution reinstalls its change subscription', async () => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true, pollIntervalMs: 30_000 }));
+      let notify!: () => void;
+      const unsubscribe = mock(async () => {});
+      mockTrackerInstance.subscribeChanges = mock((listener: () => void) => {
+        notify = listener;
+        return unsubscribe;
+      });
+      const getTasks = mock(async () => []);
+      mockTrackerInstance.getTasks = getTasks;
+      mockTrackerInstance.isComplete = mock(async () => true);
+      await engine.initialize();
+      const first = engine.start();
+      await until(() => engine.getStatus() === 'waiting');
+      await engine.stop();
+      await first;
+      const resumed = engine.continueExecution();
+      await until(() => engine.getStatus() === 'waiting');
+      const reads = getTasks.mock.calls.length;
+      notify();
+      await until(() => getTasks.mock.calls.length > reads);
+      await engine.stop();
+      await resumed;
+      expect(mockTrackerInstance.subscribeChanges).toHaveBeenCalledTimes(2);
+      expect(unsubscribe).toHaveBeenCalledTimes(2);
+    });
+
+    test('retains an invalidation when pause interrupts its idle wakeup', async () => {
+      engine = new ExecutionEngine(createTestConfig({ watch: true, pollIntervalMs: 30_000 }));
+      let notify!: () => void;
+      mockTrackerInstance.subscribeChanges = (listener) => {
+        notify = listener;
+        return async () => {};
+      };
+      const getTasks = mock(async () => []);
+      mockTrackerInstance.getTasks = getTasks;
+      mockTrackerInstance.isComplete = mock(async () => true);
+      let paused = false;
+      engine.on((event) => {
+        if (event.type === 'engine:waiting' && !paused) {
+          paused = true;
+          notify();
+          engine.pause();
+        }
+      });
+      await engine.initialize();
+      const run = engine.start();
+      await until(() => engine.getStatus() === 'paused');
+      const reads = getTasks.mock.calls.length;
+      engine.resume();
+      await until(() => getTasks.mock.calls.length > reads);
+      await engine.stop();
+      await run;
+    });
+
     test('reports waiting while idle and running when an iteration starts', async () => {
       engine = new ExecutionEngine(
         createTestConfig({ watch: true, pollIntervalMs: 20, maxIterations: 1 })
@@ -1822,26 +2168,6 @@ describe('ExecutionEngine', () => {
         Promise.resolve(undefined as TrackerTask | undefined)
       );
 
-      const delayCalls: number[] = [];
-      let releasePollDelay!: () => void;
-      let releasePauseDelay!: () => void;
-      const originalDelay = (engine as unknown as {
-        delay: (ms: number) => Promise<void>;
-      }).delay;
-      (engine as unknown as {
-        delay: (ms: number) => Promise<void>;
-      }).delay = (ms: number) => {
-        delayCalls.push(ms);
-        if (delayCalls.length === 1) {
-          return new Promise<void>((resolve) => {
-            releasePollDelay = resolve;
-          });
-        }
-        return new Promise<void>((resolve) => {
-          releasePauseDelay = resolve;
-        });
-      };
-
       await engine.initialize();
       const startPromise = engine.start();
       while (events.every((event) => event.type !== 'engine:waiting')) {
@@ -1849,21 +2175,16 @@ describe('ExecutionEngine', () => {
       }
 
       const getTasksCallsWhileWaiting = getTasksCalls;
+      const pausedAt = Date.now();
       engine.pause();
-      releasePollDelay();
 
       while (events.every((event) => event.type !== 'engine:paused')) {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
 
-      expect(delayCalls).toEqual([100, 100]);
+      expect(Date.now() - pausedAt).toBeLessThan(500);
       expect(getTasksCalls).toBe(getTasksCallsWhileWaiting);
-      (engine as unknown as {
-        delay: (ms: number) => Promise<void>;
-      }).delay = originalDelay;
-      const stopPromise = engine.stop();
-      releasePauseDelay();
-      await stopPromise;
+      await engine.stop();
       await startPromise;
     });
 

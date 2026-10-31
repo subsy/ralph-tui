@@ -127,6 +127,14 @@ timeout = 300000
 | `envExclude` | string[] | `[]` | Additional env var patterns to exclude |
 | `envPassthrough` | string[] | `[]` | Env vars to allow through despite exclusion patterns |
 
+### Execution Timeout
+
+`timeout` limits the wall-clock duration of each agent call in milliseconds; `0` (the default) disables it. It is not an inactivity, task-wide, or session-wide limit.
+
+When the deadline expires, the execution is timed out even if the agent handles SIGTERM and exits with code `0`. An earlier `<promise>COMPLETE</promise>` marker does not complete the task or trigger auto-commit: the iteration fails and follows the configured `errorHandling` strategy (`retry`, `skip`, or `abort`). Explicit user interruption takes precedence over timeout classification.
+
+Task completion requires both the completion marker and a successful, noninterrupted agent result. A marker emitted before any failed or interrupted outcome is insufficient, even if the process exits with code `0`.
+
 ### Preflight Timeout
 
 `preflightTimeoutMs` controls how long Ralph TUI waits for the agent to respond during the preflight health check run by [`ralph-tui doctor`](/docs/cli/doctor) and [`ralph-tui setup`](/docs/cli/setup).

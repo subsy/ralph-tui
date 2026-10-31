@@ -611,6 +611,10 @@ describe('printRunHelp', () => {
       expect(fullOutput).toContain('--task-range');
       expect(fullOutput).toContain('--parallel');
       expect(fullOutput).toContain('--target-branch');
+      expect(fullOutput).toContain(
+        '--reset-progress    Clear the configured progress file instead of preserving it'
+      );
+      expect(fullOutput).not.toContain('Clear .ralph-tui/progress.md');
     } finally {
       console.log = originalLog;
     }

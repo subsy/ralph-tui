@@ -3,27 +3,23 @@
  * Runs the droid CLI in non-interactive mode for Ralph task execution.
  */
 
-import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { platform } from 'node:os';
-import {
-  BaseAgentPlugin,
-  debugLog,
-  quoteForWindowsShell,
-  STDIO_DRAIN_GRACE_PERIOD_MS,
-  STDIO_DRAIN_MAX_WAIT_MS,
-} from '../base.js';
+import { BaseAgentPlugin, type AgentLaunchInvocation } from '../base.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
   AgentFileContext,
   AgentExecuteOptions,
-  AgentExecutionResult,
-  AgentExecutionStatus,
+  AgentSetupQuestion,
 } from '../types.js';
-import { buildDroidCommandArgs } from './commandBuilder.js';
+import { buildDroidCommandArgs, getDroidOutputFormat } from './commandBuilder.js';
 import { DROID_DEFAULT_COMMAND } from './config.js';
-import { DroidAgentConfigSchema, type DroidReasoningEffort } from './schema.js';
+import { DroidAgentConfigSchema, type DroidOutputFormat, type DroidReasoningEffort } from './schema.js';
+import { extractAgentTextFromEvents, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  parseDroidJsonlLine,
+  parseDroidCompletionEvents,
+} from './outputParser.js';
 
 export class DroidAgentPlugin extends BaseAgentPlugin {
   private readonly baseMeta: AgentPluginMeta = {
@@ -46,6 +42,7 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
 
   private model?: string;
   private reasoningEffort?: DroidReasoningEffort;
+  private outputFormat: DroidOutputFormat = 'stream-json';
   // Default to true: droid exec cannot show interactive prompts without a TTY
   private skipPermissions = true;
   private enableTracing = true;
@@ -74,18 +71,19 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
   }
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
-    await super.initialize(config);
-
     const parsed = DroidAgentConfigSchema.safeParse({
       model: config.model,
       reasoningEffort: config.reasoningEffort,
+      outputFormat: config.outputFormat,
       skipPermissions: config.skipPermissions,
       enableTracing: config.enableTracing,
     });
 
     if (!parsed.success) {
-      return;
+      throw new Error(`[droid] Invalid agent options: ${parsed.error.message}`);
     }
+
+    await super.initialize(config);
 
     if (typeof parsed.data.model === 'string' && parsed.data.model.length > 0) {
       this.model = parsed.data.model;
@@ -102,12 +100,21 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
     }
 
     this.enableTracing = parsed.data.enableTracing;
+    this.outputFormat = parsed.data.outputFormat;
     if (!this.enableTracing) {
       this.effectiveSupportsSubagentTracing = false;
     }
   }
 
   protected buildArgs(
+    prompt: string,
+    files?: AgentFileContext[],
+    options?: AgentExecuteOptions
+  ): string[] {
+    return this.buildExecutionArgs(prompt, files, options);
+  }
+
+  private buildExecutionArgs(
     prompt: string,
     _files?: AgentFileContext[],
     options?: AgentExecuteOptions
@@ -119,8 +126,28 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
       model: this.model,
       reasoningEffort: this.reasoningEffort,
       skipPermissions: this.skipPermissions,
-      enableTracing: this.enableTracing && options?.subagentTracing === true,
+      outputFormat: this.outputFormat,
+      flags: [...this.defaultFlags, ...(options?.flags ?? [])],
     });
+  }
+
+  override getSetupQuestions(): AgentSetupQuestion[] {
+    return [
+      ...super.getSetupQuestions(),
+      {
+        id: 'outputFormat',
+        prompt: 'Output format:',
+        type: 'select',
+        choices: [
+          { value: 'stream-json', label: 'Streaming JSON (default)' },
+          { value: 'json', label: 'JSON' },
+          { value: 'text', label: 'Plain text (raw completion scanning)' },
+        ],
+        default: 'stream-json',
+        required: false,
+        help: 'Structured output keeps tool and diagnostic text out of completion detection. Independent of enableTracing.',
+      },
+    ];
   }
 
   /**
@@ -137,26 +164,34 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
     );
   }
 
-  /**
-   * Custom execute that uses 'ignore' for stdin to prevent Ink TTY issues.
-   * The droid exec command passes prompt as argument, not stdin, so we don't need stdin.
-   * Setting stdin to 'ignore' prevents Ink from trying to set raw mode on a piped stdin.
-   */
-  override execute(
-    prompt: string,
-    files?: AgentFileContext[],
-    options?: AgentExecuteOptions
-  ) {
-    const executionId = randomUUID();
-    const command = this.commandPath ?? this.meta.defaultCommand;
-    const args = this.buildArgs(prompt, files, options);
-    const startedAt = new Date();
-    const timeout = options?.timeout ?? this.defaultTimeout;
+  extractAgentText(stdout: string, options?: AgentExecuteOptions): string | undefined {
+    const format = getDroidOutputFormat(this.buildExecutionArgs('', undefined, options).slice(1, -1));
+    if (format === 'text') {
+      return undefined;
+    }
+    if (format !== 'stream-json' && format !== 'json') {
+      return '';
+    }
 
+    const lines = format === 'json' ? [stdout] : stdout.split('\n');
+    const results = lines.map((raw) => ({ raw, ...parseDroidJsonlLine(raw) }));
+    const events = results.flatMap((result): AgentDisplayEvent[] => {
+      if (!result.success) {
+        return result.error === 'Empty line' ? [] : [{ type: 'system' }];
+      }
+      return parseDroidCompletionEvents(result.message, result.raw);
+    });
+    return extractAgentTextFromEvents(events);
+  }
+
+  /** Supply Droid's PTY wrapper while inheriting the base execution lifecycle. */
+  protected override buildLaunchInvocation(
+    command: string,
+    args: string[],
+    options?: AgentExecuteOptions
+  ): AgentLaunchInvocation {
     // Environment variables to signal non-interactive mode to Ink-based CLIs
     const env = {
-      ...process.env,
-      ...options?.env,
       CI: 'true',
       TERM: 'dumb',
       NO_COLOR: '1',
@@ -165,19 +200,9 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
       INK_DISABLE_INPUT: '1',
     };
 
-    // IMPORTANT: args[0] is 'exec' subcommand which MUST come first after 'droid'.
-    // options.flags (like --model) must come AFTER the subcommand.
-    const [subcommand, ...restArgs] = args;
-    const allArgs = [subcommand, ...this.defaultFlags, ...(options?.flags ?? []), ...restArgs];
-
-    let resolvePromise: (result: AgentExecutionResult) => void;
-    const promise = new Promise<AgentExecutionResult>((resolve) => {
-      resolvePromise = resolve;
-    });
-
     // On Linux/macOS, wrap with 'script' to provide a pseudo-TTY for Ink
     // This is needed because droid's Ink UI initializes even in exec mode
-    const isWindows = process.platform === 'win32';
+    const isWindows = platform() === 'win32';
 
     // Simple shell escape: wrap in single quotes, escape existing single quotes
     const simpleEscape = (s: string): string => {
@@ -195,22 +220,16 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
         + "'";
     };
 
-    let proc;
     if (isWindows) {
-      proc = spawn(quoteForWindowsShell(command), allArgs, {
-        cwd: options?.cwd ?? process.cwd(),
-        env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
-      });
+      return { command, args, env, stdin: 'ignore', shell: true };
     } else {
       // Use 'script' to create a pseudo-TTY that satisfies Ink's requirements
       // script -q: quiet mode (no "Script started" messages)
       //
       // The prompt (last arg) may contain newlines, so use fullEscape for it.
       // Other args are simple strings, so use simpleEscape.
-      const cmdParts = [command, ...allArgs.slice(0, -1)].map(simpleEscape);
-      const promptArg = allArgs.length > 0 ? fullEscape(allArgs[allArgs.length - 1]) : '';
+      const cmdParts = [command, ...args.slice(0, -1)].map(simpleEscape);
+      const promptArg = args.length > 0 ? fullEscape(args[args.length - 1]) : '';
       const droidCmd = promptArg ? [...cmdParts, promptArg].join(' ') : cmdParts.join(' ');
       // Prefix with cd to ensure correct working directory (script's subshell may not respect cwd)
       // Use stty -echo to prevent the pseudo-TTY from echoing input back as output
@@ -225,156 +244,8 @@ export class DroidAgentPlugin extends BaseAgentPlugin {
         ? ['-q', '/dev/null', 'sh', '-c', shellCmd]
         : ['-q', '-c', shellCmd, '/dev/null'];
 
-      proc = spawn('script', scriptArgs, {
-        cwd: options?.cwd ?? process.cwd(),
-        env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      return { command: 'script', args: scriptArgs, env, stdin: 'ignore' };
     }
-
-    // Track execution state
-    let stdout = '';
-    let stderr = '';
-    let interrupted = false;
-    let completed = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let drainFallbackId: ReturnType<typeof setTimeout> | undefined;
-    let exitCode: number | null = null;
-    let exitSignal: NodeJS.Signals | null = null;
-    let exitAt: number | undefined;
-
-    options?.onStart?.(executionId);
-
-    const clearDrainFallback = (): void => {
-      if (drainFallbackId !== undefined) {
-        clearTimeout(drainFallbackId);
-        drainFallbackId = undefined;
-      }
-    };
-
-    const deriveExitStatus = (
-      code: number | null,
-      signal: NodeJS.Signals | null
-    ): AgentExecutionStatus => {
-      if (interrupted) {
-        return 'interrupted';
-      }
-      if (signal === 'SIGTERM' || signal === 'SIGKILL') {
-        return timeoutId ? 'timeout' : 'interrupted';
-      }
-      if (code === 0) {
-        return 'completed';
-      }
-      return 'failed';
-    };
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      stdout += text;
-      options?.onStdout?.(text);
-      if (drainFallbackId !== undefined) {
-        scheduleDrainFallback();
-      }
-    });
-
-    proc.stderr?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      stderr += text;
-      options?.onStderr?.(text);
-      if (drainFallbackId !== undefined) {
-        scheduleDrainFallback();
-      }
-    });
-
-    const complete = (status: AgentExecutionStatus, exitCode?: number, error?: string) => {
-      if (completed) {
-        return;
-      }
-      completed = true;
-      if (timeoutId) clearTimeout(timeoutId);
-      clearDrainFallback();
-      const endedAt = new Date();
-      resolvePromise!({
-        executionId,
-        status,
-        exitCode,
-        stdout,
-        stderr,
-        durationMs: endedAt.getTime() - startedAt.getTime(),
-        error,
-        interrupted,
-        startedAt: startedAt.toISOString(),
-        endedAt: endedAt.toISOString(),
-      });
-    };
-
-    const scheduleDrainFallback = (): void => {
-      if (completed) {
-        return;
-      }
-      clearDrainFallback();
-      const remainingBudget = (exitAt ?? Date.now()) + STDIO_DRAIN_MAX_WAIT_MS - Date.now();
-      const delay = Math.min(STDIO_DRAIN_GRACE_PERIOD_MS, remainingBudget);
-      const finalize = (): void => {
-        drainFallbackId = undefined;
-        if (completed) {
-          return;
-        }
-        if (process.env.RALPH_DEBUG) {
-          debugLog(
-            `[DEBUG] Process stdio stayed open after drain: code=${exitCode}, ` +
-              `signal=${exitSignal}, execId=${executionId}`
-          );
-        }
-        complete(deriveExitStatus(exitCode, exitSignal), exitCode ?? undefined);
-        proc.stdout?.destroy();
-        proc.stderr?.destroy();
-      };
-
-      if (delay <= 0) {
-        finalize();
-        return;
-      }
-      drainFallbackId = setTimeout(finalize, delay);
-    };
-
-    proc.on('error', (error) => {
-      complete('failed', undefined, error.message);
-    });
-
-    proc.on('close', (code, signal) => {
-      complete(deriveExitStatus(code, signal), code ?? undefined);
-    });
-
-    proc.on('exit', (code, signal) => {
-      exitCode = code;
-      exitSignal = signal;
-      exitAt = Date.now();
-      scheduleDrainFallback();
-    });
-
-    if (timeout > 0) {
-      timeoutId = setTimeout(() => {
-        proc.kill('SIGTERM');
-        setTimeout(() => {
-          if (!proc.killed) proc.kill('SIGKILL');
-        }, 5000);
-      }, timeout);
-    }
-
-    return {
-      executionId,
-      promise,
-      interrupt: () => {
-        interrupted = true;
-        proc.kill('SIGTERM');
-        setTimeout(() => {
-          if (!proc.killed) proc.kill('SIGKILL');
-        }, 5000);
-        return true;
-      },
-      isRunning: () => !proc.killed,
-    };
   }
 }
 

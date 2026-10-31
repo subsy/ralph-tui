@@ -258,6 +258,26 @@ describe('Template Engine - Variables and Context', () => {
       expect(vars.model).toBe('claude-opus-4-20250514');
       expect(vars.trackerName).toBe('beads');
       expect(vars.agentName).toBe('claude-code');
+      expect(vars.progressFile).toBe('.ralph-tui/progress.md');
+    });
+
+    test('renders relative custom progress paths relative to cwd', () => {
+      const task = createMockTask();
+      const config = createMockConfig({ progressFile: 'notes/progress.md' });
+
+      expect(buildTemplateVariables(task, config).progressFile).toBe('notes/progress.md');
+    });
+
+    test('preserves absolute custom progress paths outside cwd', () => {
+      const task = createMockTask();
+      const config = createMockConfig({
+        cwd: '/tmp/ralph-project',
+        progressFile: '/var/lib/ralph/progress.md',
+      });
+
+      expect(buildTemplateVariables(task, config).progressFile).toBe(
+        '/var/lib/ralph/progress.md'
+      );
     });
 
     test('includes epic information when provided', () => {
@@ -415,6 +435,25 @@ describe('Template Engine - Variables and Context', () => {
       expect(vars.acceptanceCriteria).toContain('[ ] Unchecked item');
       expect(vars.acceptanceCriteria).toContain('[x] Checked item');
     });
+  });
+
+  test('keeps the default built-in prompt byte-for-byte unchanged', () => {
+    const task = createMockTask();
+    const config = createMockConfig();
+    const currentTemplate = renderPrompt(task, config, undefined, undefined, BEADS_TEMPLATE);
+
+    clearTemplateCache();
+    const legacyTemplate = renderPrompt(
+      task,
+      config,
+      undefined,
+      undefined,
+      BEADS_TEMPLATE.replaceAll('{{progressFile}}', '.ralph-tui/progress.md')
+    );
+
+    expect(currentTemplate.success).toBe(true);
+    expect(legacyTemplate.success).toBe(true);
+    expect(currentTemplate.prompt).toBe(legacyTemplate.prompt);
   });
 
   describe('buildTemplateContext', () => {

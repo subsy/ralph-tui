@@ -195,13 +195,13 @@ describe('parseKimiJsonLine', () => {
         expect((events[0] as { content: string }).content).toBe('Hello from Kimi');
     });
 
-    test('skips think events', () => {
+    test('keeps an invisible boundary for think events', () => {
         const input = JSON.stringify({
             role: 'assistant',
             content: [{ type: 'think', think: 'internal reasoning...' }],
         });
         const events = parseKimiJsonLine(input);
-        expect(events.length).toBe(0);
+        expect(events).toEqual([{ type: 'system' }]);
     });
 
     test('parses function tool call', () => {
@@ -330,9 +330,11 @@ describe('parseKimiJsonLine', () => {
             ],
         });
         const events = parseKimiJsonLine(input);
-        expect(events.length).toBe(2);
-        expect((events[0] as { content: string }).content).toBe('Hello');
-        expect((events[1] as { content: string }).content).toBe('World');
+        expect(events).toEqual([
+            { type: 'system' },
+            { type: 'text', content: 'Hello' },
+            { type: 'text', content: 'World' },
+        ]);
     });
 
     test('handles function call without arguments', () => {

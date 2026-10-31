@@ -6,7 +6,12 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  extractAgentTextFromJsonl,
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import { extractErrorMessage } from '../utils.js';
 import type {
   AgentPluginMeta,
@@ -95,6 +100,8 @@ export function parseCursorJsonLine(jsonLine: string): AgentDisplayEvent[] {
               name: block.name,
               input: block.input as Record<string, unknown>,
             });
+          } else {
+            events.push({ type: 'system' });
           }
         }
       }
@@ -178,6 +185,10 @@ export class CursorAgentPlugin extends BaseAgentPlugin {
   };
 
   private model?: string;
+
+  extractAgentText(stdout: string): string | undefined {
+    return extractAgentTextFromJsonl(stdout, parseCursorJsonLine);
+  }
   private force = true;
   private mode: 'agent' | 'plan' | 'ask' = 'agent';
   protected override defaultTimeout = 0;

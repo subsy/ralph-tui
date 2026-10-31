@@ -74,6 +74,9 @@ export interface TemplateVariables {
   /** Full path to beads database file (for bd --db flag) */
   beadsDbPath: string;
 
+  /** Progress file path the agent should read and append to */
+  progressFile: string;
+
   // --- NEW: PRD Context Variables ---
 
   /** PRD/Epic name */

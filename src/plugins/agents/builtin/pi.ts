@@ -6,7 +6,12 @@
 
 import { spawn } from 'node:child_process';
 import { BaseAgentPlugin, findCommandPath, quoteForWindowsShell } from '../base.js';
-import { processAgentEvents, processAgentEventsToSegments, type AgentDisplayEvent } from '../output-formatting.js';
+import {
+  extractAgentTextFromJsonl,
+  processAgentEvents,
+  processAgentEventsToSegments,
+  type AgentDisplayEvent,
+} from '../output-formatting.js';
 import type {
   AgentPluginMeta,
   AgentPluginFactory,
@@ -101,6 +106,8 @@ export function parsePiJsonLine(input: string | Record<string, unknown>): AgentD
             ((block as Record<string, unknown>).text as string).length > 0
           ) {
             events.push({ type: 'text', content: (block as Record<string, unknown>).text as string });
+          } else {
+            events.push({ type: 'system' });
           }
         }
       }
@@ -402,6 +409,17 @@ export class PiAgentPlugin extends BaseAgentPlugin {
    */
   private parsePiJsonLine(input: string | Record<string, unknown>): AgentDisplayEvent[] {
     return parsePiJsonLine(input);
+  }
+
+  extractAgentText(stdout: string, options?: AgentExecuteOptions): string | undefined {
+    return extractAgentTextFromJsonl(stdout, (line) => {
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      const message = parsed.message as { role?: unknown } | undefined;
+      if (parsed.type === 'message_end' && message?.role !== undefined && message.role !== 'assistant') {
+        return [{ type: 'tool_result' }];
+      }
+      return this.parsePiJsonLine(parsed);
+    }, undefined, this.mode === 'text' && !options?.subagentTracing);
   }
 
   /**

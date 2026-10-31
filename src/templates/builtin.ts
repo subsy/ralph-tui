@@ -95,7 +95,7 @@ export const BEADS_TEMPLATE = `{{!-- Full PRD for project context (agent studies
 
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
-2. Study \`.ralph-tui/progress.md\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. Implement the requirements (stay on current branch)
 4. Run your project's quality checks (typecheck, lint, etc.)
 {{#if config.autoCommit}}
@@ -108,7 +108,7 @@ export const BEADS_TEMPLATE = `{{!-- Full PRD for project context (agent studies
 8. Signal completion
 
 ## Before Completing
-APPEND to \`.ralph-tui/progress.md\`:
+APPEND to \`{{progressFile}}\`:
 \`\`\`
 ## [Date] - {{taskId}}
 - What was implemented
@@ -119,7 +119,7 @@ APPEND to \`.ralph-tui/progress.md\`:
 ---
 \`\`\`
 
-If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of \`{{progressFile}}\`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it works correctly and signal completion immediately.
@@ -193,7 +193,7 @@ Completing this task will unblock: {{blocks}}
 
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
-2. Study \`.ralph-tui/progress.md\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. Implement the requirements (stay on current branch)
 4. Run your project's quality checks (typecheck, lint, etc.)
 {{#if config.autoCommit}}
@@ -206,7 +206,7 @@ Completing this task will unblock: {{blocks}}
 8. Signal completion
 
 ## Before Completing
-APPEND to \`.ralph-tui/progress.md\`:
+APPEND to \`{{progressFile}}\`:
 \`\`\`
 ## [Date] - {{taskId}}
 - What was implemented
@@ -217,7 +217,7 @@ APPEND to \`.ralph-tui/progress.md\`:
 ---
 \`\`\`
 
-If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of \`{{progressFile}}\`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it works correctly and signal completion immediately.
@@ -279,7 +279,7 @@ export const BEADS_RUST_TEMPLATE = `{{!-- Full PRD for project context (agent st
 
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
-2. Study \`.ralph-tui/progress.md\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. Implement the requirements (stay on current branch)
 4. Run your project's quality checks (typecheck, lint, etc.)
 {{#if config.autoCommit}}
@@ -293,7 +293,7 @@ export const BEADS_RUST_TEMPLATE = `{{!-- Full PRD for project context (agent st
 9. Signal completion
 
 ## Before Completing
-APPEND to \`.ralph-tui/progress.md\`:
+APPEND to \`{{progressFile}}\`:
 \`\`\`
 ## [Date] - {{taskId}}
 - What was implemented
@@ -304,7 +304,7 @@ APPEND to \`.ralph-tui/progress.md\`:
 ---
 \`\`\`
 
-If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of \`{{progressFile}}\`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it works correctly and signal completion immediately.
@@ -378,7 +378,7 @@ Completing this task will unblock: {{blocks}}
 
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
-2. Study \`.ralph-tui/progress.md\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. Implement the requirements (stay on current branch)
 4. Run your project's quality checks (typecheck, lint, etc.)
 {{#if config.autoCommit}}
@@ -392,7 +392,7 @@ Completing this task will unblock: {{blocks}}
 9. Signal completion
 
 ## Before Completing
-APPEND to \`.ralph-tui/progress.md\`:
+APPEND to \`{{progressFile}}\`:
 \`\`\`
 ## [Date] - {{taskId}}
 - What was implemented
@@ -403,7 +403,7 @@ APPEND to \`.ralph-tui/progress.md\`:
 ---
 \`\`\`
 
-If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of \`{{progressFile}}\`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it works correctly and signal completion immediately.
@@ -468,7 +468,7 @@ export const JSON_TEMPLATE = `{{!-- Full PRD for project context (agent studies 
 
 ## Workflow
 1. Study the PRD context above to understand the bigger picture
-2. Study \`.ralph-tui/progress.md\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
+2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
 3. Implement this single story following acceptance criteria
 4. Run quality checks: typecheck, lint, etc.
 {{#if config.autoCommit}}
@@ -480,7 +480,7 @@ export const JSON_TEMPLATE = `{{!-- Full PRD for project context (agent studies 
 7. Signal completion
 
 ## Before Completing
-APPEND to \`.ralph-tui/progress.md\`:
+APPEND to \`{{progressFile}}\`:
 \`\`\`
 ## [Date] - {{taskId}}
 - What was implemented
@@ -491,7 +491,7 @@ APPEND to \`.ralph-tui/progress.md\`:
 ---
 \`\`\`
 
-If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of \`{{progressFile}}\`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete (implemented in a previous iteration or already exists), verify it meets the acceptance criteria and signal completion immediately.
@@ -549,7 +549,7 @@ Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
 
 ## Workflow
 1. Study the epic context above to understand the bigger picture
-2. Study \`.ralph-tui/progress.md\` for implementation patterns and learnings
+2. Study \`{{progressFile}}\` for implementation patterns and learnings
 3. **BEFORE implementing**: Review relevant codebase to understand existing patterns
 4. Implement this story following acceptance criteria
 5. Run quality checks: typecheck, lint, test
@@ -562,7 +562,7 @@ Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
 8. Signal completion
 
 ## Before Completing
-APPEND to \`.ralph-tui/progress.md\`:
+APPEND to \`{{progressFile}}\`:
 \`\`\`
 ## [Date] - {{taskId}}
 - What was implemented
@@ -573,7 +573,7 @@ APPEND to \`.ralph-tui/progress.md\`:
 ---
 \`\`\`
 
-If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the \`## Codebase Patterns\` section at the TOP of \`{{progressFile}}\`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete, verify it meets acceptance criteria and signal completion immediately.
