@@ -23,6 +23,8 @@ import type {
   AgentExecutionHandle,
 } from '../types.js';
 
+const MAX_PENDING_JSONL_CHARS = 2_000_000;
+
 /**
  * Represents a parsed JSONL message from Claude Code output.
  * Claude Code emits various event types as JSON objects, one per line.
@@ -141,7 +143,7 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
     if (!findResult.found) {
       return {
         available: false,
-        error: `Claude CLI not found in PATH. Install with: npm install -g @anthropic-ai/claude-code`,
+        error: this.getCommandNotFoundMessage(),
       };
     }
 
@@ -164,6 +166,10 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       version: versionResult.version,
       executablePath: findResult.path,
     };
+  }
+
+  protected override getCommandNotFoundMessage(): string {
+    return 'Claude CLI not found in PATH. Install with: npm install -g @anthropic-ai/claude-code';
   }
 
   override getSandboxRequirements() {
@@ -412,18 +418,30 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       }
 
       // Parse error events
-      if (event.type === 'error' || event.error) {
-        const errorMsg = typeof event.error === 'string'
-          ? event.error
-          : (event.error as { message?: string })?.message ?? 'Unknown error';
-        events.push({ type: 'error', message: errorMsg });
-      }
+      const error = this.getClaudeErrorMessage(event);
+      if (error) events.push({ type: 'error', message: error });
 
       return events;
     } catch {
       // Not valid JSON - skip
       return [];
     }
+  }
+
+  private getClaudeErrorMessage(event: Record<string, unknown>): string | undefined {
+    if (event.type === 'system' && event.subtype === 'api_retry') return undefined;
+    const isErrorResult = event.type === 'result' &&
+      (event.is_error === true || (typeof event.subtype === 'string' && event.subtype.startsWith('error')));
+    if (event.type !== 'error' && !event.error && !isErrorResult) return undefined;
+
+    const candidates = [event.error, (event.error as { message?: unknown } | null)?.message, event.result];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) return candidate;
+    }
+    const errors = Array.isArray(event.errors)
+      ? event.errors.filter((error): error is string => typeof error === 'string' && error.trim().length > 0)
+      : [];
+    return errors.join('\n') || 'Unknown error';
   }
 
   /**
@@ -472,6 +490,9 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
       sandboxEnv.IS_SANDBOX = '1';
     }
 
+    let pendingOutput = '';
+    let discardingRecord = false;
+    let executionError: string | undefined;
     const parsedOptions: AgentExecuteOptions = {
       ...options,
       env: { ...sandboxEnv, ...options?.env },
@@ -482,26 +503,49 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
           }
         : options?.onStdoutSegments,
       // Legacy string callback or wrapper that calls both callbacks and JSONL message callback
-      onStdout: isStreamingJson && (options?.onStdout || options?.onStdoutSegments || options?.onJsonlMessage)
+      onStdout: isStreamingJson
         ? (data: string) => {
+            if (discardingRecord) {
+              const delimiter = data.indexOf('\n');
+              if (delimiter < 0) return;
+              discardingRecord = false;
+              data = data.slice(delimiter + 1);
+            }
+            data = pendingOutput + data;
+            const boundary = data.lastIndexOf('\n');
+            pendingOutput = data.slice(boundary + 1);
+            let overflow: string | undefined;
+            if (pendingOutput.length > MAX_PENDING_JSONL_CHARS) {
+              pendingOutput = '';
+              discardingRecord = true;
+              overflow = `${this.meta.name} JSONL record exceeded the ${MAX_PENDING_JSONL_CHARS}-character buffer limit; discarding until the next newline.`;
+            }
+            data = data.slice(0, boundary + 1);
             // Parse each line for JSONL messages and display events
             for (const line of data.split('\n')) {
               const trimmed = line.trim();
               if (!trimmed) continue;
 
               // Try to parse as JSON and call the raw JSONL message callback
-              if (options?.onJsonlMessage) {
-                try {
-                  const rawJson = JSON.parse(trimmed) as Record<string, unknown>;
-                  options.onJsonlMessage(rawJson);
-                } catch {
-                  // Not valid JSON, skip for JSONL callback
+              try {
+                const rawJson = JSON.parse(trimmed) as Record<string, unknown>;
+                if (rawJson && typeof rawJson === 'object') {
+                  if (rawJson.type === 'error' || rawJson.type === 'result') {
+                    executionError ??= this.getClaudeErrorMessage(rawJson);
+                  }
+                  options?.onJsonlMessage?.(rawJson);
                 }
+              } catch {
+                // Not valid JSON or the observer threw; keep processing records.
               }
             }
 
             // Also parse for display events
             const events = this.parseClaudeOutputToEvents(data);
+            if (overflow) {
+              executionError ??= overflow;
+              events.push({ type: 'error', message: overflow });
+            }
             if (events.length > 0) {
               // Call TUI-native segments callback if provided
               if (options?.onStdoutSegments) {
@@ -520,6 +564,21 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
             }
           }
         : options?.onStdout,
+      onEnd: (result) => {
+        try {
+          if (!discardingRecord && pendingOutput.trim()) {
+            const tail = pendingOutput;
+            pendingOutput = '';
+            parsedOptions.onStdout?.(`${tail}\n`);
+          }
+        } finally {
+          if (executionError && (result.status === 'completed' || result.status === 'failed')) {
+            result.status = 'failed';
+            result.error = executionError;
+          }
+          options?.onEnd?.(result);
+        }
+      },
     };
 
     return super.execute(prompt, files, parsedOptions);

@@ -7,6 +7,8 @@ import { getAgentRegistry } from '../registry.js';
 import createDroidAgent from '../droid/index.js';
 import createClaudeAgent from './claude.js';
 import createOpenCodeAgent from './opencode.js';
+import createMiniMaxAgent from './minimax.js';
+import createZaiAgent from './zai.js';
 import createGeminiAgent from './gemini.js';
 import createCodexAgent from './codex.js';
 import createKiroAgent from './kiro.js';
@@ -27,6 +29,8 @@ export function registerBuiltinAgents(): void {
   // Register built-in plugins
   registry.registerBuiltin(createClaudeAgent);
   registry.registerBuiltin(createOpenCodeAgent);
+  registry.registerBuiltin(createMiniMaxAgent);
+  registry.registerBuiltin(createZaiAgent);
   registry.registerBuiltin(createDroidAgent);
   registry.registerBuiltin(createGeminiAgent);
   registry.registerBuiltin(createCodexAgent);
@@ -43,6 +47,8 @@ export function registerBuiltinAgents(): void {
 export {
   createClaudeAgent,
   createOpenCodeAgent,
+  createMiniMaxAgent,
+  createZaiAgent,
   createDroidAgent,
   createGeminiAgent,
   createCodexAgent,
@@ -58,6 +64,8 @@ export {
 // Export Claude JSONL parsing types and utilities
 export type { ClaudeJsonlMessage, JsonlParseResult } from './claude.js';
 export { ClaudeAgentPlugin } from './claude.js';
+export { MiniMaxAgentPlugin } from './minimax.js';
+export { ZaiAgentPlugin } from './zai.js';
 
 // Export new agent plugin classes
 export { GeminiAgentPlugin } from './gemini.js';
