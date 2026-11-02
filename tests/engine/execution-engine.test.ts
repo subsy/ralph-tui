@@ -134,6 +134,69 @@ describe('ExecutionEngine', () => {
   });
 
   describe('engine improvements regressions', () => {
+    test.each(['returned', 'thrown', 'success', 'forced'] as const)(
+      'tracker closure %s gates completion side effects', async mode => {
+        const cwd = await mkdtemp(join(tmpdir(), 'ralph-tracker-close-'));
+        const originalExecute = mockAgentInstance.execute;
+        mockAgentInstance.execute = mock(() => ({
+          executionId: 'tracker-close',
+          promise: Promise.resolve(createSuccessfulExecution(
+            '<promise>COMPLETE</promise>\n' + JSON.stringify({ usage: { input_tokens: 1000000, output_tokens: 0 } }),
+          )),
+          interrupt: () => {},
+          isRunning: () => false,
+        })) as AgentPlugin['execute'];
+        const close = mock(async () => {
+          if (mode === 'thrown') throw new Error('tracker close failed');
+          return { success: mode === 'success', message: 'tracker close failed', error: 'tracker close failed' };
+        });
+        const task = createTrackerTask();
+        engine = new ExecutionEngine(createTestConfig({
+          cwd, autoCommit: true, model: 'sonnet',
+          modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+          cost: { pricing: { sonnet: { inputPer1M: 1, outputPer1M: 0 } } },
+        }));
+        const internal = engine as unknown as {
+          runIteration(task: TrackerTask): Promise<IterationResult>;
+          handleAutoCommit(): Promise<void>;
+          recentDiffSummaries: unknown[];
+          escalationState: { taskAttempts: Map<string, number> };
+        };
+        const commit = spyOn(internal, 'handleAutoCommit').mockResolvedValue();
+        const completed: EngineEvent[] = [];
+        engine.on(event => { if (event.type === 'task:completed') completed.push(event); });
+        try {
+          await engine.initialize({
+            tracker: { ...mockTrackerInstance, completeTask: close } as TrackerPlugin,
+            ...(mode === 'forced' ? { forcedTask: task } : {}),
+          });
+          await writeFile(join(cwd, 'change.txt'), 'uncommitted agent change');
+          const result = await internal.runIteration(task);
+          const success = mode === 'success' || mode === 'forced';
+          expect(result.taskCompleted).toBe(success);
+          expect(result.status).toBe(success ? 'completed' : 'failed');
+          expect(close).toHaveBeenCalledTimes(mode === 'forced' ? 0 : 1);
+          expect(completed).toHaveLength(success ? 1 : 0);
+          expect(commit).toHaveBeenCalledTimes(success ? 1 : 0);
+          if (!success) {
+            expect(result.error).toContain('tracker close failed');
+            expect(result.diffSummary).toBeUndefined();
+            expect(internal.recentDiffSummaries).toEqual([]);
+          }
+          if (mode === 'returned') {
+            expect(result.agentResult?.exitCode).toBe(0);
+            expect(result.usage?.inputTokens).toBe(1000000);
+            expect(engine.getState().costSnapshot?.totalCost).toBe(1);
+            expect(internal.escalationState.taskAttempts.get(task.id)).toBe(1);
+          }
+        } finally {
+          commit.mockRestore();
+          mockAgentInstance.execute = originalExecute;
+          await rm(cwd, { recursive: true, force: true });
+        }
+      },
+    );
+
     test.each(['status', 'prompt'] as const)('stop during %s preparation never launches the agent', async (stage) => {
       const cwd = await mkdtemp(join(tmpdir(), 'ralph-pre-execution-stop-'));
       const originalExecute = mockAgentInstance.execute;

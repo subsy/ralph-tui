@@ -1560,6 +1560,7 @@ export class ExecutionEngine {
       let taskCompleted = completionResult.completed && agentResult.status === 'completed' &&
         agentResult.exitCode === 0 && !agentResult.interrupted && !this.shouldStop;
       let verificationFailure: string | undefined;
+      let completionFailure: string | undefined;
 
       // Run verification gate if task appears complete and verification is enabled
       if (taskCompleted && this.config.verification?.enabled) {
@@ -1631,10 +1632,15 @@ export class ExecutionEngine {
       // will call completeTask after the merge succeeds. This avoids race conditions
       // when multiple workers try to update the tracker concurrently.
       // See: https://github.com/subsy/ralph-tui/issues/275
-      if (taskCompleted) {
-        if (!this.forcedTask) {
-          await this.tracker!.completeTask(task.id, 'Completed by agent');
+      if (taskCompleted && !this.forcedTask) {
+        const trackerResult = await this.tracker!.completeTask(task.id, 'Completed by agent');
+        if (!trackerResult.success) {
+          taskCompleted = false;
+          completionFailure = `Failed to complete task ${task.id}: ${trackerResult.error || trackerResult.message}`;
         }
+      }
+      taskCompleted = taskCompleted && !this.shouldStop;
+      if (taskCompleted) {
         this.emit({
           type: 'task:completed',
           timestamp: new Date().toISOString(),
@@ -1687,7 +1693,7 @@ export class ExecutionEngine {
       let status: IterationStatus;
       if (agentResult.interrupted) {
         status = 'interrupted';
-      } else if (verificationFailure || agentResult.status === 'failed' || agentResult.status === 'timeout') {
+      } else if (verificationFailure || completionFailure || agentResult.status === 'failed' || agentResult.status === 'timeout') {
         status = 'failed';
       } else {
         status = 'completed';
@@ -1701,7 +1707,7 @@ export class ExecutionEngine {
         taskCompleted,
         promiseComplete,
         durationMs,
-        error: verificationFailure,
+        error: verificationFailure ?? completionFailure,
         usage: iterationUsageAccumulator.hasData()
           ? iterationUsageAccumulator.getSummary()
           : summarizeTokenUsageFromOutput(agentResult.stdout),
@@ -1779,7 +1785,7 @@ export class ExecutionEngine {
       });
 
       if (this.config.modelEscalation?.enabled && !agentResult.interrupted &&
-          (agentResult.status === 'failed' || agentResult.status === 'timeout')) {
+          (completionFailure || agentResult.status === 'failed' || agentResult.status === 'timeout')) {
         recordTaskAttempt(task.id, this.escalationState);
       }
 
