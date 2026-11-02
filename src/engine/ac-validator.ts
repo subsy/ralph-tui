@@ -35,7 +35,10 @@ export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
         (existsMatch.index ?? 0) <= (cmdMatch.index ?? 0))) {
       const rawPath = existsMatch[1] ?? existsMatch[2] ?? existsMatch[3] ?? existsMatch[4];
       const path = existsMatch[4] !== undefined ? rawPath.replace(/[.,;:!?)\]]+$/, '') : rawPath;
-      if (!path || (!locationMatch && existsMatch[4] !== undefined && !/[./\\_-]/.test(path))) continue;
+      const explicitFileLocation = locationMatch && /\b(?:files?|paths?|director(?:y|ies))\b/i.test(
+        criterion.slice(0, locationMatch.index),
+      );
+      if (!path || (existsMatch[4] !== undefined && !/[./\\_-]/.test(path) && !explicitFileLocation)) continue;
       const quote = existsMatch[1] !== undefined ? "'" : existsMatch[2] !== undefined ? '"' : existsMatch[3] !== undefined ? '`' : undefined;
       const matchStart = existsMatch.index ?? 0;
       const existenceProse = quote

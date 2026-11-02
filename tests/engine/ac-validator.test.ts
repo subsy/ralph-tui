@@ -16,7 +16,12 @@ import {
 } from '../../src/engine/ac-validator';
 
 describe('parseExecutableCriteria', () => {
-  it.each(['Login form exists', 'A submit button exists', 'Form exists'])(
+  it.each([
+    'Login form exists', 'A submit button exists', 'Form exists',
+    'User exists in database', 'A login button is present in the DOM',
+    'A session is created at startup', 'User exists in database.',
+    'A login button is present in the DOM.', 'A session is created at startup.',
+  ])(
     'does not infer a file from ordinary prose: %s', criterion => {
       expect(parseExecutableCriteria([criterion])).toEqual([]);
       expect(getAcVerificationChecks({ acceptanceCriteria: [criterion] })).toEqual({ files: [], commands: [] });
@@ -30,6 +35,13 @@ describe('parseExecutableCriteria', () => {
     ['missing-file exists', 'missing-file'],
     ['output_file exists', 'output_file'],
     ['"plainfile" exists', 'plainfile'],
+    ['File exists at LICENSE', 'LICENSE'],
+    ['Files exist in LICENSE', 'LICENSE'],
+    ['Directory is present at cache', 'cache'],
+    ['Directories are created at cache', 'cache'],
+    ['Path is created at LICENSE', 'LICENSE'],
+    ['Tests exist in "plainfile"', 'plainfile'],
+    ['Tests exist in output/', 'output/'],
   ])('recognizes unambiguous paths and trims unquoted prose punctuation: %s', (criterion, path) => {
     expect(parseExecutableCriteria([criterion])).toEqual([{ original: criterion, type: 'file-exists', assertion: path }]);
   });
