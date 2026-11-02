@@ -545,7 +545,7 @@ describe('parsePiJsonLine', () => {
       ]);
     });
 
-    test('skips non-text content blocks', () => {
+    test('keeps an invisible boundary for non-text content blocks', () => {
       const line = JSON.stringify({
         type: 'message_end',
         message: {
@@ -556,17 +556,17 @@ describe('parsePiJsonLine', () => {
         },
       });
       const events = parsePiJsonLine(line);
-      expect(events).toEqual([{ type: 'text', content: 'Result' }]);
+      expect(events).toEqual([{ type: 'system' }, { type: 'text', content: 'Result' }]);
     });
 
-    test('skips text blocks with empty text', () => {
+    test('keeps an invisible boundary for empty text blocks', () => {
       const line = JSON.stringify({
         type: 'message_end',
         message: {
           content: [{ type: 'text', text: '' }],
         },
       });
-      expect(parsePiJsonLine(line)).toEqual([]);
+      expect(parsePiJsonLine(line)).toEqual([{ type: 'system' }]);
     });
 
     test('handles missing message', () => {
@@ -582,14 +582,14 @@ describe('parsePiJsonLine', () => {
       expect(parsePiJsonLine(line)).toEqual([]);
     });
 
-    test('skips text blocks where text is not a string', () => {
+    test('keeps an invisible boundary for invalid text blocks', () => {
       const line = JSON.stringify({
         type: 'message_end',
         message: {
           content: [{ type: 'text', text: 42 }],
         },
       });
-      expect(parsePiJsonLine(line)).toEqual([]);
+      expect(parsePiJsonLine(line)).toEqual([{ type: 'system' }]);
     });
   });
 

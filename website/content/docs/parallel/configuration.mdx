@@ -35,6 +35,24 @@ directMerge = false                     # Merge directly to current branch (vs s
 | `always` | Force parallel execution regardless of dependency analysis (may cause more merge conflicts) |
 | `never` | Disable parallel execution entirely; always run sequentially |
 
+## Progress Files
+
+`progressFile` (or `--progress-file`) selects the main progress file. Relative paths
+resolve against the project directory; absolute paths are used as-is. Blank values
+use `.ralph-tui/progress.md`. Sequential execution, resume, reset, and built-in
+prompts use this configured location.
+
+Parallel workers intentionally use `.ralph-tui/progress.md` inside their own
+worktrees, including in their built-in prompts. Worker progress is appended to the
+configured main file without replacing its existing history. Absolute and
+parent-relative main paths are **not** shared directly with workers: this prevents
+concurrent writes and keeps worker progress out of code merges when `.ralph-tui/`
+is gitignored. Keep that runtime directory gitignored in your project. A tracked
+custom main file is not used as a worker's progress file.
+
+Custom prompt templates must use `{{progressFile}}` rather than hardcoding a
+location to follow the sequential/parallel contract.
+
 ## CLI Flags
 
 Override configuration with command-line flags:

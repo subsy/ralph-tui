@@ -105,6 +105,7 @@ beadsDir = ".beads"
 | `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
 | `labels` | string | (empty) | Optional comma-separated label filter |
 | `workingDir` | string | `.` | Working directory for bd commands |
+| `changeFeed` | boolean | `false` | Opt-in native `bd events` wakeups in watch mode (also supported by `beads-bv`) |
 
 <Callout type="info">
 The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
@@ -120,6 +121,44 @@ The Beads tracker reads both legacy `bd --json` payloads and the
 `BD_JSON_ENVELOPE=1` format, which wraps payloads in `{ schema_version, data }`.
 The envelope is also the default in bd v2.0, so no tracker configuration is
 needed for either format.
+
+### Optional Beads 1.3 journal wakeups
+
+For faster idle watch-mode refreshes, enable the journal **in your workspace**
+with `bd config set events-journal true`, then opt Ralph in:
+
+```toml
+tracker = "beads" # or "beads-bv"
+watch = true
+
+[trackerOptions]
+changeFeed = true
+```
+
+Ralph never enables journaling automatically. `BD_EVENTS_JOURNAL=1` enables it
+only for processes inheriting that environment; setting it just for the reader
+does not make other writers emit events.
+
+The feed uses `bd events tail --json --since N --follow`, not `bd serve` or HTTP.
+Events only invalidate selection caches and wake an idle watch. Task lists,
+dependency readiness and task selection still come from authoritative CLI reads;
+event snapshots (including omitted `is_blocked`, meaning false) are not applied
+to a task cache. Bursts coalesce; pause and stop still prevent work starting.
+
+Periodic polling remains enabled because SQL, sync/pull, restores and other
+maintenance can bypass the journal. Older/unsupported CLIs, disabled journals,
+unverifiable workspace/branch identity, malformed or oversized records, unsafe
+integer sequences, hangs and repeated follower failures fall back to polling.
+Proxied backends without `bd branch --json` support also use polling.
+
+Cursors exist only for the subscription lifetime, never on disk. Reconnects
+check `bd context --json` and the active **Dolt** branch, not the git branch;
+changed scope resets the cursor. Scope is also rechecked while following.
+Retention truncation requests an authoritative refresh and replays the retained
+suffix from `floor - 1`; missing history is never treated as a complete mirror.
+No checkpoint is reused by another run or clone. The follower and its timers
+are stopped and awaited on engine stop or tracker disposal. Rust `br` trackers
+and other trackers are unchanged.
 
 ## Multi-Epic Parallel Execution
 

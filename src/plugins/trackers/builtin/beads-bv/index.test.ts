@@ -652,6 +652,41 @@ describe('BeadsBvTrackerPlugin', () => {
   });
 
   describe('scheduleTriageRefresh', () => {
+    test('journal invalidation clears graph/reasoning caches and rejects stale in-flight results', async () => {
+      const plugin = new BeadsBvTrackerPlugin();
+      const state = plugin as unknown as {
+        onTrackerChanged: () => void;
+        bvAvailable: boolean;
+        lastTriageOutput: unknown;
+        lastTriageRefreshAt: number;
+        epicChildrenCache: Map<string, { ids: string[]; cachedAt: number }>;
+        taskReasoningCache: Map<string, unknown>;
+        getCachedEpicChildrenIds: (id: string) => Promise<string[]>;
+        getEpicChildrenIds: () => Promise<string[]>;
+      };
+      state.epicChildrenCache.set('epic', { ids: ['old'], cachedAt: Date.now() });
+      state.taskReasoningCache.set('old', {});
+      state.lastTriageOutput = {};
+      state.lastTriageRefreshAt = Date.now();
+      state.bvAvailable = true;
+      queueSpawnResponse({ command: 'bv', stdout: JSON.stringify({ triage: { recommendations: [{ id: 'old' }] } }) });
+      const triage = plugin.refreshTriage();
+      state.onTrackerChanged();
+      await triage;
+      expect(state.lastTriageOutput).toBeNull();
+      expect(state.taskReasoningCache.size).toBe(0);
+      expect(state.epicChildrenCache.size).toBe(0);
+      expect(state.lastTriageRefreshAt).toBe(0);
+
+      let release!: (ids: string[]) => void;
+      state.getEpicChildrenIds = () => new Promise((resolve) => { release = resolve; });
+      const children = state.getCachedEpicChildrenIds('epic');
+      state.onTrackerChanged();
+      release(['old']);
+      expect(await children).toEqual([]);
+      expect(state.epicChildrenCache.size).toBe(0);
+    });
+
     test('queues a forced refresh while a refresh is already in-flight', async () => {
       const plugin = new BeadsBvTrackerPlugin();
       const state = plugin as unknown as {

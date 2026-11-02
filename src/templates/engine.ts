@@ -25,6 +25,7 @@ import {
   JSON_TEMPLATE,
   JIRA_TEMPLATE,
 } from './builtin.js';
+import { resolveProgressFile } from '../logs/progress.js';
 
 /**
  * Cache for compiled templates to avoid recompilation
@@ -392,6 +393,7 @@ export function buildTemplateVariables(
     notes: (task.metadata?.notes as string) ?? '',
     recentProgress,
     beadsDbPath: computeBeadsDbPath(config),
+    progressFile: computePromptProgressFile(config),
     // New PRD context variables
     prdName,
     prdDescription,
@@ -407,6 +409,24 @@ export function buildTemplateVariables(
     // Diff context from previous iterations (structured change summary)
     diffContext,
   };
+}
+
+/**
+ * Compute the progress file path in the form most useful in a prompt.
+ */
+function computePromptProgressFile(config: Partial<RalphConfig>): string {
+  const cwd = config.cwd ?? process.cwd();
+  const resolved = resolveProgressFile({
+    cwd,
+    progressFile: config.progressFile,
+  });
+  const relative = path.relative(cwd, resolved);
+  const promptPath =
+    relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+      ? relative
+      : resolved;
+
+  return promptPath.replaceAll(path.sep, '/');
 }
 
 /**

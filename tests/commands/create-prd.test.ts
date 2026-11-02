@@ -9,6 +9,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   loadBundledPrdSkill,
+  loadPackagedPrdSkill,
   parseCreatePrdArgs,
   printCreatePrdHelp,
 } from '../../src/commands/create-prd-utils.js';
@@ -219,7 +220,7 @@ describe('create-prd command', () => {
       expect(result).toContain('# Test Skill Content');
     });
 
-    test('returns undefined when skill not found', async () => {
+    test('falls back to the packaged skill when no installed copy is found', async () => {
       const mockAgent = {
         meta: {
           id: 'kiro',
@@ -232,10 +233,10 @@ describe('create-prd command', () => {
       };
 
       const result = await loadBundledPrdSkill(mockAgent as any);
-      expect(result).toBeUndefined();
+      expect(result).toContain('name: ralph-tui-prd');
     });
 
-    test('returns undefined when agent has no skillsPaths', async () => {
+    test('falls back to the packaged skill when agent has no skillsPaths', async () => {
       const mockAgent = {
         meta: {
           id: 'claude',
@@ -244,7 +245,13 @@ describe('create-prd command', () => {
       };
 
       const result = await loadBundledPrdSkill(mockAgent as any);
-      expect(result).toBeUndefined();
+      expect(result).toContain('name: ralph-tui-prd');
+    });
+
+    test('loads the packaged ralph-tui-prd skill', async () => {
+      const result = await loadPackagedPrdSkill();
+
+      expect(result).toContain('name: ralph-tui-prd');
     });
 
     test('prefers personal skills over repo skills', async () => {
@@ -306,6 +313,31 @@ describe('create-prd command', () => {
       process.chdir(originalCwd);
       
       expect(result).toContain('# Repo Skill Content');
+    });
+
+    test('resolves repo skills against the explicit cwd', async () => {
+      const projectDir = join(tempDir, 'explicit-cwd-project');
+      const repoSkillsDir = join(projectDir, '.kiro', 'skills', 'ralph-tui-prd');
+      await mkdir(repoSkillsDir, { recursive: true });
+      await writeFile(
+        join(repoSkillsDir, 'SKILL.md'),
+        '# Explicit Cwd Skill Content'
+      );
+
+      const mockAgent = {
+        meta: {
+          id: 'kiro',
+          name: 'Kiro CLI',
+          skillsPaths: {
+            personal: join(tempDir, 'nonexistent', 'skills'),
+            repo: '.kiro/skills',
+          },
+        },
+      };
+
+      const result = await loadBundledPrdSkill(mockAgent as any, projectDir);
+
+      expect(result).toContain('# Explicit Cwd Skill Content');
     });
   });
 });

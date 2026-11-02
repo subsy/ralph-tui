@@ -19,6 +19,8 @@ let mockSdkCalls: {
   createIssueLabel: Array<{ input: unknown }>;
   project: Array<{ id: string }>;
   projects: number;
+  updateIssue: Array<{ id: string; input: unknown }>;
+  request: Array<{ query: string; variables: Record<string, unknown> }>;
 };
 
 let mockSdkResponses: {
@@ -32,6 +34,7 @@ let mockSdkResponses: {
   createIssueLabel: (input: unknown) => unknown;
   project: (id: string) => unknown;
   projects: () => unknown;
+  request: (query: string, variables: Record<string, unknown>) => unknown;
   viewer: unknown;
 };
 
@@ -47,6 +50,8 @@ function resetMocks(): void {
     createIssueLabel: [],
     project: [],
     projects: 0,
+    updateIssue: [],
+    request: [],
   };
 
   mockSdkResponses = {
@@ -60,6 +65,7 @@ function resetMocks(): void {
     createIssueLabel: () => ({ issueLabel: Promise.resolve({ id: 'label-1', name: 'test' }) }),
     project: () => ({ id: 'proj-1', name: 'Project' }),
     projects: () => ({ nodes: [] }),
+    request: () => ({}),
     viewer: { id: 'user-1', name: 'Test User' },
   };
 }
@@ -70,6 +76,16 @@ mock.module('@linear/sdk', () => {
     LinearClient: class MockLinearClient {
       constructor() {
         // Constructor receives { apiKey } but we don't need it for mocking
+      }
+      client = {
+        request: async (query: string, variables: Record<string, unknown>) => {
+          mockSdkCalls.request.push({ query, variables });
+          return mockSdkResponses.request(query, variables);
+        },
+      };
+      async updateIssue(id: string, input: unknown) {
+        mockSdkCalls.updateIssue.push({ id, input });
+        return {};
       }
       get viewer() {
         return Promise.resolve(mockSdkResponses.viewer);
@@ -381,18 +397,271 @@ describe('RalphLinearClient', () => {
   });
 
   describe('updateIssueState', () => {
-    test('updates issue state', async () => {
-      mockSdkResponses.issue = () => ({
-        id: 'uuid-1',
-        update: (input: unknown) => {
-          expect(input).toEqual({ stateId: 'state-done' });
-          return Promise.resolve({});
+    test('updates issue state with a single mutation', async () => {
+      const client = createClient();
+      await client.updateIssueState('ENG-1', 'state-done');
+      expect(mockSdkCalls.updateIssue).toEqual([
+        { id: 'ENG-1', input: { stateId: 'state-done' } },
+      ]);
+      expect(mockSdkCalls.issue.length).toBe(0);
+    });
+  });
+
+  describe('getIssueSnapshot', () => {
+    const rawIssue = {
+      id: 'uuid-10',
+      identifier: 'ENG-10',
+      title: 'Story',
+      description: 'Body',
+      url: 'https://linear.app/ENG-10',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-02T00:00:00.000Z',
+      state: { type: 'started' },
+      team: { id: 'team-1' },
+      parent: { identifier: 'ENG-1' },
+      assignee: { name: 'jdoe', displayName: 'Jane' },
+      labels: { nodes: [{ name: 'backend' }] },
+      inverseRelations: {
+        nodes: [
+          { type: 'blocks', issue: { id: 'uuid-blocker' } },
+          { type: 'related', issue: { id: 'uuid-related' } },
+        ],
+      },
+    };
+
+    test('flattens all fields from one request', async () => {
+      mockSdkResponses.request = () => ({ issue: rawIssue });
+
+      const client = createClient();
+      const snapshot = await client.getIssueSnapshot('ENG-10');
+
+      expect(mockSdkCalls.request.length).toBe(1);
+      expect(mockSdkCalls.request[0].variables).toEqual({ id: 'ENG-10' });
+      expect(snapshot).toEqual({
+        id: 'uuid-10',
+        identifier: 'ENG-10',
+        title: 'Story',
+        description: 'Body',
+        url: 'https://linear.app/ENG-10',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-02T00:00:00.000Z',
+        stateType: 'started',
+        teamId: 'team-1',
+        parentIdentifier: 'ENG-1',
+        assigneeName: 'Jane',
+        labels: ['backend'],
+        blockedByIds: ['uuid-blocker'],
+      });
+    });
+
+    test('fetches remaining blockers when relations are truncated', async () => {
+      mockSdkResponses.request = (query, variables) => {
+        if (!query.includes('RalphInverseRelations')) {
+          return {
+            issue: {
+              ...rawIssue,
+              inverseRelations: {
+                nodes: [{ type: 'blocks', issue: { id: 'uuid-first-blocker' } }],
+                pageInfo: { hasNextPage: true, endCursor: 'initial' },
+              },
+            },
+          };
+        }
+        return {
+          issue: {
+            inverseRelations: variables.after === 'r1'
+              ? {
+                  nodes: [{ type: 'blocks', issue: { id: 'uuid-blocker-2' } }],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                }
+              : {
+                  nodes: [
+                    { type: 'related', issue: { id: 'uuid-related' } },
+                    { type: 'blocks', issue: { id: 'uuid-blocker-1' } },
+                  ],
+                  pageInfo: { hasNextPage: true, endCursor: 'r1' },
+                },
+          },
+        };
+      };
+
+      const client = createClient();
+      const snapshot = await client.getIssueSnapshot('ENG-10');
+
+      expect(snapshot.blockedByIds).toEqual(['uuid-first-blocker', 'uuid-blocker-1', 'uuid-blocker-2']);
+      expect(mockSdkCalls.request.length).toBe(3);
+      expect(mockSdkCalls.request[1].variables).toEqual({ id: 'uuid-10', after: 'initial' });
+      expect(mockSdkCalls.request[2].variables).toEqual({ id: 'uuid-10', after: 'r1' });
+    });
+
+    test('fetches every label without repeating the initial page', async () => {
+      mockSdkResponses.request = (query, variables) => {
+        if (!query.includes('RalphIssueLabels')) {
+          expect(query).toContain('labels(first: 20) { nodes { name } pageInfo { hasNextPage endCursor } }');
+          return { issue: { ...rawIssue, labels: {
+            nodes: Array.from({ length: 20 }, (_, n) => ({ name: `label-${n}` })),
+            pageInfo: { hasNextPage: true, endCursor: 'l1' },
+          } } };
+        }
+        return { issue: { labels: {
+          nodes: [{ name: variables.after === 'l1' ? 'label-20' : 'filter-me' }],
+          pageInfo: { hasNextPage: variables.after === 'l1', endCursor: 'l2' },
+        } } };
+      };
+
+      const snapshot = await createClient().getIssueSnapshot('ENG-10');
+      expect(snapshot.labels).toHaveLength(22);
+      expect(snapshot.labels.slice(-2)).toEqual(['label-20', 'filter-me']);
+      expect(mockSdkCalls.request.slice(1).map((call) => call.variables)).toEqual([
+        { id: 'uuid-10', after: 'l1' }, { id: 'uuid-10', after: 'l2' },
+      ]);
+    });
+
+    for (const field of ['labels', 'inverseRelations'] as const) {
+      test(`rejects missing and cyclic ${field} pagination cursors`, async () => {
+        for (const cursor of [null, 'initial']) {
+          mockSdkCalls.request = [];
+          mockSdkResponses.request = (query) => ({ issue: query.includes('RalphIssueSnapshot')
+            ? { ...rawIssue, [field]: {
+                nodes: [], pageInfo: { hasNextPage: true, endCursor: 'initial' },
+              } }
+            : { [field]: { nodes: [], pageInfo: { hasNextPage: true, endCursor: cursor } } },
+          });
+          await expect(createClient().getIssueSnapshot('ENG-10')).rejects.toThrow('pagination cursor');
+          expect(mockSdkCalls.request).toHaveLength(2);
+        }
+      });
+    }
+
+    test('makes no follow-up request when relations fit on one page', async () => {
+      mockSdkResponses.request = () => ({
+        issue: {
+          ...rawIssue,
+          inverseRelations: { ...rawIssue.inverseRelations, pageInfo: { hasNextPage: false } },
         },
       });
 
       const client = createClient();
-      await client.updateIssueState('ENG-1', 'state-done');
-      expect(mockSdkCalls.issue.length).toBe(1);
+      await client.getIssueSnapshot('ENG-10');
+      expect(mockSdkCalls.request.length).toBe(1);
+    });
+
+    test('throws not_found when issue is missing', async () => {
+      mockSdkResponses.request = () => ({ issue: null });
+
+      const client = createClient();
+      try {
+        await client.getIssueSnapshot('ENG-999');
+        expect(true).toBe(false);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LinearApiError);
+        expect((err as LinearApiError).kind).toBe('not_found');
+      }
+    });
+
+    for (const [message, kind] of [
+      ['Internal server error', 'unknown'],
+      ['Unauthorized', 'auth'],
+      ['Rate limit exceeded', 'rate_limit'],
+      ['Network request failed', 'network'],
+      ['Entity not found', 'not_found'],
+    ]) {
+      test(`preserves ${kind} snapshot request failures`, async () => {
+        mockSdkResponses.request = () => { throw new Error(message); };
+
+        await expect(createClient().getIssueSnapshot('ENG-10')).rejects.toMatchObject({ kind });
+      });
+    }
+  });
+
+  describe('getChildIssueSnapshots', () => {
+    function rawChild(n: number) {
+      return {
+        id: `uuid-${n}`,
+        identifier: `ENG-${n}`,
+        title: `Child ${n}`,
+        url: `https://linear.app/ENG-${n}`,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+        state: { type: 'unstarted' },
+      };
+    }
+
+    test('fetches one request per page of children', async () => {
+      mockSdkResponses.request = (_query, variables) => ({
+        issue: {
+          children: variables.after
+            ? { nodes: [rawChild(3)], pageInfo: { hasNextPage: false, endCursor: null } }
+            : { nodes: [rawChild(1), rawChild(2)], pageInfo: { hasNextPage: true, endCursor: 'c1' } },
+        },
+      });
+
+      const client = createClient();
+      const children = await client.getChildIssueSnapshots('ENG-1');
+
+      expect(children.map((c) => c.identifier)).toEqual(['ENG-1', 'ENG-2', 'ENG-3']);
+      expect(mockSdkCalls.request.length).toBe(2);
+      expect(mockSdkCalls.request[1].variables.after).toBe('c1');
+      expect(children[0].labels).toEqual([]);
+      expect(children[0].blockedByIds).toEqual([]);
+      expect(mockSdkCalls.issue.length).toBe(0);
+    });
+
+    test('throws instead of looping when the cursor does not advance', async () => {
+      mockSdkResponses.request = () => ({
+        issue: {
+          children: { nodes: [rawChild(1)], pageInfo: { hasNextPage: true, endCursor: 'stuck' } },
+        },
+      });
+
+      const client = createClient();
+      try {
+        await client.getChildIssueSnapshots('ENG-1');
+        expect(true).toBe(false);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LinearApiError);
+        expect((err as LinearApiError).message).toContain('repeated pagination cursor');
+      }
+      expect(mockSdkCalls.request.length).toBe(2);
+    });
+
+    test('rejects missing and cyclic child cursors instead of returning incomplete data', async () => {
+      for (const cursors of [[null], ['c1', 'c2', 'c1']]) {
+        let page = 0;
+        mockSdkResponses.request = () => ({ issue: { children: {
+          nodes: [rawChild(++page)],
+          pageInfo: { hasNextPage: true, endCursor: cursors[page - 1] },
+        } } });
+        await expect(createClient().getChildIssueSnapshots('ENG-1')).rejects.toThrow('pagination cursor');
+        expect(page).toBe(cursors.length);
+      }
+    });
+
+    test('completes nested labels and blockers on later child pages', async () => {
+      mockSdkResponses.request = (query, variables) => {
+        if (query.includes('RalphIssueLabels')) {
+          return { issue: { labels: {
+            nodes: [{ name: 'late-label' }], pageInfo: { hasNextPage: false },
+          } } };
+        }
+        if (query.includes('RalphInverseRelations')) {
+          return { issue: { inverseRelations: {
+            nodes: [{ type: 'blocks', issue: { id: 'uuid-1' } }], pageInfo: { hasNextPage: false },
+          } } };
+        }
+        return { issue: { children: variables.after ? {
+          nodes: [{ ...rawChild(2),
+            labels: { nodes: [{ name: 'early-label' }], pageInfo: { hasNextPage: true, endCursor: 'l1' } },
+            inverseRelations: { nodes: [], pageInfo: { hasNextPage: true, endCursor: 'r1' } },
+          }], pageInfo: { hasNextPage: false },
+        } : {
+          nodes: [rawChild(1)], pageInfo: { hasNextPage: true, endCursor: 'c1' },
+        } } };
+      };
+      const children = await createClient().getChildIssueSnapshots('ENG-1');
+      expect(children[1].labels).toEqual(['early-label', 'late-label']);
+      expect(children[1].blockedByIds).toEqual(['uuid-1']);
+      expect(mockSdkCalls.request).toHaveLength(4);
     });
   });
 

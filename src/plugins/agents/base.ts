@@ -161,11 +161,21 @@ type ResolvedCommand = {
   executablePath: string;
 };
 
+/** Launch details; output streams and execution lifecycle remain owned by the base. */
+export interface AgentLaunchInvocation {
+  command: string;
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+  stdin?: 'pipe' | 'ignore';
+  shell?: boolean;
+}
+
 /**
  * Internal representation of a running execution.
  */
 interface RunningExecution {
   executionId: string;
+  promise: Promise<AgentExecutionResult>;
   process: ChildProcess;
   startedAt: Date;
   stdout: string;
@@ -174,6 +184,7 @@ interface RunningExecution {
   resolve: (result: AgentExecutionResult) => void;
   reject: (error: Error) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
+  timedOut?: boolean;
   options?: AgentExecuteOptions;
   drainFallbackId?: ReturnType<typeof setTimeout>;
   exitCode?: number | null;
@@ -611,6 +622,18 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     options?: AgentExecuteOptions
   ): string[];
 
+  /** Map a resolved executable and plugin arguments to the child invocation. */
+  protected buildLaunchInvocation(
+    command: string,
+    args: string[],
+    options?: AgentExecuteOptions
+  ): AgentLaunchInvocation {
+    return {
+      command,
+      args: [...this.defaultFlags, ...(options?.flags ?? []), ...args],
+    };
+  }
+
   /**
    * Get input to write to stdin after spawning the process.
    * Override in subclasses to provide stdin input (e.g., prompt content).
@@ -655,12 +678,6 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       ...options?.env,
     };
 
-    // Merge flags
-    const allArgs = [...this.defaultFlags, ...(options?.flags ?? []), ...args];
-
-    // Debug: log the command being executed
-    debugLog(`[AGENT] Spawning ${command} with args: ${JSON.stringify(allArgs.slice(0, 10))}... cwd=${options?.cwd}`);
-
     // Create the promise for completion
     let resolvePromise: (result: AgentExecutionResult) => void;
     let rejectPromise: (error: Error) => void;
@@ -671,17 +688,18 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
 
     let pendingInterrupt = false;
 
-    const startProcess = (spawnCommand: string, spawnArgs: string[]): void => {
+    const startProcess = (invocation: AgentLaunchInvocation): void => {
       // Spawn the process
       // On Windows, only wrapper scripts need shell execution.
       // Native executables can be spawned directly to avoid cmd.exe argument rewriting.
       // The prompt will be passed via stdin if getStdinInput returns content
-      const useShell = shouldUseWindowsShell(spawnCommand);
-      const resolvedCommand = useShell ? quoteForWindowsShell(spawnCommand) : spawnCommand;
-      const proc = spawn(resolvedCommand, spawnArgs, {
+      const useShell = invocation.shell ?? shouldUseWindowsShell(invocation.command);
+      const resolvedCommand = useShell ? quoteForWindowsShell(invocation.command) : invocation.command;
+      debugLog(`[AGENT] Spawning ${invocation.command} with args: ${JSON.stringify(invocation.args.slice(0, 10))}... cwd=${options?.cwd}`);
+      const proc = spawn(resolvedCommand, invocation.args, {
         cwd: options?.cwd ?? process.cwd(),
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...env, ...invocation.env },
+        stdio: [invocation.stdin ?? 'pipe', 'pipe', 'pipe'],
         shell: useShell,
       });
 
@@ -698,6 +716,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // Create running execution entry
       const execution: RunningExecution = {
         executionId,
+        promise,
         process: proc,
         startedAt,
         stdout: '',
@@ -773,7 +792,8 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       // Set up timeout if specified
       if (timeout > 0) {
         execution.timeoutId = setTimeout(() => {
-          if (this.executions.has(executionId)) {
+          if (this.executions.has(executionId) && execution.exitAt === undefined) {
+            execution.timedOut = true;
             proc.kill('SIGTERM');
             // Give it 5 seconds to terminate gracefully
             setTimeout(() => {
@@ -807,7 +827,6 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     void resolveSandboxConfig()
       .then(async (sandboxConfig) => {
         let spawnCommand = command;
-        let spawnArgs = allArgs;
 
         if (!this.commandPath) {
           const resolvedCommand = await this.resolveCommandPath();
@@ -844,19 +863,21 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
           spawnCommand = resolvedCommand.executablePath;
         }
 
+        const invocation = this.buildLaunchInvocation(spawnCommand, args, options);
+
         if (sandboxConfig) {
           const wrapper = new SandboxWrapper(
             sandboxConfig,
             this.getSandboxRequirements()
           );
-          const wrapped = wrapper.wrapCommand(spawnCommand, allArgs, {
+          const wrapped = wrapper.wrapCommand(invocation.command, invocation.args, {
             cwd: options?.cwd,
           });
-          spawnCommand = wrapped.command;
-          spawnArgs = wrapped.args;
+          invocation.command = wrapped.command;
+          invocation.args = wrapped.args;
         }
 
-        startProcess(spawnCommand, spawnArgs);
+        startProcess(invocation);
       })
       .catch((error: Error) => {
         const endedAt = new Date();
@@ -914,8 +935,11 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     if (execution.interrupted) {
       return 'interrupted';
     }
+    if (execution.timedOut) {
+      return 'timeout';
+    }
     if (signal === 'SIGTERM' || signal === 'SIGKILL') {
-      return execution.timeoutId ? 'timeout' : 'interrupted';
+      return 'interrupted';
     }
     return code === 0 ? 'completed' : 'failed';
   }
@@ -1085,10 +1109,7 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
     const executionId = this.currentExecutionId;
     return {
       executionId,
-      promise: new Promise((resolve, reject) => {
-        execution.resolve = resolve;
-        execution.reject = reject;
-      }),
+      promise: execution.promise,
       interrupt: () => this.interrupt(executionId),
       isRunning: () => this.executions.has(executionId),
     };

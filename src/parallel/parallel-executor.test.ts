@@ -7,6 +7,9 @@
  */
 
 import { describe, test, expect } from 'bun:test';
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { analyzeTaskGraph, shouldRunParallel } from './task-graph.js';
 import { ParallelExecutor } from './index.js';
 import type { ExecutionScope, TrackerTask, TrackerPlugin } from '../plugins/trackers/types.js';
@@ -14,6 +17,28 @@ import type { RalphConfig } from '../config/types.js';
 import type { ParallelEvent } from './events.js';
 import type { AiResolverCallback } from './conflict-resolver.js';
 import type { MergeOperation, WorkerResult, TaskGraphAnalysis } from './types.js';
+import { resolveProgressFile, resolveWorkerProgressFile } from '../logs/progress.js';
+import { tmpdir } from 'node:os';
+
+async function canCreateSymlinks(): Promise<boolean> {
+  const root = await mkdtemp(join(tmpdir(), 'ralph-symlink-capability-'));
+  try {
+    const target = join(root, 'target');
+    await writeFile(target, 'probe');
+    try {
+      await symlink(target, join(root, 'link'));
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'EACCES') return false;
+      throw error;
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+const symlinksAvailable = await canCreateSymlinks();
 
 /**
  * Helper to create a minimal TrackerTask.
@@ -156,7 +181,7 @@ function createMockTracker(): TrackerPlugin {
 }
 
 /** Create a minimal RalphConfig for testing */
-function createMockConfig(): RalphConfig {
+function createMockConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   return {
     cwd: '/tmp/test-project',
     maxIterations: 5,
@@ -175,6 +200,7 @@ function createMockConfig(): RalphConfig {
       retryDelayMs: 1000,
       continueOnNonZeroExit: false,
     },
+    ...overrides,
   };
 }
 
@@ -192,6 +218,10 @@ function createWorkerResult(task: TrackerTask, overrides: Partial<WorkerResult> 
     ...overrides,
   };
 }
+
+type ParallelExecutorWithProgressMerge = {
+  mergeProgressFile(workerResult: WorkerResult): Promise<void>;
+};
 
 /** Create a merge operation for targeted conflict-queue tests. */
 function createMergeOperation(
@@ -254,6 +284,190 @@ describe('ParallelExecutor class', () => {
       });
 
       expect(executor).toBeInstanceOf(ParallelExecutor);
+    });
+  });
+
+  describe('progress merging', () => {
+    test.each(['.ralph-tui/progress.md', 'notes/progress.md', '../progress.md', '', '   ', 'absolute'])
+      ('preserves main history and aggregates each completion once with %j', async (configuredPath) => {
+        const root = join(tmpdir(), `ralph-progress-contract-${randomUUID()}`);
+        const mainCwd = join(root, 'main');
+        const progressFile = configuredPath === 'absolute' ? join(root, 'absolute.md') : configuredPath;
+        const config = createMockConfig({ cwd: mainCwd, progressFile });
+        const executor = new ParallelExecutor(config, createMockTracker());
+        const merger = executor as unknown as ParallelExecutorWithProgressMerge;
+        const mainPath = resolveProgressFile(config);
+
+        try {
+          await mkdir(dirname(mainPath), { recursive: true });
+          await writeFile(mainPath, 'existing main history\n');
+          for (const id of ['first', 'retry', 'sibling']) {
+            const workerCwd = join(root, id);
+            const workerPath = resolveWorkerProgressFile(workerCwd);
+            await mkdir(dirname(workerPath), { recursive: true });
+            await writeFile(workerPath, `${id} unique learnings\n`);
+            const result = createWorkerResult(task(id), { worktreePath: workerCwd });
+            await merger.mergeProgressFile(result);
+            await merger.mergeProgressFile(result);
+            expect(await readFile(workerPath, 'utf-8')).toBe(`${id} unique learnings\n`);
+          }
+          const merged = await readFile(mainPath, 'utf-8');
+          expect(merged).toStartWith('existing main history\n');
+          for (const id of ['first', 'retry', 'sibling']) {
+            expect(merged.split(`${id} unique learnings`)).toHaveLength(2);
+            expect(merged.split(`## Parallel Task: Task ${id} (${id})`)).toHaveLength(2);
+          }
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      });
+
+    test('retries aggregation after a missing source or unwritable destination', async () => {
+      const root = join(tmpdir(), `ralph-progress-retry-${randomUUID()}`);
+      const workerCwd = join(root, 'worker');
+      const config = createMockConfig({ cwd: join(root, 'main'), progressFile: 'notes/progress.md' });
+      const merger = new ParallelExecutor(config, createMockTracker()) as unknown as ParallelExecutorWithProgressMerge;
+      const result = createWorkerResult(task('retry'), { worktreePath: workerCwd });
+      try {
+        await merger.mergeProgressFile(result);
+        await mkdir(dirname(resolveWorkerProgressFile(workerCwd)), { recursive: true });
+        await writeFile(resolveWorkerProgressFile(workerCwd), 'recovered learnings');
+        await merger.mergeProgressFile(result);
+        const mainPath = resolveProgressFile(config);
+        await mkdir(dirname(mainPath), { recursive: true });
+        await writeFile(mainPath, 'preserved main');
+        await merger.mergeProgressFile(result);
+        await merger.mergeProgressFile(result);
+        expect(await readFile(mainPath, 'utf-8')).toBe(
+          'preserved main\n\n---\n\n## Parallel Task: Task retry (retry)\n\nrecovered learnings'
+        );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    test('git add -A stages a tracked custom main file but not worker progress', async () => {
+      const root = join(tmpdir(), `ralph-progress-staging-${randomUUID()}`);
+      const workerCwd = join(root, 'worker');
+      const git = (...args: string[]) => {
+        const result = Bun.spawnSync(['git', ...args], { cwd: workerCwd });
+        expect(result.exitCode).toBe(0);
+        return result.stdout.toString().trim();
+      };
+      try {
+        await mkdir(dirname(resolveWorkerProgressFile(workerCwd)), { recursive: true });
+        git('init');
+        await writeFile(join(workerCwd, '.gitignore'), '.ralph-tui/\n');
+        await writeFile(join(workerCwd, 'custom-progress.md'), 'main history');
+        git('add', '.gitignore', 'custom-progress.md');
+        await writeFile(resolveWorkerProgressFile(workerCwd), 'worker task entry');
+        await writeFile(join(workerCwd, 'source.ts'), 'export const implemented = true;\n');
+        git('add', '-A');
+        expect(git('diff', '--cached', '--name-only').split('\n')).toEqual([
+          '.gitignore', 'custom-progress.md', 'source.ts',
+        ]);
+        expect(await readFile(join(workerCwd, 'custom-progress.md'), 'utf-8')).toBe('main history');
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    test('merges a relative worker progress file into the main file', async () => {
+      const root = join('/tmp', `ralph-progress-merge-${randomUUID()}`);
+      const mainCwd = join(root, 'main');
+      const workerCwd = join(root, 'worker');
+      const config = createMockConfig({
+        cwd: mainCwd,
+        progressFile: '.ralph-tui/progress.md',
+      });
+      const executor = new ParallelExecutor(config, createMockTracker());
+      const workerProgressPath = resolveWorkerProgressFile(workerCwd);
+      const mainProgressPath = join(mainCwd, config.progressFile);
+
+      try {
+        await mkdir(join(workerCwd, '.ralph-tui'), { recursive: true });
+        await mkdir(join(mainCwd, '.ralph-tui'), { recursive: true });
+        await writeFile(workerProgressPath, 'worker learnings');
+        await writeFile(mainProgressPath, 'main progress');
+
+        await (executor as unknown as ParallelExecutorWithProgressMerge).mergeProgressFile(
+          createWorkerResult(task('T1'), { worktreePath: workerCwd })
+        );
+
+        const merged = await readFile(mainProgressPath, 'utf-8');
+        expect(merged).toContain('main progress');
+        expect(merged).toContain('## Parallel Task: Task T1 (T1)');
+        expect(merged).toContain('worker learnings');
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    const assertProgressAliasUnchanged = async (alias: string) => {
+      const root = join(tmpdir(), `ralph-progress-shared-${randomUUID()}`);
+      const workerCwd = join(root, 'worker');
+      const sharedProgressPath = resolveWorkerProgressFile(workerCwd);
+      const mainProgressPath = alias === 'redundant'
+        ? `${workerCwd}/.ralph-tui/../.ralph-tui/progress.md`
+        : alias === 'exact' ? sharedProgressPath : join(root, 'main.md');
+      const config = createMockConfig({
+        cwd: join(root, 'main'),
+        progressFile: mainProgressPath,
+      });
+      const executor = new ParallelExecutor(config, createMockTracker());
+
+      try {
+        await mkdir(join(workerCwd, '.ralph-tui'), { recursive: true });
+        await writeFile(sharedProgressPath, 'shared progress');
+        if (alias === 'symlink') await symlink(sharedProgressPath, mainProgressPath);
+        if (alias === 'hardlink') await link(sharedProgressPath, mainProgressPath);
+
+        await (executor as unknown as ParallelExecutorWithProgressMerge).mergeProgressFile(
+          createWorkerResult(task('T1'), { worktreePath: workerCwd })
+        );
+
+        expect(await readFile(sharedProgressPath, 'utf-8')).toBe('shared progress');
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    };
+
+    for (const alias of ['exact', 'redundant', 'symlink', 'hardlink']) {
+      test.skipIf(alias === 'symlink' && !symlinksAvailable)(
+        `does not duplicate a worker file through ${alias} alias`,
+        () => assertProgressAliasUnchanged(alias)
+      );
+    }
+
+    test.each([false, true])('merges into a custom main progress path with existing destination=%j', async (existing) => {
+      const root = join('/tmp', `ralph-progress-custom-${randomUUID()}`);
+      const mainCwd = join(root, 'main');
+      const workerCwd = join(root, 'worker');
+      const config = createMockConfig({
+        cwd: mainCwd,
+        progressFile: 'notes/progress.md',
+      });
+      const executor = new ParallelExecutor(config, createMockTracker());
+      const workerProgressPath = resolveWorkerProgressFile(workerCwd);
+      const mainProgressPath = join(mainCwd, 'notes/progress.md');
+
+      try {
+        await mkdir(join(workerCwd, '.ralph-tui'), { recursive: true });
+        await mkdir(join(mainCwd, 'notes'), { recursive: true });
+        await writeFile(workerProgressPath, 'worker learnings');
+        if (existing) await writeFile(mainProgressPath, 'main progress');
+
+        await (executor as unknown as ParallelExecutorWithProgressMerge).mergeProgressFile(
+          createWorkerResult(task('T1'), { worktreePath: workerCwd })
+        );
+
+        const merged = await readFile(mainProgressPath, 'utf-8');
+        expect(merged).toStartWith(existing ? 'main progress' : '\n\n---\n\n');
+        expect(merged).toContain('## Parallel Task: Task T1 (T1)');
+        expect(merged).toContain('worker learnings');
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     });
   });
 

@@ -153,6 +153,31 @@ describe('BaseAgentPlugin', () => {
     agent = new TestAgentPlugin();
   });
 
+  describe('exit status classification', () => {
+    for (const [interrupted, timedOut, code, signal, expected] of [
+      [true, true, 0, null, 'interrupted'],
+      [false, true, 0, null, 'timeout'],
+      [false, true, 7, null, 'timeout'],
+      [false, true, null, 'SIGKILL', 'timeout'],
+      [false, false, 0, null, 'completed'],
+      [false, false, 7, null, 'failed'],
+      [false, false, null, 'SIGTERM', 'interrupted'],
+      [false, false, null, 'SIGKILL', 'interrupted'],
+      [false, false, null, 'SIGUSR2', 'failed'],
+    ] as const) {
+      test(`classifies exit=${code}, signal=${signal}, interrupted=${interrupted}, timedOut=${timedOut}`, () => {
+        const deriveExitStatus = BaseAgentPlugin.prototype['deriveExitStatus'];
+        const timeoutId = setTimeout(() => {}, 5000);
+        try {
+          const execution = { interrupted, timedOut, timeoutId } as Parameters<typeof deriveExitStatus>[0];
+          expect(deriveExitStatus.call(agent, execution, code, signal)).toBe(expected);
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      });
+    }
+  });
+
   describe('findCommandPath', () => {
     test('resolves explicit absolute command paths directly on the filesystem', async () => {
       const tempDir = await mkdtemp(join(tmpdir(), 'ralph-find-cmd-'));

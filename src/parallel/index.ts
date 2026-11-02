@@ -4,9 +4,10 @@
  * git worktrees, and merges results back sequentially with conflict resolution.
  */
 
-import { readFile, writeFile, appendFile, access, constants } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, writeFile, appendFile, access, constants, stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { RalphConfig } from '../config/types.js';
+import { resolveProgressFile, resolveWorkerProgressFile } from '../logs/progress.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import type { EngineEventListener } from '../engine/types.js';
 import { analyzeTaskGraph, shouldRunParallel } from './task-graph.js';
@@ -74,6 +75,7 @@ export class ParallelExecutor {
   private currentGroupIndex = 0;
   private activeWorkers: Worker[] = [];
   private completedResults: WorkerResult[] = [];
+  private readonly mergedProgressResults = new WeakSet<WorkerResult>();
   private totalTasksCompleted = 0;
   private totalTasksFailed = 0;
   private totalMergesCompleted = 0;
@@ -1019,14 +1021,25 @@ export class ParallelExecutor {
    * This allows learnings from completed tasks to be visible to subsequent workers.
    */
   private async mergeProgressFile(workerResult: WorkerResult): Promise<void> {
-    if (!workerResult.worktreePath) return;
+    if (!workerResult.worktreePath || this.mergedProgressResults.has(workerResult)) return;
 
-    const workerProgressPath = join(workerResult.worktreePath, '.ralph-tui', 'progress.md');
-    const mainProgressPath = join(this.config.cwd, '.ralph-tui', 'progress.md');
+    const workerProgressPath = resolveWorkerProgressFile(workerResult.worktreePath);
+    const mainProgressPath = resolveProgressFile(this.baseConfig);
+
+    if (resolve(workerProgressPath) === resolve(mainProgressPath)) return;
 
     try {
       // Check if worker's progress file exists
       await access(workerProgressPath, constants.R_OK);
+
+      const [workerInfo, mainInfo] = await Promise.all([
+        stat(workerProgressPath, { bigint: true }),
+        stat(mainProgressPath, { bigint: true }).catch(() => null),
+      ]);
+      if (
+        mainInfo && workerInfo.ino !== 0n &&
+        workerInfo.dev === mainInfo.dev && workerInfo.ino === mainInfo.ino
+      ) return;
 
       // Read the worker's progress content
       const workerProgress = await readFile(workerProgressPath, 'utf-8');
@@ -1035,6 +1048,7 @@ export class ParallelExecutor {
       // Append to main progress file with a separator
       const separator = `\n\n---\n\n## Parallel Task: ${workerResult.task.title} (${workerResult.task.id})\n\n`;
       await appendFile(mainProgressPath, separator + workerProgress);
+      this.mergedProgressResults.add(workerResult);
     } catch {
       // Silently ignore if worker progress file doesn't exist or can't be read
     }

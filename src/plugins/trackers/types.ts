@@ -384,6 +384,9 @@ export interface TrackerPlugin {
    */
   dispose(): Promise<void>;
 
+  /** Optional invalidation hints; authoritative reads and polling remain required. */
+  subscribeChanges?(listener: () => void): () => Promise<void>;
+
   /**
    * Get the prompt template for this tracker.
    * Each tracker provides its own Handlebars template for rendering prompts.

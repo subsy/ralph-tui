@@ -55,7 +55,7 @@ Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
 
 ## Workflow
 1. Study the epic context above to understand the bigger picture
-2. Study `.ralph-tui/progress.md` for implementation patterns and learnings
+2. Study `{{progressFile}}` for implementation patterns and learnings
 3. **BEFORE implementing**: Review relevant codebase to understand existing patterns
 4. Implement this story following acceptance criteria
 5. Run quality checks: typecheck, lint, test
@@ -68,7 +68,7 @@ Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
 8. Signal completion
 
 ## Before Completing
-APPEND to `.ralph-tui/progress.md`:
+APPEND to `{{progressFile}}`:
 ```
 ## [Date] - {{taskId}}
 - What was implemented
@@ -79,7 +79,7 @@ APPEND to `.ralph-tui/progress.md`:
 ---
 ```
 
-If you discovered a **reusable pattern**, also add it to the `## Codebase Patterns` section at the TOP of progress.md.
+If you discovered a **reusable pattern**, also add it to the `## Codebase Patterns` section at the TOP of `{{progressFile}}`.
 
 ## Stop Condition
 **IMPORTANT**: If the work is already complete, verify it meets acceptance criteria and signal completion immediately.

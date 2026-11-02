@@ -109,7 +109,7 @@ ${BOLD}Template Variables:${RESET}
   ${DIM}Task:${RESET}     {{taskId}}, {{taskTitle}}, {{taskDescription}}, {{acceptanceCriteria}}
             {{type}}, {{status}}, {{priority}}, {{notes}}
   ${DIM}Relations:${RESET} {{dependsOn}}, {{blocks}}, {{labels}}, {{epicId}}, {{epicTitle}}
-  ${DIM}Context:${RESET}  {{trackerName}}, {{agentName}}, {{model}}, {{cwd}}, {{beadsDbPath}}
+  ${DIM}Context:${RESET}  {{trackerName}}, {{agentName}}, {{model}}, {{cwd}}, {{beadsDbPath}}, {{progressFile}}
             {{currentDate}}, {{currentTimestamp}}
   ${DIM}PRD:${RESET}      {{prdName}}, {{prdDescription}}, {{prdContent}}
             {{prdCompletedCount}}, {{prdTotalCount}}

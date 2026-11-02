@@ -16,7 +16,57 @@ import {
   formatToolCallSegments,
   segmentsToPlainText,
   processAgentEvents,
+  extractAgentTextFromEvents,
+  extractAgentTextFromJsonl,
 } from './output-formatting.js';
+
+describe('completion text extraction', () => {
+  test('coalesces adjacent text deltas', () => {
+    expect(extractAgentTextFromEvents([
+      { type: 'text', content: '<promise>COM' },
+      { type: 'text', content: 'PLETE</promise>' },
+    ])).toBe('<promise>COMPLETE</promise>');
+  });
+
+  test('uses a non-whitespace boundary for non-narrative events', () => {
+    for (const type of ['tool_result', 'system'] as const) {
+      const text = extractAgentTextFromEvents([
+        { type: 'text', content: '<promise>' },
+        { type },
+        { type: 'text', content: 'COMPLETE</promise>' },
+      ]);
+      expect(text).toBe('<promise>\0COMPLETE</promise>');
+      expect(text).not.toMatch(/<promise>\s*COMPLETE\s*<\/promise>/i);
+    }
+  });
+
+  test('recognizes records with no display events', () => {
+    expect(extractAgentTextFromJsonl('{"type":"metadata"}', () => [])).toBe('');
+    expect(extractAgentTextFromJsonl('plain text', () => [])).toBe('');
+    expect(extractAgentTextFromJsonl('plain text', () => [], undefined, true)).toBeUndefined();
+  });
+
+  test.each([['<promise>COMPLETE</promise>'], { text: '<promise>COMPLETE</promise>' }, null, undefined, [], 42, true]
+    .map((content) => ({ content })))(
+    'rejects malformed text events without coercion or boundary loss: %j',
+    ({ content }) => {
+      const invalid = { type: 'text' as const, content: content as unknown as string };
+      expect(extractAgentTextFromEvents([invalid])).toBe('');
+      expect(extractAgentTextFromEvents([
+        { type: 'text', content: '<promise>' }, invalid,
+        { type: 'text', content: 'COMPLETE</promise>' },
+      ])).toBe('<promise>\0COMPLETE</promise>');
+    }
+  );
+
+  test('separates text across unstructured lines inside JSONL', () => {
+    const stdout = '{"type":"text","text":"<promise>"}\n[plugin log]\n{"type":"text","text":"COMPLETE</promise>"}';
+    const text = extractAgentTextFromJsonl(stdout, (line) => [
+      { type: 'text', content: (JSON.parse(line) as { text: string }).text },
+    ]);
+    expect(text).toBe('<promise>\0COMPLETE</promise>');
+  });
+});
 
 describe('COLORS', () => {
   test('all color values are ANSI escape codes', () => {

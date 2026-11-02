@@ -413,6 +413,59 @@ export type AgentDisplayEvent =
   | { type: 'system'; subtype?: string; content?: string };
 
 /**
+ * Extract agent-authored text from parsed display events.
+ * Tool results and other non-narrative events are excluded.
+ */
+export function extractAgentTextFromEvents(events: AgentDisplayEvent[]): string {
+  const groups: string[] = [];
+  let text = '';
+  for (const event of events) {
+    if (event.type === 'text' && typeof event.content === 'string') {
+      text += event.content;
+    } else if (text) {
+      groups.push(text);
+      text = '';
+    }
+  }
+  if (text) groups.push(text);
+  return groups.join('\0');
+}
+
+/**
+ * Recognize JSONL independently of display events so skipped records never
+ * fall back to raw stdout. Non-display records also separate narrative groups.
+ * Unrecognized output is only eligible for fallback in explicit text modes.
+ */
+export function extractAgentTextFromJsonl(
+  stdout: string,
+  parseLine: (line: string) => AgentDisplayEvent[],
+  isStructured: (record: Record<string, unknown>) => boolean = (record) =>
+    typeof record.type === 'string',
+  allowPlainText = false
+): string | undefined {
+  let recognized = false;
+  const events: AgentDisplayEvent[] = [];
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const record: unknown = JSON.parse(trimmed);
+      if (record && typeof record === 'object' && !Array.isArray(record) &&
+          isStructured(record as Record<string, unknown>)) {
+        recognized = true;
+        const parsed = parseLine(trimmed);
+        events.push(...(parsed.length ? parsed : [{ type: 'system' } as const]));
+        continue;
+      }
+    } catch {
+      // Unstructured lines are not agent narrative in a recognized JSONL stream.
+    }
+    events.push({ type: 'system' });
+  }
+  return recognized || !allowPlainText ? extractAgentTextFromEvents(events) : undefined;
+}
+
+/**
  * Process agent events and format for display (legacy string version).
  * @param events Array of parsed agent events
  * @returns Formatted string for display

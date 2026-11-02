@@ -189,10 +189,10 @@ async function buildPrompt(
   diffContext?: string
 ): Promise<string> {
   // Load recent progress for context (last 5 iterations)
-  const recentProgress = await getRecentProgressSummary(config.cwd, 5);
+  const recentProgress = await getRecentProgressSummary(config, 5);
 
   // Load codebase patterns from progress.md (if any exist)
-  const codebasePatterns = await getCodebasePatternsForPrompt(config.cwd);
+  const codebasePatterns = await getCodebasePatternsForPrompt(config);
 
   // Get template from tracker plugin (new architecture: templates owned by plugins)
   // Use optional call syntax since not all tracker plugins implement getTemplate
@@ -285,6 +285,11 @@ export class ExecutionEngine {
   private activeIterationSettled = true;
   private timedOutIteration: Promise<IterationResult> | null = null;
   private watchingIdle = false;
+  private trackerChangePending = false;
+  private wakeWatch: (() => void) | undefined;
+  private unsubscribeTrackerChanges: (() => Promise<void>) | undefined;
+  private trackerChangesCleanup: Promise<void> = Promise.resolve();
+  private taskRefresh: Promise<void> | undefined;
   /** Track retry attempts per task */
   private retryCountMap: Map<string, number> = new Map();
   /** Track skipped tasks to avoid retrying them */
@@ -472,6 +477,23 @@ export class ExecutionEngine {
    * Call this when the user wants to manually refresh the task list (e.g., 'r' key).
    */
   async refreshTasks(): Promise<void> {
+    if (this.taskRefresh) return this.taskRefresh;
+    this.taskRefresh = this.refreshTasksInternal();
+    try {
+      await this.taskRefresh;
+    } finally {
+      this.taskRefresh = undefined;
+    }
+  }
+
+  private async refreshWatchTasks(): Promise<void> {
+    if (this.trackerChangePending && this.taskRefresh) await this.taskRefresh;
+    if (this.shouldStop || this.state.status === 'pausing' || this.state.status === 'paused') return;
+    this.trackerChangePending = false;
+    await this.refreshTasks();
+  }
+
+  private async refreshTasksInternal(): Promise<void> {
     if (!this.tracker) {
       return;
     }
@@ -529,10 +551,10 @@ export class ExecutionEngine {
     const trackerTemplate = this.tracker.getTemplate?.();
 
     // Get recent progress summary for context
-    const recentProgress = await getRecentProgressSummary(this.config.cwd, 5);
+    const recentProgress = await getRecentProgressSummary(this.config, 5);
 
     // Get codebase patterns from progress.md (if any exist)
-    const codebasePatterns = await getCodebasePatternsForPrompt(this.config.cwd);
+    const codebasePatterns = await getCodebasePatternsForPrompt(this.config);
 
     // Get PRD context if the tracker supports it
     const prdContext = await this.tracker.getPrdContext?.();
@@ -579,37 +601,40 @@ export class ExecutionEngine {
     this.timedOutIteration = null;
     this.watchingIdle = false;
 
-    // Fetch all tasks including completed for TUI display
-    // Open/in_progress tasks are actionable; completed tasks are for historical view
-    const initialTasks = await this.tracker.getTasks({
-      status: ['open', 'in_progress', 'completed'],
-    });
-
-    this.emit({
-      type: 'engine:started',
-      timestamp: new Date().toISOString(),
-      sessionId: '',
-      totalTasks: this.state.totalTasks, // Only counts open/in_progress
-      tasks: initialTasks,
-    });
-
-    // Warn if sandbox network is disabled but agent requires network
-    if (
-      this.config.sandbox?.enabled &&
-      this.config.sandbox?.network === false &&
-      this.agent!.getSandboxRequirements().requiresNetwork
-    ) {
-      this.emit({
-        type: 'engine:warning',
-        timestamp: new Date().toISOString(),
-        code: 'sandbox-network-conflict',
-        message: `Warning: Agent '${this.config.agent.plugin}' requires network access but --no-network is enabled. LLM API calls will fail.`,
-      });
-    }
-
     try {
+      this.startTrackerChanges();
+
+      // Fetch all tasks including completed for TUI display
+      // Open/in_progress tasks are actionable; completed tasks are for historical view
+      const initialTasks = await this.tracker.getTasks({
+        status: ['open', 'in_progress', 'completed'],
+      });
+
+      this.emit({
+        type: 'engine:started',
+        timestamp: new Date().toISOString(),
+        sessionId: '',
+        totalTasks: this.state.totalTasks, // Only counts open/in_progress
+        tasks: initialTasks,
+      });
+
+      // Warn if sandbox network is disabled but agent requires network
+      if (
+        this.config.sandbox?.enabled &&
+        this.config.sandbox?.network === false &&
+        this.agent!.getSandboxRequirements().requiresNetwork
+      ) {
+        this.emit({
+          type: 'engine:warning',
+          timestamp: new Date().toISOString(),
+          code: 'sandbox-network-conflict',
+          message: `Warning: Agent '${this.config.agent.plugin}' requires network access but --no-network is enabled. LLM API calls will fail.`,
+        });
+      }
+
       await this.runLoop();
     } finally {
+      await this.stopTrackerChanges();
       this.state.status = 'idle';
     }
   }
@@ -695,7 +720,7 @@ export class ExecutionEngine {
             continue;
           }
           try {
-            await this.refreshTasks();
+            await this.refreshWatchTasks();
           } catch (error) {
             this.emitTaskRefreshWarning(error);
           }
@@ -742,7 +767,7 @@ export class ExecutionEngine {
             continue;
           }
           try {
-            await this.refreshTasks();
+            await this.refreshWatchTasks();
           } catch (error) {
             this.emitTaskRefreshWarning(error);
           }
@@ -1505,8 +1530,13 @@ export class ExecutionEngine {
       const durationMs = endedAt.getTime() - startedAt.getTime();
 
       // Check for completion signal
+      // Only the agent's own text can signal completion. Raw stdout for structured
+      // agents includes tool results (file contents), so a file that merely mentions
+      // the signal would otherwise complete the task.
+      const completionScanText =
+        this.agent!.extractAgentText?.(agentResult.stdout, { flags, subagentTracing: supportsTracing }) ?? agentResult.stdout;
       const completionResult = detectCompletion(
-        agentResult,
+        { ...agentResult, stdout: completionScanText },
         this.config.completion?.strategies ?? ['promise-tag'],
       );
       const promiseComplete = completionResult.completed;
@@ -1516,7 +1546,8 @@ export class ExecutionEngine {
       // Exit code 0 alone does NOT indicate task completion - an agent may exit
       // cleanly after asking clarification questions or hitting a blocker.
       // See: https://github.com/subsy/ralph-tui/issues/259
-      let taskCompleted = promiseComplete;
+      let taskCompleted = promiseComplete && agentResult.status === 'completed' &&
+        agentResult.exitCode === 0 && !agentResult.interrupted;
       let verificationFailure: string | undefined;
 
       // Run verification gate if task appears complete and verification is enabled
@@ -1816,11 +1847,13 @@ export class ExecutionEngine {
   private async stopInternal(timeoutMs: number): Promise<void> {
     this.shouldStop = true;
     this.state.status = 'stopping';
+    this.wakeWatch?.();
 
     // Interrupt current execution if any
     if (this.currentExecution) {
       this.currentExecution.interrupt();
     }
+    await this.stopTrackerChanges();
 
     const activeIteration = this.activeIteration;
     this.drainTimedOut = !(await this.waitForActiveIteration(timeoutMs));
@@ -2019,8 +2052,10 @@ export class ExecutionEngine {
     });
 
     try {
+      this.startTrackerChanges();
       await this.runLoop();
     } finally {
+      await this.stopTrackerChanges();
       this.state.status = 'idle';
     }
   }
@@ -2048,11 +2083,46 @@ export class ExecutionEngine {
    */
   private async waitForPollInterval(): Promise<void> {
     let remainingMs = this.config.pollIntervalMs;
-    while (remainingMs > 0 && !this.shouldStop && this.state.status !== 'pausing') {
+    while (remainingMs > 0 && !this.shouldStop && this.state.status !== 'pausing' &&
+      !this.trackerChangePending) {
       const delayMs = Math.min(100, remainingMs);
-      await this.delay(delayMs);
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          clearTimeout(timer);
+          this.wakeWatch = undefined;
+          resolve();
+        };
+        const timer = setTimeout(done, delayMs);
+        this.wakeWatch = done;
+      });
       remainingMs -= delayMs;
     }
+  }
+
+  private startTrackerChanges(): void {
+    if (!this.config.watch || this.unsubscribeTrackerChanges) return;
+    this.trackerChangePending = false;
+    this.unsubscribeTrackerChanges = this.tracker?.subscribeChanges?.(() => {
+      if (this.shouldStop) return;
+      this.trackerChangePending = true;
+      this.wakeWatch?.();
+    });
+  }
+
+  private async stopTrackerChanges(): Promise<void> {
+    const unsubscribe = this.unsubscribeTrackerChanges;
+    this.unsubscribeTrackerChanges = undefined;
+    if (unsubscribe) {
+      this.trackerChangesCleanup = Promise.resolve().then(unsubscribe).catch((error: unknown) => {
+        this.emit({
+          type: 'engine:warning',
+          timestamp: new Date().toISOString(),
+          code: 'tracker-cleanup-failed',
+          message: `Tracker change cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      });
+    }
+    await this.trackerChangesCleanup;
   }
 
   /**

@@ -258,6 +258,15 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
   private pendingForcedTriageRefresh = false;
   private lastTriageRefreshAt = 0;
   private labelScopeWarningShown = false;
+  private changeGeneration = 0;
+
+  protected override onTrackerChanged(): void {
+    this.changeGeneration++;
+    this.invalidateEpicChildrenCache();
+    this.lastTriageOutput = null;
+    this.taskReasoningCache.clear();
+    this.lastTriageRefreshAt = 0;
+  }
 
   override async initialize(config: Record<string, unknown>): Promise<void> {
     // Initialize base beads plugin
@@ -560,6 +569,7 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
       return;
     }
 
+    const generation = this.changeGeneration;
     const args = ['--robot-triage'];
     const labels = this.getLabels();
     if (labels.length > 0) {
@@ -567,6 +577,8 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
     }
 
     const { stdout, exitCode } = await execBv(args, this.getWorkingDir());
+
+    if (generation !== this.changeGeneration) return;
 
     if (exitCode === 0) {
       try {
@@ -738,7 +750,9 @@ export class BeadsBvTrackerPlugin extends BeadsTrackerPlugin {
       return cached.ids;
     }
 
+    const generation = this.changeGeneration;
     const ids = await this.getEpicChildrenIds(epicId);
+    if (generation !== this.changeGeneration) return [];
     this.epicChildrenCache.set(epicId, { ids, cachedAt: Date.now() });
     return ids;
   }
