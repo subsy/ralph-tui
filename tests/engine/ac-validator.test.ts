@@ -27,8 +27,25 @@ describe('parseExecutableCriteria', () => {
     ]);
   });
 
-  it.each(['No files exist in output/', 'Files must not exist in output/', 'Files are not present at output/'])('does not reverse negated criteria: %s', criterion => {
+  it.each([
+    'No files exist in output/', 'Files must not exist in output/', 'Files are not present at output/',
+    "File isn't present at output.txt", 'File isn’t present at output.txt',
+    'No tests exist in output/', 'None of the tests exist in output/',
+    "Files aren't created at output/", 'Files aren’t created at output/',
+    'No generated artifacts exist in output/', 'File is not present at output.txt',
+    'File cannot be present at output.txt',
+    'No tests exist in "node imaginary.cjs"',
+  ])('does not reverse negated criteria: %s', criterion => {
     expect(parseExecutableCriteria([criterion])).toEqual([]);
+    expect(getAcVerificationChecks({ acceptanceCriteria: [criterion] }, true)).toEqual({ files: [], commands: [] });
+  });
+
+  it.each(["'", '"', '`'])('preserves negative words inside %s-quoted literal paths', quote => {
+    for (const path of ['no tests.txt', 'not created.txt', 'never present.txt', 'none.txt', 'without files.txt', 'isn’t present.txt']) {
+      for (const criterion of [`File present at ${quote}${path}${quote}`, `${quote}${path}${quote} exists`]) {
+        expect(parseExecutableCriteria([criterion])).toEqual([{ original: criterion, type: 'file-exists', assertion: path }]);
+      }
+    }
   });
 
   it('extracts backtick command: "Running `bun test` passes" → type command, assertion "bun test"', () => {

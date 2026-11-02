@@ -32,11 +32,18 @@ export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
     // A literal file assertion takes precedence over command-looking filenames.
     if (existsMatch && (!cmdMatch || !looksLikeCommand(cmdMatch[1]) ||
         (existsMatch.index ?? 0) <= (cmdMatch.index ?? 0))) {
-      if (/\b(?:no|without)\s+(?:files?|directories|directory)\b|\b(?:not|never)\s+(?:exists?|created|present|be\s+(?:created|present))\b|\b(?:doesn't|don't|mustn't|shouldn't)\s+exist\b/i.test(criterion)) continue;
+      const path = existsMatch[1] ?? existsMatch[2] ?? existsMatch[3] ?? existsMatch[4];
+      const quote = existsMatch[1] !== undefined ? "'" : existsMatch[2] !== undefined ? '"' : existsMatch[3] !== undefined ? '`' : undefined;
+      const matchStart = existsMatch.index ?? 0;
+      const existenceProse = quote
+        ? criterion.slice(0, matchStart) + existsMatch[0].replace(`${quote}${path}${quote}`, '') +
+          criterion.slice(matchStart + existsMatch[0].length)
+        : criterion;
+      if (/\b(?:no|none|neither|nor|not|never|without|cannot)\b|\b\w+n['’]t\b/i.test(existenceProse)) continue;
       results.push({
         original: criterion,
         type: 'file-exists',
-        assertion: existsMatch[1] ?? existsMatch[2] ?? existsMatch[3] ?? existsMatch[4],
+        assertion: path,
       });
       continue;
     }

@@ -33,6 +33,26 @@ describe('CostTracker', () => {
     expect(tracker.addIteration(1_000_000, 0, 'anthropic/claude-opus-4-6')).toBe(5);
   });
 
+  it.each(['octopus', 'opuslite', 'myopus-v1', 'opus2', 'λopus', 'opusλ'])(
+    'does not price unrelated identifier %s as the opus tier', model => {
+      const tracker = new CostTracker({ opus: { inputPer1M: 3, outputPer1M: 3 } });
+      expect(tracker.addIteration(1_000_000, 0, model)).toBe(0);
+    },
+  );
+
+  it.each(['opus', 'anthropic/opus', 'claude-opus-4-6', 'provider:opus', 'provider.opus', 'provider_opus', 'opus@latest'])(
+    'preserves delimiter-bounded alias %s', model => {
+      const tracker = new CostTracker({ opus: { inputPer1M: 3, outputPer1M: 3 } });
+      expect(tracker.addIteration(1_000_000, 0, model)).toBe(3);
+    },
+  );
+
+  it('treats pricing identifiers as literal strings rather than regex patterns', () => {
+    const tracker = new CostTracker({ 'model.1': { inputPer1M: 3, outputPer1M: 3 } });
+    expect(tracker.addIteration(1_000_000, 0, 'provider/model.1-v2')).toBe(3);
+    expect(tracker.addIteration(1_000_000, 0, 'provider/modelx1-v2')).toBe(0);
+  });
+
   it('does not treat inherited object properties as configured model prices', () => {
     const tracker = new CostTracker({ opus: { inputPer1M: 5, outputPer1M: 25 } });
     expect(tracker.addIteration(1_000_000, 0, 'constructor')).toBe(0);

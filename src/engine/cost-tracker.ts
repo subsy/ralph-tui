@@ -68,7 +68,11 @@ export class CostTracker {
     if (Object.hasOwn(this.pricing, model)) return this.pricing[model];
     // Prefer the most specific configured model identifier.
     const key = Object.keys(this.pricing)
-      .filter(k => k.length > 0 && model.includes(k))
+      .filter(k => {
+        if (k.length === 0) return false;
+        const identifier = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(?:^|[^\\p{L}\\p{N}])${identifier}(?:$|[^\\p{L}\\p{N}])`, 'u').test(model);
+      })
       .sort((a, b) => b.length - a.length)[0];
     return key ? this.pricing[key] : null;
   }
