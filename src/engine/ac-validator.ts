@@ -16,7 +16,7 @@ export interface ExecutableAC {
  *
  * Patterns detected:
  * - Shell commands: strings containing backtick-wrapped commands or starting with "Running"
- * - File existence: "file X exists", "X is created", "Tests exist in X"
+ * - File existence: "file 'X' exists", "path.txt is created", "Tests exist in X"
  */
 export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
   const results: ExecutableAC[] = [];
@@ -24,15 +24,18 @@ export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
   for (const criterion of criteria) {
     const cmdMatch = criterion.match(/[`']([^`']+)[`']/);
     // Detect file/directory existence: "Tests exist in src/__tests__/"
-    const existsMatch = criterion.match(
+    const locationMatch = criterion.match(
       /\b(?:exists?|created|present)\s+(?:in|at)\s+(?:'([^']+)'|"([^"]+)"|`([^`]+)`|([^\s'"`]+))/i
-    ) ?? criterion.match(
+    );
+    const existsMatch = locationMatch ?? criterion.match(
       /(?:'([^']+)'|"([^"]+)"|`([^`]+)`|([^\s'"`]+))\s+(?:exists?|is\s+(?:created|present))\b/i
     );
     // A literal file assertion takes precedence over command-looking filenames.
     if (existsMatch && (!cmdMatch || !looksLikeCommand(cmdMatch[1]) ||
         (existsMatch.index ?? 0) <= (cmdMatch.index ?? 0))) {
-      const path = existsMatch[1] ?? existsMatch[2] ?? existsMatch[3] ?? existsMatch[4];
+      const rawPath = existsMatch[1] ?? existsMatch[2] ?? existsMatch[3] ?? existsMatch[4];
+      const path = existsMatch[4] !== undefined ? rawPath.replace(/[.,;:!?)\]]+$/, '') : rawPath;
+      if (!path || (!locationMatch && existsMatch[4] !== undefined && !/[./\\_-]/.test(path))) continue;
       const quote = existsMatch[1] !== undefined ? "'" : existsMatch[2] !== undefined ? '"' : existsMatch[3] !== undefined ? '`' : undefined;
       const matchStart = existsMatch.index ?? 0;
       const existenceProse = quote

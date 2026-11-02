@@ -40,6 +40,25 @@ import type { BuiltinTemplateType } from '../../src/templates/types.js';
 import Handlebars from 'handlebars';
 
 describe('verification and diff context across tracker templates', () => {
+  test.each(['beads', 'beads-rust', 'beads-bv', 'beads-rust-bv'] as BuiltinTemplateType[])(
+    '%s delegates closure to the engine instead of the agent', type => {
+      const prompt = Handlebars.compile(getBuiltinTemplate(type))({ taskId: 'task-1', beadsDbPath: '.beads/issues.db' });
+      expect(prompt).not.toMatch(/\b(?:bd|br) close\b/);
+      expect(prompt).toContain('The engine owns task closure after the completion checks pass');
+      expect(prompt).toContain('<promise>COMPLETE</promise>');
+    },
+  );
+
+  test.each(['beads', 'beads-rust', 'beads-bv'])(
+    '%s reference template delegates closure to the engine', async type => {
+      const template = await readFile(join(import.meta.dir, '../../src/plugins/trackers/builtin', type, 'template.hbs'), 'utf8');
+      const prompt = Handlebars.compile(template)({ taskId: 'task-1', beadsDbPath: '.beads/issues.db' });
+      expect(prompt).not.toMatch(/\b(?:bd|br) close\b/);
+      expect(prompt).toContain('The engine owns task closure after the completion checks pass');
+      expect(prompt).toContain('<promise>COMPLETE</promise>');
+    },
+  );
+
   test.each(['default', 'beads', 'beads-rust', 'beads-bv', 'beads-rust-bv', 'json', 'jira'] as BuiltinTemplateType[])(
     '%s renders both contexts without HTML escaping', type => {
       const render = Handlebars.compile(getBuiltinTemplate(type));

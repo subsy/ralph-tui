@@ -56,6 +56,7 @@ import type {
 } from '../../engine/index.js';
 import type { ExecutionScope, ScopedTrackerTask, TrackerTask } from '../../plugins/trackers/types.js';
 import type { StoredConfig, SubagentDetailLevel, SandboxConfig, SandboxMode } from '../../config/types.js';
+import { getDefaultAgentConfig } from '../../config/index.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
 import type { SubagentTraceStats, SubagentHierarchyNode } from '../../logs/types.js';
@@ -562,7 +563,10 @@ export async function applyAgentModelSelection(
     await onSaveSettings(nextConfig);
     if (getConfiguredAgentName(storedConfig) === selection.agentName &&
         normalizeModelValue(storedConfig.model) === normalizeModelValue(selection.model)) {
-      const agentConfig = resolveAgentConfigForSelection(selection.agentName, storedConfig.agents ?? []);
+      const agentConfig = getDefaultAgentConfig(nextConfig, {});
+      if (!agentConfig) {
+        throw new Error('No agent configured');
+      }
       await engine.switchToUserAgent(agentConfig, selection.model);
     }
     return;

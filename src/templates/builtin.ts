@@ -135,7 +135,7 @@ The previous attempt signaled completion but verification commands failed. Fix t
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Document learnings (see below)
 8. Signal completion
 
@@ -249,7 +249,7 @@ The previous attempt signaled completion but verification commands failed. Fix t
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Document learnings (see below)
 8. Signal completion
 
@@ -351,7 +351,7 @@ The previous attempt signaled completion but verification commands failed. Fix t
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`br close {{taskId}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Flush tracker state to JSONL (no git side effects): \`br sync --flush-only\`
 8. Document learnings (see below)
 9. Signal completion
@@ -466,7 +466,7 @@ The previous attempt signaled completion but verification commands failed. Fix t
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`br close {{taskId}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Flush tracker state to JSONL (no git side effects): \`br sync --flush-only\`
 8. Document learnings (see below)
 9. Signal completion

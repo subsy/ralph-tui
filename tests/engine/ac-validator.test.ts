@@ -16,6 +16,32 @@ import {
 } from '../../src/engine/ac-validator';
 
 describe('parseExecutableCriteria', () => {
+  it.each(['Login form exists', 'A submit button exists', 'Form exists'])(
+    'does not infer a file from ordinary prose: %s', criterion => {
+      expect(parseExecutableCriteria([criterion])).toEqual([]);
+      expect(getAcVerificationChecks({ acceptanceCriteria: [criterion] })).toEqual({ files: [], commands: [] });
+    },
+  );
+
+  it.each([
+    ['File created at src/foo.ts.', 'src/foo.ts'],
+    ['Files exist at output/report.txt,', 'output/report.txt'],
+    ['verified.txt, exists', 'verified.txt'],
+    ['missing-file exists', 'missing-file'],
+    ['output_file exists', 'output_file'],
+    ['"plainfile" exists', 'plainfile'],
+  ])('recognizes unambiguous paths and trims unquoted prose punctuation: %s', (criterion, path) => {
+    expect(parseExecutableCriteria([criterion])).toEqual([{ original: criterion, type: 'file-exists', assertion: path }]);
+  });
+
+  it.each(["'", '"', '`'])('preserves punctuation in %s-quoted literal filenames', quote => {
+    for (const path of ['report.txt.', 'literal-file!', 'report(1)', 'files[2]']) {
+      for (const criterion of [`File present at ${quote}${path}${quote}`, `${quote}${path}${quote} exists`]) {
+        expect(parseExecutableCriteria([criterion])).toEqual([{ original: criterion, type: 'file-exists', assertion: path }]);
+      }
+    }
+  });
+
   it.each([
     ['verified.txt exists', 'verified.txt'],
     ["File 'verified.txt missing' exists", 'verified.txt missing'],

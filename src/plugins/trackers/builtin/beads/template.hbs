@@ -73,7 +73,7 @@ The previous attempt signaled completion but verification commands failed. Fix t
 {{else}}
 8. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-9. Close the bead: `bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"`
+9. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 10. Document learnings (see below)
 11. Signal completion
 
