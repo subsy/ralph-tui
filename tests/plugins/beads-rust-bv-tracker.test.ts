@@ -849,7 +849,8 @@ describe('BeadsRustBvTrackerPlugin', () => {
         test('returns template with br commands', () => {
             const plugin = new BeadsRustBvTrackerPlugin();
             const tpl = plugin.getTemplate();
-            expect(tpl).toContain('br close');
+            expect(tpl).not.toContain('br close');
+            expect(tpl).toContain('The engine owns task closure');
             expect(tpl).toContain('br sync');
         });
 
