@@ -60,8 +60,19 @@ describe('engine improvement configuration', () => {
     { cost: { pricing: { model: { inputPer1M: -1, outputPer1M: 1 } } } },
     { cost: { pricing: { model: { inputPer1M: 1 } } } },
     { completion: { strategies: ['unknown'] } },
+    { completion: { strategies: ['relaxed-tag'] } },
+    { completion: { strategies: ['heuristic'] } },
+    { completion: { strategies: ['promise-tag', 'heuristic'] } },
+    { verification: { allowAcCommands: 'true' } },
+    { verification: { allowAcCommands: 1 } },
+    { verification: { allowAcCommands: {} } },
   ])('rejects malformed setting %j', (config) => {
     expect(StoredConfigSchema.safeParse(config).success).toBe(false);
+  });
+
+  test.each([true, false])('accepts explicit AC trust boolean %j', (allowAcCommands) => {
+    expect(StoredConfigSchema.parse({ verification: { allowAcCommands } }).verification?.allowAcCommands)
+      .toBe(allowAcCommands);
   });
 });
 

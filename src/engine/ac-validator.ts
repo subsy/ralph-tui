@@ -68,14 +68,14 @@ const SHELL_METACHAR_RE = /[;&|><`$\\{}()!\n\r\0]/;
 /**
  * Convert executable AC into verification commands.
  */
-export function acToVerificationCommands(acs: ExecutableAC[]): string[] {
+export function acToVerificationCommands(acs: ExecutableAC[], allowCommands = false): string[] {
   return acs.map(ac => {
     switch (ac.type) {
       case 'command':
         // Reject commands containing shell metacharacters to prevent injection.
         // Acceptance criteria come from user-authored task files but may be
         // processed by AI agents. This rejects shell syntax, not unsafe programs.
-        if (SHELL_METACHAR_RE.test(ac.assertion)) return '';
+        if (allowCommands !== true || SHELL_METACHAR_RE.test(ac.assertion)) return '';
         return ac.assertion;
       case 'file-exists':
         return `test -e '${shellEscape(ac.assertion)}'`;
@@ -91,7 +91,10 @@ export function acToVerificationCommands(acs: ExecutableAC[]): string[] {
  * Extract acceptance criteria from a task's metadata and convert to
  * verification commands. Returns an empty array if no executable AC found.
  */
-export function getAcVerificationCommands(taskMetadata?: Record<string, unknown>): string[] {
+export function getAcVerificationCommands(
+  taskMetadata?: Record<string, unknown>,
+  allowCommands = false,
+): string[] {
   if (!taskMetadata) return [];
 
   const ac = taskMetadata['acceptanceCriteria'];
@@ -99,5 +102,5 @@ export function getAcVerificationCommands(taskMetadata?: Record<string, unknown>
 
   const criteria = ac.filter((item): item is string => typeof item === 'string');
   const executable = parseExecutableCriteria(criteria);
-  return acToVerificationCommands(executable);
+  return acToVerificationCommands(executable, allowCommands);
 }

@@ -1354,8 +1354,8 @@ export function resolveParallelMode(
   if (options.serial) return 'never';
   if (options.parallel) return 'always';
 
-  // Fall back to stored config. Default to 'auto' to enable dependency-graph-based detection.
-  return storedConfig?.parallel?.mode ?? 'auto';
+  // Fall back to stored config. Parallel execution requires explicit opt-in.
+  return storedConfig?.parallel?.mode ?? 'never';
 }
 
 /**

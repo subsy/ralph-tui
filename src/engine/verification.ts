@@ -25,15 +25,19 @@ export interface CommandResult {
 export async function runVerification(
   cwd: string,
   config: Required<VerificationConfig>,
+  signal?: AbortSignal,
 ): Promise<VerificationResult> {
   const startedAt = Date.now();
   const results: CommandResult[] = [];
 
   for (const command of config.commands) {
+    if (signal?.aborted) break;
     const cmdStart = Date.now();
     const result = await runProcess('sh', ['-c', command], {
       cwd,
       timeout: config.timeoutMs,
+      spawnOptions: { detached: process.platform !== 'win32' },
+      ...(signal ? { signal } : {}),
     });
     results.push({
       command,
@@ -49,7 +53,7 @@ export async function runVerification(
   }
 
   return {
-    passed: results.length === 0 || results.every(r => r.passed),
+    passed: !signal?.aborted && (results.length === 0 || results.every(r => r.passed)),
     results,
     durationMs: Date.now() - startedAt,
   };

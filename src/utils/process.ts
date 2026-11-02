@@ -33,6 +33,8 @@ export interface RunProcessOptions {
   timeout?: number;
   /** Custom spawn options */
   spawnOptions?: SpawnOptions;
+  /** Cancel the process using the same cleanup policy as a deadline. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -43,7 +45,10 @@ export async function runProcess(
   args: string[] = [],
   options: RunProcessOptions = {}
 ): Promise<ProcessResult> {
-  const { cwd, env, timeout = 0, spawnOptions = {} } = options;
+  const { cwd, env, timeout = 0, spawnOptions = {}, signal: abortSignal } = options;
+  if (abortSignal?.aborted) {
+    return { exitCode: null, signal: null, stdout: '', stderr: '', success: false };
+  }
 
   return new Promise((resolve) => {
     const child = spawn(command, args, {
@@ -57,13 +62,17 @@ export async function runProcess(
     let killed = false;
     let timeoutHandle: NodeJS.Timeout | undefined;
 
-    // Set up timeout
-    if (timeout > 0) {
-      timeoutHandle = setTimeout(() => {
-        killed = true;
+    const terminate = (): void => {
+      killed = true;
+      if (spawnOptions.detached && process.platform !== 'win32' && child.pid) {
+        void killProcessTree(child.pid, 'SIGKILL');
+      } else {
         child.kill('SIGTERM');
-      }, timeout);
-    }
+      }
+    };
+
+    // Set up timeout
+    if (timeout > 0) timeoutHandle = setTimeout(terminate, timeout);
 
     // Collect stdout
     child.stdout?.on('data', (data: Buffer) => {
@@ -78,6 +87,7 @@ export async function runProcess(
     // Handle errors
     child.on('error', (error) => {
       if (timeoutHandle) clearTimeout(timeoutHandle);
+      abortSignal?.removeEventListener('abort', terminate);
       resolve({
         exitCode: null,
         signal: null,
@@ -90,14 +100,17 @@ export async function runProcess(
     // Handle completion
     child.on('close', (exitCode, signal) => {
       if (timeoutHandle) clearTimeout(timeoutHandle);
+      abortSignal?.removeEventListener('abort', terminate);
       resolve({
         exitCode,
-        signal: killed ? 'SIGTERM' : signal,
+        signal: killed ? (spawnOptions.detached && process.platform !== 'win32' ? 'SIGKILL' : 'SIGTERM') : signal,
         stdout,
         stderr,
-        success: exitCode === 0,
+        success: !killed && exitCode === 0,
       });
     });
+    abortSignal?.addEventListener('abort', terminate, { once: true });
+    if (abortSignal?.aborted) terminate();
   });
 }
 

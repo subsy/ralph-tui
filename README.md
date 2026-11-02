@@ -204,7 +204,10 @@ enabled = true
 commands = ["bun run typecheck", "bun test"]
 timeoutMs = 60000   # per command (default: 60s)
 maxRetries = 2      # before skipping task (default: 2)
+allowAcCommands = false # separately trust commands inferred from task text (default: false)
 ```
+
+Configured `commands` are explicitly authorized shell commands. Enabling verification does not authorize programs inferred from task acceptance criteria: only literal file-existence checks run automatically. Set `allowAcCommands = true` only for trusted task metadata; permitted programs can modify files or access the network even without shell separators. Malformed/nonboolean trust settings are rejected rather than falling back to a globally trusted value. Exhausted checks use the configured retry/skip/abort error policy and never mark a failed check complete.
 
 ### Model Escalation
 
@@ -222,14 +225,14 @@ Or via CLI: `ralph-tui run --start-model sonnet --escalate-model opus`
 
 ### Completion Detection Strategies
 
-Control how Ralph detects when an agent has finished a task.
+Completion requires an explicit `<promise>COMPLETE</promise>` tag in the agent's own narrative from a successful, uninterrupted execution. Tool results and metadata cannot complete a task.
 
 ```toml
 [completion]
-# Ordered list: first strategy that matches wins
-# Options: "promise-tag" | "relaxed-tag" | "heuristic"
-strategies = ["promise-tag", "relaxed-tag"]
+strategies = ["promise-tag"]
 ```
+
+Alternate relaxed/heuristic implementations are retained but cannot be activated; configuring them is rejected, not silently ignored. Parallel execution also remains opt-in: use `--parallel` or explicitly configure `[parallel] mode = "auto"`; unset mode runs serially. Auto-commit remains off unless explicitly enabled.
 
 ### Cost Tracking
 

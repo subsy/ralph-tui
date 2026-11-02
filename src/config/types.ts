@@ -9,7 +9,6 @@ import type {
   ErrorHandlingConfig,
   ErrorHandlingStrategy,
 } from "../engine/types.js";
-import type { CompletionStrategyName } from "../engine/completion-strategies.js";
 
 /**
  * Rate limit handling configuration for agents.
@@ -512,6 +511,9 @@ export interface VerificationConfig {
   /** Shell commands to run for verification. All must pass (exit code 0). */
   commands?: string[];
 
+  /** Trust commands inferred from task acceptance criteria (default: false). */
+  allowAcCommands?: boolean;
+
   /** Timeout per command in milliseconds (default: 60000) */
   timeoutMs?: number;
 
@@ -522,6 +524,7 @@ export interface VerificationConfig {
 export const DEFAULT_VERIFICATION_CONFIG: Required<VerificationConfig> = {
   enabled: false,
   commands: [],
+  allowAcCommands: false,
   timeoutMs: 60_000, // Valid range: 1000-600000ms
   maxRetries: 2,
 };
@@ -576,8 +579,8 @@ export interface CostConfig {
  * Completion detection strategy configuration.
  */
 export interface CompletionConfig {
-  /** Ordered list of strategies to try (default: ['promise-tag']) */
-  strategies?: CompletionStrategyName[];
+  /** Supported explicit completion policy (default: ['promise-tag']) */
+  strategies?: 'promise-tag'[];
 }
 
 /**

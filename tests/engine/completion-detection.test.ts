@@ -105,25 +105,13 @@ describe('detectCompletion', () => {
     expect(result.matchedStrategy).toBe('promise-tag');
   });
 
-  it('returns first matching strategy', () => {
-    const result = detectCompletion(
-      makeResult('<promise>COMPLETE</promise>'),
-      ['promise-tag', 'relaxed-tag'],
-    );
-    expect(result.matchedStrategy).toBe('promise-tag');
-  });
-
-  it('falls through to second strategy when first does not match', () => {
-    const result = detectCompletion(
-      makeResult('promise: complete'),
-      ['promise-tag', 'relaxed-tag'],
-    );
-    expect(result.completed).toBe(true);
-    expect(result.matchedStrategy).toBe('relaxed-tag');
+  it.each(['relaxed-tag', 'heuristic'] as const)('rejects activation of %s even after a matching tag', (strategy) => {
+    expect(() => detectCompletion(makeResult('<promise>COMPLETE</promise>'), ['promise-tag', strategy]))
+      .toThrow('Only promise-tag completion is supported');
   });
 
   it('returns no match when no strategy matches', () => {
-    const result = detectCompletion(makeResult('Nothing here.'), ['promise-tag', 'relaxed-tag']);
+    const result = detectCompletion(makeResult('Nothing here.'), ['promise-tag']);
     expect(result.completed).toBe(false);
     expect(result.matchedStrategy).toBeNull();
   });
@@ -133,12 +121,17 @@ describe('detectCompletion', () => {
     expect(result.completed).toBe(false);
   });
 
-  it('heuristic active when explicitly configured', () => {
-    const result = detectCompletion(
-      makeResult('all acceptance criteria met', 0),
-      ['heuristic'],
-    );
-    expect(result.completed).toBe(true);
-    expect(result.matchedStrategy).toBe('heuristic');
+  it.each(['promise: complete', 'all checks pass', 'Not all checks pass'])('does not complete on prose %s', (text) => {
+    expect(detectCompletion(makeResult(text)).completed).toBe(false);
+  });
+
+  it.each([1, -1, undefined])('rejects tagged result with exitCode %j', (exitCode) => {
+    expect(detectCompletion({ ...makeResult('<promise>COMPLETE</promise>'), exitCode }).completed).toBe(false);
+  });
+
+  it('rejects interrupted or failed tagged executions', () => {
+    const result = makeResult('<promise>COMPLETE</promise>');
+    expect(detectCompletion({ ...result, interrupted: true }).completed).toBe(false);
+    expect(detectCompletion({ ...result, status: 'failed' }).completed).toBe(false);
   });
 });

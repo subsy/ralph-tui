@@ -74,7 +74,7 @@ import { DEFAULT_VERIFICATION_CONFIG } from '../config/types.js';
 import { getAcVerificationCommands } from './ac-validator.js';
 import { generateDiffSummary, formatDiffContext } from './diff-summarizer.js';
 import type { DiffSummary } from './diff-summarizer.js';
-import { detectCompletion } from './completion-strategies.js';
+import { detectCompletion, promiseTagStrategy } from './completion-strategies.js';
 import { CostTracker } from './cost-tracker.js';
 
 /**
@@ -278,6 +278,7 @@ export class ExecutionEngine {
   private listeners: EngineEventListener[] = [];
   private state: EngineState;
   private currentExecution: AgentExecutionHandle | null = null;
+  private verificationAbortController: AbortController | null = null;
   private shouldStop = false;
   private activeIteration: Promise<IterationResult> | null = null;
   private stopPromise: Promise<void> | null = null;
@@ -1535,31 +1536,33 @@ export class ExecutionEngine {
       // the signal would otherwise complete the task.
       const completionScanText =
         this.agent!.extractAgentText?.(agentResult.stdout, { flags, subagentTracing: supportsTracing }) ?? agentResult.stdout;
+      const completionInput = { ...agentResult, stdout: completionScanText };
       const completionResult = detectCompletion(
-        { ...agentResult, stdout: completionScanText },
+        completionInput,
         this.config.completion?.strategies ?? ['promise-tag'],
       );
-      const promiseComplete = completionResult.completed;
+      const promiseComplete = promiseTagStrategy.detect(completionInput);
 
       // Determine if task was completed
       // IMPORTANT: Only use the explicit <promise>COMPLETE</promise> signal.
       // Exit code 0 alone does NOT indicate task completion - an agent may exit
       // cleanly after asking clarification questions or hitting a blocker.
       // See: https://github.com/subsy/ralph-tui/issues/259
-      let taskCompleted = promiseComplete && agentResult.status === 'completed' &&
-        agentResult.exitCode === 0 && !agentResult.interrupted;
+      let taskCompleted = completionResult.completed && agentResult.status === 'completed' &&
+        agentResult.exitCode === 0 && !agentResult.interrupted && !this.shouldStop;
       let verificationFailure: string | undefined;
 
       // Run verification gate if task appears complete and verification is enabled
       if (taskCompleted && this.config.verification?.enabled) {
         const baseVerifyConfig = { ...DEFAULT_VERIFICATION_CONFIG, ...this.config.verification };
         // Prepend AC-derived commands ahead of configured commands
-        const acCommands = getAcVerificationCommands(task.metadata);
+        const acCommands = getAcVerificationCommands(task.metadata, baseVerifyConfig.allowAcCommands);
         const verifyConfig = {
           ...baseVerifyConfig,
           commands: [...acCommands, ...baseVerifyConfig.commands],
         };
         const verificationRetries = this.verificationRetryMap.get(task.id) ?? 0;
+        this.verificationAbortController = new AbortController();
 
         this.emit({
           type: 'verification:started',
@@ -1568,7 +1571,10 @@ export class ExecutionEngine {
           commands: verifyConfig.commands,
         });
 
-        const verifyResult = await runVerification(this.config.cwd, verifyConfig);
+        const verifyResult = await runVerification(
+          this.config.cwd, verifyConfig, this.verificationAbortController.signal,
+        );
+        this.verificationAbortController = null;
 
         if (verifyResult.passed) {
           this.emit({
@@ -1608,6 +1614,8 @@ export class ExecutionEngine {
         // Agent did not signal completion — clear any stale verification state
         this.lastVerificationErrors = '';
       }
+
+      taskCompleted = taskCompleted && !this.shouldStop;
 
       // Update tracker if task completed
       // In worker mode (forcedTask set), skip tracker update — the ParallelExecutor
@@ -1649,7 +1657,7 @@ export class ExecutionEngine {
       }
 
       // Auto-commit after task completion (before iteration log is saved)
-      if (taskCompleted && this.config.autoCommit) {
+      if (taskCompleted && !this.shouldStop && this.config.autoCommit) {
         await this.handleAutoCommit(task, iteration);
       }
 
@@ -1798,6 +1806,8 @@ export class ExecutionEngine {
         });
       }
       this.currentExecution = null;
+      this.verificationAbortController?.abort();
+      this.verificationAbortController = null;
       this.applyPendingUserAgentSwap();
       this.state.currentTask = null;
     }
@@ -1846,6 +1856,7 @@ export class ExecutionEngine {
 
   private async stopInternal(timeoutMs: number): Promise<void> {
     this.shouldStop = true;
+    this.verificationAbortController?.abort();
     this.state.status = 'stopping';
     this.wakeWatch?.();
 

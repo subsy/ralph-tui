@@ -60,9 +60,23 @@ describe('loadStoredConfig', () => {
     expect(config).toEqual({});
   });
 
+  test.each([
+    '[verification]\nallowAcCommands = "false"',
+    '[verification]\nallowAcCommands = 1',
+    '[completion]\nstrategies = ["heuristic"]',
+    '[completion]\nstrategies = ["promise-tag", "relaxed-tag"]',
+  ])('rejects invalid engine policies without falling back to global trust: %s', async (content) => {
+    await writeTomlConfig(globalConfigPath, { verification: { enabled: true, allowAcCommands: true } });
+    const dir = join(tempDir, '.ralph-tui');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'config.toml'), content);
+    await expect(loadStoredConfig(tempDir, globalConfigPath)).rejects.toThrow('Configuration error');
+    await expect(loadStoredConfigWithSource(tempDir, globalConfigPath)).rejects.toThrow('Configuration error');
+  });
+
   test('engine settings round-trip and project settings override globals', async () => {
     await writeTomlConfig(globalConfigPath, {
-      verification: { enabled: true, commands: ['global check'], timeoutMs: 60000 },
+      verification: { enabled: true, commands: ['global check'], timeoutMs: 60000, allowAcCommands: true },
       modelEscalation: { enabled: true, startModel: 'sonnet', escalateAfter: 2 },
       cost: { enabled: true, alertThreshold: 5, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } } },
       completion: { strategies: ['promise-tag'] },
@@ -70,13 +84,13 @@ describe('loadStoredConfig', () => {
     const projectConfigDir = join(tempDir, '.ralph-tui');
     await mkdir(projectConfigDir, { recursive: true });
     await writeFile(join(projectConfigDir, 'config.toml'), serializeConfig({
-      verification: { commands: ['project check'] },
+      verification: { commands: ['project check'], allowAcCommands: false },
       modelEscalation: { escalateModel: 'opus' },
       cost: { alertThreshold: 10 },
       completion: { strategies: [] },
     }));
     const config = await loadStoredConfig(tempDir, globalConfigPath);
-    expect(config.verification).toEqual({ enabled: true, commands: ['project check'], timeoutMs: 60000 });
+    expect(config.verification).toEqual({ enabled: true, commands: ['project check'], timeoutMs: 60000, allowAcCommands: false });
     expect(config.modelEscalation).toEqual({ enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 2 });
     expect(config.cost).toEqual({
       enabled: true, alertThreshold: 10, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } },

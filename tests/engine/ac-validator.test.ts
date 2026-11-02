@@ -77,7 +77,7 @@ describe('parseExecutableCriteria', () => {
 describe('acToVerificationCommands', () => {
   it('converts command type to raw command string', () => {
     const acs = [{ original: '', type: 'command' as const, assertion: 'bun test' }];
-    expect(acToVerificationCommands(acs)).toEqual(['bun test']);
+    expect(acToVerificationCommands(acs, true)).toEqual(['bun test']);
   });
 
   it('converts file-exists type to test -e shell command', () => {
@@ -112,7 +112,7 @@ describe('getAcVerificationCommands', () => {
     const metadata = {
       acceptanceCriteria: ['Running `bun test` passes', 'UI looks correct'],
     };
-    const result = getAcVerificationCommands(metadata);
+    const result = getAcVerificationCommands(metadata, true);
     expect(result).toEqual(['bun test']);
   });
 
@@ -120,7 +120,7 @@ describe('getAcVerificationCommands', () => {
     const metadata = {
       acceptanceCriteria: ['Running `bun test` passes', 42, null, 'UI looks nice'],
     };
-    const result = getAcVerificationCommands(metadata);
+    const result = getAcVerificationCommands(metadata, true);
     expect(result).toEqual(['bun test']);
   });
 });
@@ -128,10 +128,10 @@ describe('getAcVerificationCommands', () => {
 describe('acToVerificationCommands - security', () => {
   it.each(['\n', '\r', '\r\n', '\0'])('rejects command control separator %j', (separator) => {
     const assertion = `bun test${separator}touch unexpected-file`;
-    expect(acToVerificationCommands([{ original: '', type: 'command', assertion }])).toEqual([]);
+    expect(acToVerificationCommands([{ original: '', type: 'command', assertion }], true)).toEqual([]);
     expect(getAcVerificationCommands({
       acceptanceCriteria: [`Running \`${assertion}\` passes`],
-    })).toEqual([]);
+    }, true)).toEqual([]);
   });
 
   it('does not emit a file-contains command without a target file', () => {
@@ -164,7 +164,23 @@ describe('acToVerificationCommands - security', () => {
       { original: '', type: 'command' as const, assertion: 'bun test | tee /dev/null' },
       { original: '', type: 'command' as const, assertion: 'bun test' }, // safe
     ];
-    const result = acToVerificationCommands(acs);
+    const result = acToVerificationCommands(acs, true);
     expect(result).toEqual(['bun test']); // only the safe command passes through
+  });
+});
+
+describe('acceptance criteria trust boundary', () => {
+  it.each([undefined, false, 'true', 'false', 1, {}, []].map(trust => ({ trust })))('rejects commands without boolean true: %j', ({ trust }) => {
+    const metadata = { acceptanceCriteria: [
+      '`curl https://example.invalid/`', '`git clean -fd`', '`npm install example`',
+      'Files exist at literal-file',
+    ] };
+    expect(getAcVerificationCommands(metadata, trust as boolean)).toEqual(["test -e 'literal-file'"]);
+  });
+
+  it('requires opt-in even for commands with no shell metacharacters', () => {
+    const acs = [{ original: '', type: 'command' as const, assertion: 'node untrusted.js' }];
+    expect(acToVerificationCommands(acs)).toEqual([]);
+    expect(acToVerificationCommands(acs, true)).toEqual(['node untrusted.js']);
   });
 });

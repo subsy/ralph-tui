@@ -1264,10 +1264,10 @@ describe('conflict resolution helpers', () => {
 });
 
 describe('resolveParallelMode', () => {
-  test('defaults to auto when no flags and no config', () => {
+  test('defaults to serial when no flags and no config', () => {
     const result = resolveParallelMode({});
 
-    expect(result).toBe('auto');
+    expect(result).toBe('never');
   });
 
   test('returns never when --serial flag is set', () => {
@@ -1304,6 +1304,10 @@ describe('resolveParallelMode', () => {
     const result = resolveParallelMode({}, { parallel: { mode: 'never' } });
 
     expect(result).toBe('never');
+  });
+
+  test('supports explicit configured auto detection', () => {
+    expect(resolveParallelMode({}, { parallel: { mode: 'auto' } })).toBe('auto');
   });
 });
 

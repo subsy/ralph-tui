@@ -69,6 +69,12 @@ export function detectCompletion(
   agentResult: AgentExecutionResult,
   strategies: CompletionStrategyName[] = ['promise-tag'],
 ): { completed: boolean; matchedStrategy: string | null } {
+  if (strategies.some(name => name !== 'promise-tag')) {
+    throw new Error('Only promise-tag completion is supported; relaxed-tag and heuristic cannot be activated');
+  }
+  if (agentResult.status !== 'completed' || agentResult.exitCode !== 0 || agentResult.interrupted) {
+    return { completed: false, matchedStrategy: null };
+  }
   for (const name of strategies) {
     const strategy = strategyMap[name];
     if (strategy && strategy.detect(agentResult)) {

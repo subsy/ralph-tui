@@ -30,6 +30,7 @@ export const ErrorHandlingConfigSchema = z.object({
 export const VerificationConfigSchema = z.object({
   enabled: z.boolean().optional(),
   commands: z.array(z.string().min(1)).optional(),
+  allowAcCommands: z.boolean().optional(),
   timeoutMs: z.number().int().min(1000).max(600000).optional(),
   maxRetries: z.number().int().min(0).optional(),
 });
@@ -51,7 +52,7 @@ export const CostConfigSchema = z.object({
 });
 
 export const CompletionConfigSchema = z.object({
-  strategies: z.array(z.enum(['promise-tag', 'relaxed-tag', 'heuristic'])).optional(),
+  strategies: z.array(z.literal('promise-tag')).optional(),
 });
 
 /**

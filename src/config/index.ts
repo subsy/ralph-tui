@@ -121,6 +121,8 @@ function normalizeConfigAfterLoad(config: StoredConfig): StoredConfig {
   };
 }
 
+class EnginePolicyConfigError extends Error {}
+
 /**
  * Load and validate a single TOML config file.
  * @param configPath Path to the config file
@@ -142,11 +144,18 @@ async function loadConfigFile(configPath: string): Promise<LoadConfigResult> {
     const result: ConfigParseResult = validateStoredConfig(parsed);
     if (!result.success) {
       const errorMsg = formatConfigErrors(result.errors ?? [], configPath);
+      if (result.errors?.some(({ path }) =>
+        path === 'verification' || path.startsWith('verification.') ||
+        path === 'completion' || path.startsWith('completion.')
+      )) {
+        throw new EnginePolicyConfigError(errorMsg);
+      }
       return { config: {}, exists: true, errors: errorMsg };
     }
 
     return { config: normalizeConfigAfterLoad(result.data as StoredConfig), exists: true };
-  } catch {
+  } catch (error) {
+    if (error instanceof EnginePolicyConfigError) throw error;
     // File doesn't exist or can't be read
     return { config: {}, exists: false };
   }
