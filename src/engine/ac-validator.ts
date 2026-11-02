@@ -22,26 +22,27 @@ export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
   const results: ExecutableAC[] = [];
 
   for (const criterion of criteria) {
-    // Detect shell commands in backticks: "Running `bun test` passes"
     const cmdMatch = criterion.match(/[`']([^`']+)[`']/);
+    const existsMatch = criterion.match(
+      /(?:exist|created|present)\s+(?:in|at)\s+(?:'([^']+)'|"([^"]+)"|`([^`]+)`|([^\s'"`]+))/i
+    );
+    // A literal file assertion takes precedence over command-looking filenames.
+    if (existsMatch && (!cmdMatch || !looksLikeCommand(cmdMatch[1]) ||
+        (existsMatch.index ?? 0) < (cmdMatch.index ?? 0))) {
+      results.push({
+        original: criterion,
+        type: 'file-exists',
+        assertion: existsMatch[1] ?? existsMatch[2] ?? existsMatch[3] ?? existsMatch[4],
+      });
+      continue;
+    }
+
+    // Detect shell commands in backticks: "Running `bun test` passes"
     if (cmdMatch && looksLikeCommand(cmdMatch[1])) {
       results.push({
         original: criterion,
         type: 'command',
         assertion: cmdMatch[1],
-      });
-      continue;
-    }
-
-    // Detect file/directory existence: "Tests exist in src/__tests__/"
-    const existsMatch = criterion.match(
-      /(?:exist|created|present)\s+(?:in|at)\s+[`']?([^\s`']+)[`']?/i
-    );
-    if (existsMatch) {
-      results.push({
-        original: criterion,
-        type: 'file-exists',
-        assertion: existsMatch[1],
       });
       continue;
     }

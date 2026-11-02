@@ -354,6 +354,44 @@ describe('ExecutionEngine', () => {
       }
     });
 
+    test.each([undefined, 'sonnet'])('counts failed results for escalation while honoring model override %s', async (model) => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-escalation-result-'));
+      const originalExecute = mockAgentInstance.execute;
+      const usage = JSON.stringify({ usage: { input_tokens: 1000000, output_tokens: 0 } });
+      let attempts = 0;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'escalation-result',
+        promise: Promise.resolve(++attempts === 1
+          ? createFailedExecution('Failed command', { exitCode: 7, stdout: usage })
+          : createSuccessfulExecution(`${usage}\n<promise>COMPLETE</promise>`)),
+        interrupt: () => {},
+        isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, model,
+        modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+        cost: { pricing: {
+          sonnet: { inputPer1M: 1, outputPer1M: 0 },
+          opus: { inputPer1M: 3, outputPer1M: 0 },
+        } },
+        errorHandling: { strategy: 'retry', maxRetries: 1, retryDelayMs: 0 },
+      }));
+      const internal = engine as unknown as {
+        runIterationWithErrorHandling(task: TrackerTask): Promise<IterationResult>;
+      };
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const result = await internal.runIterationWithErrorHandling(createTrackerTask({ id: 'failed-result-model' }));
+        expect(result.taskCompleted).toBe(true);
+        expect(attempts).toBe(2);
+        expect(engine.getState().currentModel).toBe(model ?? 'opus');
+        expect(engine.getState().costSnapshot?.totalCost).toBe(model ? 2 : 4);
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
     test('model escalation emits an event without writing to the TUI console', async () => {
       const cwd = await mkdtemp(join(tmpdir(), 'ralph-escalation-event-'));
       const originalExecute = mockAgentInstance.execute;

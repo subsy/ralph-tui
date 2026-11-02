@@ -72,6 +72,38 @@ describe('parseExecutableCriteria', () => {
     expect(result[0].type).toBe('file-exists');
     expect(result[0].assertion).toBe('/etc/app.conf');
   });
+
+  it.each(["'", '"', '`'])('checks the full %s-quoted filename rather than an existing prefix', (quote) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ralph-ac-path-'));
+    try {
+      writeFileSync(join(cwd, 'verified.txt'), 'prefix only');
+      const missing = `Tests exist in ${quote}verified.txt missing${quote}`;
+      const commands = getAcVerificationCommands({ acceptanceCriteria: [missing] });
+      expect(commands).toEqual(["test -e 'verified.txt missing'"]);
+      expect(spawnSync('sh', ['-c', commands[0]], { cwd }).status).toBe(1);
+
+      writeFileSync(join(cwd, 'verified file.txt'), 'full path');
+      const present = `Tests exist in ${quote}verified file.txt${quote}`;
+      const checks = getAcVerificationCommands({ acceptanceCriteria: [present] });
+      expect(checks).toEqual(["test -e 'verified file.txt'"]);
+      expect(spawnSync('sh', ['-c', checks[0]], { cwd }).status).toBe(0);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["'", '"', '`'])('treats a %s-quoted command-looking filename as a literal file assertion', (quote) => {
+    expect(getAcVerificationCommands({
+      acceptanceCriteria: [`Files exist at ${quote}node imaginary.cjs${quote}`],
+    })).toEqual(["test -e 'node imaginary.cjs'"]);
+  });
+
+  it('preserves commands that mention file assertion wording in their arguments', () => {
+    const command = 'node check.cjs --message "Files exist at sample.txt"';
+    expect(parseExecutableCriteria([`Running \`${command}\` passes`])).toEqual([
+      { original: `Running \`${command}\` passes`, type: 'command', assertion: command },
+    ]);
+  });
 });
 
 describe('acToVerificationCommands', () => {

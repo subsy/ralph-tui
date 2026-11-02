@@ -1769,6 +1769,11 @@ export class ExecutionEngine {
         result,
       });
 
+      if (this.config.modelEscalation?.enabled && !agentResult.interrupted &&
+          (agentResult.status === 'failed' || agentResult.status === 'timeout')) {
+        recordTaskAttempt(task.id, this.escalationState);
+      }
+
       return result;
     } catch (error) {
       const endedAt = new Date();
