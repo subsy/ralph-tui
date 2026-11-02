@@ -64,6 +64,7 @@ describe('loadStoredConfig', () => {
     '[verification]\nallowAcCommands = "false"',
     '[verification]\nallowAcCommands = 1',
     '[completion]\nstrategies = ["heuristic"]',
+    '[completion]\nstrategies = []',
     '[completion]\nstrategies = ["promise-tag", "relaxed-tag"]',
   ])('rejects invalid engine policies without falling back to global trust: %s', async (content) => {
     await writeTomlConfig(globalConfigPath, { verification: { enabled: true, allowAcCommands: true } });
@@ -87,7 +88,7 @@ describe('loadStoredConfig', () => {
       verification: { commands: ['project check'], allowAcCommands: false },
       modelEscalation: { escalateModel: 'opus' },
       cost: { alertThreshold: 10 },
-      completion: { strategies: [] },
+      completion: { strategies: ['promise-tag'] },
     }));
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config.verification).toEqual({ enabled: true, commands: ['project check'], timeoutMs: 60000, allowAcCommands: false });
@@ -95,7 +96,7 @@ describe('loadStoredConfig', () => {
     expect(config.cost).toEqual({
       enabled: true, alertThreshold: 10, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } },
     });
-    expect(config.completion).toEqual({ strategies: [] });
+    expect(config.completion).toEqual({ strategies: ['promise-tag'] });
   });
 
   test('loads global config file', async () => {
@@ -1022,6 +1023,25 @@ describe('buildConfig - engine improvement settings', () => {
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test.each([
+    { storedEnabled: true, cli: {}, expected: undefined },
+    { storedEnabled: false, cli: {}, expected: 'haiku' },
+    { storedEnabled: undefined, cli: {}, expected: 'haiku' },
+    { storedEnabled: false, cli: { startModel: 'sonnet' }, expected: undefined },
+    { storedEnabled: false, cli: { escalateModel: 'opus' }, expected: undefined },
+    { storedEnabled: true, cli: { model: 'haiku' }, expected: 'haiku' },
+  ])('stored model precedence with escalation: %j', async ({ storedEnabled, cli, expected }) => {
+    const dir = join(tempDir, '.ralph-tui');
+    await mkdir(dir, { recursive: true });
+    await writeTomlConfig(join(dir, 'config.toml'), {
+      agent: 'claude', tracker: 'beads-bv', model: 'haiku',
+      ...(storedEnabled === undefined ? {} : { modelEscalation: { enabled: storedEnabled } }),
+    });
+    const config = await buildConfig({ cwd: tempDir, ...cli });
+    expect(config).not.toBeNull();
+    expect(config!.model).toBe(expected);
   });
 
   for (const { name, stored, cli, expected } of [

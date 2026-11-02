@@ -25,11 +25,14 @@ export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
     const cmdMatch = criterion.match(/[`']([^`']+)[`']/);
     // Detect file/directory existence: "Tests exist in src/__tests__/"
     const existsMatch = criterion.match(
-      /(?:exist|created|present)\s+(?:in|at)\s+(?:'([^']+)'|"([^"]+)"|`([^`]+)`|([^\s'"`]+))/i
+      /\b(?:exists?|created|present)\s+(?:in|at)\s+(?:'([^']+)'|"([^"]+)"|`([^`]+)`|([^\s'"`]+))/i
+    ) ?? criterion.match(
+      /(?:'([^']+)'|"([^"]+)"|`([^`]+)`|([^\s'"`]+))\s+(?:exists?|is\s+(?:created|present))\b/i
     );
     // A literal file assertion takes precedence over command-looking filenames.
     if (existsMatch && (!cmdMatch || !looksLikeCommand(cmdMatch[1]) ||
-        (existsMatch.index ?? 0) < (cmdMatch.index ?? 0))) {
+        (existsMatch.index ?? 0) <= (cmdMatch.index ?? 0))) {
+      if (/\b(?:no|without)\s+(?:files?|directories|directory)\b|\b(?:not|never)\s+(?:exists?|created|present|be\s+(?:created|present))\b|\b(?:doesn't|don't|mustn't|shouldn't)\s+exist\b/i.test(criterion)) continue;
       results.push({
         original: criterion,
         type: 'file-exists',
@@ -105,4 +108,19 @@ export function getAcVerificationCommands(
   const criteria = ac.filter((item): item is string => typeof item === 'string');
   const executable = parseExecutableCriteria(criteria);
   return acToVerificationCommands(executable, allowCommands);
+}
+
+/** Keep literal file checks out of the configured shell's command language. */
+export function getAcVerificationChecks(
+  taskMetadata?: Record<string, unknown>,
+  allowCommands = false,
+): { files: string[]; commands: string[] } {
+  const criteria = taskMetadata?.acceptanceCriteria;
+  const executable = parseExecutableCriteria(
+    Array.isArray(criteria) ? criteria.filter((item): item is string => typeof item === 'string') : [],
+  );
+  return {
+    files: executable.filter(ac => ac.type === 'file-exists').map(ac => ac.assertion),
+    commands: acToVerificationCommands(executable.filter(ac => ac.type === 'command'), allowCommands),
+  };
 }

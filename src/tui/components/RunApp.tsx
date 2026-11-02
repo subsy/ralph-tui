@@ -533,6 +533,48 @@ function addTaskToScopeCount(count: ScopeFilterCount, task: TaskItem): ScopeFilt
   return next;
 }
 
+export async function applyAgentModelSelection(
+  selection: AgentModelSelection,
+  engine: Pick<ExecutionEngine, 'switchToUserAgent'> | undefined,
+  storedConfig?: StoredConfig,
+  onSaveSettings?: (config: StoredConfig) => Promise<void>,
+): Promise<void> {
+  if (!engine) {
+    throw new Error('Agent switching is not available in this mode');
+  }
+
+  if (selection.saveAsDefault) {
+    if (!storedConfig || !onSaveSettings) {
+      throw new Error('Settings save is not available');
+    }
+
+    const nextConfig: StoredConfig = {
+      ...storedConfig,
+      agent: selection.agentName,
+      defaultAgent: selection.agentName,
+    };
+    if (selection.model) {
+      nextConfig.model = selection.model;
+    } else {
+      delete nextConfig.model;
+    }
+
+    await onSaveSettings(nextConfig);
+    if (getConfiguredAgentName(storedConfig) === selection.agentName &&
+        normalizeModelValue(storedConfig.model) === normalizeModelValue(selection.model)) {
+      const agentConfig = resolveAgentConfigForSelection(selection.agentName, storedConfig.agents ?? []);
+      await engine.switchToUserAgent(agentConfig, selection.model);
+    }
+    return;
+  }
+
+  const agentConfig = resolveAgentConfigForSelection(
+    selection.agentName,
+    storedConfig?.agents ?? []
+  );
+  await engine.switchToUserAgent(agentConfig, selection.model);
+}
+
 /**
  * Main RunApp component for execution view
  */
@@ -1186,36 +1228,7 @@ export function RunApp({
 
   const handleAgentModelConfirm = useCallback(
     async (selection: AgentModelSelection): Promise<void> => {
-      if (!engine) {
-        throw new Error('Agent switching is not available in this mode');
-      }
-
-      if (selection.saveAsDefault) {
-        if (!storedConfig || !onSaveSettings) {
-          throw new Error('Settings save is not available');
-        }
-
-        const nextConfig: StoredConfig = {
-          ...storedConfig,
-          agent: selection.agentName,
-          defaultAgent: selection.agentName,
-        };
-        if (selection.model) {
-          nextConfig.model = selection.model;
-        } else {
-          delete nextConfig.model;
-        }
-
-        await onSaveSettings(nextConfig);
-        setDetectedModel(selection.model ?? '');
-        return;
-      }
-
-      const agentConfig = resolveAgentConfigForSelection(
-        selection.agentName,
-        storedConfig?.agents ?? []
-      );
-      await engine.switchToUserAgent(agentConfig, selection.model);
+      await applyAgentModelSelection(selection, engine, storedConfig, onSaveSettings);
       setDetectedModel(selection.model ?? '');
     },
     [engine, onSaveSettings, storedConfig]

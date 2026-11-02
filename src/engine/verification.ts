@@ -5,6 +5,8 @@
  */
 
 import { runProcess } from '../utils/process.js';
+import { stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { VerificationConfig } from '../config/types.js';
 
 export interface VerificationResult {
@@ -26,17 +28,34 @@ export async function runVerification(
   cwd: string,
   config: Required<VerificationConfig>,
   signal?: AbortSignal,
+  files: string[] = [],
 ): Promise<VerificationResult> {
   const startedAt = Date.now();
   const results: CommandResult[] = [];
 
+  for (const file of files) {
+    if (signal?.aborted) break;
+    const cmdStart = Date.now();
+    let error = '';
+    try {
+      await stat(resolve(cwd, file));
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    results.push({
+      command: `File exists: ${file}`, exitCode: error ? 1 : 0,
+      stdout: '', stderr: error, passed: !error, durationMs: Date.now() - cmdStart,
+    });
+    if (error) return { passed: false, results, durationMs: Date.now() - startedAt };
+  }
+
   for (const command of config.commands) {
     if (signal?.aborted) break;
     const cmdStart = Date.now();
-    const result = await runProcess('sh', ['-c', command], {
+    const result = await runProcess(command, [], {
       cwd,
       timeout: config.timeoutMs,
-      spawnOptions: { detached: process.platform !== 'win32' },
+      spawnOptions: { shell: true, detached: process.platform !== 'win32' },
       ...(signal ? { signal } : {}),
     });
     results.push({

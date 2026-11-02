@@ -71,7 +71,7 @@ import { renderPrompt } from '../templates/index.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
 import { runVerification, formatVerificationErrors } from './verification.js';
 import { DEFAULT_VERIFICATION_CONFIG } from '../config/types.js';
-import { getAcVerificationCommands } from './ac-validator.js';
+import { getAcVerificationChecks } from './ac-validator.js';
 import { generateDiffSummary, formatDiffContext } from './diff-summarizer.js';
 import type { DiffSummary } from './diff-summarizer.js';
 import { detectCompletion, promiseTagStrategy } from './completion-strategies.js';
@@ -1137,6 +1137,12 @@ export class ExecutionEngine {
     const startedAt = new Date();
     const iteration = this.state.currentIteration;
 
+    const stoppedResult = (): IterationResult => ({
+      iteration, task, status: 'interrupted', taskCompleted: false, promiseComplete: false,
+      startedAt: startedAt.toISOString(), endedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt.getTime(),
+    });
+
     this.emit({
       type: 'iteration:started',
       timestamp: startedAt.toISOString(),
@@ -1162,10 +1168,12 @@ export class ExecutionEngine {
 
     // Update task status to in_progress
     await this.tracker!.updateTaskStatus(task.id, 'in_progress');
+    if (this.shouldStop) return stoppedResult();
 
     // Build prompt with verification feedback and cross-iteration context.
     const diffContext = formatDiffContext(this.recentDiffSummaries);
     const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined, this.lastVerificationErrors || undefined, diffContext || undefined);
+    if (this.shouldStop) return stoppedResult();
 
     // Build agent flags
     const flags: string[] = [];
@@ -1325,6 +1333,7 @@ export class ExecutionEngine {
       }
 
       // Execute agent with subagent tracing if supported
+      if (this.shouldStop) return stoppedResult();
       const handle = this.agent!.execute(prompt, [], {
         cwd: this.config.cwd,
         flags,
@@ -1555,11 +1564,11 @@ export class ExecutionEngine {
       // Run verification gate if task appears complete and verification is enabled
       if (taskCompleted && this.config.verification?.enabled) {
         const baseVerifyConfig = { ...DEFAULT_VERIFICATION_CONFIG, ...this.config.verification };
-        // Prepend AC-derived commands ahead of configured commands
-        const acCommands = getAcVerificationCommands(task.metadata, baseVerifyConfig.allowAcCommands);
+        // Keep literal AC checks native; prepend opted-in commands to configured commands.
+        const acChecks = getAcVerificationChecks(task.metadata, baseVerifyConfig.allowAcCommands);
         const verifyConfig = {
           ...baseVerifyConfig,
-          commands: [...acCommands, ...baseVerifyConfig.commands],
+          commands: [...acChecks.commands, ...baseVerifyConfig.commands],
         };
         const verificationRetries = this.verificationRetryMap.get(task.id) ?? 0;
         this.verificationAbortController = new AbortController();
@@ -1568,11 +1577,11 @@ export class ExecutionEngine {
           type: 'verification:started',
           timestamp: new Date().toISOString(),
           task,
-          commands: verifyConfig.commands,
+          commands: [...acChecks.files.map(file => `File exists: ${file}`), ...verifyConfig.commands],
         });
 
         const verifyResult = await runVerification(
-          this.config.cwd, verifyConfig, this.verificationAbortController.signal,
+          this.config.cwd, verifyConfig, this.verificationAbortController.signal, acChecks.files,
         );
         this.verificationAbortController = null;
 
@@ -1598,19 +1607,19 @@ export class ExecutionEngine {
             retriesRemaining,
           });
 
+          if (this.config.modelEscalation?.enabled && !this.shouldStop) {
+            recordTaskAttempt(task.id, this.escalationState);
+          }
+
           if (verificationRetries >= verifyConfig.maxRetries) {
             verificationFailure = this.lastVerificationErrors;
             this.verificationRetryMap.set(task.id, verificationRetries);
           } else {
             // Store errors for injection into next retry prompt and suppress completion
             this.verificationRetryMap.set(task.id, verificationRetries + 1);
-            // Record attempt for model escalation (verification failure counts as a failed attempt)
-            if (this.config.modelEscalation?.enabled) {
-              recordTaskAttempt(task.id, this.escalationState);
-            }
           }
         }
-      } else if (!promiseComplete) {
+      } else if (!promiseComplete && !this.verificationRetryMap.has(task.id)) {
         // Agent did not signal completion — clear any stale verification state
         this.lastVerificationErrors = '';
       }

@@ -134,6 +134,43 @@ describe('ExecutionEngine', () => {
   });
 
   describe('engine improvements regressions', () => {
+    test.each(['status', 'prompt'] as const)('stop during %s preparation never launches the agent', async (stage) => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-pre-execution-stop-'));
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(originalExecute) as AgentPlugin['execute'];
+      let entered!: () => void;
+      let release!: () => void;
+      const waiting = new Promise<void>(resolve => { entered = resolve; });
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const tracker = {
+        ...mockTrackerInstance,
+        updateTaskStatus: async () => { if (stage === 'status') { entered(); await pending; } },
+        getPrdContext: async () => { if (stage === 'prompt') { entered(); await pending; } return null; },
+      } as TrackerPlugin;
+      engine = new ExecutionEngine(createTestConfig({ cwd, autoCommit: true }));
+      const internal = engine as unknown as {
+        runIteration(task: TrackerTask): Promise<IterationResult>;
+        activeIteration: Promise<IterationResult>;
+      };
+      try {
+        await engine.initialize({ tracker });
+        const iteration = internal.runIteration(createTrackerTask());
+        internal.activeIteration = iteration;
+        await waiting;
+        const stopping = engine.stop(1000);
+        release();
+        const result = await iteration;
+        await stopping;
+        expect(result.status).toBe('interrupted');
+        expect(result.taskCompleted).toBe(false);
+        expect(mockAgentInstance.execute).not.toHaveBeenCalled();
+      } finally {
+        release();
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
     test.each(['verification:started', 'verification:passed'])(
       'stop at %s cannot complete the tracker or auto-commit', async (stopEvent) => {
         const cwd = await mkdtemp(join(tmpdir(), 'ralph-verify-stop-'));
@@ -224,12 +261,13 @@ describe('ExecutionEngine', () => {
       }
     });
 
-    test('verification retries remain incomplete until checks pass', async () => {
+    test('verification feedback survives an incomplete retry until checks pass', async () => {
       const cwd = await mkdtemp(join(tmpdir(), 'ralph-verification-retry-'));
       const originalExecute = mockAgentInstance.execute;
+      let attempts = 0;
       mockAgentInstance.execute = mock(() => ({
         executionId: 'verify-retry-test',
-        promise: Promise.resolve(createSuccessfulExecution('<promise>COMPLETE</promise>')),
+        promise: Promise.resolve(createSuccessfulExecution(++attempts === 2 ? 'Working on it' : '<promise>COMPLETE</promise>')),
         interrupt: () => {},
         isRunning: () => false,
       })) as AgentPlugin['execute'];
@@ -249,6 +287,8 @@ describe('ExecutionEngine', () => {
         expect(first.taskCompleted).toBe(false);
         expect(complete).not.toHaveBeenCalled();
         expect(engine.getState().tasksCompleted).toBe(0);
+        const incomplete = await internal.runIterationWithErrorHandling(task);
+        expect(incomplete.taskCompleted).toBe(false);
         await writeFile(join(cwd, 'verified'), '');
         const second = await internal.runIterationWithErrorHandling(task);
         expect(second.taskCompleted).toBe(true);
@@ -258,6 +298,8 @@ describe('ExecutionEngine', () => {
         expect(events.filter(event => event.type === 'verification:failed')).toHaveLength(1);
         expect(events.filter(event => event.type === 'verification:passed')).toHaveLength(1);
         expect((mockAgentInstance.execute as ReturnType<typeof mock>).mock.calls[1][0])
+          .toContain('Verification command failed');
+        expect((mockAgentInstance.execute as ReturnType<typeof mock>).mock.calls[2][0])
           .toContain('Verification command failed');
       } finally {
         mockAgentInstance.execute = originalExecute;
@@ -386,6 +428,40 @@ describe('ExecutionEngine', () => {
         expect(attempts).toBe(2);
         expect(engine.getState().currentModel).toBe(model ?? 'opus');
         expect(engine.getState().costSnapshot?.totalCost).toBe(model ? 2 : 4);
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('counts exhausted verification once before general retry escalation', async () => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-exhausted-escalation-'));
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'exhausted-verification',
+        promise: Promise.resolve(createSuccessfulExecution('<promise>COMPLETE</promise>')),
+        interrupt: () => {}, isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+        verification: { enabled: true, maxRetries: 0, commands: ['exit 1'] },
+        errorHandling: { strategy: 'retry', maxRetries: 1, retryDelayMs: 0 },
+      }));
+      const internal = engine as unknown as {
+        runIterationWithErrorHandling(task: TrackerTask): Promise<IterationResult>;
+        escalationState: { taskAttempts: Map<string, number> };
+      };
+      const counts: Array<number | undefined> = [];
+      engine.on(event => {
+        if (event.type === 'iteration:completed') counts.push(internal.escalationState.taskAttempts.get('exhausted'));
+      });
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const result = await internal.runIterationWithErrorHandling(createTrackerTask({ id: 'exhausted' }));
+        expect(result.status).toBe('failed');
+        const calls = (mockAgentInstance.execute as ReturnType<typeof mock>).mock.calls;
+        expect(calls.map(call => call[2].flags)).toEqual([['--model', 'sonnet'], ['--model', 'opus']]);
+        expect(counts).toEqual([1, 2]);
       } finally {
         mockAgentInstance.execute = originalExecute;
         await rm(cwd, { recursive: true, force: true });

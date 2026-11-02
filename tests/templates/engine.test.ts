@@ -36,6 +36,30 @@ import {
 } from '../../src/templates/builtin.js';
 import type { TrackerTask } from '../../src/plugins/trackers/types.js';
 import type { RalphConfig } from '../../src/config/types.js';
+import type { BuiltinTemplateType } from '../../src/templates/types.js';
+import Handlebars from 'handlebars';
+
+describe('verification and diff context across tracker templates', () => {
+  test.each(['default', 'beads', 'beads-rust', 'beads-bv', 'beads-rust-bv', 'json', 'jira'] as BuiltinTemplateType[])(
+    '%s renders both contexts without HTML escaping', type => {
+      const render = Handlebars.compile(getBuiltinTemplate(type));
+      const context = { verificationErrors: 'check failed: <file> & stderr', diffContext: 'diff: <file> & changes' };
+      const prompt = render(context);
+      expect(prompt).toContain(context.verificationErrors);
+      expect(prompt).toContain(context.diffContext);
+      expect(render({})).not.toContain('Previous Verification Failures');
+    },
+  );
+
+  test.each(['beads', 'beads-rust', 'beads-bv', 'json', 'jira'])(
+    '%s reference template renders both contexts', async type => {
+      const template = await readFile(join(import.meta.dir, '../../src/plugins/trackers/builtin', type, 'template.hbs'), 'utf8');
+      const prompt = Handlebars.compile(template)({ verificationErrors: 'failed check', diffContext: 'previous changes' });
+      expect(prompt).toContain('failed check');
+      expect(prompt).toContain('previous changes');
+    },
+  );
+});
 
 // ============================================================================
 // Helper Functions

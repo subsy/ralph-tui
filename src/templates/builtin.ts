@@ -33,6 +33,22 @@ export const DEFAULT_TEMPLATE = `## Task
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Instructions
 Complete the task described above.
 
@@ -91,6 +107,22 @@ export const BEADS_TEMPLATE = `{{!-- Full PRD for project context (agent studies
 {{#if recentProgress}}
 ## Recent Progress
 {{recentProgress}}
+{{/if}}
+
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
 {{/if}}
 
 ## Workflow
@@ -191,6 +223,22 @@ Completing this task will unblock: {{blocks}}
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
 2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
@@ -275,6 +323,22 @@ export const BEADS_RUST_TEMPLATE = `{{!-- Full PRD for project context (agent st
 {{#if recentProgress}}
 ## Recent Progress
 {{recentProgress}}
+{{/if}}
+
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
 {{/if}}
 
 ## Workflow
@@ -374,6 +438,22 @@ Completing this task will unblock: {{blocks}}
 {{#if recentProgress}}
 ## Recent Progress
 {{recentProgress}}
+{{/if}}
+
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
 {{/if}}
 
 ## Workflow
@@ -561,6 +641,22 @@ Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
 {{#if recentProgress}}
 ## Recent Progress
 {{recentProgress}}
+{{/if}}
+
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
 {{/if}}
 
 ## Workflow

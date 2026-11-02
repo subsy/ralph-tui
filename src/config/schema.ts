@@ -52,7 +52,7 @@ export const CostConfigSchema = z.object({
 });
 
 export const CompletionConfigSchema = z.object({
-  strategies: z.array(z.literal('promise-tag')).optional(),
+  strategies: z.array(z.literal('promise-tag')).min(1).optional(),
 });
 
 /**

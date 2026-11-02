@@ -99,6 +99,10 @@ describe('heuristicStrategy', () => {
 });
 
 describe('detectCompletion', () => {
+  it('rejects an explicitly empty strategy list', () => {
+    expect(() => detectCompletion(makeResult('<promise>COMPLETE</promise>'), []))
+      .toThrow('Only promise-tag completion is supported');
+  });
   it('defaults to promise-tag strategy only', () => {
     const result = detectCompletion(makeResult('<promise>COMPLETE</promise>'));
     expect(result.completed).toBe(true);

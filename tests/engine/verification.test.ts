@@ -112,9 +112,9 @@ describe('runVerification', () => {
       timeoutMs: 30000,
     });
     expect(mockRunProcess).toHaveBeenCalledWith(
-      'sh',
-      ['-c', 'check-cmd'],
-      { cwd: '/my/project', timeout: 30000, spawnOptions: { detached: process.platform !== 'win32' } }
+      'check-cmd',
+      [],
+      { cwd: '/my/project', timeout: 30000, spawnOptions: { shell: true, detached: process.platform !== 'win32' } }
     );
   });
 });

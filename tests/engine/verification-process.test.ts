@@ -10,6 +10,39 @@ import { runVerification } from '../../src/engine/verification.js';
 import { DEFAULT_VERIFICATION_CONFIG } from '../../src/config/types.js';
 import { runProcess } from '../../src/utils/process.js';
 
+test('literal file assertions run natively with cwd, quotes, directories and missing paths', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'ralph-native-file-'));
+  try {
+    const name = "literal ' quoted.txt";
+    await writeFile(join(cwd, name), 'fixture');
+    const config = { ...DEFAULT_VERIFICATION_CONFIG, commands: [] };
+    const present = await runVerification(cwd, config, undefined, [name, '.']);
+    expect(present.passed).toBe(true);
+    expect(present.results).toHaveLength(2);
+    const missing = await runVerification(cwd, config, undefined, [`${name} missing`]);
+    expect(missing.passed).toBe(false);
+    expect(missing.results[0].exitCode).toBe(1);
+    expect(missing.results[0].command).toContain(`${name} missing`);
+    const malformed = await runVerification(cwd, config, undefined, ['bad\0path']);
+    expect(malformed.passed).toBe(false);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('configured commands use the native shell with cwd and output capture', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'ralph-native-shell-'));
+  try {
+    const result = await runVerification(cwd, {
+      ...DEFAULT_VERIFICATION_CONFIG, commands: ['echo native-shell'],
+    });
+    expect(result.passed).toBe(true);
+    expect(result.results[0].stdout).toContain('native-shell');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('cancelled verification fails without launching any commands', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'ralph-verification-cancelled-'));
   const controller = new AbortController();

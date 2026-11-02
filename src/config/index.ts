@@ -740,7 +740,10 @@ export async function buildConfig(
     epicId: primaryEpicId,
     epicIds,
     prdPath: options.prdPath,
-    model: options.model ?? storedConfig.model,
+    model: options.model ?? (
+      options.startModel || options.escalateModel || storedConfig.modelEscalation?.enabled
+        ? undefined : storedConfig.model
+    ),
     showTui: !options.headless,
     errorHandling,
     sandbox,

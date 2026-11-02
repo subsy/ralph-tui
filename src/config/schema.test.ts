@@ -60,6 +60,7 @@ describe('engine improvement configuration', () => {
     { cost: { pricing: { model: { inputPer1M: -1, outputPer1M: 1 } } } },
     { cost: { pricing: { model: { inputPer1M: 1 } } } },
     { completion: { strategies: ['unknown'] } },
+    { completion: { strategies: [] } },
     { completion: { strategies: ['relaxed-tag'] } },
     { completion: { strategies: ['heuristic'] } },
     { completion: { strategies: ['promise-tag', 'heuristic'] } },

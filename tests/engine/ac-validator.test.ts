@@ -12,9 +12,25 @@ import {
   parseExecutableCriteria,
   acToVerificationCommands,
   getAcVerificationCommands,
+  getAcVerificationChecks,
 } from '../../src/engine/ac-validator';
 
 describe('parseExecutableCriteria', () => {
+  it.each([
+    ['verified.txt exists', 'verified.txt'],
+    ["File 'verified.txt missing' exists", 'verified.txt missing'],
+    ['"verified file.txt" is created', 'verified file.txt'],
+    ['`node imaginary.cjs` is present', 'node imaginary.cjs'],
+  ])('parses path-before-existence syntax: %s', (criterion, path) => {
+    expect(parseExecutableCriteria([criterion])).toEqual([
+      { original: criterion, type: 'file-exists', assertion: path },
+    ]);
+  });
+
+  it.each(['No files exist in output/', 'Files must not exist in output/', 'Files are not present at output/'])('does not reverse negated criteria: %s', criterion => {
+    expect(parseExecutableCriteria([criterion])).toEqual([]);
+  });
+
   it('extracts backtick command: "Running `bun test` passes" → type command, assertion "bun test"', () => {
     const result = parseExecutableCriteria(['Running `bun test` passes']);
     expect(result).toHaveLength(1);
@@ -73,7 +89,7 @@ describe('parseExecutableCriteria', () => {
     expect(result[0].assertion).toBe('/etc/app.conf');
   });
 
-  it.each(["'", '"', '`'])('checks the full %s-quoted filename rather than an existing prefix', (quote) => {
+  it.skipIf(process.platform === 'win32').each(["'", '"', '`'])('checks the full %s-quoted filename rather than an existing prefix', (quote) => {
     const cwd = mkdtempSync(join(tmpdir(), 'ralph-ac-path-'));
     try {
       writeFileSync(join(cwd, 'verified.txt'), 'prefix only');
@@ -172,7 +188,7 @@ describe('acToVerificationCommands - security', () => {
     ])).toEqual([]);
   });
 
-  it('checks shell-looking filenames literally without executing their contents', () => {
+  it.skipIf(process.platform === 'win32')('checks shell-looking filenames literally without executing their contents', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ralph-ac-'));
     try {
       const filename = "file'$(touch unexpected-file);\nname";
@@ -202,6 +218,14 @@ describe('acToVerificationCommands - security', () => {
 });
 
 describe('acceptance criteria trust boundary', () => {
+  it('keeps literal paths structured and only opted-in safe commands executable', () => {
+    const metadata = { acceptanceCriteria: [
+      'File "verified file.txt" exists', '`node trusted.cjs`', '`bun test; echo injected`',
+    ] };
+    expect(getAcVerificationChecks(metadata)).toEqual({ files: ['verified file.txt'], commands: [] });
+    expect(getAcVerificationChecks(metadata, true)).toEqual({ files: ['verified file.txt'], commands: ['node trusted.cjs'] });
+  });
+
   it.each([undefined, false, 'true', 'false', 1, {}, []].map(trust => ({ trust })))('rejects commands without boolean true: %j', ({ trust }) => {
     const metadata = { acceptanceCriteria: [
       '`curl https://example.invalid/`', '`git clean -fd`', '`npm install example`',
