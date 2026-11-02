@@ -27,6 +27,33 @@ export const ErrorHandlingConfigSchema = z.object({
   continueOnNonZeroExit: z.boolean().optional(),
 });
 
+export const VerificationConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  commands: z.array(z.string().min(1)).optional(),
+  timeoutMs: z.number().int().min(1000).max(600000).optional(),
+  maxRetries: z.number().int().min(0).optional(),
+});
+
+export const ModelEscalationConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  startModel: z.string().min(1).optional(),
+  escalateModel: z.string().min(1).optional(),
+  escalateAfter: z.number().int().min(0).optional(),
+});
+
+export const CostConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  alertThreshold: z.number().finite().min(0).optional(),
+  pricing: z.record(z.string().min(1), z.object({
+    inputPer1M: z.number().finite().min(0),
+    outputPer1M: z.number().finite().min(0),
+  })).optional(),
+});
+
+export const CompletionConfigSchema = z.object({
+  strategies: z.array(z.enum(['promise-tag', 'relaxed-tag', 'heuristic'])).optional(),
+});
+
 /**
  * Agent plugin options schema (flexible for plugin-specific settings)
  */
@@ -82,6 +109,12 @@ export const ParallelConfigSchema = z.object({
   worktreeDir: z.string().optional(),
   /** Merge directly to the current branch instead of creating a session branch */
   directMerge: z.boolean().optional(),
+  /**
+   * Explicit session branch name for parallel runs.
+   * Maps to ParallelExecutorConfig.sessionBranchName, which is passed to
+   * MergeEngine.initializeSessionBranch(explicitBranchName).
+   */
+  targetBranch: z.string().min(1).optional(),
 });
 
 /**
@@ -106,6 +139,7 @@ export const AgentPluginConfigSchema = z.object({
   command: z.string().optional(),
   defaultFlags: z.array(z.string()).optional(),
   timeout: z.number().int().min(0).optional(),
+  preflightTimeoutMs: z.number().int().min(1000).max(300000).optional(),
   options: AgentOptionsSchema.optional().default({}),
   fallbackAgents: z.array(z.string().min(1)).optional(),
   rateLimitHandling: RateLimitHandlingConfigSchema.optional(),
@@ -145,8 +179,15 @@ export const StoredConfigSchema = z
     // Core settings
     maxIterations: z.number().int().min(0).max(1000).optional(),
     iterationDelay: z.number().int().min(0).max(300000).optional(),
+    watch: z.boolean().optional(),
+    pollIntervalMs: z.number().int().min(1).optional(),
     outputDir: z.string().optional(),
     autoCommit: z.boolean().optional(),
+    commitMessageTemplate: z.string().optional(),
+    verification: VerificationConfigSchema.optional(),
+    modelEscalation: ModelEscalationConfigSchema.optional(),
+    cost: CostConfigSchema.optional(),
+    completion: CompletionConfigSchema.optional(),
 
     // Plugin configurations
     agents: z.array(AgentPluginConfigSchema).optional(),
@@ -154,6 +195,7 @@ export const StoredConfigSchema = z
 
     // Agent-specific options (shorthand for common settings)
     agent: z.string().optional(),
+    model: z.string().optional(),
     agentCommand: z.string().optional(),
     /**
      * Custom command/executable path for the agent.
@@ -198,6 +240,9 @@ export const StoredConfigSchema = z
 
     // Environment variables to pass through despite matching default exclusion patterns
     envPassthrough: z.array(z.string().min(1)).optional(),
+
+    // Preflight check timeout in milliseconds (shorthand for default agent)
+    preflightTimeoutMs: z.number().int().min(1000).max(300000).optional(),
 
     // Custom prompt template path
     prompt_template: z.string().optional(),

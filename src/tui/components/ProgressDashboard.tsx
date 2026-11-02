@@ -125,6 +125,8 @@ function getStatusDisplay(
       return { label: 'All tasks complete!', color: colors.status.success, indicator: statusIndicators.complete };
     case 'idle':
       return { label: 'No more tasks available', color: colors.fg.muted, indicator: statusIndicators.idle };
+    case 'waiting':
+      return { label: 'Waiting for new tasks', color: colors.fg.muted, indicator: statusIndicators.waiting };
     case 'error':
       return { label: 'Failed - Check logs for details', color: colors.status.error, indicator: statusIndicators.blocked };
   }

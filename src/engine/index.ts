@@ -43,6 +43,7 @@ import { RateLimitDetector, type RateLimitDetectionResult } from './rate-limit-d
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import type {
   AgentPlugin,
+  AgentPluginConfig,
   AgentExecutionHandle,
   AgentExecutionResult,
 } from '../plugins/agents/types.js';
@@ -64,7 +65,7 @@ import {
 } from '../plugins/agents/usage.js';
 import { updateSessionIteration, updateSessionStatus, updateSessionMaxIterations } from '../session/index.js';
 import { saveIterationLog, buildSubagentTrace, getRecentProgressSummary, getCodebasePatternsForPrompt } from '../logs/index.js';
-import { performAutoCommit } from './auto-commit.js';
+import { performAutoCommit, renderCommitMessage } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
@@ -83,10 +84,38 @@ import { CostTracker } from './cost-tracker.js';
 const PRIMARY_RECOVERY_TEST_TIMEOUT_MS = 5000;
 
 /**
+ * Maximum time to wait for an interrupted iteration to unwind.
+ */
+const ACTIVE_ITERATION_DRAIN_TIMEOUT_MS = 30000;
+
+/**
+ * Poll interval for verifying task resets after a timed-out drain.
+ */
+const TIMED_OUT_RESET_VERIFICATION_INTERVAL_MS = 500;
+
+/**
+ * Maximum time to verify task resets after a timed-out drain.
+ */
+const TIMED_OUT_RESET_VERIFICATION_TIMEOUT_MS = 5000;
+
+/**
+ * Maximum corrective writes for a task that remains in progress.
+ */
+const TIMED_OUT_RESET_MAX_CORRECTIVE_WRITES = 2;
+
+/**
  * Minimal test prompt for checking rate limit status.
  * Kept simple to minimize token usage and allow fast response.
  */
 const PRIMARY_RECOVERY_TEST_PROMPT = 'Reply with just the word "ok".';
+
+interface PendingUserAgentSwap {
+  agentConfig: AgentPluginConfig;
+  agent: AgentPlugin;
+  model: string | undefined;
+  rateLimitConfig: Required<RateLimitHandlingConfig>;
+  previousAgent: string;
+}
 
 /**
  * Maximum characters kept for live stdout/stderr buffers in engine state.
@@ -172,6 +201,13 @@ async function buildPrompt(
   // Get PRD context if the tracker supports it
   const prdContext = await tracker?.getPrdContext?.();
 
+  // Build selection reason from bv metadata (if present)
+  const bvReasons = task.metadata?.bvReasons;
+  const selectionReason =
+    Array.isArray(bvReasons) && bvReasons.length > 0
+      ? bvReasons.join('\n')
+      : undefined;
+
   // Build extended template context with PRD data and patterns
   const extendedContext = {
     recentProgress,
@@ -179,6 +215,7 @@ async function buildPrompt(
     prd: prdContext ?? undefined,
     verificationErrors: verificationErrors ?? '',
     diffContext: diffContext ?? '',
+    selectionReason,
   };
 
   // Use the template system (tracker template used if no custom/user override)
@@ -224,6 +261,14 @@ export interface WorkerModeOptions {
 }
 
 /**
+ * Options for initializing the engine in the normal session path.
+ */
+export interface EngineInitializeOptions {
+  /** Pre-initialized tracker plugin to use instead of resolving from registry */
+  tracker?: TrackerPlugin;
+}
+
+/**
  * Execution engine for the agent loop
  */
 export class ExecutionEngine {
@@ -234,6 +279,12 @@ export class ExecutionEngine {
   private state: EngineState;
   private currentExecution: AgentExecutionHandle | null = null;
   private shouldStop = false;
+  private activeIteration: Promise<IterationResult> | null = null;
+  private stopPromise: Promise<void> | null = null;
+  private drainTimedOut = false;
+  private activeIterationSettled = true;
+  private timedOutIteration: Promise<IterationResult> | null = null;
+  private watchingIdle = false;
   /** Track retry attempts per task */
   private retryCountMap: Map<string, number> = new Map();
   /** Track skipped tasks to avoid retrying them */
@@ -252,6 +303,10 @@ export class ExecutionEngine {
   private primaryAgentInstance: AgentPlugin | null = null;
   /** Track agent switches during the current iteration for logging */
   private currentIterationAgentSwitches: AgentSwitchEntry[] = [];
+  /** Agent switches to carry into the next iteration after its reset */
+  private nextIterationAgentSwitches: AgentSwitchEntry[] = [];
+  /** User-requested agent swap waiting for the active execution to finish */
+  private pendingUserAgentSwap: PendingUserAgentSwap | null = null;
   /** Forced task for worker mode — engine only works on this one task */
   private forcedTask: TrackerTask | null = null;
   /** Track if the forced task has been processed (prevents infinite loop on skip/fail) */
@@ -310,7 +365,7 @@ export class ExecutionEngine {
    *   When provided, the engine uses the injected tracker and works only on
    *   the forced task, skipping tracker initialization and sync.
    */
-  async initialize(workerMode?: WorkerModeOptions): Promise<void> {
+  async initialize(workerMode?: WorkerModeOptions, options?: EngineInitializeOptions): Promise<void> {
     // Get agent instance
     const agentRegistry = getAgentRegistry();
     this.agent = await agentRegistry.getInstance(this.config.agent);
@@ -356,8 +411,12 @@ export class ExecutionEngine {
       this.state.totalTasks = 1;
     } else {
       // Normal mode: initialize tracker from config
-      const trackerRegistry = getTrackerRegistry();
-      this.tracker = await trackerRegistry.getInstance(this.config.tracker);
+      if (options?.tracker) {
+        this.tracker = options.tracker;
+      } else {
+        const trackerRegistry = getTrackerRegistry();
+        this.tracker = await trackerRegistry.getInstance(this.config.tracker);
+      }
 
       // Sync tracker
       await this.tracker.sync();
@@ -435,6 +494,16 @@ export class ExecutionEngine {
     });
   }
 
+  private emitTaskRefreshWarning(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.emit({
+      type: 'engine:warning',
+      timestamp: new Date().toISOString(),
+      code: 'task-refresh-failed',
+      message: `Task refresh failed while watching: ${message}`,
+    });
+  }
+
   /**
    * Generate a preview of the prompt that would be sent to the agent for a given task.
    * Useful for debugging and understanding what the agent will receive.
@@ -504,6 +573,11 @@ export class ExecutionEngine {
     this.state.status = 'running';
     this.state.startedAt = new Date().toISOString();
     this.shouldStop = false;
+    this.stopPromise = null;
+    this.drainTimedOut = false;
+    this.activeIterationSettled = true;
+    this.timedOutIteration = null;
+    this.watchingIdle = false;
 
     // Fetch all tasks including completed for TUI display
     // Open/in_progress tasks are actionable; completed tasks are for historical view
@@ -570,6 +644,7 @@ export class ExecutionEngine {
           timestamp: new Date().toISOString(),
           fromIteration: this.state.currentIteration,
         });
+        this.watchingIdle = false;
       }
 
       // Attempt primary agent recovery at the start of each iteration
@@ -599,6 +674,34 @@ export class ExecutionEngine {
         ? this.state.tasksCompleted >= 1
         : await this.tracker!.isComplete();
       if (isComplete) {
+        if (this.config.watch && !this.forcedTask && !this.shouldStop) {
+          if (!this.watchingIdle) {
+            this.watchingIdle = true;
+            this.emit({
+              type: 'engine:waiting',
+              timestamp: new Date().toISOString(),
+              reason: 'completed',
+              pollIntervalMs: this.config.pollIntervalMs,
+            });
+          }
+          if (this.state.status === 'running') {
+            this.state.status = 'waiting';
+          }
+          await this.waitForPollInterval();
+          if (this.shouldStop) {
+            break;
+          }
+          if (this.getStatus() === 'pausing') {
+            continue;
+          }
+          try {
+            await this.refreshTasks();
+          } catch (error) {
+            this.emitTaskRefreshWarning(error);
+          }
+          continue;
+        }
+
         this.emit({
           type: 'all:complete',
           timestamp: new Date().toISOString(),
@@ -618,6 +721,34 @@ export class ExecutionEngine {
       // Get next task (excluding skipped tasks)
       const task = await this.getNextAvailableTask();
       if (!task) {
+        if (this.config.watch && !this.forcedTask && !this.shouldStop) {
+          if (!this.watchingIdle) {
+            this.watchingIdle = true;
+            this.emit({
+              type: 'engine:waiting',
+              timestamp: new Date().toISOString(),
+              reason: 'no_tasks',
+              pollIntervalMs: this.config.pollIntervalMs,
+            });
+          }
+          if (this.state.status === 'running') {
+            this.state.status = 'waiting';
+          }
+          await this.waitForPollInterval();
+          if (this.shouldStop) {
+            break;
+          }
+          if (this.getStatus() === 'pausing') {
+            continue;
+          }
+          try {
+            await this.refreshTasks();
+          } catch (error) {
+            this.emitTaskRefreshWarning(error);
+          }
+          continue;
+        }
+
         this.emit({
           type: 'engine:stopped',
           timestamp: new Date().toISOString(),
@@ -629,7 +760,20 @@ export class ExecutionEngine {
       }
 
       // Run iteration with error handling
-      const result = await this.runIterationWithErrorHandling(task);
+      this.watchingIdle = false;
+      if (this.state.status === 'waiting') {
+        this.state.status = 'running';
+      }
+      const iterationPromise = this.runIterationWithErrorHandling(task);
+      this.activeIteration = iterationPromise;
+      let result: IterationResult;
+      try {
+        result = await iterationPromise;
+      } finally {
+        if (this.activeIteration === iterationPromise) {
+          this.activeIteration = null;
+        }
+      }
 
       // Check if we should abort
       if (result.status === 'failed' && this.config.errorHandling.strategy === 'abort') {
@@ -955,7 +1099,8 @@ export class ExecutionEngine {
     this.subagentParser.reset();
 
     // Reset agent switch tracking for this iteration
-    this.currentIterationAgentSwitches = [];
+    this.currentIterationAgentSwitches = this.nextIterationAgentSwitches;
+    this.nextIterationAgentSwitches = [];
 
     // Clear verification errors if this task has no pending verification retries
     // (i.e., this is a fresh start or a new task, not a verification retry)
@@ -980,11 +1125,8 @@ export class ExecutionEngine {
       iteration,
     });
 
-    // Update task status to in_progress
-    await this.tracker!.updateTaskStatus(task.id, 'in_progress');
-
-    // Emit task:activated for crash recovery tracking
-    // This allows the session to track which tasks it "owns" for reset on shutdown
+    // Record ownership before the status write so crash recovery can reset the
+    // task even if the write is interrupted.
     this.emit({
       type: 'task:activated',
       timestamp: new Date().toISOString(),
@@ -992,7 +1134,10 @@ export class ExecutionEngine {
       iteration,
     });
 
-    // Build prompt (includes recent progress context + tracker-owned template + verification errors + diff context)
+    // Update task status to in_progress
+    await this.tracker!.updateTaskStatus(task.id, 'in_progress');
+
+    // Build prompt with verification feedback and cross-iteration context.
     const diffContext = formatDiffContext(this.recentDiffSummaries);
     const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined, this.lastVerificationErrors || undefined, diffContext || undefined);
 
@@ -1020,7 +1165,6 @@ export class ExecutionEngine {
             failedAttempts: attempts,
           };
           this.emit(event);
-          console.log(`[model-escalation] Escalating model: ${previousModel} → ${escalatedModel} after ${attempts} failed attempt(s)`);
         }
       }
       flags.push('--model', escalatedModel);
@@ -1373,6 +1517,7 @@ export class ExecutionEngine {
       // cleanly after asking clarification questions or hitting a blocker.
       // See: https://github.com/subsy/ralph-tui/issues/259
       let taskCompleted = promiseComplete;
+      let verificationFailure: string | undefined;
 
       // Run verification gate if task appears complete and verification is enabled
       if (taskCompleted && this.config.verification?.enabled) {
@@ -1405,6 +1550,8 @@ export class ExecutionEngine {
           this.lastVerificationErrors = '';
           this.verificationRetryMap.delete(task.id);
         } else {
+          taskCompleted = false;
+          this.lastVerificationErrors = formatVerificationErrors(verifyResult);
           const retriesRemaining = verifyConfig.maxRetries - verificationRetries;
           this.emit({
             type: 'verification:failed',
@@ -1415,14 +1562,11 @@ export class ExecutionEngine {
           });
 
           if (verificationRetries >= verifyConfig.maxRetries) {
-            // Exhausted verification retries — skip the verification gate and mark done
-            this.lastVerificationErrors = '';
-            this.verificationRetryMap.delete(task.id);
+            verificationFailure = this.lastVerificationErrors;
+            this.verificationRetryMap.set(task.id, verificationRetries);
           } else {
             // Store errors for injection into next retry prompt and suppress completion
-            this.lastVerificationErrors = formatVerificationErrors(verifyResult);
             this.verificationRetryMap.set(task.id, verificationRetries + 1);
-            taskCompleted = false;
             // Record attempt for model escalation (verification failure counts as a failed attempt)
             if (this.config.modelEscalation?.enabled) {
               recordTaskAttempt(task.id, this.escalationState);
@@ -1478,11 +1622,24 @@ export class ExecutionEngine {
         await this.handleAutoCommit(task, iteration);
       }
 
+      // Refresh task list to pick up any new beads created by the agent.
+      // Skip in worker mode (forcedTask) since workers don't own the TUI.
+      if (taskCompleted && !this.forcedTask) {
+        try {
+          await this.refreshTasks();
+        } catch (error) {
+          console.warn(
+            `[tasks] Refresh failed after completion for task ${task.id}:`,
+            error
+          );
+        }
+      }
+
       // Determine iteration status
       let status: IterationStatus;
       if (agentResult.interrupted) {
         status = 'interrupted';
-      } else if (agentResult.status === 'failed' || agentResult.status === 'timeout') {
+      } else if (verificationFailure || agentResult.status === 'failed' || agentResult.status === 'timeout') {
         status = 'failed';
       } else {
         status = 'completed';
@@ -1496,6 +1653,7 @@ export class ExecutionEngine {
         taskCompleted,
         promiseComplete,
         durationMs,
+        error: verificationFailure,
         usage: iterationUsageAccumulator.hasData()
           ? iterationUsageAccumulator.getSummary()
           : summarizeTokenUsageFromOutput(agentResult.stdout),
@@ -1534,6 +1692,7 @@ export class ExecutionEngine {
         if (costEnabled) {
           const inputTokens = result.usage.inputTokens ?? 0;
           const outputTokens = result.usage.outputTokens ?? 0;
+          const previousCost = this.costTracker.getSnapshot().totalCost;
           const iterationCost = this.costTracker.addIteration(
             inputTokens,
             outputTokens,
@@ -1552,7 +1711,7 @@ export class ExecutionEngine {
 
           // Check alert threshold
           const alertThreshold = this.config.cost?.alertThreshold ?? 0;
-          if (alertThreshold > 0 && snapshot.totalCost >= alertThreshold) {
+          if (alertThreshold > 0 && previousCost < alertThreshold && snapshot.totalCost >= alertThreshold) {
             this.emit({
               type: 'cost:threshold-exceeded',
               timestamp: endedAt.toISOString(),
@@ -1607,20 +1766,74 @@ export class ExecutionEngine {
           // Ignore cleanup errors for temporary files
         });
       }
+      this.currentExecution = null;
+      this.applyPendingUserAgentSwap();
       this.state.currentTask = null;
     }
   }
 
   /**
-   * Stop the execution loop
+   * Wait for the active iteration to finish, up to the supplied timeout.
    */
-  async stop(): Promise<void> {
+  async waitForActiveIteration(timeoutMs = ACTIVE_ITERATION_DRAIN_TIMEOUT_MS): Promise<boolean> {
+    const activeIteration = this.activeIteration;
+    if (!activeIteration) {
+      return true;
+    }
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(false), timeoutMs);
+    });
+
+    try {
+      return await Promise.race([
+        activeIteration.then(
+          () => true,
+          () => true
+        ),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
+  /**
+   * Stop the execution loop.
+   */
+  async stop(timeoutMs = ACTIVE_ITERATION_DRAIN_TIMEOUT_MS): Promise<void> {
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+
+    this.stopPromise = this.stopInternal(timeoutMs);
+    return this.stopPromise;
+  }
+
+  private async stopInternal(timeoutMs: number): Promise<void> {
     this.shouldStop = true;
     this.state.status = 'stopping';
 
     // Interrupt current execution if any
     if (this.currentExecution) {
       this.currentExecution.interrupt();
+    }
+
+    const activeIteration = this.activeIteration;
+    this.drainTimedOut = !(await this.waitForActiveIteration(timeoutMs));
+    if (this.drainTimedOut && activeIteration) {
+      this.activeIterationSettled = false;
+      this.timedOutIteration = activeIteration;
+      void activeIteration
+        .finally(() => {
+          if (this.timedOutIteration === activeIteration) {
+            this.activeIterationSettled = true;
+          }
+        })
+        .catch(() => {});
     }
 
     // Update session status
@@ -1640,7 +1853,7 @@ export class ExecutionEngine {
    * If already pausing or paused, this is a no-op.
    */
   pause(): void {
-    if (this.state.status !== 'running') {
+    if (this.state.status !== 'running' && this.state.status !== 'waiting') {
       return;
     }
 
@@ -1792,6 +2005,11 @@ export class ExecutionEngine {
 
     this.state.status = 'running';
     this.shouldStop = false;
+    this.stopPromise = null;
+    this.drainTimedOut = false;
+    this.activeIterationSettled = true;
+    this.timedOutIteration = null;
+    this.watchingIdle = false;
 
     // Emit resumed event
     this.emit({
@@ -1823,6 +2041,18 @@ export class ExecutionEngine {
    */
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Wait for the configured watch interval without blocking shutdown.
+   */
+  private async waitForPollInterval(): Promise<void> {
+    let remainingMs = this.config.pollIntervalMs;
+    while (remainingMs > 0 && !this.shouldStop && this.state.status !== 'pausing') {
+      const delayMs = Math.min(100, remainingMs);
+      await this.delay(delayMs);
+      remainingMs -= delayMs;
+    }
   }
 
   /**
@@ -1862,23 +2092,129 @@ export class ExecutionEngine {
    * @param taskIds - Array of task IDs to reset to open
    * @returns Number of tasks successfully reset
    */
-  async resetTasksToOpen(taskIds: string[]): Promise<number> {
+  async resetTasksToOpen(
+    taskIds: string[],
+    verificationOptions: {
+      intervalMs?: number;
+      timeoutMs?: number;
+    } = {}
+  ): Promise<number> {
     if (!this.tracker || taskIds.length === 0) {
       return 0;
     }
 
     let resetCount = 0;
+    const verificationTaskIds: string[] = [];
     for (const taskId of taskIds) {
       try {
         await this.tracker.updateTaskStatus(taskId, 'open');
         resetCount++;
+        if (this.drainTimedOut) {
+          verificationTaskIds.push(taskId);
+        }
       } catch {
         // Silently continue on individual task reset failures
         // The task may have been deleted or modified externally
       }
     }
 
+    await Promise.all(
+      verificationTaskIds.map((taskId) =>
+        this.verifyTimedOutTaskReset(taskId, verificationOptions)
+      )
+    );
+
     return resetCount;
+  }
+
+  private async verifyTimedOutTaskReset(
+    taskId: string,
+    options: {
+      intervalMs?: number;
+      timeoutMs?: number;
+    }
+  ): Promise<void> {
+    const intervalMs =
+      options.intervalMs ?? TIMED_OUT_RESET_VERIFICATION_INTERVAL_MS;
+    const timeoutMs =
+      options.timeoutMs ?? TIMED_OUT_RESET_VERIFICATION_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    let correctiveWrites = 0;
+    let confirmationPending = false;
+
+    while (Date.now() < deadline) {
+      const remainingMs = deadline - Date.now();
+      await this.delay(Math.min(intervalMs, remainingMs));
+
+      let task: TrackerTask | undefined;
+      try {
+        task = await this.tracker!.getTask(taskId);
+      } catch {
+        return;
+      }
+
+      if (!task) {
+        return;
+      }
+
+      if (task.status !== 'in_progress') {
+        if (confirmationPending) {
+          this.emit({
+            type: 'engine:warning',
+            timestamp: new Date().toISOString(),
+            code: 'task-reset-race',
+            message: `Task '${taskId}' was restored to open after a late in-progress update`,
+          });
+          confirmationPending = false;
+        }
+        if (this.activeIterationSettled) {
+          return;
+        }
+        continue;
+      }
+
+      if (correctiveWrites >= TIMED_OUT_RESET_MAX_CORRECTIVE_WRITES) {
+        this.emit({
+          type: 'engine:warning',
+          timestamp: new Date().toISOString(),
+          code: 'task-reset-race',
+          message: `Task '${taskId}' could not be returned to open after a late in-progress update; it may be owned by another process`,
+        });
+        return;
+      }
+
+      try {
+        const result = await this.tracker!.updateTaskStatus(taskId, 'open');
+        if (result === undefined) {
+          this.emit({
+            type: 'engine:warning',
+            timestamp: new Date().toISOString(),
+            code: 'task-reset-race',
+            message: `Task '${taskId}' could not be returned to open after a late in-progress update; the corrective update failed and it may be owned by another process`,
+          });
+          return;
+        }
+        correctiveWrites++;
+        confirmationPending = true;
+      } catch {
+        this.emit({
+          type: 'engine:warning',
+          timestamp: new Date().toISOString(),
+          code: 'task-reset-race',
+          message: `Task '${taskId}' could not be returned to open after a late in-progress update; the corrective update failed and it may be owned by another process`,
+        });
+        return;
+      }
+    }
+
+    if (confirmationPending) {
+      this.emit({
+        type: 'engine:warning',
+        timestamp: new Date().toISOString(),
+        code: 'task-reset-race',
+        message: `Task '${taskId}' could not be returned to open after a late in-progress update; verification expired before the corrective update was confirmed and it may be owned by another process`,
+      });
+    }
   }
 
   /**
@@ -2028,10 +2364,16 @@ export class ExecutionEngine {
    * Updates state, emits agent:switched event, and persists across iterations.
    *
    * @param newAgentPlugin - Plugin identifier of the agent to switch to
-   * @param reason - Why the switch is happening (primary recovery or fallback)
+   * @param reason - Why the switch is happening
    */
-  private switchAgent(newAgentPlugin: string, reason: ActiveAgentReason): void {
-    const previousAgent = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+  private switchAgent(
+    newAgentPlugin: string,
+    reason: ActiveAgentReason,
+    previousAgentOverride?: string,
+    recordForNextIteration = false
+  ): void {
+    const previousAgent =
+      previousAgentOverride ?? this.state.activeAgent?.plugin ?? this.config.agent.plugin;
     const now = new Date().toISOString();
 
     // Update active agent state
@@ -2054,6 +2396,10 @@ export class ExecutionEngine {
         primaryAgent: this.state.rateLimitState.primaryAgent,
         // Clear limitedAt and fallbackAgent on recovery
       };
+    } else if (reason === 'user-selected') {
+      this.state.rateLimitState = {
+        primaryAgent: newAgentPlugin,
+      };
     }
 
     // Record the agent switch for iteration logging
@@ -2063,14 +2409,18 @@ export class ExecutionEngine {
       to: newAgentPlugin,
       reason,
     };
-    this.currentIterationAgentSwitches.push(switchEntry);
+    if (recordForNextIteration) {
+      this.nextIterationAgentSwitches.push(switchEntry);
+    } else {
+      this.currentIterationAgentSwitches.push(switchEntry);
+    }
 
     // Log the switch to console for visibility
     if (reason === 'fallback') {
       console.log(
         `[agent-switch] Switching to fallback: ${previousAgent} → ${newAgentPlugin} (rate limit)`
       );
-    } else {
+    } else if (reason === 'primary') {
       // Calculate duration on fallback for recovery logging
       let durationOnFallback = '';
       if (this.state.rateLimitState?.limitedAt) {
@@ -2087,6 +2437,10 @@ export class ExecutionEngine {
       }
       console.log(
         `[agent-switch] Recovering to primary: ${previousAgent} → ${newAgentPlugin}${durationOnFallback}`
+      );
+    } else {
+      console.log(
+        `[agent-switch] User selected agent: ${previousAgent} → ${newAgentPlugin}`
       );
     }
 
@@ -2249,6 +2603,89 @@ export class ExecutionEngine {
   }
 
   /**
+   * Switch to a user-selected agent for subsequent iterations.
+   * Validates availability and model compatibility before mutating engine state.
+   *
+   * @param agentConfig - Agent configuration to activate
+   * @param model - Optional model override; undefined clears the runtime model override
+   */
+  async switchToUserAgent(
+    agentConfig: AgentPluginConfig,
+    model: string | undefined
+  ): Promise<void> {
+    const normalizedModel = model?.trim() ? model.trim() : undefined;
+
+    const agentRegistry = getAgentRegistry();
+    const newInstance = await agentRegistry.getInstance(agentConfig);
+
+    const detectResult = await newInstance.detect();
+    if (!detectResult.available) {
+      throw new Error(
+        `Agent '${agentConfig.plugin}' not available: ${detectResult.error ?? 'detection failed'}`
+      );
+    }
+
+    if (normalizedModel !== undefined) {
+      const modelError = newInstance.validateModel(normalizedModel);
+      if (modelError) {
+        throw new Error(modelError);
+      }
+    }
+
+    const previousAgent = this.state.activeAgent?.plugin ?? this.config.agent.plugin;
+    const swap: PendingUserAgentSwap = {
+      agentConfig,
+      agent: newInstance,
+      model: normalizedModel,
+      rateLimitConfig: {
+        ...DEFAULT_RATE_LIMIT_HANDLING,
+        ...agentConfig.rateLimitHandling,
+      },
+      previousAgent,
+    };
+
+    if (this.currentExecution || this.state.currentTask) {
+      this.pendingUserAgentSwap = swap;
+      return;
+    }
+
+    this.applyUserAgentSwap(swap, true);
+  }
+
+  private applyUserAgentSwap(
+    swap: PendingUserAgentSwap,
+    recordForNextIteration: boolean
+  ): void {
+    this.config.agent = {
+      ...swap.agentConfig,
+      options: { ...swap.agentConfig.options },
+    };
+    this.config.model = swap.model;
+    this.rateLimitConfig = swap.rateLimitConfig;
+    this.agent = swap.agent;
+    this.primaryAgentInstance = swap.agent;
+    this.rateLimitedAgents.clear();
+    this.state.currentModel = swap.model;
+
+    this.switchAgent(
+      swap.agentConfig.plugin,
+      'user-selected',
+      swap.previousAgent,
+      recordForNextIteration
+    );
+  }
+
+  private applyPendingUserAgentSwap(): void {
+    if (!this.pendingUserAgentSwap) {
+      return;
+    }
+
+    const swap = this.pendingUserAgentSwap;
+    this.pendingUserAgentSwap = null;
+    this.applyUserAgentSwap(swap, true);
+  }
+
+  /**
    * Get the next available fallback agent that hasn't been rate-limited.
    * Returns undefined if no fallback agents are configured or all are rate-limited.
    */
@@ -2371,6 +2808,10 @@ export class ExecutionEngine {
       return `${statusWord} on primary (${currentAgent}) after recovery`;
     }
 
+    if (lastSwitch && lastSwitch.reason === 'user-selected') {
+      return `${statusWord} on user-selected agent (${currentAgent})`;
+    }
+
     // Generic summary for other cases
     return `${statusWord} with ${this.currentIterationAgentSwitches.length} agent switch(es)`;
   }
@@ -2390,7 +2831,18 @@ export class ExecutionEngine {
    */
   private async handleAutoCommit(task: TrackerTask, iteration: number): Promise<void> {
     try {
-      const result = await performAutoCommit(this.config.cwd, task.id, task.title, iteration);
+      const rendered = renderCommitMessage(this.config.commitMessageTemplate, {
+        taskId: task.id,
+        taskTitle: task.title,
+        taskType: task.type,
+        iteration,
+      });
+      if (rendered.usedFallback) {
+        console.warn(
+          `[auto-commit] commitMessageTemplate fell back to the default for task ${task.id}: ${rendered.fallbackReason}`
+        );
+      }
+      const result = await performAutoCommit(this.config.cwd, rendered.message);
       if (result.committed) {
         this.emit({
           type: 'task:auto-committed',
@@ -2399,6 +2851,7 @@ export class ExecutionEngine {
           iteration,
           commitMessage: result.commitMessage!,
           commitSha: result.commitSha,
+          templateFallbackReason: rendered.usedFallback ? rendered.fallbackReason : undefined,
         });
       } else if (result.error) {
         this.emit({

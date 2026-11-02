@@ -77,6 +77,13 @@ Run with epic and tracker:
 ralph-tui run --tracker beads-rust --epic ralph-tui-abc123
 ```
 
+Run one parallel session across multiple epics:
+
+```bash
+ralph-tui run --tracker beads-rust --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --tracker beads-rust --parallel --epics ui-epic,backend-epic
+```
+
 ### Config File
 
 Set defaults in TOML:
@@ -94,7 +101,7 @@ beadsDir = ".beads"
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `beadsDir` | string | `.beads` | Path to .beads directory |
+| `beadsDir` | string | `.beads` | Path to .beads directory, relative to `workingDir` unless absolute |
 | `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
 | `labels` | string | (empty) | Optional comma-separated label filter |
 | `workingDir` | string | `.` | Working directory for br commands |
@@ -102,6 +109,24 @@ beadsDir = ".beads"
 <Callout type="info">
 The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
 </Callout>
+
+The Beads-Rust store can live outside the working directory. Set `BEADS_DIR`
+to the store path, or use an absolute `beadsDir` path. This supports shared or
+remote tracker setups, such as a Dolt-server-backed Beads store.
+
+## Multi-Epic Parallel Execution
+
+Beads-Rust supports running one Ralph parallel session across multiple selected epics:
+
+```bash
+ralph-tui run --tracker beads-rust --parallel --epic ui-epic --epic backend-epic
+```
+
+This is one orchestration session with one scheduler and one merge queue. Ralph fetches child tasks for every selected epic with `br`, annotates each task with its execution scope, and builds a single dependency graph across the combined task set.
+
+Cross-epic dependencies are respected when both tasks are in the selected epic set. If a dependency points outside the selected set, Ralph checks the external task with `br show`; unresolved or missing external dependencies block the dependent task for that run.
+
+When launched without `--epic` in the TUI, the epic picker supports multi-select with `Space`, `a` to toggle all visible epics, and `Enter` to accept.
 
 ## PRD Context Injection
 
@@ -185,11 +210,10 @@ Beads uses 0-4 priority scale (0 = critical):
 
 The Beads-Rust tracker selects the next task by:
 
-1. Filter to tasks under the specified epic
-2. Filter to tasks with status `open`
-3. Filter to tasks with no unresolved dependencies
-4. Sort by priority (lowest number first)
-5. Return the first matching task
+1. Filter to tasks within the configured epic and label scope
+2. Resume an already-`in_progress` task within the configured scope, preferring the lowest priority number
+3. Otherwise use `br ready` to select open work with no unresolved dependencies
+4. Return the first matching task
 
 ## Git Sync
 
@@ -249,11 +273,14 @@ Initialize Beads in your project:
 br init
 ```
 
+If the store is outside the working directory, verify that `BEADS_DIR` points
+to it or that `beadsDir` is configured with its absolute path.
+
 ### "No tasks available"
 
 Check that:
 1. **Tasks are children of the epic**: `br list --parent <epic>`
-2. **Tasks are `open` status**: `br list --status open`
+2. **Tasks are `open` or `in_progress` status**: `br list --all` (tasks stuck in another status, such as `blocked`, won't be selected)
 3. **Dependencies are met**: `br show <task-id>`
 4. **Label filter matches** (if configured): `br list --label <your-label>`
 

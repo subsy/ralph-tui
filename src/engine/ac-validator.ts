@@ -1,6 +1,6 @@
 /**
  * ABOUTME: Parses acceptance criteria for executable assertions.
- * Extracts shell commands, file existence checks, and URL patterns
+ * Extracts shell commands and file existence checks
  * from human-readable acceptance criteria strings.
  */
 
@@ -17,7 +17,6 @@ export interface ExecutableAC {
  * Patterns detected:
  * - Shell commands: strings containing backtick-wrapped commands or starting with "Running"
  * - File existence: "file X exists", "X is created", "Tests exist in X"
- * - File contains: "X contains Y", "X includes Y"
  */
 export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
   const results: ExecutableAC[] = [];
@@ -64,7 +63,7 @@ function shellEscape(s: string): string {
 }
 
 /** Shell metacharacters that could enable command injection. */
-const SHELL_METACHAR_RE = /[;&|><`$\\{}()!]/;
+const SHELL_METACHAR_RE = /[;&|><`$\\{}()!\n\r\0]/;
 
 /**
  * Convert executable AC into verification commands.
@@ -75,13 +74,13 @@ export function acToVerificationCommands(acs: ExecutableAC[]): string[] {
       case 'command':
         // Reject commands containing shell metacharacters to prevent injection.
         // Acceptance criteria come from user-authored task files but may be
-        // processed by AI agents, so we enforce a conservative allowlist.
+        // processed by AI agents. This rejects shell syntax, not unsafe programs.
         if (SHELL_METACHAR_RE.test(ac.assertion)) return '';
         return ac.assertion;
       case 'file-exists':
         return `test -e '${shellEscape(ac.assertion)}'`;
       case 'file-contains':
-        return `grep -q '${shellEscape(ac.assertion)}' || true`; // soft check
+        return '';
       default:
         return '';
     }

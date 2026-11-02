@@ -12,6 +12,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, startTransition } fr
 import { colors, layout } from '../theme.js';
 import type { RalphStatus, TaskStatus } from '../theme.js';
 import type { TaskItem, BlockerInfo, DetailsViewMode, IterationTimingInfo, SubagentTreeNode } from '../types.js';
+import { preserveCurrentSessionCompletions } from '../task-state.js';
 import { Header } from './Header.js';
 import { Footer } from './Footer.js';
 import { LeftPanel } from './LeftPanel.js';
@@ -22,7 +23,13 @@ import type { HistoricExecutionContext } from './IterationDetailView.js';
 import { ProgressDashboard } from './ProgressDashboard.js';
 import { ConfirmationDialog } from './ConfirmationDialog.js';
 import { HelpOverlay } from './HelpOverlay.js';
-import { SettingsView } from './SettingsView.js';
+import { SettingsView, getConfiguredAgentName } from './SettingsView.js';
+import {
+  AgentModelPicker,
+  normalizeModelValue,
+  resolveAgentConfigForSelection,
+  type AgentModelSelection,
+} from './AgentModelPicker.js';
 import { EpicLoaderOverlay } from './EpicLoaderOverlay.js';
 import type { EpicLoaderMode } from './EpicLoaderOverlay.js';
 import { SubagentTreePanel } from './SubagentTreePanel.js';
@@ -31,6 +38,7 @@ import { WorkerDetailView } from './WorkerDetailView.js';
 import { MergeProgressView } from './MergeProgressView.js';
 import { ConflictResolutionPanel } from './ConflictResolutionPanel.js';
 import { TabBar } from './TabBar.js';
+import { ScopeFilterBar, type ScopeFilterCount } from './ScopeFilterBar.js';
 import { RemoteConfigView } from './RemoteConfigView.js';
 import type { RemoteConfigData } from './RemoteConfigView.js';
 import { RemoteManagementOverlay } from './RemoteManagementOverlay.js';
@@ -46,13 +54,14 @@ import type {
   ActiveAgentState,
   RateLimitState,
 } from '../../engine/index.js';
-import type { TrackerTask } from '../../plugins/trackers/types.js';
+import type { ExecutionScope, ScopedTrackerTask, TrackerTask } from '../../plugins/trackers/types.js';
 import type { StoredConfig, SubagentDetailLevel, SandboxConfig, SandboxMode } from '../../config/types.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
 import type { SubagentTraceStats, SubagentHierarchyNode } from '../../logs/types.js';
 import { platform } from 'node:os';
 import { writeToClipboard } from '../../utils/index.js';
+import { classifyCopyOrInterrupt } from '../utils/keyboard-shortcuts.js';
 import { StreamingOutputParser } from '../output-parser.js';
 import type { FormattedSegment } from '../../plugins/agents/output-formatting.js';
 import {
@@ -102,6 +111,8 @@ export interface RunAppProps {
   onInterruptConfirm?: () => void;
   /** Callback when user cancels interrupt */
   onInterruptCancel?: () => void;
+  /** Callback when the user presses Ctrl+C to request an interrupt */
+  onInterruptRequest?: () => void;
   /** Initial tasks to display before engine starts */
   initialTasks?: TrackerTask[];
   /** Callback when user wants to start the engine (s key in ready state) */
@@ -128,6 +139,8 @@ export interface RunAppProps {
   agentCommand?: string;
   /** Current epic ID for highlighting in the loader */
   currentEpicId?: string;
+  /** Selected execution scopes for multi-epic sessions */
+  executionScopes?: ExecutionScope[];
   /** Initial subagent panel visibility state (from persisted session) */
   initialSubagentPanelVisible?: boolean;
   /** Callback when subagent panel visibility changes (to persist state) */
@@ -199,6 +212,12 @@ export interface RunAppProps {
   totalWorkerCount?: number;
   /** Failure message for parallel execution */
   parallelFailureMessage?: string;
+  /** Preformatted completion summary lines for parallel runs */
+  parallelCompletionSummaryLines?: string[];
+  /** Path to the persisted completion summary file (if written) */
+  parallelCompletionSummaryPath?: string;
+  /** Error writing the summary file (if any) */
+  parallelCompletionSummaryWriteError?: string;
   /** Callback to pause parallel execution */
   onParallelPause?: () => void;
   /** Callback to resume parallel execution */
@@ -211,6 +230,10 @@ export interface RunAppProps {
   onConflictRetry?: () => void;
   /** Callback when user requests to skip a failed merge (s key in failure state) */
   onConflictSkip?: () => void;
+  /** Refreshed tasks from tracker (parallel mode auto-refresh after worker/merge completion) */
+  parallelRefreshedTasks?: TrackerTask[];
+  /** Callback to manually refresh tasks in parallel mode (for 'r' key when no engine) */
+  onRefreshTasks?: () => void;
 }
 
 /**
@@ -243,6 +266,7 @@ function trackerStatusToTaskStatus(trackerStatus: string): TaskStatus {
  * Convert a TrackerTask to a TaskItem for display in the TUI.
  */
 function trackerTaskToTaskItem(task: TrackerTask): TaskItem {
+  const scopedTask = task as ScopedTrackerTask;
   return {
     id: task.id,
     title: task.title,
@@ -257,6 +281,7 @@ function trackerTaskToTaskItem(task: TrackerTask): TaskItem {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     parentId: task.parentId,
+    executionScope: scopedTask.executionScope,
     metadata: task.metadata,
   };
 }
@@ -474,6 +499,40 @@ function areUsageSummariesEqual(
   );
 }
 
+function createEmptyScopeCount(scopeId?: string): ScopeFilterCount {
+  return {
+    scopeId,
+    total: 0,
+    active: 0,
+    done: 0,
+    completedLocally: 0,
+    blocked: 0,
+    closed: 0,
+  };
+}
+
+function addTaskToScopeCount(count: ScopeFilterCount, task: TaskItem): ScopeFilterCount {
+  const next = { ...count, total: count.total + 1 };
+  switch (task.status) {
+    case 'active':
+      next.active += 1;
+      break;
+    case 'done':
+      next.done += 1;
+      break;
+    case 'completedLocally':
+      next.completedLocally += 1;
+      break;
+    case 'blocked':
+      next.blocked += 1;
+      break;
+    case 'closed':
+      next.closed += 1;
+      break;
+  }
+  return next;
+}
+
 /**
  * Main RunApp component for execution view
  */
@@ -485,6 +544,7 @@ export function RunApp({
   showInterruptDialog = false,
   onInterruptConfirm,
   onInterruptCancel,
+  onInterruptRequest,
   initialTasks,
   onStart,
   storedConfig,
@@ -498,6 +558,7 @@ export function RunApp({
   agentPlugin,
   agentCommand,
   currentEpicId,
+  executionScopes = [],
   initialSubagentPanelVisible = false,
   onSubagentPanelVisibilityChange,
   currentModel,
@@ -529,6 +590,9 @@ export function RunApp({
   parallelAutoCommitSkippedTaskIds: _parallelAutoCommitSkippedTaskIds, // Reserved for future status bar warning
   parallelMergedTaskIds,
   parallelFailureMessage,
+  parallelCompletionSummaryLines,
+  parallelCompletionSummaryPath,
+  parallelCompletionSummaryWriteError,
   activeWorkerCount,
   totalWorkerCount,
   onParallelPause,
@@ -537,6 +601,8 @@ export function RunApp({
   onParallelStart,
   onConflictRetry,
   onConflictSkip,
+  parallelRefreshedTasks,
+  onRefreshTasks,
 }: RunAppProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
@@ -556,6 +622,18 @@ export function RunApp({
     }
     return [];
   });
+  // Update task list when parallel mode provides refreshed tasks from tracker
+  useEffect(() => {
+    if (parallelRefreshedTasks) {
+      setTasks((prev) =>
+        preserveCurrentSessionCompletions(
+          prev,
+          convertTasksWithDependencyStatus(parallelRefreshedTasks)
+        )
+      );
+    }
+  }, [parallelRefreshedTasks]);
+
   const [selectedIndex, setSelectedIndex] = useState(0);
   // Start in 'ready' state if we have onStart callback (waiting for user to start)
   const [status, setStatus] = useState<RalphStatus>(onStart ? 'ready' : 'running');
@@ -604,6 +682,8 @@ export function RunApp({
   const [showHelp, setShowHelp] = useState(false);
   // Settings view state
   const [showSettings, setShowSettings] = useState(false);
+  // Agent/model picker state
+  const [showAgentModelPicker, setShowAgentModelPicker] = useState(false);
   // Remote config view state
   const [showRemoteConfig, setShowRemoteConfig] = useState(false);
   const [remoteConfigData, setRemoteConfigData] = useState<RemoteConfigData | null>(null);
@@ -617,12 +697,18 @@ export function RunApp({
   const [showQuitDialog, setShowQuitDialog] = useState(false);
   // Kill confirmation dialog state (parallel mode: immediately terminate all workers)
   const [showKillDialog, setShowKillDialog] = useState(false);
+  // Parallel completion summary overlay state (shown when summary lines are provided)
+  const [showParallelSummaryOverlay, setShowParallelSummaryOverlay] = useState(false);
   // Parallel mode state
   const [selectedWorkerIndex, setSelectedWorkerIndex] = useState(0);
   const [showConflictPanel, setShowConflictPanel] = useState(false);
   const [conflictSelectedIndex, setConflictSelectedIndex] = useState(0);
   // Show/hide closed tasks filter (default: show closed tasks)
   const [showClosedTasks, setShowClosedTasks] = useState(true);
+  // Local multi-epic filter; remote instance tabs remain independent.
+  const [scopeFilterId, setScopeFilterId] = useState<string>('all');
+  // Track prior summary-line count so auto-open only happens on empty -> non-empty transition.
+  const prevParallelSummaryLinesCountRef = useRef(0);
   // Cache for historical iteration output loaded from disk (taskId -> { output, timing, agent, model })
   const [historicalOutputCache, setHistoricalOutputCache] = useState<
     Map<string, {
@@ -705,7 +791,8 @@ export function RunApp({
   const [detectedModel, setDetectedModel] = useState<string | undefined>(currentModel);
 
   // Remote viewing state
-  const isViewingRemote = selectedTabIndex > 0;
+  // Use tab.isLocal so remote-only mode (where index 0 is already a remote tab) works correctly.
+  const isViewingRemote = instanceTabs?.[selectedTabIndex]?.isLocal === false;
   const [remoteTasks, setRemoteTasks] = useState<TaskItem[]>([]);
   const [remoteStatus, setRemoteStatus] = useState<RalphStatus>('ready');
   const [remoteOutput, setRemoteOutput] = useState('');
@@ -823,10 +910,11 @@ export function RunApp({
       const state = await instanceManager.getRemoteState();
       if (state) {
         // Convert engine status to RalphStatus
-        // Engine statuses: 'idle' | 'running' | 'pausing' | 'paused' | 'stopping'
+        // Engine statuses: 'idle' | 'running' | 'waiting' | 'pausing' | 'paused' | 'stopping'
         const statusMap: Record<string, RalphStatus> = {
           idle: 'ready',
           running: 'running',
+          waiting: 'waiting',
           pausing: 'pausing',
           paused: 'paused',
           stopping: 'stopped',
@@ -933,6 +1021,12 @@ export function RunApp({
           break;
         case 'engine:stopped':
           setRemoteStatus(event.reason === 'completed' ? 'complete' : 'ready');
+          break;
+        case 'engine:waiting':
+          setRemoteCurrentTaskId(undefined);
+          setRemoteCurrentTaskTitle(undefined);
+          remoteCurrentTaskIdRef.current = undefined;
+          setRemoteStatus('waiting');
           break;
         case 'engine:paused':
           setRemoteStatus('paused');
@@ -1070,6 +1164,62 @@ export function RunApp({
   // Compute display tracker and model for local vs remote
   const displayTrackerName = isViewingRemote ? (remoteTrackerName ?? trackerName) : trackerName;
   const displayModel = isViewingRemote ? (remoteModel ?? currentModel) : localModel;
+
+  const handleSettingsSave = useCallback(
+    async (newConfig: StoredConfig): Promise<void> => {
+      if (!onSaveSettings) {
+        throw new Error('Settings save is not available');
+      }
+
+      const previousAgent = getConfiguredAgentName(storedConfig);
+      const nextAgent = getConfiguredAgentName(newConfig);
+      const previousModel = normalizeModelValue(storedConfig?.model);
+      const nextModel = normalizeModelValue(newConfig.model);
+
+      await onSaveSettings(newConfig);
+      if (previousAgent !== nextAgent || previousModel !== nextModel) {
+        setDetectedModel(nextModel ?? '');
+      }
+    },
+    [onSaveSettings, storedConfig]
+  );
+
+  const handleAgentModelConfirm = useCallback(
+    async (selection: AgentModelSelection): Promise<void> => {
+      if (!engine) {
+        throw new Error('Agent switching is not available in this mode');
+      }
+
+      if (selection.saveAsDefault) {
+        if (!storedConfig || !onSaveSettings) {
+          throw new Error('Settings save is not available');
+        }
+
+        const nextConfig: StoredConfig = {
+          ...storedConfig,
+          agent: selection.agentName,
+          defaultAgent: selection.agentName,
+        };
+        if (selection.model) {
+          nextConfig.model = selection.model;
+        } else {
+          delete nextConfig.model;
+        }
+
+        await onSaveSettings(nextConfig);
+        setDetectedModel(selection.model ?? '');
+        return;
+      }
+
+      const agentConfig = resolveAgentConfigForSelection(
+        selection.agentName,
+        storedConfig?.agents ?? []
+      );
+      await engine.switchToUserAgent(agentConfig, selection.model);
+      setDetectedModel(selection.model ?? '');
+    },
+    [engine, onSaveSettings, storedConfig]
+  );
 
   // Resolve model context windows for live local/remote usage indicators.
   const modelContextCacheRef = useRef<Map<string, number | null>>(new Map());
@@ -1261,24 +1411,7 @@ export function RunApp({
     return countRunning(tree);
   }, [subagentTree, remoteSubagentTree, isViewingRemote]);
 
-  // Filter and sort tasks for display
-  // Sort order: active → actionable → blocked → done → closed
-  // This is computed early so keyboard handlers can use displayedTasks.length
-  // Use remoteTasks when viewing a remote instance
-  const displayedTasks = useMemo(() => {
-    // Status priority for sorting (lower = higher priority)
-    const statusPriority: Record<TaskStatus, number> = {
-      active: 0,
-      actionable: 1,
-      pending: 2, // Treat pending same as actionable (shouldn't happen often)
-      blocked: 3,
-      error: 4, // Failed tasks show after blocked
-      completedLocally: 5, // Completed but not merged (e.g., no commits)
-      done: 6,
-      closed: 7,
-    };
-
-    // Use remote tasks when viewing remote, local tasks otherwise
+  const runtimeSourceTasks = useMemo(() => {
     let sourceTasks = isViewingRemote ? remoteTasks : tasks;
 
     // Parallel mode: overlay worker statuses onto tasks in a single render cycle.
@@ -1340,23 +1473,103 @@ export function RunApp({
       };
     });
 
-    const filtered = showClosedTasks ? sourceTasks : sourceTasks.filter((t) => t.status !== 'closed');
-    return [...filtered].sort((a, b) => {
-      const priorityA = statusPriority[a.status] ?? 10;
-      const priorityB = statusPriority[b.status] ?? 10;
-      return priorityA - priorityB;
-    });
+    return sourceTasks;
   }, [
     tasks,
     remoteTasks,
     isViewingRemote,
-    showClosedTasks,
     isParallelMode,
     parallelWorkers,
     parallelCompletedLocallyTaskIds,
     parallelMergedTaskIds,
     taskUsageMap,
     remoteTaskUsageMap,
+  ]);
+
+  const activeExecutionScopes = useMemo(() => {
+    const scopeMap = new Map<string, ExecutionScope>();
+    const preferredScopes = isViewingRemote ? [] : executionScopes;
+
+    for (const scope of preferredScopes) {
+      scopeMap.set(scope.id, scope);
+    }
+
+    for (const task of runtimeSourceTasks) {
+      if (task.executionScope && !scopeMap.has(task.executionScope.id)) {
+        scopeMap.set(task.executionScope.id, task.executionScope);
+      }
+    }
+
+    return [...scopeMap.values()];
+  }, [executionScopes, isViewingRemote, runtimeSourceTasks]);
+
+  const scopeFilterEnabled = activeExecutionScopes.length > 1;
+
+  useEffect(() => {
+    if (!scopeFilterEnabled) {
+      if (scopeFilterId !== 'all') {
+        setScopeFilterId('all');
+      }
+      return;
+    }
+
+    if (
+      scopeFilterId !== 'all' &&
+      !activeExecutionScopes.some((scope) => scope.id === scopeFilterId)
+    ) {
+      setScopeFilterId('all');
+    }
+  }, [activeExecutionScopes, scopeFilterEnabled, scopeFilterId]);
+
+  const { scopeCounts, allScopeCount } = useMemo(() => {
+    const nextCounts = new Map<string, ScopeFilterCount>();
+    let nextAllCount = createEmptyScopeCount();
+
+    for (const task of runtimeSourceTasks) {
+      nextAllCount = addTaskToScopeCount(nextAllCount, task);
+      const scopeId = task.executionScope?.id;
+      if (!scopeId) continue;
+
+      const existing = nextCounts.get(scopeId) ?? createEmptyScopeCount(scopeId);
+      nextCounts.set(scopeId, addTaskToScopeCount(existing, task));
+    }
+
+    return { scopeCounts: nextCounts, allScopeCount: nextAllCount };
+  }, [runtimeSourceTasks]);
+
+  // Filter and sort tasks for display.
+  // Sort order: active → actionable → blocked → done → closed.
+  // This is computed early so keyboard handlers can use displayedTasks.length.
+  const displayedTasks = useMemo(() => {
+    const statusPriority: Record<TaskStatus, number> = {
+      active: 0,
+      actionable: 1,
+      pending: 2,
+      blocked: 3,
+      error: 4,
+      completedLocally: 5,
+      done: 6,
+      closed: 7,
+    };
+
+    let filtered = showClosedTasks
+      ? runtimeSourceTasks
+      : runtimeSourceTasks.filter((t) => t.status !== 'closed');
+
+    if (scopeFilterEnabled && scopeFilterId !== 'all') {
+      filtered = filtered.filter((task) => task.executionScope?.id === scopeFilterId);
+    }
+
+    return [...filtered].sort((a, b) => {
+      const priorityA = statusPriority[a.status] ?? 10;
+      const priorityB = statusPriority[b.status] ?? 10;
+      return priorityA - priorityB;
+    });
+  }, [
+    runtimeSourceTasks,
+    showClosedTasks,
+    scopeFilterEnabled,
+    scopeFilterId,
   ]);
 
   // Derive parallel execution status from worker states.
@@ -1377,8 +1590,32 @@ export function RunApp({
     return 'idle';
   }, [isParallelMode, parallelWorkers]);
 
+  // Auto-show completion summary overlay once summary lines are available.
+  useEffect(() => {
+    const currentCount = parallelCompletionSummaryLines?.length ?? 0;
+    const previousCount = prevParallelSummaryLinesCountRef.current;
+
+    if (!isParallelMode) {
+      setShowParallelSummaryOverlay(false);
+      prevParallelSummaryLinesCountRef.current = 0;
+      return;
+    }
+
+    if (currentCount === 0) {
+      setShowParallelSummaryOverlay(false);
+    } else if (previousCount === 0) {
+      setShowParallelSummaryOverlay(true);
+    }
+
+    prevParallelSummaryLinesCountRef.current = currentCount;
+  }, [isParallelMode, parallelCompletionSummaryLines]);
+
   // Clamp selectedIndex when displayedTasks shrinks (e.g., when hiding closed tasks)
   useEffect(() => {
+    if (displayedTasks.length === 0 && selectedIndex !== 0) {
+      setSelectedIndex(0);
+      return;
+    }
     if (displayedTasks.length > 0 && selectedIndex >= displayedTasks.length) {
       setSelectedIndex(displayedTasks.length - 1);
     }
@@ -1582,6 +1819,13 @@ export function RunApp({
           } else {
             setStatus('stopped');
           }
+          break;
+
+        case 'engine:waiting':
+          setCurrentTaskId(undefined);
+          setCurrentTaskTitle(undefined);
+          currentTaskIdRef.current = undefined;
+          setStatus('waiting');
           break;
 
         case 'engine:paused':
@@ -1795,7 +2039,12 @@ export function RunApp({
 
         case 'tasks:refreshed':
           // Update task list with fresh data from tracker
-          setTasks(convertTasksWithDependencyStatus(event.tasks));
+          setTasks((prev) =>
+            preserveCurrentSessionCompletions(
+              prev,
+              convertTasksWithDependencyStatus(event.tasks)
+            )
+          );
           break;
 
         case 'engine:iterations-added':
@@ -1810,6 +2059,10 @@ export function RunApp({
 
         case 'cost:updated':
           setTotalCost(event.snapshot.totalCost);
+          break;
+
+        case 'model:escalated':
+          setDetectedModel(event.newModel);
           break;
 
         case 'cost:threshold-exceeded':
@@ -1946,19 +2199,25 @@ export function RunApp({
     (key: KeyEvent) => {
       // Handle clipboard copy:
       // - macOS: Cmd+C (meta key)
-      // - Linux: Ctrl+Shift+C or Alt+C
+      // - Linux: Alt+C (Ctrl+Shift+C where the terminal reports Shift)
       // - Windows: Ctrl+C
       // Note: We check this early so copy works even when dialogs are open
-      const isMac = platform() === 'darwin';
-      const isWindows = platform() === 'win32';
       const selection = renderer.getSelection();
-      const isCopyShortcut = isMac
-        ? key.meta && key.name === 'c'
-        : isWindows
-          ? key.ctrl && key.name === 'c'
-          : (key.ctrl && key.shift && key.name === 'c') || (key.option && key.name === 'c');
+      const shortcutAction = classifyCopyOrInterrupt(
+        {
+          name: key.name,
+          ctrl: key.ctrl,
+          shift: key.shift,
+          meta: key.meta,
+          option: key.option,
+        },
+        {
+          platform: platform(),
+          hasSelection: Boolean(selection),
+        }
+      );
 
-      if (isCopyShortcut && selection) {
+      if (shortcutAction === 'copy' && selection) {
         const selectedText = selection.getSelectedText();
         if (selectedText && selectedText.length > 0) {
           writeToClipboard(selectedText).then((result) => {
@@ -1967,6 +2226,11 @@ export function RunApp({
             }
           });
         }
+        return;
+      }
+
+      if (shortcutAction === 'interrupt') {
+        onInterruptRequest?.();
         return;
       }
 
@@ -2015,6 +2279,22 @@ export function RunApp({
         return; // Don't process other keys when dialog is showing
       }
 
+      // When parallel summary overlay is showing, handle close keys only.
+      if (showParallelSummaryOverlay) {
+        switch (key.name) {
+          case 'return':
+          case 'enter':
+          case 'escape':
+            setShowParallelSummaryOverlay(false);
+            break;
+          case 'q':
+            setShowParallelSummaryOverlay(false);
+            setShowQuitDialog(true);
+            break;
+        }
+        return;
+      }
+
       // When help overlay is showing, ? or Esc closes it
       if (showHelp) {
         if (key.name === '?' || key.name === 'escape') {
@@ -2026,6 +2306,11 @@ export function RunApp({
       // When settings view is showing, let it handle its own keyboard events
       // Closing is handled by SettingsView internally via onClose callback
       if (showSettings) {
+        return;
+      }
+
+      // When agent/model picker is showing, let it handle its own keyboard events
+      if (showAgentModelPicker) {
         return;
       }
 
@@ -2152,7 +2437,7 @@ export function RunApp({
           // When paused, resume will transition back to selecting
           if (isViewingRemote && instanceManager) {
             // Route to remote instance
-            if (displayStatus === 'running' || displayStatus === 'executing' || displayStatus === 'selecting') {
+            if (displayStatus === 'running' || displayStatus === 'executing' || displayStatus === 'selecting' || displayStatus === 'waiting') {
               // Set status to 'pausing' immediately for feedback
               setRemoteStatus('pausing');
               instanceManager.sendRemoteCommand('pause');
@@ -2179,7 +2464,7 @@ export function RunApp({
             }
           } else if (engine) {
             // Local engine control (engine absent in parallel mode)
-            if (status === 'running' || status === 'executing' || status === 'selecting') {
+            if (status === 'running' || status === 'executing' || status === 'selecting' || status === 'waiting') {
               engine.pause();
               setStatus('pausing');
             } else if (status === 'pausing') {
@@ -2195,7 +2480,7 @@ export function RunApp({
 
         // Note: 'c' / Ctrl+C is intentionally NOT handled here.
         // Ctrl+C and Ctrl+Shift+C send the same sequence (\x03) in most terminals,
-        // so we can't distinguish between "stop" and "copy". Users should use 'q' to quit.
+        // so use Alt+C to copy; Ctrl+C opens the interrupt dialog and q quits.
 
 
         case 'v':
@@ -2253,6 +2538,21 @@ export function RunApp({
           setShowClosedTasks((prev) => !prev);
           break;
 
+        case 'g':
+        case 'G':
+          if (scopeFilterEnabled) {
+            if (key.sequence === 'G') {
+              setScopeFilterId('all');
+            } else {
+              setScopeFilterId((prev) => {
+                const scopeIds = ['all', ...activeExecutionScopes.map((scope) => scope.id)];
+                const currentIndex = scopeIds.indexOf(prev);
+                return scopeIds[(currentIndex + 1) % scopeIds.length] ?? 'all';
+              });
+            }
+          }
+          break;
+
         case '?':
           // Show help overlay
           setShowHelp(true);
@@ -2307,6 +2607,8 @@ export function RunApp({
             instanceManager.sendRemoteCommand('refreshTasks');
           } else if (engine) {
             engine.refreshTasks();
+          } else if (onRefreshTasks) {
+            onRefreshTasks();
           }
           break;
 
@@ -2556,17 +2858,29 @@ export function RunApp({
           }
           break;
 
-        // Remote management: 'a' to add new remote
+        // Agent/model picker: 'a' opens the local picker.
+        // Shift+A keeps the remote add flow available without stealing lowercase 'a'.
         case 'a':
-          // Open add remote overlay
-          setRemoteManagementMode('add');
-          setEditingRemote(undefined);
-          setShowRemoteManagement(true);
+          if (key.sequence === 'A') {
+            setRemoteManagementMode('add');
+            setEditingRemote(undefined);
+            setShowRemoteManagement(true);
+            break;
+          }
+          if (isViewingRemote) {
+            setInfoFeedback('Agent/model picker is available on the local tab');
+            break;
+          }
+          if (!engine) {
+            setInfoFeedback('Agent/model picker is not available in this mode');
+            break;
+          }
+          setShowAgentModelPicker(true);
           break;
 
         // Remote management: 'e' to edit current remote (only when viewing a remote tab)
         case 'e':
-          if (isViewingRemote && instanceTabs && selectedTabIndex > 0) {
+          if (isViewingRemote && instanceTabs) {
             const tab = instanceTabs[selectedTabIndex];
             if (tab?.alias) {
               // Load remote data for editing
@@ -2576,6 +2890,7 @@ export function RunApp({
                     alias: tab.alias!,
                     host: config.host,
                     port: config.port,
+                    secure: config.secure,
                     token: config.token,
                   });
                   setRemoteManagementMode('edit');
@@ -2598,7 +2913,7 @@ export function RunApp({
             break;
           }
           // Remote management: delete current remote (only when viewing a remote tab)
-          if (isViewingRemote && instanceTabs && selectedTabIndex > 0) {
+          if (isViewingRemote && instanceTabs) {
             const tab = instanceTabs[selectedTabIndex];
             if (tab?.alias) {
               // Load remote data for delete confirmation
@@ -2608,6 +2923,7 @@ export function RunApp({
                     alias: tab.alias!,
                     host: config.host,
                     port: config.port,
+                    secure: config.secure,
                     token: config.token,
                   });
                   setRemoteManagementMode('delete');
@@ -2622,19 +2938,119 @@ export function RunApp({
           break;
       }
     },
-    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, showHelp, showSettings, showQuitDialog, showKillDialog, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus]
+    [displayedTasks, selectedIndex, status, engine, onQuit, viewMode, iterations, iterationSelectedIndex, iterationHistoryLength, onIterationDrillDown, showInterruptDialog, onInterruptConfirm, onInterruptCancel, onInterruptRequest, showHelp, showSettings, showAgentModelPicker, showQuitDialog, showKillDialog, showParallelSummaryOverlay, showEpicLoader, showRemoteManagement, onStart, storedConfig, onSaveSettings, onLoadEpics, subagentDetailLevel, onSubagentPanelVisibilityChange, currentIteration, maxIterations, renderer, detailsViewMode, subagentPanelVisible, focusedPane, navigateSubagentTree, instanceTabs, selectedTabIndex, onSelectTab, isViewingRemote, displayStatus, instanceManager, isParallelMode, parallelWorkers, parallelConflicts, showConflictPanel, onParallelKill, onParallelPause, onParallelResume, onParallelStart, parallelDerivedStatus, onRefreshTasks, scopeFilterEnabled, activeExecutionScopes]
   );
 
   useKeyboard(handleKeyboard);
 
-  // Calculate layout - account for dashboard and tab bar height when visible
+  // Calculate layout - account for dashboard and tab bar height when visible.
+  // Show the TabBar whenever there's something useful to display: any remote tab,
+  // multiple tabs, or zero tabs in remote-only mode (so the empty-state hint shows).
+  // Hide it only when the single tab is the local tab (original behavior).
+  const shouldShowTabBar = !!instanceTabs && !(instanceTabs.length === 1 && instanceTabs[0]?.isLocal);
   const dashboardHeight = showDashboard ? layout.progressDashboard.height : 0;
-  const tabBarHeight = instanceTabs && instanceTabs.length > 1 ? layout.tabBar.height : 0;
+  const tabBarHeight = shouldShowTabBar ? layout.tabBar.height : 0;
+  const scopeFilterBarHeight = scopeFilterEnabled ? 1 : 0;
   const contentHeight = Math.max(
     1,
-    height - layout.header.height - layout.footer.height - dashboardHeight - tabBarHeight
+    height - layout.header.height - layout.footer.height - dashboardHeight - tabBarHeight -
+      scopeFilterBarHeight
   );
   const isCompact = width < 80;
+  const availableWidth = Math.max(0, width - 4);
+  const parallelSummaryOverlayWidth = availableWidth < 72
+    ? availableWidth
+    : Math.min(140, availableWidth);
+  const parallelSummaryContentWidth = Math.max(
+    1,
+    Math.min(
+      Math.max(0, availableWidth - 4),
+      Math.max(1, parallelSummaryOverlayWidth - 4)
+    )
+  );
+  const parallelSummaryOverlayLines = useMemo(() => {
+    if (!parallelCompletionSummaryLines || parallelCompletionSummaryLines.length === 0) {
+      return [];
+    }
+
+    const maxLineWidth = parallelSummaryContentWidth;
+    const wrapLineForOverlay = (line: string): string[] => {
+      if (line.length === 0) {
+        return [''.padEnd(maxLineWidth, ' ')];
+      }
+      if (line.length <= maxLineWidth) {
+        return [line.padEnd(maxLineWidth, ' ')];
+      }
+
+      const leadingIndent = line.match(/^\s*/)?.[0] ?? '';
+      const continuationIndent = leadingIndent.length > 0 ? leadingIndent : '  ';
+      const wrapped: string[] = [];
+      let remaining = line;
+      let isFirstLine = true;
+
+      while (remaining.length > 0) {
+        const prefix = isFirstLine ? '' : continuationIndent;
+        const wrapWidth = Math.max(1, maxLineWidth - prefix.length);
+
+        if (remaining.length <= wrapWidth) {
+          wrapped.push(`${prefix}${remaining}`.padEnd(maxLineWidth, ' '));
+          break;
+        }
+
+        let breakAt = remaining.lastIndexOf(' ', wrapWidth);
+        if (breakAt <= 0 || breakAt < Math.floor(wrapWidth * 0.5)) {
+          breakAt = wrapWidth;
+        }
+
+        const chunk = remaining.slice(0, breakAt).trimEnd();
+        wrapped.push(`${prefix}${chunk}`.padEnd(maxLineWidth, ' '));
+        remaining = remaining.slice(breakAt);
+        if (remaining.startsWith(' ')) {
+          remaining = remaining.slice(1);
+        }
+        isFirstLine = false;
+      }
+
+      return wrapped;
+    };
+
+    const lines = [...parallelCompletionSummaryLines];
+    if (parallelCompletionSummaryPath) {
+      lines.push('');
+      lines.push(`Summary file: ${parallelCompletionSummaryPath}`);
+    }
+    if (parallelCompletionSummaryWriteError) {
+      lines.push(`Summary write warning: ${parallelCompletionSummaryWriteError}`);
+    }
+
+    return lines.flatMap((line) => wrapLineForOverlay(line));
+  }, [
+    parallelCompletionSummaryLines,
+    parallelCompletionSummaryPath,
+    parallelCompletionSummaryWriteError,
+    parallelSummaryContentWidth,
+  ]);
+  const parallelSummaryMaxVisibleLines = Math.max(6, height - 14);
+  const visibleParallelSummaryLines = useMemo(() => {
+    if (parallelSummaryOverlayLines.length <= parallelSummaryMaxVisibleLines) {
+      return parallelSummaryOverlayLines;
+    }
+
+    const headCount = Math.min(
+      3,
+      parallelSummaryMaxVisibleLines,
+      parallelSummaryOverlayLines.length
+    );
+    const tailCount = Math.max(0, parallelSummaryMaxVisibleLines - headCount);
+    if (tailCount === 0) {
+      return parallelSummaryOverlayLines.slice(0, headCount);
+    }
+
+    return [
+      ...parallelSummaryOverlayLines.slice(0, headCount),
+      ...parallelSummaryOverlayLines.slice(-tailCount),
+    ];
+  }, [parallelSummaryOverlayLines, parallelSummaryMaxVisibleLines]);
 
   // Calculate completed tasks (counting both 'done' and 'closed' as completed)
   // 'done' = completed in current session, 'closed' = historically completed
@@ -3242,10 +3658,12 @@ export function RunApp({
         backgroundColor: colors.bg.primary,
       }}
     >
-      {/* Tab Bar - instance navigation (local + remotes) */}
-      {instanceTabs && instanceTabs.length > 1 && (
+      {/* Tab Bar - instance navigation (local + remotes).
+          Visible whenever there are remotes (or zero tabs in remote-only mode);
+          hidden only for the default "just the local tab" case. */}
+      {shouldShowTabBar && (
         <TabBar
-          tabs={instanceTabs}
+          tabs={instanceTabs!}
           selectedIndex={selectedTabIndex}
         />
       )}
@@ -3305,6 +3723,15 @@ export function RunApp({
           totalWorkerCount={totalWorkerCount}
           aggregateUsage={displayAggregateUsage}
           totalCost={totalCost > 0 ? totalCost : undefined}
+        />
+      )}
+
+      {scopeFilterEnabled && (
+        <ScopeFilterBar
+          scopes={activeExecutionScopes}
+          selectedScopeId={scopeFilterId}
+          counts={scopeCounts}
+          allCount={allScopeCount}
         />
       )}
 
@@ -3368,6 +3795,7 @@ export function RunApp({
               isViewingRemote={isViewingRemote}
               remoteConnectionStatus={instanceTabs?.[selectedTabIndex]?.status}
               remoteAlias={instanceTabs?.[selectedTabIndex]?.alias}
+              showScopePrefixes={scopeFilterEnabled && scopeFilterId === 'all'}
             />
             <RightPanel
               selectedTask={selectedTask}
@@ -3530,6 +3958,43 @@ export function RunApp({
         />
       )}
 
+      {/* Parallel completion summary overlay */}
+      {showParallelSummaryOverlay && visibleParallelSummaryLines.length > 0 && (
+        <box
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <box
+            style={{
+              width: parallelSummaryOverlayWidth,
+              height: Math.max(12, Math.min(height - 4, visibleParallelSummaryLines.length + 4)),
+              backgroundColor: colors.bg.secondary,
+              border: true,
+              borderColor: colors.status.info,
+              flexDirection: 'column',
+              padding: 1,
+            }}
+          >
+            {visibleParallelSummaryLines.map((line, index) => (
+              <box key={`parallel-summary-line-${index}`} style={{ width: parallelSummaryContentWidth }}>
+                <text fg={colors.fg.primary}>
+                  {line}
+                </text>
+              </box>
+            ))}
+            <box style={{ height: 1 }} />
+            <text fg={colors.fg.muted}>[Enter/Esc] Close  [q] Quit</text>
+          </box>
+        </box>
+      )}
+
       {/* Interrupt Confirmation Dialog */}
       <ConfirmationDialog
         visible={showInterruptDialog}
@@ -3577,11 +4042,22 @@ export function RunApp({
           visible={showSettings}
           config={storedConfig}
           agents={availableAgents}
+          agentConfigs={storedConfig.agents}
           trackers={availableTrackers}
-          onSave={onSaveSettings}
+          onSave={handleSettingsSave}
           onClose={() => setShowSettings(false)}
         />
       )}
+
+      <AgentModelPicker
+        visible={showAgentModelPicker}
+        agents={availableAgents}
+        agentConfigs={storedConfig?.agents}
+        currentAgent={baseAgentName}
+        currentModel={localModel}
+        onConfirm={handleAgentModelConfirm}
+        onClose={() => setShowAgentModelPicker(false)}
+      />
 
       {/* Remote Config View */}
       <RemoteConfigView
@@ -3655,12 +4131,12 @@ export function RunApp({
 
           if (remoteManagementMode === 'add') {
             // Add new remote to config
-            const result = await addRemote(data.alias, data.host, data.port, data.token);
+            const result = await addRemote(data.alias, data.host, data.port, data.token, data.secure);
             if (!result.success) {
               throw new Error(result.error || 'Failed to add remote');
             }
             // Connect to the new remote via InstanceManager
-            await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token);
+            await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token, data.secure);
             // Select the new tab
             const newIndex = instanceManager.getTabIndexByAlias(data.alias);
             if (newIndex !== -1 && onSelectTab) {
@@ -3675,20 +4151,20 @@ export function RunApp({
               // Remove old tab
               instanceManager.removeTab(editingRemote.alias);
               // Add new config
-              const result = await addRemote(data.alias, data.host, data.port, data.token);
+              const result = await addRemote(data.alias, data.host, data.port, data.token, data.secure);
               if (!result.success) {
                 throw new Error(result.error || 'Failed to add remote');
               }
               // Connect with new alias
-              await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token);
+              await instanceManager.addAndConnectRemote(data.alias, data.host, data.port, data.token, data.secure);
             } else {
               // Same alias - just update config and reconnect
               await removeRemote(data.alias);
-              const result = await addRemote(data.alias, data.host, data.port, data.token);
+              const result = await addRemote(data.alias, data.host, data.port, data.token, data.secure);
               if (!result.success) {
                 throw new Error(result.error || 'Failed to update remote');
               }
-              await instanceManager.reconnectRemote(data.alias, data.host, data.port, data.token);
+              await instanceManager.reconnectRemote(data.alias, data.host, data.port, data.token, data.secure);
             }
           }
           setShowRemoteManagement(false);

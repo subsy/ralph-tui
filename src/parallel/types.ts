@@ -4,7 +4,11 @@
  * task graph analysis, and parallel session persistence types.
  */
 
-import type { TrackerTask, TaskPriority } from '../plugins/trackers/types.js';
+import type {
+  ExecutionScope,
+  TrackerTask,
+  TaskPriority,
+} from '../plugins/trackers/types.js';
 
 // ─── Worker Types ──────────────────────────────────────────────────────────────
 
@@ -325,17 +329,27 @@ export interface ParallelExecutorConfig {
   directMerge?: boolean;
 
   /**
+   * Optional explicit branch name to create for session-based parallel merges.
+   * Ignored when directMerge is true.
+   */
+  sessionBranchName?: string;
+
+  /**
    * Optional list of task IDs to execute. When provided, only tasks with these
    * IDs will be executed, filtering out any others returned by the tracker.
    * Used for --task-range filtering.
    */
   filteredTaskIds?: string[];
+
+  /** Selected execution scopes for multi-epic runs */
+  scopes?: ExecutionScope[];
 }
 
 /**
  * Status of the overall parallel executor.
  * - 'idle': Not started
  * - 'analyzing': Running task graph analysis
+ * - 'paused': Execution paused between scheduling steps
  * - 'executing': Workers are running
  * - 'merging': Merging completed workers back to main
  * - 'completed': All groups finished
@@ -345,6 +359,7 @@ export interface ParallelExecutorConfig {
 export type ParallelExecutorStatus =
   | 'idle'
   | 'analyzing'
+  | 'paused'
   | 'executing'
   | 'merging'
   | 'completed'
@@ -370,6 +385,9 @@ export interface ParallelExecutorState {
   /** Active workers and their display states */
   workers: WorkerDisplayState[];
 
+  /** Results from workers that have completed during this execution */
+  workerResults?: WorkerResult[];
+
   /** Merge queue state */
   mergeQueue: MergeOperation[];
 
@@ -390,6 +408,9 @@ export interface ParallelExecutorState {
 
   /** Elapsed time in milliseconds */
   elapsedMs: number;
+
+  /** Selected execution scopes for this run */
+  scopes?: ExecutionScope[];
 }
 
 // ─── Session Persistence Types ─────────────────────────────────────────────────

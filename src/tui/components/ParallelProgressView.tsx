@@ -9,6 +9,7 @@ import { memo } from 'react';
 import { createTextAttributes } from '@opentui/core';
 import { colors, statusIndicators, formatElapsedTime } from '../theme.js';
 import type { WorkerDisplayState, MergeOperation } from '../../parallel/types.js';
+import type { ExecutionScope, ScopedTrackerTask, TrackerTask } from '../../plugins/trackers/types.js';
 
 const boldAttr = createTextAttributes({ bold: true });
 
@@ -73,6 +74,17 @@ function getMergeStatusDisplay(status: MergeOperation['status']): {
   }
 }
 
+function getExecutionScope(task: TrackerTask): ExecutionScope | undefined {
+  return (task as ScopedTrackerTask).executionScope;
+}
+
+function formatScopeLabel(task: TrackerTask): string {
+  const scope = getExecutionScope(task);
+  if (!scope) return '';
+  const label = scope.title || scope.id;
+  return label.length > 14 ? `${label.slice(0, 13)}…` : label;
+}
+
 /**
  * Single worker row showing status, progress, and task title.
  */
@@ -90,10 +102,12 @@ function WorkerRow({
   const { indicator, color: statusColor } = getWorkerStatusDisplay(worker.status);
   const progress = `[${worker.currentIteration}/${worker.maxIterations}]`;
   const elapsed = worker.elapsedMs > 0 ? formatElapsedTime(Math.floor(worker.elapsedMs / 1000)) : '';
+  const scopeLabel = formatScopeLabel(worker.task);
+  const scopePrefix = scopeLabel ? `[${scopeLabel}] ` : '';
 
-  const prefix = `${indicator} W${index + 1} ${progress} `;
+  const prefix = `${indicator} W${index + 1} ${progress} ${scopePrefix}`;
   const suffix = elapsed ? ` ${elapsed}` : '';
-  const titleWidth = maxWidth - prefix.length - suffix.length;
+  const titleWidth = Math.max(1, maxWidth - prefix.length - suffix.length);
   const title = worker.task.title.length > titleWidth
     ? worker.task.title.slice(0, titleWidth - 1) + '…'
     : worker.task.title;
@@ -105,6 +119,7 @@ function WorkerRow({
       <span fg={statusColor}>{indicator}</span>
       <span fg={colors.fg.muted}> W{index + 1} </span>
       <span fg={colors.fg.dim}>{progress} </span>
+      {scopePrefix && <span fg={colors.accent.tertiary}>{scopePrefix}</span>}
       <span fg={titleColor}>{title}</span>
       {suffix && <span fg={colors.fg.dim}>{suffix}</span>}
     </text>
@@ -123,8 +138,10 @@ function MergeRow({
 }): ReactNode {
   const { indicator, color: mergeColor, label } = getMergeStatusDisplay(operation.status);
   const taskId = operation.workerResult.task.id;
+  const scopeLabel = formatScopeLabel(operation.workerResult.task);
+  const scopedTaskId = scopeLabel ? `[${scopeLabel}] ${taskId}` : taskId;
 
-  const line = `${indicator} ${taskId} → main  ${label}`;
+  const line = `${indicator} ${scopedTaskId} → main  ${label}`;
 
   return (
     <text fg={mergeColor}>{line.slice(0, maxWidth)}</text>

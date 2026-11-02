@@ -13,7 +13,13 @@ import {
   parseDroidJsonlLine,
   type DroidJsonlMessage,
 } from '../plugins/agents/droid/outputParser.js';
-import { stripAnsiCodes, type FormattedSegment } from '../plugins/agents/output-formatting.js';
+import {
+  formatToolCall,
+  formatToolCallSegments,
+  stripAnsiCodes,
+  type FormattedSegment,
+  type ToolInputFormatters,
+} from '../plugins/agents/output-formatting.js';
 import {
   extractTokenUsageFromJsonLine,
   TokenUsageAccumulator,
@@ -203,6 +209,7 @@ interface OpenCodeEvent {
     text?: string;
     tool?: string;
     name?: string;
+    input?: Record<string, unknown>;
     state?: {
       input?: Record<string, unknown>;
       isError?: boolean;
@@ -467,18 +474,9 @@ function formatOpenCodeEventForDisplay(event: OpenCodeEvent): string | undefined
       break;
 
     case 'tool_use': {
-      // Tool being called - show name
       const toolName = event.part?.tool || event.part?.name || 'unknown';
-      const input = event.part?.state?.input;
-      if (input) {
-        // Show tool name and key input details
-        const inputStr = Object.entries(input)
-          .slice(0, 2)
-          .map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 50) : '...'}`)
-          .join(', ');
-        return `[Tool: ${toolName}] ${inputStr}`;
-      }
-      return `[Tool: ${toolName}]`;
+      const input = event.part?.state?.input ?? event.part?.input;
+      return stripAnsiCodes(formatToolCall(toolName, input as ToolInputFormatters | undefined)).trimEnd();
     }
 
     case 'tool_result': {
@@ -793,7 +791,9 @@ export class StreamingOutputParser {
       const extractedSegments = this.extractReadableSegments(line);
       if (extractedSegments.length > 0) {
         newSegments.push(...extractedSegments);
-        newSegments.push({ text: '\n' }); // Add newline segment
+        if (!extractedSegments[extractedSegments.length - 1]!.text.endsWith('\n')) {
+          newSegments.push({ text: '\n' });
+        }
       }
     }
 
@@ -999,12 +999,14 @@ export class StreamingOutputParser {
     if (this.isOpenCode) {
       const openCodeResult = parseOpenCodeJsonlLine(trimmed);
       if (openCodeResult.success && openCodeResult.event) {
+        if (openCodeResult.event.type === 'tool_use') {
+          const toolName = openCodeResult.event.part?.tool || openCodeResult.event.part?.name || 'unknown';
+          const input = openCodeResult.event.part?.state?.input ?? openCodeResult.event.part?.input;
+          return formatToolCallSegments(toolName, input as ToolInputFormatters | undefined);
+        }
+
         const displayText = formatOpenCodeEventForDisplay(openCodeResult.event);
         if (displayText) {
-          // Format tool calls with color
-          if (openCodeResult.event.type === 'tool_use') {
-            return [{ text: displayText, color: 'cyan' }];
-          }
           if (openCodeResult.event.type === 'error') {
             return [{ text: displayText, color: 'yellow' }];
           }

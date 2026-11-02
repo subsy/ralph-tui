@@ -1,0 +1,178 @@
+---
+title: Grok Agent
+description: Integrate xAI's Grok CLI with Ralph TUI for AI-assisted coding.
+---
+
+## Grok Agent
+
+The Grok agent plugin integrates with xAI's official `grok` CLI (Grok Build TUI) to execute AI coding tasks. It supports streaming JSONL output for subagent tracing and uses single-turn mode for non-interactive operation.
+
+<Callout type="tip">
+Grok supports **subagent tracing** via `streaming-json` output — Ralph TUI can show tool calls in real-time as Grok works.
+</Callout>
+
+## Prerequisites
+
+Install the official Grok CLI from xAI and ensure it is on your `PATH` (typically `~/.grok/bin` or `~/.local/bin`):
+
+```bash
+# Verify installation
+grok --version
+# e.g. grok 0.2.118 (...) [stable]
+```
+
+Authenticate via OAuth (SuperGrok / xAI account) — no API key is required:
+
+```bash
+grok login
+# Auth is stored at ~/.grok/auth.json
+```
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Grok">
+    Use the `--agent grok` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent grok
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model` or agent options:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent grok --model grok-4.5
+    ```
+
+    List available models:
+
+    ```bash
+    grok models
+    ```
+  </Step>
+
+  <Step title="Verify with Doctor">
+    ```bash
+    ralph-tui doctor --agent grok
+    # Should report HEALTHY
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+The simplest configuration:
+
+```toml
+# .ralph-tui/config.toml
+agent = "grok"
+
+[agentOptions]
+model = "grok-4.5"
+```
+
+### Full Config
+
+For advanced control:
+
+```toml
+[[agents]]
+name = "my-grok"
+plugin = "grok"
+default = true
+command = "grok"
+timeout = 300000
+
+[agents.options]
+model = "grok-4.5"
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | Grok model ID (e.g., `grok-4.5`). Leave empty for default. |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"grok"` | Path to Grok CLI executable |
+
+## Subagent Tracing
+
+Grok emits structured NDJSON via `--output-format streaming-json` (always enabled). Ralph TUI parses this to display:
+
+- Text response deltas from the model
+- Tool invocations (`tool_call` with name and input)
+- Tool completions (`tool_call_update` with status completed/failed)
+- Error messages from failed operations
+
+### Enabling Tracing
+
+```toml
+subagentTracingDetail = "full"
+```
+
+Or toggle in TUI:
+- Press `t` to cycle through detail levels
+- Press `T` (Shift+T) to toggle the subagent tree panel
+
+## How It Works
+
+When Ralph TUI executes a task with Grok:
+
+1. **Build command**: Constructs `grok --always-approve --output-format streaming-json --prompt-file /dev/stdin [options]`
+2. **Pass prompt via stdin**: Uses `--prompt-file /dev/stdin` (Grok does not read bare stdin) so the prompt is not shell-escaped
+3. **Stream output**: Captures stdout/stderr in real-time
+4. **Parse JSONL**: Extracts structured tool call data and text deltas
+5. **Detect completion**: Watches for process exit
+6. **Handle exit**: Reports success, failure, or timeout
+
+### CLI Arguments
+
+Ralph TUI builds these arguments:
+
+```bash
+grok \
+  --always-approve \
+  --output-format streaming-json \
+  --prompt-file /dev/stdin \
+  --model grok-4.5 \
+  < prompt.txt
+```
+
+- `--always-approve` — auto-approve tool executions
+- `--output-format streaming-json` — structured NDJSON for parsing
+- `--prompt-file /dev/stdin` — read the prompt from stdin (Unix)
+- `--model` — only present when a model is configured
+
+On Windows, the prompt is passed with `-p` instead of `--prompt-file /dev/stdin`.
+
+<Callout type="info">
+`--always-approve` is required for Ralph TUI's autonomous workflow. Do not confuse this with other CLIs' `--dangerously-skip-permissions` flag — Grok uses its own flag name.
+</Callout>
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| `Grok CLI not found in PATH` | Install the official CLI and add `~/.grok/bin` to PATH |
+| Preflight fails / no output | Run `grok -p "hello" --always-approve` and check auth with `grok login` |
+| Auth errors | Ensure `~/.grok/auth.json` exists; re-run `grok login` |
+| Wrong output format errors | Must use `streaming-json` (not `stream-json`) |
+| Model not found | Run `grok models` and set a listed model ID |
+
+```bash
+# Manual smoke tests
+grok --version
+grok -p "hello" --always-approve
+grok -p "hello" --output-format streaming-json --always-approve
+ralph-tui doctor --agent grok
+```
+
+## Next Steps
+
+- [Plugins Overview](/docs/plugins/overview) — How agent plugins work
+- [Configuration](/docs/configuration) — Full config reference
+- [Running Ralph](/docs/getting-started) — Start an agent loop

@@ -13,6 +13,9 @@ import createKiroAgent from './kiro.js';
 import createCursorAgent from './cursor.js';
 import createGithubCopilotAgent from './github-copilot.js';
 import createKimiAgent from './kimi.js';
+import createPiAgent from './pi.js';
+import createGrokAgent from './grok.js';
+import createAntigravityAgent from './antigravity.js';
 
 /**
  * Register all built-in agent plugins with the registry.
@@ -31,6 +34,9 @@ export function registerBuiltinAgents(): void {
   registry.registerBuiltin(createCursorAgent);
   registry.registerBuiltin(createGithubCopilotAgent);
   registry.registerBuiltin(createKimiAgent);
+  registry.registerBuiltin(createPiAgent);
+  registry.registerBuiltin(createGrokAgent);
+  registry.registerBuiltin(createAntigravityAgent);
 }
 
 // Export the factory functions for direct use
@@ -44,6 +50,9 @@ export {
   createCursorAgent,
   createGithubCopilotAgent,
   createKimiAgent,
+  createPiAgent,
+  createGrokAgent,
+  createAntigravityAgent,
 };
 
 // Export Claude JSONL parsing types and utilities
@@ -57,3 +66,6 @@ export { KiroAgentPlugin } from './kiro.js';
 export { CursorAgentPlugin } from './cursor.js';
 export { GithubCopilotAgentPlugin } from './github-copilot.js';
 export { KimiAgentPlugin } from './kimi.js';
+export { PiAgentPlugin, parsePiJsonLine } from './pi.js';
+export { GrokAgentPlugin, parseGrokJsonLine, parseGrokOutputToEvents } from './grok.js';
+export { AntigravityAgentPlugin, parseAntigravityJsonLine, parseAntigravityOutputToEvents } from './antigravity.js';

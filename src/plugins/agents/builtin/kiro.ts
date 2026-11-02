@@ -247,6 +247,10 @@ export class KiroAgentPlugin extends BaseAgentPlugin {
     }
     return null;
   }
+
+  override listModels(): string[] {
+    return VALID_KIRO_MODELS.filter((model) => model.length > 0);
+  }
 }
 
 const createKiroAgent: AgentPluginFactory = () => new KiroAgentPlugin();

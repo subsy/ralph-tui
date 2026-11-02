@@ -32,7 +32,11 @@ describe('GeminiAgentPlugin', () => {
     });
 
     test('has correct default command', () => {
-      expect(plugin.meta.defaultCommand).toBe('gemini');
+      expect(plugin.meta.defaultCommand).toBe('gemini-cli');
+    });
+
+    test('supports legacy gemini alias', () => {
+      expect(plugin.meta.commandAliases).toEqual(['gemini']);
     });
 
     test('supports streaming', () => {
@@ -145,6 +149,15 @@ describe('GeminiAgentPlugin', () => {
       const result = plugin.validateModel('gpt-4o');
       expect(result).not.toBeNull();
       expect(result).toContain('gemini-');
+    });
+  });
+
+  describe('listModels', () => {
+    test('lists known Gemini models', () => {
+      expect(plugin.listModels()).toEqual([
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+      ]);
     });
   });
 });

@@ -19,6 +19,7 @@ import {
   buildConfig,
   CONFIG_PATHS,
 } from './index.js';
+import { DEFAULT_CONFIG } from './types.js';
 import type { StoredConfig, RalphConfig } from './types.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
@@ -57,6 +58,30 @@ describe('loadStoredConfig', () => {
   test('returns empty config when no files exist', async () => {
     const config = await loadStoredConfig(tempDir, globalConfigPath);
     expect(config).toEqual({});
+  });
+
+  test('engine settings round-trip and project settings override globals', async () => {
+    await writeTomlConfig(globalConfigPath, {
+      verification: { enabled: true, commands: ['global check'], timeoutMs: 60000 },
+      modelEscalation: { enabled: true, startModel: 'sonnet', escalateAfter: 2 },
+      cost: { enabled: true, alertThreshold: 5, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } } },
+      completion: { strategies: ['promise-tag'] },
+    });
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(join(projectConfigDir, 'config.toml'), serializeConfig({
+      verification: { commands: ['project check'] },
+      modelEscalation: { escalateModel: 'opus' },
+      cost: { alertThreshold: 10 },
+      completion: { strategies: [] },
+    }));
+    const config = await loadStoredConfig(tempDir, globalConfigPath);
+    expect(config.verification).toEqual({ enabled: true, commands: ['project check'], timeoutMs: 60000 });
+    expect(config.modelEscalation).toEqual({ enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 2 });
+    expect(config.cost).toEqual({
+      enabled: true, alertThreshold: 10, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } },
+    });
+    expect(config.completion).toEqual({ strategies: [] });
   });
 
   test('loads global config file', async () => {
@@ -650,6 +675,8 @@ describe('validateConfig', () => {
       tracker: { name: 'beads-bv', plugin: 'beads-bv', options: {} },
       maxIterations: 10,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -673,6 +700,8 @@ describe('validateConfig', () => {
       tracker: { name: 'beads-bv', plugin: 'beads-bv', options: {} },
       maxIterations: 10,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -696,6 +725,8 @@ describe('validateConfig', () => {
       tracker: { name: 'unknown', plugin: 'nonexistent-tracker', options: {} },
       maxIterations: 10,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -719,6 +750,8 @@ describe('validateConfig', () => {
       tracker: { name: 'beads-bv', plugin: 'beads-bv', options: {} },
       maxIterations: -1,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -742,6 +775,8 @@ describe('validateConfig', () => {
       tracker: { name: 'beads-bv', plugin: 'beads-bv', options: {} },
       maxIterations: 10,
       iterationDelay: -1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -759,12 +794,35 @@ describe('validateConfig', () => {
     expect(result.errors.some((e) => e.includes('delay'))).toBe(true);
   });
 
+  test('reports error for non-positive poll interval', async () => {
+    const config: RalphConfig = {
+      ...DEFAULT_CONFIG,
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      tracker: { name: 'beads-bv', plugin: 'beads-bv', options: {} },
+      pollIntervalMs: 0,
+      showTui: false,
+      errorHandling: {
+        strategy: 'skip',
+        maxRetries: 3,
+        retryDelayMs: 5000,
+        continueOnNonZeroExit: false,
+      },
+    };
+
+    const result = await validateConfig(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('Poll interval'))).toBe(true);
+  });
+
   test('warns about missing epic ID for beads tracker in TUI mode', async () => {
     const config: RalphConfig = {
       agent: { name: 'claude', plugin: 'claude', options: {} },
       tracker: { name: 'beads-bv', plugin: 'beads-bv', options: {} },
       maxIterations: 10,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -789,6 +847,8 @@ describe('validateConfig', () => {
       tracker: { name: 'beads-rust', plugin: 'beads-rust', options: {} },
       maxIterations: 10,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -813,6 +873,8 @@ describe('validateConfig', () => {
       tracker: { name: 'beads', plugin: 'beads', options: {} },
       maxIterations: 10,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -837,6 +899,8 @@ describe('validateConfig', () => {
       tracker: { name: 'json', plugin: 'json', options: {} },
       maxIterations: 10,
       iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
       cwd: process.cwd(),
       outputDir: '.ralph-tui/iterations',
       progressFile: '.ralph-tui/progress.md',
@@ -853,6 +917,142 @@ describe('validateConfig', () => {
     const result = await validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings.some((w) => w.includes('PRD') || w.includes('prd'))).toBe(true);
+  });
+
+  test('reports error for linear tracker without epic', async () => {
+    const config: RalphConfig = {
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      tracker: { name: 'linear', plugin: 'linear', options: {} },
+      maxIterations: 10,
+      iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
+      cwd: process.cwd(),
+      outputDir: '.ralph-tui/iterations',
+      progressFile: '.ralph-tui/progress.md',
+      showTui: true,
+      errorHandling: {
+        strategy: 'skip',
+        maxRetries: 3,
+        retryDelayMs: 5000,
+        continueOnNonZeroExit: false,
+      },
+    };
+
+    const result = await validateConfig(config);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('Linear'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('--epic'))).toBe(true);
+  });
+
+  test('linear tracker with epic passes validation', async () => {
+    const config: RalphConfig = {
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      tracker: { name: 'linear', plugin: 'linear', options: {} },
+      maxIterations: 10,
+      iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
+      cwd: process.cwd(),
+      outputDir: '.ralph-tui/iterations',
+      progressFile: '.ralph-tui/progress.md',
+      showTui: true,
+      epicId: 'ENG-123',
+      errorHandling: {
+        strategy: 'skip',
+        maxRetries: 3,
+        retryDelayMs: 5000,
+        continueOnNonZeroExit: false,
+      },
+    };
+
+    const result = await validateConfig(config);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('linear tracker error includes example usage', async () => {
+    const config: RalphConfig = {
+      agent: { name: 'claude', plugin: 'claude', options: {} },
+      tracker: { name: 'linear', plugin: 'linear', options: {} },
+      maxIterations: 10,
+      iterationDelay: 1000,
+      watch: false,
+      pollIntervalMs: 30000,
+      cwd: process.cwd(),
+      outputDir: '.ralph-tui/iterations',
+      progressFile: '.ralph-tui/progress.md',
+      showTui: true,
+      errorHandling: {
+        strategy: 'skip',
+        maxRetries: 3,
+        retryDelayMs: 5000,
+        continueOnNonZeroExit: false,
+      },
+    };
+
+    const result = await validateConfig(config);
+    expect(result.valid).toBe(false);
+    // Error message should include actionable example
+    expect(result.errors.some((e) => e.includes('ralph-tui run'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('ENG-123'))).toBe(true);
+  });
+});
+
+describe('buildConfig - engine improvement settings', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  for (const { name, stored, cli, expected } of [
+    { name: 'defaults to off', stored: undefined, cli: undefined, expected: false },
+    { name: 'honors stored enable', stored: true, cli: undefined, expected: true },
+    { name: 'honors stored disable', stored: false, cli: undefined, expected: false },
+    { name: 'CLI enable overrides stored disable', stored: false, cli: true, expected: true },
+    { name: 'CLI disable overrides stored enable', stored: true, cli: false, expected: false },
+    { name: 'CLI enable overrides default', stored: undefined, cli: true, expected: true },
+    { name: 'CLI disable overrides default', stored: undefined, cli: false, expected: false },
+  ]) {
+    test(`auto-commit ${name}`, async () => {
+      const projectConfigDir = join(tempDir, '.ralph-tui');
+      await mkdir(projectConfigDir, { recursive: true });
+      await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+        agent: 'claude', tracker: 'beads-bv',
+        ...(stored === undefined ? {} : { autoCommit: stored }),
+      });
+      const config = await buildConfig({ cwd: tempDir, autoCommit: cli });
+      expect(config).not.toBeNull();
+      expect(config!.autoCommit).toBe(expected);
+    });
+  }
+
+  test('propagates explicit settings and preserves configured commit templates', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    const settings = {
+      verification: { enabled: true, commands: ['bun test'], maxRetries: 1 },
+      modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 2 },
+      cost: { alertThreshold: 10, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } } },
+      completion: { strategies: ['promise-tag' as const] },
+      commitMessageTemplate: 'custom: {{taskTitle}} ({{iteration}})',
+    };
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude', tracker: 'beads-bv', ...settings,
+    });
+    const config = await buildConfig({ cwd: tempDir, autoCommit: false });
+    expect(config).not.toBeNull();
+    expect(config!.verification).toEqual(settings.verification);
+    expect(config!.modelEscalation).toEqual(settings.modelEscalation);
+    expect(config!.cost).toEqual(settings.cost);
+    expect(config!.completion).toEqual(settings.completion);
+    expect(config!.commitMessageTemplate).toBe(settings.commitMessageTemplate);
+    expect(config!.autoCommit).toBe(false);
   });
 });
 
@@ -934,6 +1134,50 @@ default = true
 
     expect(config).not.toBeNull();
     expect(config!.agent.command).toBe('my-custom-claude');
+  });
+
+  test('normalizes multiple runtime epic IDs into config and tracker options', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-rust"
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({
+      cwd: tempDir,
+      epicIds: ['ui-epic', 'backend-epic'],
+    });
+
+    expect(config).not.toBeNull();
+    expect(config!.epicId).toBe('ui-epic');
+    expect(config!.epicIds).toEqual(['ui-epic', 'backend-epic']);
+    expect(config!.tracker.options?.epicId).toBe('ui-epic');
+    expect(config!.tracker.options?.epicIds).toEqual(['ui-epic', 'backend-epic']);
+  });
+
+  test('builds watch configuration from runtime options', async () => {
+    const config = await buildConfig({
+      cwd: tempDir,
+      watch: true,
+      pollIntervalMs: 5000,
+    });
+
+    expect(config).not.toBeNull();
+    expect(config!.watch).toBe(true);
+    expect(config!.pollIntervalMs).toBe(5000);
+  });
+
+  test('uses default watch polling configuration', async () => {
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.watch).toBe(false);
+    expect(config!.pollIntervalMs).toBe(30000);
   });
 });
 
@@ -1053,5 +1297,102 @@ envPassthrough = ["MY_API_KEY"]
     expect(config).not.toBeNull();
     expect(config!.agent.envExclude).toEqual(['*_TOKEN']);
     expect(config!.agent.envPassthrough).toEqual(['MY_API_KEY']);
+  });
+});
+
+describe('buildConfig - preflightTimeoutMs shorthand', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test('applies top-level preflightTimeoutMs to default agent', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+preflightTimeoutMs = 60000
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('agent-level preflightTimeoutMs takes precedence over top-level', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+preflightTimeoutMs = 60000
+tracker = "beads-bv"
+
+[[agents]]
+name = "claude"
+plugin = "claude"
+default = true
+preflightTimeoutMs = 120000
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBe(120000);
+  });
+
+  test('top-level preflightTimeoutMs not applied when agent already has it set', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+preflightTimeoutMs = 60000
+tracker = "beads-bv"
+
+[[agents]]
+name = "custom-claude"
+plugin = "claude"
+default = true
+preflightTimeoutMs = 90000
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBe(90000);
+  });
+
+  test('leaves preflightTimeoutMs undefined when neither level sets it', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(
+      join(projectConfigDir, 'config.toml'),
+      `
+agent = "claude"
+tracker = "beads-bv"
+`,
+      'utf-8'
+    );
+
+    const config = await buildConfig({ cwd: tempDir });
+
+    expect(config).not.toBeNull();
+    expect(config!.agent.preflightTimeoutMs).toBeUndefined();
   });
 });

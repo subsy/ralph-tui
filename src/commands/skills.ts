@@ -6,8 +6,8 @@
 
 import { spawn } from 'node:child_process';
 import {
+  getSkillSearchPaths,
   listBundledSkills,
-  resolveSkillsPath,
   getSkillStatusForAgent,
   AGENT_ID_MAP,
   resolveAddSkillAgentId,
@@ -33,6 +33,11 @@ interface SkillCapableAgent {
   meta: AgentPluginMeta;
   available: boolean;
   skillsPaths: AgentSkillsPaths;
+}
+
+interface VerifiedInstallSummary {
+  skillCount: number;
+  agentNames: string[];
 }
 
 /**
@@ -74,6 +79,55 @@ async function getSkillCapableAgents(): Promise<SkillCapableAgent[]> {
   }
 
   return agents;
+}
+
+/**
+ * Format one or more discovery paths for display.
+ */
+function formatSkillPaths(paths: string[]): string {
+  return paths.join(', ');
+}
+
+/**
+ * Verify install results against the actual agent discovery paths we support.
+ * This is used as a fallback when the upstream skills CLI output is not parseable.
+ */
+async function verifyInstalledSkills(options: {
+  skillName: string | null;
+  agentId: string | null;
+  local: boolean;
+}, agents: SkillCapableAgent[]): Promise<VerifiedInstallSummary | null> {
+  const targetAgents = options.agentId
+    ? agents.filter((agent) => agent.available && agent.meta.id === options.agentId)
+    : agents.filter((agent) => agent.available);
+
+  if (targetAgents.length === 0) {
+    return null;
+  }
+
+  const skillNames = options.skillName
+    ? [options.skillName]
+    : (await listBundledSkills()).map((skill) => skill.name);
+
+  const agentNames: string[] = [];
+  for (const agent of targetAgents) {
+    const status = await getSkillStatusForAgent(agent.skillsPaths, process.cwd(), agent.meta.id);
+    const installedInRequestedScope = skillNames.every((skillName) => {
+      const skillStatus = status.get(skillName);
+      return options.local
+        ? skillStatus?.repo === true
+        : skillStatus?.personal === true;
+    });
+
+    if (installedInRequestedScope) {
+      agentNames.push(agent.meta.name);
+    }
+  }
+
+  return {
+    skillCount: skillNames.length,
+    agentNames,
+  };
 }
 
 /**
@@ -130,6 +184,7 @@ ${BOLD}Install Options:${RESET}
   ${DIM}--agent <id>${RESET}       Install only to specific agent (claude, opencode, codex, gemini, kiro)
   ${DIM}--local${RESET}            Install to project-local directory
   ${DIM}--global${RESET}           Install to personal/global directory (default)
+  ${DIM}--copy${RESET}             Copy skills instead of symlinking (useful if symlink install fails)
 
 ${BOLD}Examples:${RESET}
   ralph-tui skills list                    # List all skills per agent
@@ -180,12 +235,13 @@ async function handleListSkills(): Promise<void> {
   for (const agent of agents) {
     const statusIcon = agent.available ? `${GREEN}✓${RESET}` : `${DIM}○${RESET}`;
     const availableText = agent.available ? '' : ` ${DIM}(not installed)${RESET}`;
+    const searchPaths = getSkillSearchPaths(agent.skillsPaths, cwd, agent.meta.id);
     console.log(`${statusIcon} ${BOLD}${agent.meta.name}${RESET}${availableText}`);
-    console.log(`  ${DIM}Global: ${resolveSkillsPath(agent.skillsPaths.personal)}${RESET}`);
-    console.log(`  ${DIM}Local:  ${resolveSkillsPath(agent.skillsPaths.repo, cwd)}${RESET}`);
+    console.log(`  ${DIM}Global: ${formatSkillPaths(searchPaths.personal)}${RESET}`);
+    console.log(`  ${DIM}Local:  ${formatSkillPaths(searchPaths.repo)}${RESET}`);
 
     if (agent.available) {
-      const status = await getSkillStatusForAgent(agent.skillsPaths, cwd);
+      const status = await getSkillStatusForAgent(agent.skillsPaths, cwd, agent.meta.id);
       for (const skill of skills) {
         const skillStatus = status.get(skill.name);
         const globalInstalled = skillStatus?.personal ?? false;
@@ -219,11 +275,13 @@ export function parseInstallArgs(args: string[]): {
   agentId: string | null;
   local: boolean;
   global: boolean;
+  copy: boolean;
 } {
   let skillName: string | null = null;
   let agentId: string | null = null;
   let local = false;
   let global = false;
+  let copy = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -232,6 +290,8 @@ export function parseInstallArgs(args: string[]): {
       local = true;
     } else if (arg === '--global' || arg === '-g') {
       global = true;
+    } else if (arg === '--copy') {
+      copy = true;
     } else if (arg === '--all' || arg === '-a') {
       // Accepted for backwards compat but is now the default
     } else if (arg === '--force' || arg === '-f') {
@@ -252,7 +312,7 @@ export function parseInstallArgs(args: string[]): {
     global = true;
   }
 
-  return { skillName, agentId, local, global };
+  return { skillName, agentId, local, global, copy };
 }
 
 /**
@@ -263,6 +323,7 @@ export function buildAddSkillArgs(options: {
   agentId: string | null;
   local: boolean;
   global: boolean;
+  copy?: boolean;
 }): string[] {
   const args = ['add-skill', 'subsy/ralph-tui'];
 
@@ -279,6 +340,11 @@ export function buildAddSkillArgs(options: {
   // Global vs local
   if (options.global) {
     args.push('-g');
+  }
+
+  // Copy mode avoids symlink strategy for environments where symlinks are problematic
+  if (options.copy) {
+    args.push('--copy');
   }
 
   // Non-interactive
@@ -344,7 +410,8 @@ async function handleInstallSkills(args: string[]): Promise<void> {
     ? `to ${CYAN}${options.agentId}${RESET}`
     : 'to all detected agents';
   const locationText = options.local ? 'local (project)' : 'global';
-  console.log(`${BOLD}Installing ${skillText} ${agentText} [${locationText}]${RESET}`);
+  const modeText = options.copy ? ', copy mode' : ', symlink mode';
+  console.log(`${BOLD}Installing ${skillText} ${agentText} [${locationText}${modeText}]${RESET}`);
   console.log(`${DIM}$ bunx ${addSkillArgs.join(' ')}${RESET}\n`);
 
   // Spawn bunx add-skill with piped output
@@ -389,14 +456,35 @@ async function handleInstallSkills(args: string[]): Promise<void> {
   }
 
   const result = parseAddSkillOutput(output);
+  const agents = result.installed && result.agentCount === 0
+    ? await getSkillCapableAgents()
+    : [];
+  const verifiedResult = agents.length > 0
+    ? await verifyInstalledSkills(options, agents)
+    : null;
 
   if (result.installed) {
-    console.log(`${GREEN}✓${RESET} ${BOLD}Installed ${result.skillCount} skill${result.skillCount !== 1 ? 's' : ''} to ${result.agentCount} agent${result.agentCount !== 1 ? 's' : ''}${RESET}`);
-    if (result.agents.length > 0) {
-      console.log(`  ${DIM}Agents: ${result.agents.join(', ')}${RESET}`);
+    const summary = verifiedResult && verifiedResult.agentNames.length > 0
+      ? {
+          skillCount: verifiedResult.skillCount,
+          agentCount: verifiedResult.agentNames.length,
+          agents: verifiedResult.agentNames,
+        }
+      : {
+          skillCount: result.skillCount,
+          agentCount: result.agentCount,
+          agents: result.agents,
+        };
+
+    console.log(`${GREEN}✓${RESET} ${BOLD}Installed ${summary.skillCount} skill${summary.skillCount !== 1 ? 's' : ''} to ${summary.agentCount} agent${summary.agentCount !== 1 ? 's' : ''}${RESET}`);
+    if (summary.agents.length > 0) {
+      console.log(`  ${DIM}Agents: ${summary.agents.join(', ')}${RESET}`);
     }
     if (result.eloopOnly) {
       console.log(`  ${DIM}(Some agents share skill directories via symlinks — skills already accessible)${RESET}`);
+      if (!options.copy) {
+        console.log(`  ${DIM}(If you need physical files instead, rerun with: ralph-tui skills install --copy)${RESET}`);
+      }
     }
   } else if (exitCode !== 0) {
     console.error(`${RED}✗${RESET} Installation failed`);

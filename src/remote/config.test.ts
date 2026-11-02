@@ -153,6 +153,7 @@ describe('Config File Format', () => {
           prod: {
             host: 'prod.example.com',
             port: 7890,
+            secure: true,
             token: 'token123',
             addedAt: '2026-01-19T00:00:00.000Z',
           },
@@ -165,6 +166,7 @@ describe('Config File Format', () => {
       expect(toml).toContain('[remotes.prod]');
       expect(toml).toContain('host = "prod.example.com"');
       expect(toml).toContain('port = 7890');
+      expect(toml).toContain('secure = true');
       expect(toml).toContain('token = "token123"');
     });
 
@@ -175,6 +177,7 @@ version = 1
 [remotes.staging]
 host = "staging.local"
 port = 8080
+secure = true
 token = "abc123"
 addedAt = "2026-01-19T12:00:00.000Z"
 `;
@@ -190,11 +193,13 @@ addedAt = "2026-01-19T12:00:00.000Z"
       const staging = parsed.remotes.staging as {
         host: string;
         port: number;
+        secure: boolean;
         token: string;
         addedAt: string;
       };
       expect(staging.host).toBe('staging.local');
       expect(staging.port).toBe(8080);
+      expect(staging.secure).toBe(true);
       expect(staging.token).toBe('abc123');
     });
 

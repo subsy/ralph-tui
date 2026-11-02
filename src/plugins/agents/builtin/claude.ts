@@ -536,6 +536,13 @@ export class ClaudeAgentPlugin extends BaseAgentPlugin {
   static readonly VALID_MODELS = ['sonnet', 'opus', 'haiku'] as const;
 
   /**
+   * List known Claude model aliases supported by the plugin.
+   */
+  override listModels(): string[] {
+    return [...ClaudeAgentPlugin.VALID_MODELS];
+  }
+
+  /**
    * Validate a model name for the Claude agent.
    * @param model The model name to validate
    * @returns null if valid, error message if invalid

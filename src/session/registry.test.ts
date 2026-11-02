@@ -3,8 +3,8 @@
  * Covers registration, lookup, listing, and cleanup of sessions.
  */
 
-import { describe, expect, test, afterEach } from 'bun:test';
-import { open, unlink, rename, readFile } from 'node:fs/promises';
+import { describe, expect, test, beforeAll, beforeEach, afterEach, afterAll } from 'bun:test';
+import { open, unlink, rename, readFile, mkdtemp, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -20,22 +20,60 @@ import {
   cleanupStaleRegistryEntries,
   findSessionsByPrefix,
   getRegistryFilePath,
+  getRegistryDir,
   type SessionRegistryEntry,
 } from './registry.js';
 
-// Mock the registry directory for tests
-// Note: These tests modify the actual registry file at ~/.config/ralph-tui/sessions.json
-// In a real test environment, we'd want to mock the file system or use dependency injection
+async function expectPathMissing(path: string): Promise<void> {
+  let exists = true;
+  try {
+    await access(path);
+  } catch {
+    exists = false;
+  }
+  expect(exists).toBe(false);
+}
 
 describe('Session Registry', () => {
   let testSessionIds: string[] = [];
+  let originalConfigDir: string | undefined;
+  let testRegistryDir: string | undefined;
+
+  beforeAll(() => {
+    originalConfigDir = process.env.RALPH_TUI_CONFIG_DIR;
+  });
+
+  beforeEach(async () => {
+    testRegistryDir = await mkdtemp(join(tmpdir(), 'ralph-tui-registry-'));
+    process.env.RALPH_TUI_CONFIG_DIR = testRegistryDir;
+  });
 
   // Clean up any test sessions after each test
   afterEach(async () => {
-    for (const id of testSessionIds) {
-      await unregisterSession(id);
+    try {
+      for (const id of testSessionIds) {
+        await unregisterSession(id);
+      }
+      testSessionIds = [];
+    } finally {
+      if (testRegistryDir) {
+        await rm(testRegistryDir, { recursive: true, force: true });
+        testRegistryDir = undefined;
+      }
+      if (originalConfigDir === undefined) {
+        delete process.env.RALPH_TUI_CONFIG_DIR;
+      } else {
+        process.env.RALPH_TUI_CONFIG_DIR = originalConfigDir;
+      }
     }
-    testSessionIds = [];
+  });
+
+  afterAll(() => {
+    if (originalConfigDir === undefined) {
+      delete process.env.RALPH_TUI_CONFIG_DIR;
+    } else {
+      process.env.RALPH_TUI_CONFIG_DIR = originalConfigDir;
+    }
   });
 
   describe('registerSession', () => {
@@ -52,6 +90,8 @@ describe('Session Registry', () => {
         agentPlugin: 'claude',
         trackerPlugin: 'json',
         prdPath: '/tmp/test-project/prd.json',
+        epicId: 'ui-epic',
+        epicIds: ['ui-epic', 'backend-epic'],
       };
 
       await registerSession(entry);
@@ -61,6 +101,50 @@ describe('Session Registry', () => {
       expect(retrieved?.sessionId).toBe(sessionId);
       expect(retrieved?.cwd).toBe('/tmp/test-project');
       expect(retrieved?.status).toBe('running');
+      expect(retrieved?.epicId).toBe('ui-epic');
+      expect(retrieved?.epicIds).toEqual(['ui-epic', 'backend-epic']);
+    });
+
+    test('pins the registry directory across a mutation', async () => {
+      const registryDirA = testRegistryDir!;
+      const registryDirB = await mkdtemp(join(tmpdir(), 'ralph-tui-registry-switch-'));
+      const sessionId = `test-session-${Date.now()}-pinned`;
+      testSessionIds.push(sessionId);
+      let switched = false;
+
+      const entry = {
+        sessionId,
+        cwd: '/tmp/pinned-project',
+        status: 'running' as const,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        agentPlugin: 'claude',
+        trackerPlugin: 'json',
+      } as SessionRegistryEntry;
+      Object.defineProperty(entry, 'sessionId', {
+        get: () => {
+          if (!switched) {
+            switched = true;
+            process.env.RALPH_TUI_CONFIG_DIR = registryDirB;
+          }
+          return sessionId;
+        },
+      });
+
+      try {
+        await registerSession(entry);
+
+        const registryInA = JSON.parse(
+          await readFile(join(registryDirA, 'sessions.json'), 'utf-8')
+        ) as { sessions: Record<string, SessionRegistryEntry> };
+        expect(registryInA.sessions[sessionId]).toBeDefined();
+        await expectPathMissing(join(registryDirA, 'sessions.lock'));
+        await expectPathMissing(join(registryDirB, 'sessions.json'));
+        await expectPathMissing(join(registryDirB, 'sessions.lock'));
+      } finally {
+        process.env.RALPH_TUI_CONFIG_DIR = registryDirA;
+        await rm(registryDirB, { recursive: true, force: true });
+      }
     });
 
     test('updates existing session on re-register', async () => {
@@ -115,8 +199,15 @@ describe('Session Registry', () => {
     });
 
     test('does not fail for non-existent session', async () => {
-      // Should not throw
       await updateRegistryStatus('non-existent-session', 'paused');
+
+      let lockExists = true;
+      try {
+        await access(join(testRegistryDir!, 'sessions.lock'));
+      } catch {
+        lockExists = false;
+      }
+      expect(lockExists).toBe(false);
     });
   });
 
@@ -373,12 +464,10 @@ describe('Session Registry', () => {
   });
 
   describe('getRegistryFilePath', () => {
-    test('returns a valid path string', () => {
+    test('uses RALPH_TUI_CONFIG_DIR when set', () => {
       const path = getRegistryFilePath();
-      expect(typeof path).toBe('string');
-      expect(path).toContain('sessions.json');
-      expect(path).toContain('.config');
-      expect(path).toContain('ralph-tui');
+      expect(getRegistryDir()).toBe(testRegistryDir!);
+      expect(path).toBe(join(testRegistryDir!, 'sessions.json'));
     });
   });
 

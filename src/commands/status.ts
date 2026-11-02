@@ -417,10 +417,21 @@ function getIterationStatusIcon(status: string): string {
  * Create a progress bar string
  */
 function createProgressBar(percent: number, width: number): string {
-  const filled = Math.round((percent / 100) * width);
-  const empty = width - filled;
+  const safeWidth = Number.isFinite(width) ? Math.max(0, Math.round(width)) : 0;
+  const normalizedPercent = Number.isFinite(percent)
+    ? Math.min(100, Math.max(0, percent))
+    : percent === Infinity
+      ? 100
+      : 0;
+  const filledRaw = Math.round((normalizedPercent / 100) * safeWidth);
+  const filled = Math.min(safeWidth, Math.max(0, filledRaw));
+  const empty = safeWidth - filled;
   return `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`;
 }
+
+export const __test__ = {
+  createProgressBar,
+};
 
 /**
  * Execute the status command

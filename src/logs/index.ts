@@ -55,4 +55,6 @@ export {
   getRecentProgressSummary,
   getCodebasePatternsForPrompt,
   clearProgress,
+  ensureProgressFile,
+  appendProgressSessionMarker,
 } from './progress.js';

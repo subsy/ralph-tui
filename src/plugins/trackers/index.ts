@@ -9,6 +9,8 @@ export type {
   TaskPriority,
   TrackerTaskStatus,
   TrackerTask,
+  ExecutionScope,
+  ScopedTrackerTask,
   TaskCompletionResult,
   SyncResult,
   SetupQuestion,
@@ -21,6 +23,9 @@ export type {
 
 // Base class for creating plugins
 export { BaseTrackerPlugin } from './base.js';
+
+// Tracker wrappers
+export { MultiScopeTrackerPlugin, createExecutionScopeFromTask } from './multi-scope.js';
 
 // Plugin registry
 export { TrackerRegistry, getTrackerRegistry } from './registry.js';

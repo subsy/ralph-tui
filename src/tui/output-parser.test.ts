@@ -118,8 +118,8 @@ describe('StreamingOutputParser with opencode format', () => {
     });
     parser.push(toolUse + '\n');
     const output = parser.getOutput();
-    expect(output).toContain('[Tool: Bash]');
-    expect(output).toContain('command=ls -la');
+    expect(output).toContain('[Bash]');
+    expect(output).toContain('$ ls -la');
   });
 
   test('parses opencode tool_use with name field', () => {
@@ -129,7 +129,22 @@ describe('StreamingOutputParser with opencode format', () => {
       part: { name: 'Read' },
     });
     parser.push(toolUse + '\n');
-    expect(parser.getOutput()).toContain('[Tool: Read]');
+    expect(parser.getOutput()).toContain('[Read]');
+  });
+
+  test('parses opencode tool_use input from part.input fallback', () => {
+    const parser = new StreamingOutputParser({ agentPlugin: 'opencode' });
+    const toolUse = JSON.stringify({
+      type: 'tool_use',
+      part: {
+        tool: 'read',
+        input: { filename: '/tmp/demo.ts' },
+      },
+    });
+    parser.push(toolUse + '\n');
+    const output = parser.getOutput();
+    expect(output).toContain('[read]');
+    expect(output).toContain('/tmp/demo.ts');
   });
 
   test('shows opencode tool_result errors', () => {
@@ -578,7 +593,8 @@ describe('parseAgentOutput', () => {
     ].join('\n');
     const result = parseAgentOutput(lines, 'opencode');
     expect(result).toContain('Hello from OpenCode');
-    expect(result).toContain('[Tool: Bash]');
+    expect(result).toContain('[Bash]');
+    expect(result).toContain('$ pwd');
     // Successful tool results should not appear
     expect(result).not.toContain('Success');
   });

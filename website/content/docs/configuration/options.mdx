@@ -18,6 +18,7 @@ These control basic execution behavior.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `agent` | string | - | Agent plugin to use (e.g., "claude", "opencode") |
+| `model` | string | - | Default model override for the selected agent. The TUI Agent & Model picker saves here when **Save as default** is enabled. |
 | `command` | string | - | Custom command/executable for the agent (e.g., "ccr code") |
 | `tracker` | string | - | Tracker plugin to use (e.g., "beads-bv", "json") |
 | `maxIterations` | number | `10` | Maximum iterations per session (0 = unlimited, max 1000) |
@@ -25,9 +26,11 @@ These control basic execution behavior.
 | `outputDir` | string | `.ralph-tui/iterations` | Directory for iteration log files |
 | `progressFile` | string | `.ralph-tui/progress.md` | Progress file for cross-iteration context |
 | `autoCommit` | boolean | `false` | Ensures a git commit after each successful task. When `true`, ralph-tui stages and commits all uncommitted changes after task completion. When `false`, no automatic commit is made by ralph-tui, though the agent may still commit on its own if instructed by templates or CLAUDE.md. |
+| `commitMessageTemplate` | string | `"{{taskType}}: {{taskId}} {{taskTitle}}"` | Handlebars template used for the auto-commit subject when `autoCommit = true`. Available variables: `{{taskId}}`, `{{taskTitle}}`, `{{taskType}}` (falls back to `chore` when the tracker omits a type). If the rendered string is empty/whitespace or the template fails to compile, ralph-tui falls back to the default and logs a warning. |
 | `prompt_template` | string | - | Custom Handlebars template path |
 | `subagentTracingDetail` | string | `"off"` | Subagent visibility level |
 | `skills_dir` | string | - | Directory containing custom PRD skills |
+| `preflightTimeoutMs` | number | `30000` | Preflight check timeout in ms for the default agent (1000–300000). See [Preflight Timeout](#preflight-timeout). |
 
 ### subagentTracingDetail Values
 
@@ -48,14 +51,16 @@ The simplest way to configure an agent:
 
 ```toml
 agent = "claude"
+model = "sonnet"
 
 [agentOptions]
-model = "claude-sonnet-4-20250514"
+# Plugin-specific options go here.
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `agent` | string | - | Agent plugin name |
+| `model` | string | - | Model passed to the selected agent. If omitted, plugin-specific defaults apply. |
 | `command` | string | - | Custom command/executable path (see below) |
 | `agentOptions` | object | `{}` | Plugin-specific options |
 
@@ -115,11 +120,49 @@ timeout = 300000
 | `command` | string | (from plugin) | Override executable command |
 | `defaultFlags` | string[] | `[]` | Additional CLI flags |
 | `timeout` | number | `0` | Execution timeout (ms, 0 = no timeout) |
+| `preflightTimeoutMs` | number | `30000` | Preflight check timeout in ms (1000–300000). See [Preflight Timeout](#preflight-timeout). |
 | `options` | object | `{}` | Plugin-specific options |
 | `fallbackAgents` | string[] | `[]` | Agents to try on rate limit |
 | `rateLimitHandling` | object | - | Rate limit configuration |
 | `envExclude` | string[] | `[]` | Additional env var patterns to exclude |
 | `envPassthrough` | string[] | `[]` | Env vars to allow through despite exclusion patterns |
+
+### Preflight Timeout
+
+`preflightTimeoutMs` controls how long Ralph TUI waits for the agent to respond during the preflight health check run by [`ralph-tui doctor`](/docs/cli/doctor) and [`ralph-tui setup`](/docs/cli/setup).
+
+The default is **30 seconds**, which is plenty for hosted models. Increase it when:
+
+- You're running a **local reasoning model** (e.g. via Ollama, LM Studio, or a self-hosted endpoint) whose first response can legitimately exceed 30s while it warms up or thinks.
+- You're routing through a wrapper (such as Claude Code Router) that adds latency on cold start.
+- You see intermittent `preflight check failed` errors on a setup that is otherwise healthy.
+
+```toml
+# Top-level shorthand — applies to the default agent
+preflightTimeoutMs = 60000
+```
+
+Or per-agent for finer control:
+
+```toml
+[[agents]]
+name = "my-local-model"
+plugin = "opencode"
+preflightTimeoutMs = 120000  # 2 minutes for a slow local reasoning model
+
+  [agents.options]
+  model = "qwen2.5-coder:32b"
+```
+
+| Constraint | Value |
+|------------|-------|
+| Minimum | `1000` (1 second) |
+| Maximum | `300000` (5 minutes) |
+| Default | `30000` (30 seconds) |
+
+<Callout type="tip">
+The top-level `preflightTimeoutMs` only applies to the default agent. Per-agent settings in `[[agents]]` override the shorthand.
+</Callout>
 
 ## Tracker Options
 
@@ -183,6 +226,10 @@ For basic Beads integration:
 | Option | Type | Description |
 |--------|------|-------------|
 | `epicId` | string | Epic ID to filter tasks |
+
+<Callout type="info">
+Multi-epic selection is a runtime option. Use repeated `--epic` flags or `--epics` on `ralph-tui run`; Ralph stores the selected set as `epicIds` in session state for resume.
+</Callout>
 
 ## Error Handling
 
@@ -450,6 +497,8 @@ directMerge = false
 | `--parallel` | Force parallel with default workers |
 | `--parallel N` | Force parallel with N workers |
 | `--direct-merge` | Merge directly to current branch |
+| `--epic <id>` | Select an epic. May be repeated for hierarchy trackers. |
+| `--epics <ids>` | Select comma-separated epic IDs for hierarchy trackers. |
 
 See the [Parallel Execution guide](/docs/parallel/overview) for detailed documentation.
 
@@ -544,7 +593,8 @@ These flags override config file settings. Use with any execution command.
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
 | `--tracker <name>` | `-t` | string | Tracker to use |
-| `--epic <id>` | `-e` | string | Epic ID (beads trackers) |
+| `--epic <id>` | `-e` | string | Epic ID (hierarchy trackers). May be repeated. |
+| `--epics <ids>` | | string | Comma-separated epic IDs (hierarchy trackers) |
 | `--prd <path>` | `-p` | string | PRD file path (json tracker) |
 
 ### Error Handling Options
@@ -594,6 +644,7 @@ All numeric options have validation constraints:
 | `errorHandling.retryDelayMs` | 0 | 300000 |
 | `rateLimitHandling.maxRetries` | 0 | 10 |
 | `rateLimitHandling.baseBackoffMs` | 0 | 300000 |
+| `preflightTimeoutMs` | 1000 | 300000 |
 
 ## Environment Variables
 

@@ -5,7 +5,7 @@
  */
 
 import type { EngineEventBase } from '../engine/types.js';
-import type { TrackerTask } from '../plugins/trackers/types.js';
+import type { ExecutionScope, TrackerTask } from '../plugins/trackers/types.js';
 import type {
   WorkerResult,
   MergeResult,
@@ -192,6 +192,7 @@ export interface ParallelStartedEvent extends EngineEventBase {
   totalGroups: number;
   totalTasks: number;
   maxWorkers: number;
+  scopes?: ExecutionScope[];
 }
 
 /**

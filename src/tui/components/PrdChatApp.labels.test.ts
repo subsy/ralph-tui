@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildBeadsLabelsInstruction,
   classifyPastePayload,
+  isReviewPhaseShortcut,
 } from './PrdChatApp.js';
 
 describe('buildBeadsLabelsInstruction', () => {
@@ -106,5 +107,20 @@ describe('classifyPastePayload', () => {
       intercept: true,
       suppressFallbackInsert: true,
     });
+  });
+});
+
+describe('isReviewPhaseShortcut', () => {
+  test('matches bare tracker shortcuts in review phase', () => {
+    expect(isReviewPhaseShortcut('review', '1')).toBe(true);
+    expect(isReviewPhaseShortcut('review', '3')).toBe(true);
+  });
+
+  test('does not treat in-progress answers like "3A" as shortcuts', () => {
+    expect(isReviewPhaseShortcut('review', '3A')).toBe(false);
+  });
+
+  test('does not run review shortcuts in chat phase', () => {
+    expect(isReviewPhaseShortcut('chat', '3')).toBe(false);
   });
 });

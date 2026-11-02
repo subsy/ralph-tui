@@ -206,8 +206,12 @@ function mergeConfigs(
     merged.maxIterations = project.maxIterations;
   if (project.iterationDelay !== undefined)
     merged.iterationDelay = project.iterationDelay;
+  if (project.watch !== undefined) merged.watch = project.watch;
+  if (project.pollIntervalMs !== undefined)
+    merged.pollIntervalMs = project.pollIntervalMs;
   if (project.outputDir !== undefined) merged.outputDir = project.outputDir;
   if (project.agent !== undefined) merged.agent = project.agent;
+  if (project.model !== undefined) merged.model = project.model;
   if (project.agentCommand !== undefined)
     merged.agentCommand = project.agentCommand;
   if (project.command !== undefined) merged.command = project.command;
@@ -247,6 +251,8 @@ function mergeConfigs(
   if (project.progressFile !== undefined)
     merged.progressFile = project.progressFile;
   if (project.autoCommit !== undefined) merged.autoCommit = project.autoCommit;
+  if (project.commitMessageTemplate !== undefined)
+    merged.commitMessageTemplate = project.commitMessageTemplate;
   if (project.subagentTracingDetail !== undefined) {
     merged.subagentTracingDetail = project.subagentTracingDetail;
   }
@@ -256,6 +262,8 @@ function mergeConfigs(
     merged.fallbackAgents = project.fallbackAgents;
   if (project.envExclude !== undefined) merged.envExclude = project.envExclude;
   if (project.envPassthrough !== undefined) merged.envPassthrough = project.envPassthrough;
+  if (project.preflightTimeoutMs !== undefined)
+    merged.preflightTimeoutMs = project.preflightTimeoutMs;
 
   // Merge nested objects
   if (project.rateLimitHandling !== undefined) {
@@ -281,6 +289,12 @@ function mergeConfigs(
   }
   if (project.verification !== undefined) {
     merged.verification = { ...merged.verification, ...project.verification };
+  }
+  if (project.cost !== undefined) {
+    merged.cost = { ...merged.cost, ...project.cost };
+  }
+  if (project.completion !== undefined) {
+    merged.completion = { ...merged.completion, ...project.completion };
   }
 
   return merged;
@@ -447,6 +461,14 @@ export function getDefaultAgentConfig(
       result = {
         ...result,
         envPassthrough: storedConfig.envPassthrough,
+      };
+    }
+
+    // Apply preflightTimeoutMs shorthand (only if not already set on agent config)
+    if (storedConfig.preflightTimeoutMs && !result.preflightTimeoutMs) {
+      result = {
+        ...result,
+        preflightTimeoutMs: storedConfig.preflightTimeoutMs,
       };
     }
 
@@ -642,11 +664,19 @@ export async function buildConfig(
     }
   }
 
+  const epicIds = options.epicIds && options.epicIds.length > 0
+    ? options.epicIds
+    : options.epicId
+      ? [options.epicId]
+      : undefined;
+  const primaryEpicId = epicIds?.[0];
+
   // Apply epic/prd options to tracker
-  if (options.epicId) {
+  if (primaryEpicId) {
     trackerConfig.options = {
       ...trackerConfig.options,
-      epicId: options.epicId,
+      epicId: primaryEpicId,
+      epicIds,
     };
   }
   if (options.prdPath) {
@@ -686,6 +716,11 @@ export async function buildConfig(
       options.iterationDelay ??
       storedConfig.iterationDelay ??
       DEFAULT_CONFIG.iterationDelay,
+    watch: options.watch ?? storedConfig.watch ?? DEFAULT_CONFIG.watch,
+    pollIntervalMs:
+      options.pollIntervalMs ??
+      storedConfig.pollIntervalMs ??
+      DEFAULT_CONFIG.pollIntervalMs,
     cwd: options.cwd ?? DEFAULT_CONFIG.cwd,
     outputDir:
       options.outputDir ?? storedConfig.outputDir ?? DEFAULT_CONFIG.outputDir,
@@ -693,15 +728,18 @@ export async function buildConfig(
       options.progressFile ??
       storedConfig.progressFile ??
       DEFAULT_CONFIG.progressFile,
-    epicId: options.epicId,
+    epicId: primaryEpicId,
+    epicIds,
     prdPath: options.prdPath,
-    model: options.model,
+    model: options.model ?? storedConfig.model,
     showTui: !options.headless,
     errorHandling,
     sandbox,
     // CLI --prompt takes precedence over config file prompt_template
     promptTemplate: options.promptPath ?? storedConfig.prompt_template,
-    autoCommit: options.autoCommit ?? storedConfig.autoCommit ?? true,
+    commitMessageTemplate: storedConfig.commitMessageTemplate,
+    cost: storedConfig.cost,
+    completion: storedConfig.completion,
     modelEscalation: (options.startModel || options.escalateModel)
       ? {
           ...storedConfig.modelEscalation,
@@ -711,6 +749,7 @@ export async function buildConfig(
         }
       : storedConfig.modelEscalation ?? undefined,
     verification: storedConfig.verification ?? undefined,
+    autoCommit: options.autoCommit ?? storedConfig.autoCommit ?? false,
   };
 }
 
@@ -764,6 +803,23 @@ export async function validateConfig(
     }
   }
 
+  if (config.tracker.plugin === "linear") {
+    const effectiveEpicId =
+      config.epicId ??
+      (typeof config.tracker.options?.epicId === "string"
+        ? config.tracker.options.epicId
+        : undefined);
+    if (!effectiveEpicId) {
+      errors.push(
+        "Linear tracker requires --epic <issue-key-or-uuid> to specify the parent issue. " +
+          "Example: ralph-tui run --tracker linear --epic ENG-123",
+      );
+    } else if (!config.epicId) {
+      // Normalize: promote tracker options epicId to top-level for session consistency
+      config.epicId = effectiveEpicId;
+    }
+  }
+
   if (config.tracker.plugin === "json") {
     if (!config.prdPath) {
       // No error - TUI will show file prompt dialog to let user select a file
@@ -808,6 +864,10 @@ export async function validateConfig(
   // Validate delay
   if (config.iterationDelay < 0) {
     errors.push("Iteration delay must be 0 or greater");
+  }
+
+  if (config.pollIntervalMs <= 0) {
+    errors.push("Poll interval must be greater than 0");
   }
 
   return {

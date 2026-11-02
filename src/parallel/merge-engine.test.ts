@@ -281,6 +281,42 @@ describe('MergeEngine', () => {
       const tags = git(repoDir, 'tag');
       expect(tags).toContain('ralph/session-start/session-123');
     });
+
+    test('creates session backup tag when git tag signing is enabled', () => {
+      git(repoDir, 'config tag.gpgSign true');
+
+      const tag = engine.createSessionBackup('signed-config-session');
+
+      expect(tag).toBe('ralph/session-start/signed-config-session');
+      const tags = git(repoDir, 'tag');
+      expect(tags).toContain('ralph/session-start/signed-config-session');
+    });
+  });
+
+  describe('initializeSessionBranch', () => {
+    test('creates an explicit target branch when provided', () => {
+      const originalBranch = git(repoDir, 'branch --show-current').trim();
+      const result = engine.initializeSessionBranch(
+        'parallel-session-123',
+        'feature/parallel-out'
+      );
+
+      expect(result.branch).toBe('feature/parallel-out');
+      expect(result.original).toBe(originalBranch);
+      expect(engine.getSessionBranch()).toBe('feature/parallel-out');
+      expect(git(repoDir, 'branch --show-current').trim()).toBe('feature/parallel-out');
+    });
+
+    test('throws when explicit target branch already exists', () => {
+      git(repoDir, 'branch "feature/existing-target"');
+
+      expect(() =>
+        engine.initializeSessionBranch(
+          'parallel-session-123',
+          'feature/existing-target'
+        )
+      ).toThrow('Target branch already exists');
+    });
   });
 
   describe('rollbackMerge', () => {
@@ -307,6 +343,49 @@ describe('MergeEngine', () => {
       expect(() => engine.rollbackMerge('nonexistent')).toThrow(
         'not found'
       );
+    });
+  });
+
+  describe('markOperationRolledBack', () => {
+    test('marks conflicted operations as rolled-back without git reset', () => {
+      const events: ParallelEvent[] = [];
+      engine.on((event) => events.push(event));
+
+      const task = mockTask('MRB1');
+      const operation = engine.enqueue(
+        mockWorkerResult(task, 'ralph-parallel/MRB1')
+      );
+      operation.status = 'conflicted';
+
+      const updated = engine.markOperationRolledBack(
+        operation.id,
+        'Conflict skipped by user'
+      );
+
+      expect(updated).toBe(true);
+      expect(engine.getQueue()[0]?.status).toBe('rolled-back');
+      const rolledBackEvent = events.find(
+        (event) =>
+          event.type === 'merge:rolled-back' &&
+          event.operationId === operation.id
+      );
+      expect(rolledBackEvent?.type).toBe('merge:rolled-back');
+    });
+
+    test('returns false when operation is already completed', () => {
+      const task = mockTask('MRB2');
+      const operation = engine.enqueue(
+        mockWorkerResult(task, 'ralph-parallel/MRB2')
+      );
+      operation.status = 'completed';
+
+      const updated = engine.markOperationRolledBack(
+        operation.id,
+        'No-op'
+      );
+
+      expect(updated).toBe(false);
+      expect(operation.status).toBe('completed');
     });
   });
 
@@ -359,6 +438,20 @@ describe('MergeEngine', () => {
       tags = git(repoDir, 'tag');
       expect(tags).not.toContain('ralph/session-start/cleanup-test');
       expect(tags).not.toContain('ralph/pre-merge/CL1');
+    });
+
+    test('creates pre-merge backup tag when git tag signing is enabled', async () => {
+      git(repoDir, 'config tag.gpgSign true');
+
+      const branchName = 'ralph-parallel/SIGNED';
+      createBranchWithCommit(repoDir, branchName, 'signed-backup.ts', 'content\n');
+      engine.enqueue(mockWorkerResult(mockTask('SIGNED'), branchName));
+
+      const result = await engine.processNext();
+
+      expect(result?.success).toBe(true);
+      const tags = git(repoDir, 'tag');
+      expect(tags).toContain('ralph/pre-merge/SIGNED/');
     });
   });
 

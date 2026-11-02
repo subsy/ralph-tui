@@ -7,6 +7,7 @@ import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentPlugin } from "../plugins/agents/types.js";
+import { getSkillSearchPaths } from "../setup/skill-installer.js";
 
 /**
  * Command-line arguments for the create-prd command.
@@ -26,6 +27,12 @@ export interface CreatePrdArgs {
 
   /** Override agent plugin */
   agent?: string;
+
+  /** Override model for the agent (e.g., opus, sonnet, anthropic/claude-3-5-sonnet) */
+  model?: string;
+
+  /** Override model variant for the agent (e.g., minimal, high, max for Gemini) */
+  variant?: string;
 
   /** Timeout for agent calls in milliseconds */
   timeout?: number;
@@ -60,6 +67,10 @@ export function parseCreatePrdArgs(args: string[]): CreatePrdArgs {
       result.force = true;
     } else if (arg === "--agent" || arg === "-a") {
       result.agent = args[++i];
+    } else if (arg === "--model") {
+      result.model = args[++i];
+    } else if (arg === "--variant") {
+      result.variant = args[++i];
     } else if (arg === "--timeout" || arg === "-t") {
       const timeout = parseInt(args[++i] ?? "", 10);
       if (!isNaN(timeout)) {
@@ -117,7 +128,9 @@ Options:
   --cwd, -C <path>       Working directory (default: current directory)
   --output, -o <dir>     Output directory for PRD files (default: ./tasks)
   --agent, -a <name>     Agent plugin to use (default: from config)
-  --timeout, -t <ms>     Timeout for AI agent calls in ms (default: 0 = no timeout)
+  --model <name>         Override model (e.g., opus, sonnet, anthropic/claude-3-5-sonnet)
+  --variant <level>      Model variant/reasoning effort (e.g., minimal, high, max)
+  --timeout, -t <ms>     Timeout for AI agent calls in ms (default: 600000 = 10 minutes; 0 = no timeout)
   --prd-skill <name>     PRD skill folder inside skills_dir
   --force, -f            Overwrite existing files without prompting
   --help, -h             Show this help message
@@ -137,6 +150,8 @@ Examples:
   ralph-tui create-prd                      # Start AI-powered PRD creation
   ralph-tui prime                           # Alias for create-prd
   ralph-tui create-prd --agent claude       # Use specific agent
+  ralph-tui create-prd --agent claude --model opus
+  ralph-tui create-prd --agent opencode --model anthropic/claude-3-5-sonnet
   ralph-tui create-prd --output ./docs      # Save PRD to custom directory
 `);
 }
@@ -150,10 +165,10 @@ export async function loadBundledPrdSkill(
 ): Promise<string | undefined> {
   const skillsPaths = agent.meta.skillsPaths;
   if (!skillsPaths) return undefined;
+  const searchPaths = getSkillSearchPaths(skillsPaths, process.cwd(), agent.meta.id);
 
-  if (skillsPaths.personal) {
-    const personalPath = skillsPaths.personal.replace(/^~/, process.env.HOME || "");
-    const skillFile = join(personalPath, "ralph-tui-prd", "SKILL.md");
+  for (const dir of [...searchPaths.personal, ...searchPaths.repo]) {
+    const skillFile = join(dir, "ralph-tui-prd", "SKILL.md");
     try {
       await access(skillFile, constants.R_OK);
       const content = await readFile(skillFile, "utf-8");
@@ -161,25 +176,7 @@ export async function loadBundledPrdSkill(
         return content;
       }
     } catch {
-      // Not found in personal, try repo.
-    }
-  }
-
-  if (skillsPaths.repo) {
-    const skillFile = join(
-      process.cwd(),
-      skillsPaths.repo,
-      "ralph-tui-prd",
-      "SKILL.md",
-    );
-    try {
-      await access(skillFile, constants.R_OK);
-      const content = await readFile(skillFile, "utf-8");
-      if (content.trim()) {
-        return content;
-      }
-    } catch {
-      // Not found.
+      // Try the next discovery path.
     }
   }
 

@@ -7,6 +7,7 @@
 
 import { access, constants } from 'node:fs/promises';
 
+import { compareSemverStrings } from '../utils/semver.js';
 import {
   loadProjectConfigOnly,
   saveProjectConfig,
@@ -55,36 +56,6 @@ export interface MigrationResult {
 
   /** Error message if migration failed */
   error?: string;
-}
-
-/**
- * Compare two semver-like version strings numerically.
- * Compares each segment as integers (e.g., "2.10" > "2.9").
- * Missing segments are treated as 0.
- *
- * @param a First version string
- * @param b Second version string
- * @returns -1 if a < b, 0 if a === b, 1 if a > b
- */
-export function compareSemverStrings(a: string, b: string): -1 | 0 | 1 {
-  // Strip any pre-release/build metadata (e.g., "2.0-beta" -> "2.0")
-  const cleanA = a.split(/[-+]/)[0];
-  const cleanB = b.split(/[-+]/)[0];
-
-  const partsA = cleanA.split('.').map((s) => parseInt(s, 10) || 0);
-  const partsB = cleanB.split('.').map((s) => parseInt(s, 10) || 0);
-
-  const maxLen = Math.max(partsA.length, partsB.length);
-
-  for (let i = 0; i < maxLen; i++) {
-    const numA = partsA[i] ?? 0;
-    const numB = partsB[i] ?? 0;
-
-    if (numA < numB) return -1;
-    if (numA > numB) return 1;
-  }
-
-  return 0;
 }
 
 /**

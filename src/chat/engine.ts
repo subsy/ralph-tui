@@ -13,8 +13,11 @@ import type {
   PrdDetectionResult,
   ChatEvent,
   ChatEventListener,
+  TimeoutConfig,
+  TimeoutState,
 } from './types.js';
-import type { AgentPlugin, AgentExecuteOptions } from '../plugins/agents/types.js';
+import type { AgentPlugin, AgentExecuteOptions, AgentExecutionHandle } from '../plugins/agents/types.js';
+import { DEFAULT_TIMEOUT_CONFIG } from './types.js';
 
 /**
  * Default system prompt for PRD generation.
@@ -29,6 +32,7 @@ Follow these guidelines:
 2. Ask questions one set at a time, adapting based on previous answers
 3. When you have enough context, generate the complete PRD
 4. IMPORTANT: Wrap the final PRD in [PRD]...[/PRD] markers
+5. IMPORTANT: Do NOT start implementing. Your job is ONLY to create the PRD document.
 
 The user can respond with shorthand like "1A, 2C" for quick iteration.
 `;
@@ -45,7 +49,7 @@ const PRD_COMPATIBILITY_GUIDANCE = `
 - Include a "## Quality Gates" section listing required commands.
 - Include a "## User Stories" section with entries like:
   - "### US-001: Title"
-  - Plain text description on the next line: "As a user, I want to ... so that ..."
+  - Plain text description on the next line: "As a user, I want ... so that ..."
   - "**Acceptance Criteria:**" followed by checklist bullets ("- [ ] ...").
 - IMPORTANT: User story descriptions must be plain text (no **Description:** prefix).
 - Use markdown formatting suitable for conversion tools.
@@ -72,16 +76,36 @@ export class ChatEngine {
   private messages: ChatMessage[] = [];
   private status: ChatStatus = 'idle';
   private listeners: Set<ChatEventListener> = new Set();
-  private readonly config: Required<ChatEngineConfig>;
+  private readonly config: Required<ChatEngineConfig> & { timeoutConfig: TimeoutConfig };
+  private timeoutState: TimeoutState;
+  private currentExecution: AgentExecutionHandle | null = null;
+  private pendingUserMessage: string | null = null;
+  private pendingOptions: SendMessageOptions | null = null;
 
   constructor(config: ChatEngineConfig) {
+    // Merge timeout config with defaults
+    const timeoutConfig: TimeoutConfig = {
+      ...DEFAULT_TIMEOUT_CONFIG,
+      ...config.timeoutConfig,
+    };
+    const effectiveTimeout =
+      config.timeout === undefined ? timeoutConfig.initialTimeout : config.timeout;
+
     this.config = {
       agent: config.agent,
       systemPrompt: config.systemPrompt,
       maxHistoryMessages: config.maxHistoryMessages ?? 50,
-      timeout: config.timeout ?? 0, // 0 = no timeout by default
+      timeout: effectiveTimeout,
       cwd: config.cwd ?? process.cwd(),
       agentOptions: config.agentOptions ?? {},
+      timeoutConfig,
+    };
+
+    // Initialize timeout state
+    this.timeoutState = {
+      retryCount: 0,
+      currentTimeout: this.config.timeout,
+      retryPending: false,
     };
   }
 
@@ -137,6 +161,128 @@ export class ChatEngine {
   }
 
   /**
+   * Get the current timeout state.
+   */
+  getTimeoutState(): Readonly<TimeoutState> {
+    return { ...this.timeoutState };
+  }
+
+  /**
+   * Continue with a retry after a timeout.
+   */
+  retry(): void {
+    if (this.status !== 'timeout') {
+      return;
+    }
+    void this.doRetry();
+  }
+
+  /**
+   * Cancel after a timeout - don't retry.
+   */
+  cancelTimeout(): void {
+    if (this.status !== 'timeout') {
+      return;
+    }
+
+    // Reset state
+    this.timeoutState.retryPending = false;
+    this.timeoutState.retryCount = 0;
+    this.timeoutState.currentTimeout = this.config.timeout;
+    this.pendingUserMessage = null;
+    this.pendingOptions = null;
+
+    this.setStatus('idle');
+  }
+
+  /**
+   * Continue waiting indefinitely after a timeout.
+   * Re-sends the request with no timeout.
+   */
+  continueIndefinitely(): void {
+    if (this.status !== 'timeout' || !this.pendingUserMessage || !this.pendingOptions) {
+      return;
+    }
+
+    void this.doContinueIndefinitely();
+  }
+
+  /**
+   * Interrupt the current execution.
+   */
+  interrupt(): void {
+    if (this.currentExecution?.isRunning()) {
+      this.currentExecution.interrupt();
+    }
+  }
+
+  /**
+   * Execute the continue-indefinitely logic.
+   */
+  private async doContinueIndefinitely(): Promise<void> {
+    if (!this.pendingUserMessage || !this.pendingOptions) {
+      this.setStatus('idle');
+      return;
+    }
+
+    // Reset retry state for the indefinite wait
+    this.timeoutState.retryPending = false;
+    this.timeoutState.currentTimeout = 0; // 0 = no timeout
+
+    // Emit retry started event
+    this.emit({
+      type: 'retry:started',
+      timestamp: new Date(),
+      timeoutState: { ...this.timeoutState },
+    });
+
+    this.setStatus('retrying');
+
+    // Retry the message with no timeout
+    const userMsg = this.pendingUserMessage;
+    const options = this.pendingOptions;
+    this.pendingUserMessage = null;
+    this.pendingOptions = null;
+
+    await this._sendMessageInternal(userMsg, options, true, true);
+  }
+
+  /**
+   * Execute the retry logic.
+   */
+  private async doRetry(): Promise<void> {
+    if (!this.pendingUserMessage || !this.pendingOptions) {
+      this.setStatus('idle');
+      return;
+    }
+
+    // Increment retry count and update timeout
+    this.timeoutState.retryCount++;
+    this.timeoutState.currentTimeout = Math.min(
+      this.timeoutState.currentTimeout * this.config.timeoutConfig.timeoutMultiplier,
+      this.config.timeoutConfig.maxTimeout
+    );
+    this.timeoutState.retryPending = false;
+
+    // Emit retry started event
+    this.emit({
+      type: 'retry:started',
+      timestamp: new Date(),
+      timeoutState: { ...this.timeoutState },
+    });
+
+    this.setStatus('retrying');
+
+    // Retry the message
+    const userMsg = this.pendingUserMessage;
+    const options = this.pendingOptions;
+    this.pendingUserMessage = null;
+    this.pendingOptions = null;
+
+    await this._sendMessageInternal(userMsg, options, true);
+  }
+
+  /**
    * Build the prompt for the agent including conversation history.
    * Uses markdown formatting (not XML tags) for compatibility with CLI agents
    * that may interpret angle-bracket tags as protocol markers.
@@ -178,6 +324,14 @@ export class ChatEngine {
     content: string,
     options: SendMessageOptions = {}
   ): Promise<SendMessageResult> {
+    // If we're in timeout state, don't allow sending
+    if (this.status === 'timeout' || this.status === 'retrying') {
+      return {
+        success: false,
+        error: 'Cannot send message while in timeout state',
+      };
+    }
+
     if (this.status === 'processing') {
       return {
         success: false,
@@ -185,24 +339,42 @@ export class ChatEngine {
       };
     }
 
-    // Create and store the user message
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content,
-      timestamp: new Date(),
-    };
+    // Reset retry state for new messages
+    this.timeoutState.retryCount = 0;
+    this.timeoutState.currentTimeout = this.config.timeout;
 
-    this.messages.push(userMessage);
-    this.emit({
-      type: 'message:sent',
-      timestamp: new Date(),
-      message: userMessage,
-    });
+    return await this._sendMessageInternal(content, options, false);
+  }
+
+  /**
+   * Internal implementation of sendMessage that handles retries.
+   */
+  private async _sendMessageInternal(
+    content: string,
+    options: SendMessageOptions,
+    isRetry: boolean,
+    noTimeout: boolean = false,
+  ): Promise<SendMessageResult> {
+    // Create and store the user message if this isn't a retry
+    if (!isRetry) {
+      const userMessage: ChatMessage = {
+        role: 'user',
+        content,
+        timestamp: new Date(),
+      };
+      this.messages.push(userMessage);
+      this.emit({
+        type: 'message:sent',
+        timestamp: new Date(),
+        message: userMessage,
+      });
+    }
 
     this.setStatus('processing');
     options.onStatus?.('Sending to agent...');
 
     const startTime = Date.now();
+    this.timeoutState.requestStartTime = startTime;
 
     try {
       // Build the full prompt with history
@@ -211,11 +383,14 @@ export class ChatEngine {
       // Collect streaming output
       let fullOutput = '';
 
+      // Determine timeout to use for this attempt
+      const attemptTimeout = noTimeout ? 0 : this.timeoutState.currentTimeout;
+
       // Execute the agent
       const agentOptions: AgentExecuteOptions = {
         ...this.config.agentOptions,
         cwd: this.config.cwd,
-        timeout: this.config.timeout,
+        timeout: attemptTimeout,
         onStdout: (data: string) => {
           fullOutput += data;
           options.onChunk?.(data);
@@ -228,9 +403,18 @@ export class ChatEngine {
       };
 
       const handle = this.config.agent.execute(prompt, [], agentOptions);
+      this.currentExecution = handle;
+
       const result = await handle.promise;
 
       const durationMs = Date.now() - startTime;
+
+      if (result.status === 'timeout') {
+        // Handle timeout
+        return await this.handleTimeout(content, options, durationMs);
+      }
+
+      this.currentExecution = null;
 
       if (result.status !== 'completed') {
         this.setStatus('error');
@@ -251,6 +435,10 @@ export class ChatEngine {
 
       // Use collected streaming output or fallback to result stdout
       const responseContent = fullOutput || result.stdout;
+
+      // Reset retry state on success
+      this.timeoutState.retryCount = 0;
+      this.timeoutState.currentTimeout = this.config.timeout;
 
       // Create and store the assistant message
       const assistantMessage: ChatMessage = {
@@ -287,6 +475,7 @@ export class ChatEngine {
         durationMs,
       };
     } catch (error) {
+      this.currentExecution = null;
       const durationMs = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -303,6 +492,44 @@ export class ChatEngine {
         durationMs,
       };
     }
+  }
+
+  /**
+   * Handle a timeout - interrupt and ask user what to do.
+   */
+  private async handleTimeout(
+    content: string,
+    options: SendMessageOptions,
+    durationMs: number,
+  ): Promise<SendMessageResult> {
+    // First, interrupt the running process (like Ctrl+C)
+    if (this.currentExecution?.isRunning()) {
+      this.currentExecution.interrupt();
+    }
+    this.currentExecution = null;
+
+    // Update state
+    this.timeoutState.retryPending = true;
+
+    // Emit timeout event
+    this.emit({
+      type: 'timeout:occurred',
+      timestamp: new Date(),
+      timeoutState: { ...this.timeoutState },
+    });
+
+    this.setStatus('timeout');
+
+    // Store for potential retry
+    this.pendingUserMessage = content;
+    this.pendingOptions = options;
+
+    // Return a special result indicating we're waiting for user decision
+    return {
+      success: false,
+      error: `Request timed out after ${durationMs}ms - interrupted`,
+      durationMs,
+    };
   }
 
   /**
@@ -361,6 +588,14 @@ export class ChatEngine {
    */
   reset(): void {
     this.messages = [];
+    this.timeoutState = {
+      retryCount: 0,
+      currentTimeout: this.config.timeout,
+      retryPending: false,
+    };
+    this.pendingUserMessage = null;
+    this.pendingOptions = null;
+    this.currentExecution = null;
     this.setStatus('idle');
   }
 
@@ -373,6 +608,15 @@ export class ChatEngine {
 }
 
 /**
+ * Build agent-execute flags for the chat engine.
+ * Mirrors run.tsx engine which injects --model at execute time.
+ */
+function buildAgentFlags(options: { model?: string }): string[] | undefined {
+  if (!options.model) return undefined;
+  return ['--model', options.model];
+}
+
+/**
  * Create a chat engine configured for PRD generation.
  */
 export function createPrdChatEngine(
@@ -382,6 +626,8 @@ export function createPrdChatEngine(
     timeout?: number;
     prdSkill?: string;
     prdSkillSource?: string;
+    model?: string;
+    timeoutConfig?: Partial<TimeoutConfig>;
   } = {}
 ): ChatEngine {
   const systemPrompt = options.prdSkillSource
@@ -390,11 +636,15 @@ export function createPrdChatEngine(
       ? buildPrdSystemPrompt(options.prdSkill)
       : PRD_SYSTEM_PROMPT;
 
+  const flags = buildAgentFlags(options);
+
   return new ChatEngine({
     agent,
     systemPrompt,
     cwd: options.cwd,
-    timeout: options.timeout ?? 0,
+    timeout: options.timeout,
+    timeoutConfig: options.timeoutConfig,
+    ...(flags ? { agentOptions: { flags } } : {}),
   });
 }
 
@@ -403,13 +653,19 @@ export function createTaskChatEngine(
   options: {
     cwd?: string;
     timeout?: number;
+    model?: string;
+    timeoutConfig?: Partial<TimeoutConfig>;
   } = {}
 ): ChatEngine {
+  const flags = buildAgentFlags(options);
+
   return new ChatEngine({
     agent,
     systemPrompt: TASK_SYSTEM_PROMPT,
     cwd: options.cwd,
-    timeout: options.timeout ?? 0,
+    timeout: options.timeout,
+    timeoutConfig: options.timeoutConfig,
+    ...(flags ? { agentOptions: { flags } } : {}),
   });
 }
 

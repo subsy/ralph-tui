@@ -370,7 +370,11 @@ function formatMetadataHeader(metadata: IterationLogMetadata): string {
     lines.push('## Agent Switches');
     lines.push('');
     for (const sw of metadata.agentSwitches) {
-      const switchType = sw.reason === 'fallback' ? 'Switched to fallback' : 'Recovered to primary';
+      const switchType = sw.reason === 'fallback'
+        ? 'Switched to fallback'
+        : sw.reason === 'user-selected'
+          ? 'User-selected agent'
+          : 'Recovered to primary';
       lines.push(`- **${switchType}**: ${sw.from} → ${sw.to} at ${sw.at}`);
     }
   }

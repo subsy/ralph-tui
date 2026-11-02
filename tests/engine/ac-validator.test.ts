@@ -4,6 +4,10 @@
  */
 
 import { describe, it, expect } from 'bun:test';
+import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   parseExecutableCriteria,
   acToVerificationCommands,
@@ -122,6 +126,37 @@ describe('getAcVerificationCommands', () => {
 });
 
 describe('acToVerificationCommands - security', () => {
+  it.each(['\n', '\r', '\r\n', '\0'])('rejects command control separator %j', (separator) => {
+    const assertion = `bun test${separator}touch unexpected-file`;
+    expect(acToVerificationCommands([{ original: '', type: 'command', assertion }])).toEqual([]);
+    expect(getAcVerificationCommands({
+      acceptanceCriteria: [`Running \`${assertion}\` passes`],
+    })).toEqual([]);
+  });
+
+  it('does not emit a file-contains command without a target file', () => {
+    expect(acToVerificationCommands([
+      { original: '', type: 'file-contains', assertion: 'expected text' },
+    ])).toEqual([]);
+  });
+
+  it('checks shell-looking filenames literally without executing their contents', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ralph-ac-'));
+    try {
+      const filename = "file'$(touch unexpected-file);\nname";
+      writeFileSync(join(cwd, filename), 'fixture');
+      const commands = acToVerificationCommands([
+        { original: '', type: 'file-exists', assertion: filename },
+      ]);
+      expect(commands).toHaveLength(1);
+      const result = spawnSync('sh', ['-c', commands[0]], { cwd, env: { PATH: process.env.PATH } });
+      expect(result.status).toBe(0);
+      expect(existsSync(join(cwd, 'unexpected-file'))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('rejects commands containing shell metacharacters (injection prevention)', () => {
     const acs = [
       { original: '', type: 'command' as const, assertion: 'bun test; rm -rf /' },

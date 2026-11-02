@@ -4,6 +4,10 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { writeFile, rm, mkdtemp } from 'node:fs/promises';
+import { chmodSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { GeminiAgentPlugin } from '../../src/plugins/agents/builtin/gemini.js';
 import type {
   AgentFileContext,
@@ -33,6 +37,53 @@ class TestableGeminiPlugin extends GeminiAgentPlugin {
   }
 }
 
+async function createTempDir(): Promise<string> {
+  return await mkdtemp(join(tmpdir(), 'ralph-gemini-cli-detect-'));
+}
+
+async function withFakeCommandPath<T>(
+  setup: (tempDir: string) => Promise<T>
+): Promise<T> {
+  const tempDir = await createTempDir();
+  const originalPath = process.env.PATH ?? '';
+  const whichShimPath = join(tempDir, 'which');
+  const whichScript = [
+    '#!/bin/sh',
+    'command="$1"',
+    '[ -z "$command" ] && exit 1',
+    `candidate="${tempDir}/$command"`,
+    '[ -x "$candidate" ] && echo "$candidate" && exit 0',
+    'exit 1',
+  ].join('\n');
+
+  await writeFile(whichShimPath, `${whichScript}\n`, 'utf-8');
+  chmodSync(whichShimPath, 0o755);
+  process.env.PATH = tempDir;
+
+  try {
+    return await setup(tempDir);
+  } finally {
+    process.env.PATH = originalPath;
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function writeFakeCommand(
+  tempDir: string,
+  name: string,
+  output: string
+): Promise<string> {
+  const commandPath = join(tempDir, name);
+  const script = ['#!/bin/sh', `echo "${output}"`].join('\n');
+  await writeFile(commandPath, `${script}\n`, 'utf-8');
+  chmodSync(commandPath, 0o755);
+  return commandPath;
+}
+
+function extractVersion(output: string): string {
+  return output.match(/(\d+\.\d+\.\d+)/)?.[1] ?? '';
+}
+
 describe('GeminiAgentPlugin', () => {
   let plugin: GeminiAgentPlugin;
 
@@ -56,7 +107,11 @@ describe('GeminiAgentPlugin', () => {
     });
 
     test('has correct default command', () => {
-      expect(plugin.meta.defaultCommand).toBe('gemini');
+      expect(plugin.meta.defaultCommand).toBe('gemini-cli');
+    });
+
+    test('supports legacy command alias', () => {
+      expect(plugin.meta.commandAliases).toEqual(['gemini']);
     });
 
     test('supports streaming', () => {
@@ -340,6 +395,90 @@ describe('GeminiAgentPlugin', () => {
       const stdinInput = testablePlugin.testGetStdinInput(prompt);
 
       expect(stdinInput).toBe(prompt);
+    });
+  });
+
+  describe('detect', () => {
+    test('resolves default gemini-cli command', async () => {
+      if (process.platform === 'win32') {
+        return;
+      }
+
+      await withFakeCommandPath(async (tempDir) => {
+        const output = 'gemini-cli 1.2.3';
+        const detectedPath = await writeFakeCommand(tempDir, 'gemini-cli', output);
+
+        const testPlugin = new GeminiAgentPlugin();
+        await testPlugin.initialize({});
+        const result = await testPlugin.detect();
+
+        expect(result.available).toBe(true);
+        expect(result.version).toBe(extractVersion(output));
+        expect(result.executablePath).toBe(detectedPath);
+
+        await testPlugin.dispose();
+      });
+    });
+
+    test('falls back to legacy gemini command when gemini-cli is missing', async () => {
+      if (process.platform === 'win32') {
+        return;
+      }
+
+      await withFakeCommandPath(async (tempDir) => {
+        const output = 'gemini 2.1.4';
+        const detectedPath = await writeFakeCommand(tempDir, 'gemini', output);
+
+        const testPlugin = new GeminiAgentPlugin();
+        await testPlugin.initialize({});
+        const result = await testPlugin.detect();
+
+        expect(result.available).toBe(true);
+        expect(result.version).toBe(extractVersion(output));
+        expect(result.executablePath).toBe(detectedPath);
+
+        await testPlugin.dispose();
+      });
+    });
+
+    test('uses explicit configured command when provided', async () => {
+      if (process.platform === 'win32') {
+        return;
+      }
+
+      await withFakeCommandPath(async (tempDir) => {
+        const output = 'gemini 3.4.5';
+        const customPath = await writeFakeCommand(tempDir, 'custom-gemini', output);
+
+        const testPlugin = new GeminiAgentPlugin();
+        await testPlugin.initialize({ command: customPath });
+        const result = await testPlugin.detect();
+
+        expect(result.available).toBe(true);
+        expect(result.version).toBe(extractVersion(output));
+        expect(result.executablePath).toBe(customPath);
+
+        await testPlugin.dispose();
+      });
+    });
+
+    test('emits canonical and legacy command names when not found', async () => {
+      if (process.platform === 'win32') {
+        return;
+      }
+
+      await withFakeCommandPath(async () => {
+        const testPlugin = new GeminiAgentPlugin();
+        await testPlugin.initialize({});
+        const result = await testPlugin.detect();
+
+        expect(result.available).toBe(false);
+        expect(result.error).toContain('Gemini CLI not found in PATH');
+        expect(result.error).toContain('`gemini-cli`');
+        expect(result.error).toContain('`gemini`');
+
+        await testPlugin.dispose();
+      });
     });
   });
 });

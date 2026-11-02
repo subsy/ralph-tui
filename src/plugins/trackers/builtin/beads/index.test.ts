@@ -7,12 +7,21 @@
  * beforeAll before the module under test is dynamically imported.
  */
 
-import { describe, test, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, beforeAll, afterAll, afterEach } from 'bun:test';
 import { EventEmitter } from 'node:events';
+import { resolve } from 'node:path';
+import { parseBeadsJsonArray, unwrapBeadsEnvelope } from '../../beads-json.js';
 
 let mockAccessShouldFail = false;
+let mockAccessFailPaths: string[] = [];
+let mockAccessPaths: string[] = [];
+const originalBeadsDir = process.env.BEADS_DIR;
 
-let mockSpawnArgs: Array<{ cmd: string; args: string[] }> = [];
+let mockSpawnArgs: Array<{
+  cmd: string;
+  args: string[];
+  env?: Record<string, string | undefined>;
+}> = [];
 
 let mockReadFileShouldFail = false;
 let mockReadFileContent = '';
@@ -45,6 +54,67 @@ function createMockChildProcess(response: MockSpawnResponse) {
 // Declare the class type for the import
 let BeadsTrackerPlugin: typeof import('./index.js').BeadsTrackerPlugin;
 
+describe('Beads JSON helpers', () => {
+  test('unwraps an envelope array', () => {
+    const data = [{ id: 'task-1' }];
+
+    expect(
+      unwrapBeadsEnvelope({ schema_version: 1, data })
+    ).toEqual(data);
+  });
+
+  test('unwraps envelope data with pagination', () => {
+    const data = [{ id: 'task-1' }];
+
+    expect(
+      unwrapBeadsEnvelope({
+        schema_version: 1,
+        data,
+        pagination: { returned: 1, total: 1, truncated: true },
+      })
+    ).toEqual(data);
+  });
+
+  test('passes through a legacy bare array', () => {
+    const data = [{ id: 'task-1' }];
+
+    expect(unwrapBeadsEnvelope(data)).toBe(data);
+    expect(parseBeadsJsonArray<{ id: string }>(JSON.stringify(data))).toEqual(data);
+  });
+
+  test('throws envelope error details', () => {
+    expect(() =>
+      parseBeadsJsonArray(
+        JSON.stringify({
+          schema_version: 1,
+          data: { error: 'Task not found', code: 'NOT_FOUND', hint: 'Check the ID' },
+        })
+      )
+    ).toThrow('Task not found; code: NOT_FOUND; hint: Check the ID');
+  });
+
+  test('does not unwrap an object without schema_version', () => {
+    const value = { data: [] };
+
+    expect(unwrapBeadsEnvelope(value)).toBe(value);
+    expect(() =>
+      parseBeadsJsonArray(JSON.stringify(value))
+    ).toThrow('parseBeadsJsonArray expected an array');
+  });
+
+  test('rejects an envelope with non-array data', () => {
+    expect(() =>
+      parseBeadsJsonArray(
+        JSON.stringify({ schema_version: 1, data: { tasks: [] } })
+      )
+    ).toThrow('parseBeadsJsonArray expected an array');
+  });
+
+  test('throws on malformed JSON', () => {
+    expect(() => parseBeadsJsonArray('not json')).toThrow();
+  });
+});
+
 /**
  * Helper: queue mock responses for initialize (access + bd --version).
  * Returns the responses array so callers can push additional responses.
@@ -73,8 +143,12 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
   beforeAll(async () => {
     // Apply mocks BEFORE importing the module under test
     mock.module('node:child_process', () => ({
-      spawn: (cmd: string, args: string[]) => {
-        mockSpawnArgs.push({ cmd, args });
+      spawn: (
+        cmd: string,
+        args: string[],
+        options?: { env?: Record<string, string | undefined> },
+      ) => {
+        mockSpawnArgs.push({ cmd, args, env: options?.env });
         const response = mockSpawnResponses.shift() ?? { exitCode: 1, stderr: 'no mock response' };
         return createMockChildProcess(response);
       },
@@ -82,8 +156,9 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
 
     mock.module('node:fs', () => ({
       constants: { R_OK: 4 },
-      access: (_path: string, _mode: number, cb: (err: Error | null) => void) => {
-        if (mockAccessShouldFail) {
+      access: (path: string, _mode: number, cb: (err: Error | null) => void) => {
+        mockAccessPaths.push(path);
+        if (mockAccessShouldFail || mockAccessFailPaths.includes(path)) {
           cb(new Error('ENOENT'));
         } else {
           cb(null);
@@ -92,8 +167,9 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
     }));
 
     mock.module('node:fs/promises', () => ({
-      access: async () => {
-        if (mockAccessShouldFail) {
+      access: async (path: string) => {
+        mockAccessPaths.push(path);
+        if (mockAccessShouldFail || mockAccessFailPaths.includes(path)) {
           throw new Error('ENOENT');
         }
       },
@@ -112,16 +188,32 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
   });
 
   afterAll(() => {
+    if (originalBeadsDir === undefined) {
+      delete process.env.BEADS_DIR;
+    } else {
+      process.env.BEADS_DIR = originalBeadsDir;
+    }
     mock.restore();
   });
 
   beforeEach(() => {
+    delete process.env.BEADS_DIR;
     mockAccessShouldFail = false;
+    mockAccessFailPaths = [];
+    mockAccessPaths = [];
     mockSpawnArgs = [];
     mockSpawnResponses = [];
     mockReadFileShouldFail = false;
     mockReadFileContent = '';
     mockReadFilePaths = [];
+  });
+
+  afterEach(() => {
+    if (originalBeadsDir === undefined) {
+      delete process.env.BEADS_DIR;
+    } else {
+      process.env.BEADS_DIR = originalBeadsDir;
+    }
   });
 
   // ── Detection ──────────────────────────────────────────────────────
@@ -138,6 +230,123 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       expect(result.error).toContain('Beads directory not found');
       // Should not attempt bd --version since dir check failed first
       expect(mockSpawnArgs.length).toBe(0);
+    });
+
+    test('uses BEADS_DIR when no local .beads directory exists', async () => {
+      process.env.BEADS_DIR = '/shared/project/.beads';
+      mockAccessFailPaths = ['/test/.beads'];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'bd version 1.2.0 (abc123)\n' },
+        { exitCode: 0, stdout: '[]' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't1', title: 'Task 1', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const task = await plugin.getNextTask();
+
+      expect(task?.id).toBe('t1');
+      expect(mockAccessPaths).toContain('/shared/project/.beads');
+      expect(mockAccessPaths).not.toContain('/test/.beads');
+      expect(mockSpawnArgs[0]?.env?.BEADS_DIR).toBe('/shared/project/.beads');
+    });
+
+    test('resolves a relative BEADS_DIR under workingDir', async () => {
+      process.env.BEADS_DIR = 'shared/.beads';
+      mockAccessFailPaths = ['/test/.beads'];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'bd version 1.2.0 (abc123)\n' },
+        { exitCode: 0, stdout: '[]' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't1', title: 'Task 1', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const plugin = new BeadsTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+
+      const task = await plugin.getNextTask();
+
+      expect(task?.id).toBe('t1');
+      expect(mockAccessPaths).toContain('/test/shared/.beads');
+      expect(mockAccessPaths).not.toContain('/test/.beads');
+    });
+
+    test('checks an absolute configured beadsDir as-is', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'bd version 1.2.0 (abc123)\n' },
+        { exitCode: 0, stdout: 'bd version 1.2.0 (abc123)\n' },
+      ];
+      const plugin = new BeadsTrackerPlugin();
+      await plugin.initialize({
+        workingDir: '/test',
+        beadsDir: '/srv/shared/.beads',
+      });
+
+      const result = await plugin.detect();
+
+      expect(result.available).toBe(true);
+      expect(result.beadsDir).toBe('/srv/shared/.beads');
+      expect(mockAccessPaths[0]).toBe('/srv/shared/.beads');
+
+      mockSpawnArgs = [];
+      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      await plugin.getTasks();
+      expect(mockSpawnArgs[0]?.env?.BEADS_DIR).toBe('/srv/shared/.beads');
+    });
+
+    test('resolves a relative configured beadsDir under workingDir', async () => {
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: 'bd version 1.2.0 (abc123)\n' },
+        { exitCode: 0, stdout: 'bd version 1.2.0 (abc123)\n' },
+      ];
+      const plugin = new BeadsTrackerPlugin();
+      await plugin.initialize({
+        workingDir: '/test',
+        beadsDir: 'shared/.beads',
+      });
+
+      const result = await plugin.detect();
+
+      expect(result.available).toBe(true);
+      expect(result.beadsDir).toBe('/test/shared/.beads');
+      expect(mockAccessPaths[0]).toBe('/test/shared/.beads');
+
+      mockSpawnArgs = [];
+      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      await plugin.getTasks();
+      expect(mockSpawnArgs[0]?.env?.BEADS_DIR).toBe('/test/shared/.beads');
+    });
+
+    test('resolves a relative workingDir and beadsDir to an absolute store path', async () => {
+      const workingDir = 'work';
+      const beadsDir = 'shared/.beads';
+      const plugin = await createInitializedPlugin({ workingDir, beadsDir });
+      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+
+      await plugin.getTasks();
+
+      expect(mockSpawnArgs[0]?.env?.BEADS_DIR).toBe(resolve(workingDir, beadsDir));
+    });
+
+    test('does not inject BEADS_DIR for the relative default store', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+
+      await plugin.getTasks();
+
+      expect(mockSpawnArgs[0]?.env?.BEADS_DIR).toBeUndefined();
     });
 
     test('reports unavailable when bd --version fails', async () => {
@@ -361,6 +570,56 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       expect(tasks[0]?.labels).toEqual(['frontend']);
     });
 
+    test('unwraps an envelope from bd list output', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [
+              { id: 't1', title: 'Envelope task', status: 'open', priority: 2 },
+            ],
+          }),
+        },
+      ];
+
+      const tasks = await plugin.getTasks();
+
+      expect(tasks[0]?.id).toBe('t1');
+      expect(tasks[0]?.title).toBe('Envelope task');
+    });
+
+    test('returns an empty result for a bd list envelope error', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: { error: 'list failed', code: 'LIST_ERROR' },
+          }),
+        },
+      ];
+
+      const originalError = console.error;
+      const errors: unknown[][] = [];
+      console.error = (...args: unknown[]) => {
+        errors.push(args);
+      };
+
+      let tasks: Awaited<ReturnType<typeof plugin.getTasks>>;
+      try {
+        tasks = await plugin.getTasks();
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(tasks).toEqual([]);
+      expect(errors).toHaveLength(1);
+      expect(String(errors[0]?.[1])).toContain('list failed');
+    });
+
     test('maps bd statuses to TrackerTaskStatus correctly', async () => {
       const plugin = await createInitializedPlugin();
       mockSpawnResponses = [
@@ -413,6 +672,60 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       const tasks = await plugin.getTasks();
 
       expect(tasks[0]?.parentId).toBe('explicit-parent');
+    });
+
+    test('preserves original order when no IDs match dotted child pattern', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'proj-12', title: 'Twelve', status: 'open', priority: 2 },
+            { id: 'proj-2', title: 'Two', status: 'open', priority: 2 },
+            { id: 'thing.xyz', title: 'Dotted non-numeric', status: 'open', priority: 2 },
+            { id: 'thing.abj', title: 'Another dotted non-numeric', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const tasks = await plugin.getTasks();
+
+      expect(tasks.map((t) => t.id)).toEqual([
+        'proj-12',
+        'proj-2',
+        'thing.xyz',
+        'thing.abj',
+      ]);
+    });
+
+    test('sorts dotted child IDs numerically in mixed lists while preserving non-child slots', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'epic-5.12', title: 'Child 12', status: 'open', priority: 2 },
+            { id: 'task-alpha', title: 'Non-child A', status: 'open', priority: 2 },
+            { id: 'epic-5.2', title: 'Child 2', status: 'open', priority: 2 },
+            { id: 'thing.xyz', title: 'Dotted non-numeric', status: 'open', priority: 2 },
+            { id: 'epic-5.1', title: 'Child 1', status: 'open', priority: 2 },
+            { id: 'task-beta', title: 'Non-child B', status: 'open', priority: 2 },
+            { id: 'epic-5.9', title: 'Child 9', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const tasks = await plugin.getTasks();
+
+      expect(tasks.map((t) => t.id)).toEqual([
+        'epic-5.1',
+        'task-alpha',
+        'epic-5.2',
+        'thing.xyz',
+        'epic-5.9',
+        'task-beta',
+        'epic-5.12',
+      ]);
     });
 
     test('extracts blocking dependencies', async () => {
@@ -474,6 +787,38 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
         ['list', '--json', '--all', '--limit', '0'],
         ['dep', 'list', 't1', '--json'],
       ]);
+    });
+
+    test('unwraps envelopes for bd list and dependency enrichment', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [
+              {
+                id: 't1',
+                title: 'Task',
+                status: 'open',
+                priority: 2,
+                dependency_count: 1,
+              },
+            ],
+          }),
+        },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [{ issue_id: 't1', depends_on_id: 'dep1', type: 'blocks' }],
+          }),
+        },
+      ];
+
+      const tasks = await plugin.getTasks();
+
+      expect(tasks[0]?.dependsOn).toEqual(['dep1']);
     });
 
     test('merges enriched dependencies with existing dependencies and deduplicates', async () => {
@@ -595,6 +940,26 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       expect(mockSpawnArgs[0]?.args).toEqual(['show', 'task-1', '--json']);
       expect(task?.id).toBe('task-1');
       expect(task?.title).toBe('My Task');
+    });
+
+    test('unwraps an envelope from bd show output', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [
+              { id: 'task-1', title: 'Envelope task', status: 'open', priority: 2 },
+            ],
+          }),
+        },
+      ];
+
+      const task = await plugin.getTask('task-1');
+
+      expect(task?.id).toBe('task-1');
+      expect(task?.title).toBe('Envelope task');
     });
 
     test('returns undefined when bd show fails', async () => {
@@ -749,9 +1114,29 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
   // ── getNextTask ────────────────────────────────────────────────────
 
   describe('getNextTask', () => {
+    test('returns undefined and logs when detection fails', async () => {
+      mockAccessShouldFail = true;
+      const plugin = new BeadsTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+
+      const originalError = console.error;
+      const errorMessages: string[] = [];
+      console.error = (...args: unknown[]) => {
+        errorMessages.push(args.map((arg) => String(arg)).join(' '));
+      };
+      try {
+        expect(await plugin.getNextTask()).toBeUndefined();
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(errorMessages.join('\n')).toContain('Beads tracker detection failed');
+    });
+
     test('calls bd ready --json --limit 10', async () => {
       const plugin = await createInitializedPlugin();
       mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
         {
           exitCode: 0,
           stdout: JSON.stringify([
@@ -763,16 +1148,40 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       const task = await plugin.getNextTask();
 
       expect(mockSpawnArgs[0]?.cmd).toBe('bd');
-      expect(mockSpawnArgs[0]?.args).toContain('ready');
-      expect(mockSpawnArgs[0]?.args).toContain('--json');
-      expect(mockSpawnArgs[0]?.args).toContain('--limit');
-      expect(mockSpawnArgs[0]?.args).toContain('10');
+      expect(mockSpawnArgs[1]?.args).toContain('ready');
+      expect(mockSpawnArgs[1]?.args).toContain('--json');
+      expect(mockSpawnArgs[1]?.args).toContain('--limit');
+      expect(mockSpawnArgs[1]?.args).toContain('10');
       expect(task?.id).toBe('t1');
+    });
+
+    test('unwraps an envelope from bd ready output', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [
+              { id: 't1', title: 'Envelope ready task', status: 'open', priority: 1 },
+            ],
+          }),
+        },
+      ];
+
+      const task = await plugin.getNextTask();
+
+      expect(task?.id).toBe('t1');
+      expect(task?.title).toBe('Envelope ready task');
     });
 
     test('passes --parent flag from epicId', async () => {
       const plugin = await createInitializedPlugin({ epicId: 'my-epic' });
-      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: '[]' },
+      ];
 
       await plugin.getNextTask();
 
@@ -782,7 +1191,10 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
 
     test('filter parentId overrides epicId in getNextTask', async () => {
       const plugin = await createInitializedPlugin({ epicId: 'my-epic' });
-      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: '[]' },
+      ];
 
       await plugin.getNextTask({ parentId: 'filter-epic' });
 
@@ -792,7 +1204,10 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
 
     test('passes --label flag from configured labels', async () => {
       const plugin = await createInitializedPlugin({ labels: 'frontend,backend' });
-      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: '[]' },
+      ];
 
       await plugin.getNextTask();
 
@@ -802,37 +1217,47 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
 
     test('passes --priority flag', async () => {
       const plugin = await createInitializedPlugin();
-      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: '[]' },
+      ];
 
       await plugin.getNextTask({ priority: 1 });
 
-      expect(mockSpawnArgs[0]?.args).toContain('--priority');
-      expect(mockSpawnArgs[0]?.args).toContain('1');
+      expect(mockSpawnArgs[1]?.args).toContain('--priority');
+      expect(mockSpawnArgs[1]?.args).toContain('1');
     });
 
     test('uses highest priority (lowest number) for multiple priorities', async () => {
       const plugin = await createInitializedPlugin();
-      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: '[]' },
+      ];
 
       await plugin.getNextTask({ priority: [3, 1, 2] });
 
-      expect(mockSpawnArgs[0]?.args).toContain('--priority');
-      expect(mockSpawnArgs[0]?.args).toContain('1');
+      expect(mockSpawnArgs[1]?.args).toContain('--priority');
+      expect(mockSpawnArgs[1]?.args).toContain('1');
     });
 
     test('passes --assignee flag', async () => {
       const plugin = await createInitializedPlugin();
-      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: '[]' },
+      ];
 
       await plugin.getNextTask({ assignee: 'alice@test.com' });
 
-      expect(mockSpawnArgs[0]?.args).toContain('--assignee');
-      expect(mockSpawnArgs[0]?.args).toContain('alice@test.com');
+      expect(mockSpawnArgs[1]?.args).toContain('--assignee');
+      expect(mockSpawnArgs[1]?.args).toContain('alice@test.com');
     });
 
     test('prefers in_progress tasks over open tasks', async () => {
       const plugin = await createInitializedPlugin();
       mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
         {
           exitCode: 0,
           stdout: JSON.stringify([
@@ -847,9 +1272,119 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       expect(task?.id).toBe('t2');
     });
 
+    test('resumes an in_progress task when ready returns nothing', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't-wip', title: 'In progress', status: 'in_progress', priority: 2 },
+          ]),
+        },
+        { exitCode: 0, stdout: '[]' },
+      ];
+
+      const task = await plugin.getNextTask({
+        status: ['open', 'in_progress'],
+      });
+
+      expect(task?.id).toBe('t-wip');
+    });
+
+    test('prefers the highest-priority in_progress task over ready work', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't-wip', title: 'In progress', status: 'in_progress', priority: 1 },
+            { id: 't-wip-later', title: 'Later', status: 'in_progress', priority: 3 },
+          ]),
+        },
+      ];
+
+      const task = await plugin.getNextTask();
+
+      expect(task?.id).toBe('t-wip');
+    });
+
+    test('skips excluded in_progress tasks before selecting ready work', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't-wip', title: 'Skip', status: 'in_progress', priority: 1 },
+          ]),
+        },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't-open', title: 'Open', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const task = await plugin.getNextTask({ excludeIds: ['t-wip'] });
+
+      expect(task?.id).toBe('t-open');
+    });
+
+    test('does not look up in_progress tasks when the filter only allows open', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 't-open', title: 'Open', status: 'open', priority: 2 },
+          ]),
+        },
+      ];
+
+      const task = await plugin.getNextTask({ status: ['open'] });
+
+      expect(task?.id).toBe('t-open');
+      expect(mockSpawnArgs).toHaveLength(1);
+      expect(mockSpawnArgs[0]?.args).toContain('ready');
+    });
+
+    test('returns undefined for an in_progress-only filter without ready work', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+
+      const task = await plugin.getNextTask({ status: ['in_progress'] });
+
+      expect(task).toBeUndefined();
+      expect(mockSpawnArgs).toHaveLength(1);
+      expect(mockSpawnArgs[0]?.args).not.toContain('ready');
+    });
+
+    test('does not resume in_progress epics as tasks', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'epic', title: 'In progress epic', issue_type: 'epic', status: 'in_progress', priority: 0 },
+          ]),
+        },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { id: 'task', title: 'Open task', issue_type: 'task', status: 'open', priority: 1 },
+          ]),
+        },
+      ];
+
+      const task = await plugin.getNextTask();
+
+      expect(task?.id).toBe('task');
+    });
+
     test('excludes task IDs from excludeIds filter', async () => {
       const plugin = await createInitializedPlugin();
       mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
         {
           exitCode: 0,
           stdout: JSON.stringify([
@@ -867,6 +1402,7 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
     test('returns undefined when all tasks excluded', async () => {
       const plugin = await createInitializedPlugin();
       mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
         {
           exitCode: 0,
           stdout: JSON.stringify([
@@ -893,7 +1429,10 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
 
     test('returns undefined when bd ready fails', async () => {
       const plugin = await createInitializedPlugin();
-      mockSpawnResponses = [{ exitCode: 1, stderr: 'ready error' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 1, stderr: 'ready error' },
+      ];
 
       const task = await plugin.getNextTask();
 
@@ -902,7 +1441,10 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
 
     test('returns undefined when bd ready returns invalid JSON', async () => {
       const plugin = await createInitializedPlugin();
-      mockSpawnResponses = [{ exitCode: 0, stdout: 'not json' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: 'not json' },
+      ];
 
       const task = await plugin.getNextTask();
 
@@ -911,7 +1453,10 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
 
     test('returns undefined when bd ready returns empty array', async () => {
       const plugin = await createInitializedPlugin();
-      mockSpawnResponses = [{ exitCode: 0, stdout: '[]' }];
+      mockSpawnResponses = [
+        { exitCode: 0, stdout: '[]' },
+        { exitCode: 0, stdout: '[]' },
+      ];
 
       const task = await plugin.getNextTask();
 
@@ -960,6 +1505,25 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       // e2 excluded (closed), e1.sub excluded (has parentId inferred from dot)
       expect(epics.length).toBe(2);
       expect(epics.map((e) => e.id)).toEqual(['e1', 'e3']);
+    });
+
+    test('unwraps an envelope from bd epic list output', async () => {
+      const plugin = await createInitializedPlugin();
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [
+              { id: 'e1', title: 'Envelope Epic', status: 'open', priority: 1, issue_type: 'epic' },
+            ],
+          }),
+        },
+      ];
+
+      const epics = await plugin.getEpics();
+
+      expect(epics.map((epic) => epic.id)).toEqual(['e1']);
     });
 
     test('returns empty array when bd list fails', async () => {
@@ -1099,6 +1663,44 @@ describe('BeadsTrackerPlugin (mocked CLI)', () => {
       expect(result!.content).toBe('# My PRD\n\nRequirements here');
       expect(result!.totalCount).toBe(3);
       expect(result!.completedCount).toBe(2); // closed + cancelled
+    });
+
+    test('unwraps envelopes for PRD epic and child lookups', async () => {
+      const plugin = await createInitializedPlugin({ epicId: 'epic-1' });
+      mockReadFileContent = 'PRD content';
+      mockSpawnResponses = [
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [
+              {
+                id: 'epic-1',
+                title: 'Envelope epic',
+                status: 'open',
+                priority: 1,
+                external_ref: 'prd:./docs/prd.md',
+              },
+            ],
+          }),
+        },
+        {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            schema_version: 1,
+            data: [
+              { id: 't1', title: 'T1', status: 'closed', priority: 2 },
+              { id: 't2', title: 'T2', status: 'open', priority: 2 },
+            ],
+          }),
+        },
+      ];
+
+      const result = await plugin.getPrdContext();
+
+      expect(result?.name).toBe('Envelope epic');
+      expect(result?.totalCount).toBe(2);
+      expect(result?.completedCount).toBe(1);
     });
 
     test('returns null when epic show fails', async () => {

@@ -22,10 +22,6 @@ import {
 import type { FileHandle } from 'node:fs/promises';
 import type { SessionStatus } from './types.js';
 
-/**
- * Registry file location in user's config directory
- */
-const REGISTRY_DIR = join(homedir(), '.config', 'ralph-tui');
 const REGISTRY_FILE = 'sessions.json';
 const LOCK_FILE = 'sessions.lock';
 
@@ -75,6 +71,9 @@ export interface SessionRegistryEntry {
   /** Epic ID (for beads tracker) */
   epicId?: string;
 
+  /** Epic IDs for multi-epic runs */
+  epicIds?: string[];
+
   /** PRD path (for json tracker) */
   prdPath?: string;
 
@@ -94,30 +93,37 @@ export interface SessionRegistry {
 }
 
 /**
+ * Get the registry directory.
+ */
+export function getRegistryDir(): string {
+  return process.env.RALPH_TUI_CONFIG_DIR?.trim() || join(homedir(), '.config', 'ralph-tui');
+}
+
+/**
  * Get the registry file path
  */
-function getRegistryPath(): string {
-  return join(REGISTRY_DIR, REGISTRY_FILE);
+function getRegistryPath(registryDir: string): string {
+  return join(registryDir, REGISTRY_FILE);
 }
 
 /**
  * Get the lock file path
  */
-function getLockPath(): string {
-  return join(REGISTRY_DIR, LOCK_FILE);
+function getLockPath(registryDir: string): string {
+  return join(registryDir, LOCK_FILE);
 }
 
 /**
  * Ensure registry directory exists with correct permissions
  */
-async function ensureRegistryDir(): Promise<void> {
+async function ensureRegistryDir(registryDir: string): Promise<void> {
   try {
-    await access(REGISTRY_DIR, constants.F_OK);
+    await access(registryDir, constants.F_OK);
     // Directory exists, ensure correct permissions
-    await chmod(REGISTRY_DIR, DIR_MODE);
+    await chmod(registryDir, DIR_MODE);
   } catch {
     // Directory doesn't exist, create with correct permissions
-    await mkdir(REGISTRY_DIR, { recursive: true, mode: DIR_MODE });
+    await mkdir(registryDir, { recursive: true, mode: DIR_MODE });
   }
 }
 
@@ -125,9 +131,9 @@ async function ensureRegistryDir(): Promise<void> {
  * Acquire an exclusive lock for registry operations.
  * Uses a lockfile with O_EXCL for cross-process synchronization.
  */
-async function acquireLock(): Promise<FileHandle> {
-  await ensureRegistryDir();
-  const lockPath = getLockPath();
+async function acquireLock(registryDir: string): Promise<FileHandle> {
+  await ensureRegistryDir(registryDir);
+  const lockPath = getLockPath(registryDir);
   const startTime = Date.now();
 
   while (true) {
@@ -171,8 +177,7 @@ async function acquireLock(): Promise<FileHandle> {
 /**
  * Release the lock
  */
-async function releaseLock(handle: FileHandle): Promise<void> {
-  const lockPath = getLockPath();
+async function releaseLock(handle: FileHandle, lockPath: string): Promise<void> {
   try {
     await handle.close();
   } finally {
@@ -187,8 +192,8 @@ async function releaseLock(handle: FileHandle): Promise<void> {
 /**
  * Load the session registry from disk (internal, no locking)
  */
-async function loadRegistryInternal(): Promise<SessionRegistry> {
-  const registryPath = getRegistryPath();
+async function loadRegistryInternal(registryDir: string): Promise<SessionRegistry> {
+  const registryPath = getRegistryPath(registryDir);
 
   try {
     await access(registryPath, constants.F_OK);
@@ -215,9 +220,12 @@ async function loadRegistryInternal(): Promise<SessionRegistry> {
  * Save the session registry to disk atomically (internal, no locking)
  * Uses write-to-temp + fsync + rename pattern for durability.
  */
-async function saveRegistryInternal(registry: SessionRegistry): Promise<void> {
-  await ensureRegistryDir();
-  const registryPath = getRegistryPath();
+async function saveRegistryInternal(
+  registry: SessionRegistry,
+  registryDir: string
+): Promise<void> {
+  await ensureRegistryDir(registryDir);
+  const registryPath = getRegistryPath(registryDir);
   const tempPath = `${registryPath}.${process.pid}.tmp`;
 
   let tempHandle: FileHandle | null = null;
@@ -263,16 +271,31 @@ async function saveRegistryInternal(registry: SessionRegistry): Promise<void> {
  * Acquires lock, loads registry, calls mutator, saves registry, releases lock.
  */
 async function withRegistryLock<T>(
+  registryDir: string,
   mutator: (registry: SessionRegistry) => T | Promise<T>
 ): Promise<T> {
-  const lockHandle = await acquireLock();
+  const lockPath = getLockPath(registryDir);
+  const lockHandle = await acquireLock(registryDir);
   try {
-    const registry = await loadRegistryInternal();
+    const registry = await loadRegistryInternal(registryDir);
     const result = await mutator(registry);
-    await saveRegistryInternal(registry);
+    await saveRegistryInternal(registry, registryDir);
     return result;
   } finally {
-    await releaseLock(lockHandle);
+    await releaseLock(lockHandle, lockPath);
+  }
+}
+
+/**
+ * Load the session registry from a resolved directory.
+ */
+async function loadRegistryAt(registryDir: string): Promise<SessionRegistry> {
+  const lockPath = getLockPath(registryDir);
+  const lockHandle = await acquireLock(registryDir);
+  try {
+    return await loadRegistryInternal(registryDir);
+  } finally {
+    await releaseLock(lockHandle, lockPath);
   }
 }
 
@@ -280,23 +303,21 @@ async function withRegistryLock<T>(
  * Load the session registry from disk
  */
 export async function loadRegistry(): Promise<SessionRegistry> {
-  const lockHandle = await acquireLock();
-  try {
-    return await loadRegistryInternal();
-  } finally {
-    await releaseLock(lockHandle);
-  }
+  const registryDir = getRegistryDir();
+  return loadRegistryAt(registryDir);
 }
 
 /**
  * Save the session registry to disk
  */
 export async function saveRegistry(registry: SessionRegistry): Promise<void> {
-  const lockHandle = await acquireLock();
+  const registryDir = getRegistryDir();
+  const lockPath = getLockPath(registryDir);
+  const lockHandle = await acquireLock(registryDir);
   try {
-    await saveRegistryInternal(registry);
+    await saveRegistryInternal(registry, registryDir);
   } finally {
-    await releaseLock(lockHandle);
+    await releaseLock(lockHandle, lockPath);
   }
 }
 
@@ -304,7 +325,8 @@ export async function saveRegistry(registry: SessionRegistry): Promise<void> {
  * Register a new session in the global registry
  */
 export async function registerSession(entry: SessionRegistryEntry): Promise<void> {
-  await withRegistryLock((registry) => {
+  const registryDir = getRegistryDir();
+  await withRegistryLock(registryDir, (registry) => {
     registry.sessions[entry.sessionId] = entry;
   });
 }
@@ -316,7 +338,13 @@ export async function updateRegistryStatus(
   sessionId: string,
   status: SessionStatus
 ): Promise<void> {
-  await withRegistryLock((registry) => {
+  const registryDir = getRegistryDir();
+  const registry = await loadRegistryInternal(registryDir);
+  if (!registry.sessions[sessionId]) {
+    return;
+  }
+
+  await withRegistryLock(registryDir, (registry) => {
     const entry = registry.sessions[sessionId];
     if (entry) {
       entry.status = status;
@@ -329,7 +357,8 @@ export async function updateRegistryStatus(
  * Remove a session from the registry (on completion or explicit cleanup)
  */
 export async function unregisterSession(sessionId: string): Promise<void> {
-  await withRegistryLock((registry) => {
+  const registryDir = getRegistryDir();
+  await withRegistryLock(registryDir, (registry) => {
     delete registry.sessions[sessionId];
   });
 }
@@ -392,9 +421,10 @@ export async function listAllSessions(): Promise<SessionRegistryEntry[]> {
 export async function cleanupStaleRegistryEntries(
   checkSessionExists: (cwd: string) => Promise<boolean>
 ): Promise<number> {
+  const registryDir = getRegistryDir();
   // Phase 1: Snapshot registry entries under lock
   const snapshot: Array<{ sessionId: string; cwd: string }> = [];
-  const registry = await loadRegistry();
+  const registry = await loadRegistryAt(registryDir);
   for (const [sessionId, entry] of Object.entries(registry.sessions)) {
     snapshot.push({ sessionId, cwd: entry.cwd });
   }
@@ -418,7 +448,7 @@ export async function cleanupStaleRegistryEntries(
 
   // Phase 3: Reacquire lock and delete stale entries (with race-safety)
   let cleaned = 0;
-  await withRegistryLock((currentRegistry) => {
+  await withRegistryLock(registryDir, (currentRegistry) => {
     for (const sessionId of staleIds) {
       const entry = currentRegistry.sessions[sessionId];
       // Only delete if the entry still exists and cwd hasn't changed (race safety)
@@ -450,5 +480,5 @@ export async function findSessionsByPrefix(
  * Get the registry file path (exposed for testing/diagnostics)
  */
 export function getRegistryFilePath(): string {
-  return getRegistryPath();
+  return getRegistryPath(getRegistryDir());
 }

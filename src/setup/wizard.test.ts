@@ -35,9 +35,15 @@ let mockInstallViaAddSkillResult = { success: true, output: '' };
 // Override mockTrackerDetectOverride per-test to change detect() behavior.
 let mockTrackerDetectOverride: ((id: string) => Promise<{ available: boolean; error?: string }>) | null = null;
 
+// Capture the options passed to preflight() for verification (e.g. timeout)
+let lastPreflightOptions: { timeout?: number } | null = null;
+
 // Create a function to generate mock agent instances
 const createMockAgentInstance = (id: string, name: string) => ({
-  preflight: () => Promise.resolve({ success: true, durationMs: 100 }),
+  preflight: (opts?: { timeout?: number }) => {
+    lastPreflightOptions = opts ?? null;
+    return Promise.resolve({ success: true, durationMs: 100 });
+  },
   meta: { id, name, description: `${name} AI`, version: '1.0.0' },
   detect: () => Promise.resolve({ available: true, version: '1.0.0' }),
   initialize: () => Promise.resolve(),
@@ -77,6 +83,13 @@ const trackerPluginMeta = [
   { id: 'beads-rust', name: 'Beads Rust', description: 'Beads Rust tracker', version: '1.0.0' },
 ];
 
+const mockAgentPlugins = [
+  { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
+  { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
+  { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
+  { id: 'gemini', name: 'Gemini CLI', description: 'Google Gemini CLI', version: '1.0.0' },
+];
+
 // Declare wizard module exports to be populated after dynamic import
 let projectConfigExists: typeof import('./wizard.js').projectConfigExists;
 let runSetupWizard: typeof import('./wizard.js').runSetupWizard;
@@ -111,7 +124,12 @@ describe('wizard', () => {
     mock.module('./skill-installer.js', () => ({
       listBundledSkills: () => Promise.resolve(mockBundledSkills),
       isSkillInstalledAt: () => Promise.resolve(false),
+      isSkillInstalledAtAnyPath: () => Promise.resolve(false),
       resolveSkillsPath: (p: string) => p.replace(/^~/, '/home/test'),
+      getSkillSearchPaths: (skillsPaths: { personal: string; repo: string }, cwd?: string) => ({
+        personal: [skillsPaths.personal.replace(/^~/, '/home/test')],
+        repo: [cwd ? `${cwd}/${skillsPaths.repo}` : skillsPaths.repo],
+      }),
       installViaAddSkill: () => Promise.resolve(mockInstallViaAddSkillResult),
       resolveAddSkillAgentId: (id: string) => (id === 'claude' ? 'claude-code' : id),
       buildAddSkillInstallArgs: () => [],
@@ -124,7 +142,10 @@ describe('wizard', () => {
     }));
 
     // Mock tracker registry
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const actualTrackerRegistryModule = await import('../plugins/trackers/registry.js?test-reload') as typeof import('../plugins/trackers/registry.js');
     mock.module('../plugins/trackers/registry.js', () => ({
+      ...actualTrackerRegistryModule,
       getTrackerRegistry: () => ({
         initialize: () => Promise.resolve(),
         getRegisteredPlugins: () => trackerPluginMeta,
@@ -140,21 +161,20 @@ describe('wizard', () => {
     }));
 
     // Mock the agent registry to return our mock instance
+    // @ts-expect-error - Bun supports query strings in imports to get fresh module instances
+    const actualAgentRegistryModule = await import('../plugins/agents/registry.js?test-reload') as typeof import('../plugins/agents/registry.js');
     mock.module('../plugins/agents/registry.js', () => ({
+      ...actualAgentRegistryModule,
       getAgentRegistry: () => ({
         getInstance: () => Promise.resolve(createMockAgentInstance('claude', 'Claude Code')),
         initialize: () => Promise.resolve(),
-        getRegisteredPlugins: () => [
-          { id: 'claude', name: 'Claude Code', description: 'Claude AI', version: '1.0.0' },
-          { id: 'opencode', name: 'OpenCode', description: 'OpenCode AI', version: '1.0.0' },
-          { id: 'droid', name: 'Droid', description: 'Factory Droid', version: '1.0.0' },
-        ],
+        getRegisteredPlugins: () => mockAgentPlugins,
         getPluginMeta: (id: string) => ({
           id,
           name: id === 'claude' ? 'Claude Code' : id,
           description: `${id} AI`,
           version: '1.0.0',
-          defaultCommand: id,
+          ...(id === 'gemini' ? { defaultCommand: 'gemini-cli' } : { defaultCommand: id }),
           supportsStreaming: true,
           supportsInterrupt: true,
           supportsFileContext: true,
@@ -165,7 +185,7 @@ describe('wizard', () => {
           },
         }),
         createInstance: (id: string) => createMockAgentInstance(id, id),
-        hasPlugin: (name: string) => ['claude', 'opencode', 'droid'].includes(name),
+        hasPlugin: (name: string) => mockAgentPlugins.some((p) => p.id === name),
         registerBuiltin: () => {},
       }),
       registerAgentPlugin: () => {},
@@ -226,6 +246,7 @@ describe('runSetupWizard', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     capturedOutput = [];
+    lastPreflightOptions = null;
 
     // Spy on console.log to capture output
     consoleLogSpy = spyOn(console, 'log').mockImplementation((...args) => {
@@ -273,6 +294,19 @@ describe('runSetupWizard', () => {
     expect(configContent).toContain('tracker');
   });
 
+  test('preflight uses default 30s timeout when no preflightTimeoutMs is configured', async () => {
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('claude');
+      return Promise.resolve('');
+    };
+
+    const result = await runSetupWizard({ cwd: tempDir });
+
+    expect(result.success).toBe(true);
+    expect(lastPreflightOptions?.timeout).toBe(30000);
+  });
+
   test('saves correct tracker and agent in config', async () => {
     mockPromptSelect = (prompt) => {
       if (prompt.includes('tracker')) return Promise.resolve('beads');
@@ -297,6 +331,28 @@ describe('runSetupWizard', () => {
     expect(parsed.agent).toBe('claude');
     expect(parsed.maxIterations).toBe(20);
     expect(parsed.autoCommit).toBe(true);
+  });
+
+  test('accepts gemini CLI selection without command mismatch', async () => {
+    let selectedAgent: string | undefined;
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) {
+        selectedAgent = 'gemini';
+        return Promise.resolve('gemini');
+      }
+      return Promise.resolve('');
+    };
+
+    const result = await runSetupWizard({ cwd: tempDir });
+
+    expect(result.success).toBe(true);
+    expect(result.answers?.agent).toBe('gemini');
+    expect(selectedAgent).toBe('gemini');
+
+    const configContent = await readFile(result.configPath!, 'utf-8');
+    const parsed = parseToml(configContent);
+    expect(parsed.agent).toBe('gemini');
   });
 
   test('shows PRD-specific instructions for json tracker', async () => {
@@ -563,6 +619,25 @@ describe('wizard output messages', () => {
     const output = capturedOutput.join('\n');
     expect(output).toContain('Failed');
     expect(output).toContain('ENOENT');
+  });
+
+  test('describes skill discovery paths without implying install targets', async () => {
+    mockBundledSkills = [
+      { name: 'ralph-tui-prd', description: 'PRD generator', path: '/skills/ralph-tui-prd' },
+    ];
+
+    mockPromptSelect = (prompt) => {
+      if (prompt.includes('tracker')) return Promise.resolve('json');
+      if (prompt.includes('agent')) return Promise.resolve('gemini');
+      return Promise.resolve('');
+    };
+    mockPromptBoolean = () => Promise.resolve(false);
+
+    await runSetupWizard({ cwd: tempDir });
+
+    const output = capturedOutput.join('\n');
+    expect(output).toContain('Checking for already installed skills in:');
+    expect(output).not.toContain('Skills will be installed to:');
   });
 });
 

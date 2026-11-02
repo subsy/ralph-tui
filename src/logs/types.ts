@@ -28,7 +28,7 @@ export interface IterationSummary {
 
 /**
  * Entry recording an agent switch during an iteration.
- * Tracks when and why the engine switched between primary and fallback agents.
+ * Tracks when and why the engine switched between active agents.
  */
 export interface AgentSwitchEntry {
   /** ISO 8601 timestamp when the switch occurred */

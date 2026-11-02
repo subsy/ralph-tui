@@ -57,6 +57,15 @@ describe('parseRemoteArgs', () => {
       expect(result.token).toBe('xyz');
     });
 
+    test('parses add with secure flag', () => {
+      const result = parseRemoteArgs(['add', 'prod', 'server.com:443', '--secure', '--token', 'abc123']);
+      expect(result.subcommand).toBe('add');
+      expect(result.alias).toBe('prod');
+      expect(result.hostPort).toBe('server.com:443');
+      expect(result.secure).toBe(true);
+      expect(result.token).toBe('abc123');
+    });
+
     test('handles help flag in add', () => {
       const result = parseRemoteArgs(['add', '--help']);
       expect(result.subcommand).toBe('add');

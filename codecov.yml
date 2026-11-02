@@ -28,6 +28,7 @@ ignore:
   - "dist/**/*"
   # TUI components are React/blessed rendering code - hard to unit test meaningfully
   - "src/tui/**/*"
+  - "src/commands/*.tsx"
   - "src/commands/**/*.tsx"
 
 # Comment settings for PRs

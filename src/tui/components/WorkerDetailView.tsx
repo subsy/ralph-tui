@@ -9,6 +9,7 @@ import { memo } from 'react';
 import { createTextAttributes } from '@opentui/core';
 import { colors, statusIndicators, formatElapsedTime } from '../theme.js';
 import type { WorkerDisplayState } from '../../parallel/types.js';
+import type { ScopedTrackerTask } from '../../plugins/trackers/types.js';
 
 const boldAttr = createTextAttributes({ bold: true });
 
@@ -56,6 +57,7 @@ export const WorkerDetailView = memo(function WorkerDetailView({
   const elapsed = worker.elapsedMs > 0
     ? formatElapsedTime(Math.floor(worker.elapsedMs / 1000))
     : '0s';
+  const executionScope = (worker.task as ScopedTrackerTask).executionScope;
 
   // Reserve lines for header info (title, task, progress/git, worktree path, separator)
   // With worktreePath: title(1) + task(1) + progress(1) + worktree(1) + separator(1) = 5
@@ -78,6 +80,11 @@ export const WorkerDetailView = memo(function WorkerDetailView({
       {/* Task info */}
       <text>
         <span fg={colors.fg.muted}>Task: </span>
+        {executionScope && (
+          <>
+            <span fg={colors.accent.tertiary}>[{executionScope.title || executionScope.id}] </span>
+          </>
+        )}
         <span fg={colors.fg.secondary}>{worker.task.id}</span>
         <span fg={colors.fg.dim}> — </span>
         <span fg={colors.fg.primary}>{worker.task.title}</span>

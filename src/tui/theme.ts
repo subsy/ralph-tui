@@ -18,6 +18,7 @@ export interface ThemeColors {
     secondary: string;
     tertiary: string;
     highlight: string;
+    overlay: string;
   };
   fg: {
     primary: string;
@@ -63,6 +64,7 @@ export const defaultColors: ThemeColors = {
     secondary: '#24283b',
     tertiary: '#2f3449',
     highlight: '#3d4259',
+    overlay: '#0f0f12',
   },
   fg: {
     primary: '#c0caf5',
@@ -119,7 +121,7 @@ export const colors: ThemeColors = new Proxy({} as ThemeColors, {
 /**
  * Status indicator symbols
  * Task status: ✓ (done), ▶ (active/running), ○ (actionable/pending), ⊘ (blocked), ✗ (error), ✓ (closed - greyed)
- * Ralph status: ▶ (running), ◎ (pausing), ⏸ (paused), ■ (stopped), ✓ (complete), ○ (idle/ready)
+ * Ralph status: ▶ (running), ◎ (pausing), ⏸ (paused), ■ (stopped), ✓ (complete), ○ (idle), ◉ (ready), ◌ (waiting)
  */
 export const statusIndicators = {
   done: '✓',
@@ -138,6 +140,7 @@ export const statusIndicators = {
   stopped: '■',
   complete: '✓',
   idle: '○',
+  waiting: '◌',
   ready: '◉', // Ready to start - waiting for user action
   // Parallel execution indicators
   merging: '⟳', // Merge in progress
@@ -159,6 +162,7 @@ export const keyboardShortcuts = [
   { key: '-', description: '-10 iters' },
   { key: 'r', description: 'Refresh' },
   { key: 'l', description: 'Load Epic' },
+  { key: 'a', description: 'Agent/Model' },
   { key: ',', description: 'Settings' },
   { key: 'd', description: 'Dashboard' },
   { key: 'o', description: 'Cycle Views' },
@@ -182,12 +186,15 @@ export const fullKeyboardShortcuts = [
   { key: ',', description: 'Open settings', category: 'General' },
   { key: 's', description: 'Start execution (when ready)', category: 'Execution' },
   { key: 'p', description: 'Pause / Resume execution', category: 'Execution' },
+  { key: 'a', description: 'Switch agent / model', category: 'Execution' },
   { key: '+', description: 'Add 10 iterations', category: 'Execution' },
   { key: '-', description: 'Remove 10 iterations', category: 'Execution' },
   { key: 'r', description: 'Refresh task list from tracker', category: 'Execution' },
   { key: 'l', description: 'Load / switch epic', category: 'Execution' },
   { key: 'd', description: 'Toggle progress dashboard', category: 'Views' },
   { key: 'h', description: 'Toggle show/hide closed tasks', category: 'Views' },
+  { key: 'g', description: 'Cycle scope filter', category: 'Views' },
+  { key: 'G', description: 'Reset scope filter to all', category: 'Views' },
   { key: 'v', description: 'Toggle iterations / tasks view', category: 'Views' },
   { key: 'o', description: 'Cycle views (details/output/prompt)', category: 'Views' },
   { key: 'O', description: 'Jump to prompt preview', category: 'Views' },
@@ -201,6 +208,8 @@ export const fullKeyboardShortcuts = [
   { key: ']', description: 'Next tab', category: 'Instances' },
   { key: 'Ctrl+Tab', description: 'Next tab (alternate)', category: 'Instances' },
   { key: 'Ctrl+Shift+Tab', description: 'Previous tab (alternate)', category: 'Instances' },
+  { key: 'A', description: 'Add remote instance', category: 'Instances' },
+  { key: 'Alt+C', description: 'Copy selection (Cmd+C mac, Ctrl+C Win)', category: 'System' },
   { key: 'Ctrl+C', description: 'Interrupt (with confirmation)', category: 'System' },
   { key: 'Ctrl+C ×2', description: 'Force quit immediately', category: 'System' },
   { key: 'w', description: 'Toggle parallel workers view', category: 'Parallel' },
@@ -254,9 +263,10 @@ export const layout = {
  * - 'stopped': Not running (generic)
  * - 'complete': All tasks finished successfully
  * - 'idle': Stopped, no more tasks available
+ * - 'waiting': Watching for new tasks while the engine remains active
  * - 'error': Stopped due to error
  */
-export type RalphStatus = 'ready' | 'running' | 'selecting' | 'executing' | 'pausing' | 'paused' | 'stopped' | 'complete' | 'idle' | 'error';
+export type RalphStatus = 'ready' | 'running' | 'selecting' | 'executing' | 'pausing' | 'paused' | 'stopped' | 'complete' | 'idle' | 'waiting' | 'error';
 
 /**
  * Task status types matching the acceptance criteria

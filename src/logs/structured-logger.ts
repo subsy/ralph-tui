@@ -18,6 +18,7 @@ export type LogComponent =
   | 'engine'     // Engine lifecycle events
   | 'tracker'    // Tracker operations
   | 'session'    // Session management
+  | 'watch'      // Watch mode polling
   | 'system';    // System-level messages
 
 /**
@@ -252,6 +253,16 @@ export class StructuredLogger {
       'engine',
       `Ralph stopped. Reason: ${reason}. Iterations: ${totalIterations}, Tasks completed: ${tasksCompleted}`
     );
+  }
+
+  engineWaiting(reason: 'no_tasks' | 'completed', pollIntervalMs: number): void {
+    const interval =
+      pollIntervalMs % 1000 === 0
+        ? `${pollIntervalMs / 1000}s`
+        : `${pollIntervalMs}ms`;
+    const message =
+      reason === 'no_tasks' ? 'No tasks available' : 'All tasks complete';
+    this.info('watch', `${message} — polling every ${interval}`);
   }
 
   enginePaused(currentIteration: number): void {

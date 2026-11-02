@@ -50,6 +50,7 @@ import type {
   OrchestrateStateResponseMessage,
   ParallelEventMessage,
   RemoteOrchestrationState,
+  RemoteScopeCount,
 } from './types.js';
 import {
   validateServerToken,
@@ -62,11 +63,139 @@ import {
 } from './token.js';
 import { createAuditLogger, type AuditLogger } from './audit.js';
 import type { ExecutionEngine, EngineEvent } from '../engine/index.js';
-import type { TrackerPlugin } from '../plugins/trackers/types.js';
+import type { ExecutionScope, TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
+import {
+  MultiScopeTrackerPlugin,
+  createExecutionScopeFromTask,
+} from '../plugins/trackers/multi-scope.js';
 import type { RalphConfig } from '../config/types.js';
 import { summarizeTokenUsageFromOutput } from '../plugins/agents/usage.js';
 import { ParallelExecutor, analyzeTaskGraph, shouldRunParallel } from '../parallel/index.js';
 import type { ParallelEvent } from '../parallel/events.js';
+import type { ParallelExecutorState, WorkerResult } from '../parallel/types.js';
+
+export async function resolveExecutionScopes(
+  tracker: TrackerPlugin,
+  epicIds: string[]
+): Promise<ExecutionScope[]> {
+  if (epicIds.length === 0) return [];
+  let epics: TrackerTask[] = [];
+  try {
+    epics = await tracker.getEpics();
+  } catch {
+    epics = [];
+  }
+  return epicIds.map((epicId) => {
+    const epic = epics.find((candidate) => candidate.id === epicId);
+    return epic ? createExecutionScopeFromTask(epic) : {
+      id: epicId,
+      title: epicId,
+      type: 'epic',
+    };
+  });
+}
+
+function getTaskExecutionScope(task: TrackerTask): ExecutionScope | undefined {
+  const scopedTask = task as TrackerTask & { executionScope?: ExecutionScope };
+  if (scopedTask.executionScope) {
+    return scopedTask.executionScope;
+  }
+
+  const metadataScope = task.metadata?.executionScope;
+  if (!metadataScope || typeof metadataScope !== 'object') {
+    return undefined;
+  }
+
+  const scopeRecord = metadataScope as Record<string, unknown>;
+  const id = scopeRecord.id;
+  if (typeof id !== 'string') {
+    return undefined;
+  }
+
+  return {
+    id,
+    title: typeof scopeRecord.title === 'string' ? scopeRecord.title : id,
+    type: scopeRecord.type === 'prd' || scopeRecord.type === 'tracker' ? scopeRecord.type : 'epic',
+    description: typeof scopeRecord.description === 'string' ? scopeRecord.description : undefined,
+    metadata: scopeRecord.metadata && typeof scopeRecord.metadata === 'object'
+      ? scopeRecord.metadata as Record<string, unknown>
+      : undefined,
+  };
+}
+
+function createRemoteScopeCount(scopeId: string): RemoteScopeCount {
+  return {
+    scopeId,
+    totalTasks: 0,
+    activeTasks: 0,
+    completedTasks: 0,
+    failedTasks: 0,
+  };
+}
+
+function isFailedWorkerResult(result: WorkerResult): boolean {
+  return !result.success || !result.taskCompleted;
+}
+
+export function buildRemoteScopeCounts(
+  executorState: ParallelExecutorState
+): RemoteScopeCount[] | undefined {
+  if (!executorState.scopes || executorState.scopes.length <= 1) {
+    return undefined;
+  }
+
+  const counts = new Map<string, RemoteScopeCount>();
+  for (const scope of executorState.scopes) {
+    counts.set(scope.id, createRemoteScopeCount(scope.id));
+  }
+
+  for (const node of executorState.taskGraph?.nodes.values() ?? []) {
+    const scope = getTaskExecutionScope(node.task);
+    if (!scope) continue;
+    const count = counts.get(scope.id) ?? createRemoteScopeCount(scope.id);
+    count.totalTasks += 1;
+    counts.set(scope.id, count);
+  }
+
+  for (const worker of executorState.workers) {
+    const scope = getTaskExecutionScope(worker.task);
+    if (!scope) continue;
+    const count = counts.get(scope.id) ?? createRemoteScopeCount(scope.id);
+    if (worker.status === 'running') {
+      count.activeTasks += 1;
+    } else if (worker.status === 'failed' || worker.status === 'cancelled') {
+      count.failedTasks += 1;
+    }
+    counts.set(scope.id, count);
+  }
+
+  for (const result of executorState.workerResults ?? []) {
+    if (!isFailedWorkerResult(result)) continue;
+    const scope = getTaskExecutionScope(result.task);
+    if (!scope) continue;
+    const count = counts.get(scope.id) ?? createRemoteScopeCount(scope.id);
+    count.failedTasks += 1;
+    counts.set(scope.id, count);
+  }
+
+  for (const operation of executorState.mergeQueue) {
+    const scope = getTaskExecutionScope(operation.workerResult.task);
+    if (!scope) continue;
+    const count = counts.get(scope.id) ?? createRemoteScopeCount(scope.id);
+    if (operation.status === 'completed') {
+      count.completedTasks += 1;
+    } else if (
+      operation.status === 'failed' ||
+      operation.status === 'conflicted' ||
+      operation.status === 'rolled-back'
+    ) {
+      count.failedTasks += 1;
+    }
+    counts.set(scope.id, count);
+  }
+
+  return [...counts.values()];
+}
 
 /**
  * WebSocket data attached to each connection
@@ -1363,8 +1492,18 @@ export class RemoteServer {
         return;
       }
 
+      const requestedEpicIds = message.epicIds && message.epicIds.length > 0
+        ? message.epicIds
+        : message.epicId
+          ? [message.epicId]
+          : this.options.baseConfig.epicIds ?? [];
+      const scopes = await resolveExecutionScopes(this.options.tracker, requestedEpicIds);
+      const orchestrationTracker = scopes.length > 1
+        ? new MultiScopeTrackerPlugin(this.options.tracker, scopes)
+        : this.options.tracker;
+
       // Fetch tasks from tracker
-      let tasks = await this.options.tracker.getTasks({ status: ['open', 'in_progress'] });
+      let tasks = await orchestrationTracker.getTasks({ status: ['open', 'in_progress'] });
 
       // Apply filteredTaskIds filter if specified in baseConfig (non-empty array)
       if (filteredTaskIds && filteredTaskIds.length > 0) {
@@ -1416,13 +1555,18 @@ export class RemoteServer {
       // Create ParallelExecutor with validated options
       // Pass filteredTaskIds so executor only schedules those tasks
       const executor = new ParallelExecutor(
-        this.options.baseConfig,
-        this.options.tracker,
+        {
+          ...this.options.baseConfig,
+          epicId: requestedEpicIds[0] ?? this.options.baseConfig.epicId,
+          epicIds: requestedEpicIds.length > 0 ? requestedEpicIds : this.options.baseConfig.epicIds,
+        },
+        orchestrationTracker,
         {
           maxWorkers,
           directMerge: message.directMerge ?? false,
           maxIterationsPerWorker: message.maxIterations ?? this.options.baseConfig.maxIterations,
           filteredTaskIds: filteredTaskIds?.length ? filteredTaskIds : undefined,
+          scopes,
         }
       );
 
@@ -1622,6 +1766,8 @@ export class RemoteServer {
       elapsedMs: executorState.elapsedMs,
       sessionBranch: this.orchestrationSession.executor.getSessionBranch() ?? undefined,
       originalBranch: this.orchestrationSession.executor.getOriginalBranch() ?? undefined,
+      scopes: executorState.scopes,
+      scopeCounts: buildRemoteScopeCounts(executorState),
     };
 
     const response = createMessage<OrchestrateStateResponseMessage>('orchestrate:state_response', {

@@ -139,6 +139,12 @@ export interface ParallelConfig {
    * of merging directly to the current branch.
    */
   directMerge?: boolean;
+
+  /**
+   * Optional explicit session branch name for parallel runs.
+   * When set, Ralph creates this branch instead of auto-generating ralph-session/*.
+   */
+  targetBranch?: string;
 }
 
 /**
@@ -174,6 +180,9 @@ export interface RuntimeOptions {
   /** Epic ID for beads-based trackers */
   epicId?: string;
 
+  /** Epic IDs for multi-epic hierarchy tracker runs */
+  epicIds?: string[];
+
   /** PRD file path for json tracker */
   prdPath?: string;
 
@@ -182,6 +191,15 @@ export interface RuntimeOptions {
 
   /** Delay between iterations in milliseconds */
   iterationDelay?: number;
+
+  /** Keep waiting for new tasks when no work is available */
+  watch?: boolean;
+
+  /** Polling interval in milliseconds when watching */
+  pollIntervalMs?: number;
+
+  /** Reset the progress file before starting a new session */
+  resetProgress?: boolean;
 
   /** Working directory for execution */
   cwd?: string;
@@ -253,6 +271,12 @@ export interface StoredConfig {
   /** Default iteration delay in milliseconds */
   iterationDelay?: number;
 
+  /** Whether to keep waiting for new tasks */
+  watch?: boolean;
+
+  /** Polling interval in milliseconds when watching */
+  pollIntervalMs?: number;
+
   /** Configured agent plugins */
   agents?: AgentPluginConfig[];
 
@@ -272,6 +296,9 @@ export interface StoredConfig {
 
   /** Shorthand: agent plugin name */
   agent?: string;
+
+  /** Shorthand: model override for the selected agent */
+  model?: string;
 
   /** Legacy alias: agent command name */
   agentCommand?: string;
@@ -324,8 +351,18 @@ export interface StoredConfig {
    */
   envPassthrough?: string[];
 
+  /** Shorthand: preflight check timeout in milliseconds for the default agent (default: 30000) */
+  preflightTimeoutMs?: number;
+
   /** Whether to auto-commit after successful tasks */
   autoCommit?: boolean;
+
+  /**
+   * Handlebars template for auto-commit subject lines. Available variables:
+   * `{{taskId}}`, `{{taskTitle}}`, `{{taskType}}` (falls back to `chore` when
+   * the tracker omits a type). Defaults to `"{{taskType}}: {{taskId}} {{taskTitle}}"`.
+   */
+  commitMessageTemplate?: string;
 
   /** Custom prompt template path (relative to cwd or absolute) */
   prompt_template?: string;
@@ -376,6 +413,12 @@ export interface RalphConfig {
   /** Delay between iterations in milliseconds */
   iterationDelay: number;
 
+  /** Whether to keep waiting for new tasks */
+  watch: boolean;
+
+  /** Polling interval in milliseconds when watching */
+  pollIntervalMs: number;
+
   /** Working directory */
   cwd: string;
 
@@ -387,6 +430,9 @@ export interface RalphConfig {
 
   /** Epic ID (for beads trackers) */
   epicId?: string;
+
+  /** Epic IDs for multi-epic hierarchy tracker runs */
+  epicIds?: string[];
 
   /** PRD path (for json tracker) */
   prdPath?: string;
@@ -408,8 +454,15 @@ export interface RalphConfig {
   /** Session ID for log file naming and tracking */
   sessionId?: string;
 
-  /** Whether to auto-commit after successful task completion (default: true) */
+  /** Whether to auto-commit after successful task completion (default: false) */
   autoCommit?: boolean;
+
+  /**
+   * Handlebars template for auto-commit subject lines. When omitted, the default
+   * `"{{taskType}}: {{taskId}} {{taskTitle}}"` is used (with `taskType` falling
+   * back to `chore` when the tracker omits a type).
+   */
+  commitMessageTemplate?: string;
 
   /**
    * Optional list of task IDs to execute. When provided, only tasks with these
@@ -462,7 +515,7 @@ export interface VerificationConfig {
   /** Timeout per command in milliseconds (default: 60000) */
   timeoutMs?: number;
 
-  /** Maximum verification retries before skipping task (default: 2) */
+  /** Maximum verification retries before applying errorHandling policy (default: 2) */
   maxRetries?: number;
 }
 
@@ -514,7 +567,7 @@ export interface CostConfig {
    * [cost.pricing]
    * "claude-opus-4-6" = { inputPer1M = 5.0, outputPer1M = 25.0 }
    * "claude-sonnet-4-6" = { inputPer1M = 3.0, outputPer1M = 15.0 }
-   * "claude-haiku-4-5" = { inputPer1M = 0.80, outputPer1M = 4.0 }
+   * "claude-haiku-4-5" = { inputPer1M = 1.0, outputPer1M = 5.0 }
    */
   pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
 }
@@ -543,6 +596,8 @@ export const DEFAULT_ERROR_HANDLING: ErrorHandlingConfig = {
 export const DEFAULT_CONFIG: Omit<RalphConfig, "agent" | "tracker"> = {
   maxIterations: 10,
   iterationDelay: 1000,
+  watch: false,
+  pollIntervalMs: 30000,
   cwd: process.cwd(),
   outputDir: ".ralph-tui/iterations",
   progressFile: ".ralph-tui/progress.md",

@@ -231,6 +231,9 @@ export interface AgentPluginConfig {
   /** Default timeout in milliseconds */
   timeout?: number;
 
+  /** Timeout in milliseconds for preflight checks (default: 30000) */
+  preflightTimeoutMs?: number;
+
   /** Plugin-specific configuration options */
   options: Record<string, unknown>;
 
@@ -314,6 +317,9 @@ export interface AgentPluginMeta {
 
   /** Default command name for the agent CLI */
   defaultCommand: string;
+
+  /** Optional alternate command names used for auto-detection */
+  commandAliases?: string[];
 
   /** Whether the agent supports streaming output */
   supportsStreaming: boolean;
@@ -437,6 +443,13 @@ export interface AgentPlugin {
    * @returns null if valid, or an error message string if invalid
    */
   validateModel(model: string): string | null;
+
+  /**
+   * List known model names for this agent.
+   * Agents with open-ended model identifiers should return an empty array.
+   * @returns Array of known model identifiers
+   */
+  listModels(): string[];
 
   /**
    * Run a preflight check to verify the agent is fully operational.

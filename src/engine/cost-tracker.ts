@@ -65,9 +65,11 @@ export class CostTracker {
   private getPricing(model?: string): ModelPricing | null {
     if (!model || Object.keys(this.pricing).length === 0) return null;
     // Exact match first
-    if (this.pricing[model]) return this.pricing[model];
-    // Substring match: find a key whose name appears in the model string
-    const key = Object.keys(this.pricing).find(k => model.includes(k));
+    if (Object.hasOwn(this.pricing, model)) return this.pricing[model];
+    // Prefer the most specific configured model identifier.
+    const key = Object.keys(this.pricing)
+      .filter(k => k.length > 0 && model.includes(k))
+      .sort((a, b) => b.length - a.length)[0];
     return key ? this.pricing[key] : null;
   }
 }

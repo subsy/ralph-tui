@@ -141,6 +141,75 @@ export interface ToolInputFormatters {
   new_string?: string;
 }
 
+const FALLBACK_DISPLAY_KEYS = ['filename', 'fileName', 'filepath', 'filePath', 'patch'] as const;
+const FALLBACK_DISPLAY_MAX_LENGTH = 120;
+
+function looksLikeUnifiedDiff(value: string): boolean {
+  return value.split('\n').some(
+    (line) => line.startsWith('diff ') || line.startsWith('--- ') || line.startsWith('+++ ')
+  );
+}
+
+function summarizeUnifiedDiff(value: string): string {
+  const lines = value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return '';
+  }
+
+  const headerLine = lines.find(
+    (line) => line.startsWith('diff ') || line.startsWith('--- ') || line.startsWith('+++ ')
+  );
+
+  return headerLine ?? lines[0]!;
+}
+
+function selectFallbackDisplayValue(key: string, value: string): string | undefined {
+  const displayValue = key === 'patch' || looksLikeUnifiedDiff(value)
+    ? summarizeUnifiedDiff(value)
+    : value;
+  const [firstLine = ''] = displayValue.split(/\r?\n/, 1);
+  const normalized = firstLine.trim();
+
+  if (normalized.length === 0 || normalized.length > FALLBACK_DISPLAY_MAX_LENGTH) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+/**
+ * Extract a fallback display string from tool input when no known fields matched.
+ * Only considers known non-standard keys to avoid exposing arbitrary input values.
+ * Multi-line values are reduced to their first line and overlong candidates are ignored.
+ */
+function extractFallbackDisplay(input: Record<string, unknown>): string | undefined {
+  // Priority: look for path-like values first, then any other known-safe fallback keys.
+  let bestPath: string | undefined;
+  let bestValue: string | undefined;
+
+  for (const key of FALLBACK_DISPLAY_KEYS) {
+    const value = input[key];
+    if (typeof value !== 'string' || value.length === 0) continue;
+    const displayValue = selectFallbackDisplayValue(key, value);
+    if (!displayValue) continue;
+
+    if (displayValue.startsWith('/') || displayValue.startsWith('./') || displayValue.startsWith('~')) {
+      if (!bestPath) bestPath = displayValue;
+    } else if (!bestValue) {
+      bestValue = displayValue;
+    }
+  }
+
+  const result = bestPath ?? bestValue;
+  if (!result) return undefined;
+
+  return result;
+}
+
 /**
  * Format tool call details from input fields (legacy string version).
  * @param toolName The tool name
@@ -188,6 +257,14 @@ export function formatToolCall(toolName: string, input?: ToolInputFormatters): s
       ? input.new_string.slice(0, 50) + '...'
       : input.new_string;
     parts.push(`edit: "${displayOld}" → "${displayNew}"`);
+  }
+
+  // Fallback: if only the tool name was added, show the first useful value from input
+  if (parts.length === 1) {
+    const fallback = extractFallbackDisplay(input as Record<string, unknown>);
+    if (fallback) {
+      parts.push(fallback);
+    }
   }
 
   return parts.join(' ') + '\n';
@@ -295,6 +372,18 @@ export function formatToolCallSegments(toolName: string, input?: ToolInputFormat
     segments.push({ text: '" → "', color: 'muted' });
     segments.push({ text: displayNew, color: 'green' });
     segments.push({ text: '"', color: 'muted' });
+  }
+
+  // Fallback: if no known fields produced output, show the first useful string value.
+  // This handles tools with non-standard parameter names (e.g. read with 'filename',
+  // apply_patch with 'patch') so they don't display as bare [toolname] with nothing after.
+  const hasContent = segments.length > 1; // more than just the tool name bracket
+  if (!hasContent) {
+    const fallback = extractFallbackDisplay(input as Record<string, unknown>);
+    if (fallback) {
+      segments.push({ text: ' ' });
+      segments.push({ text: fallback, color: 'muted' });
+    }
   }
 
   segments.push({ text: '\n' });

@@ -9,11 +9,11 @@
 import { describe, test, expect } from 'bun:test';
 import { analyzeTaskGraph, shouldRunParallel } from './task-graph.js';
 import { ParallelExecutor } from './index.js';
-import type { TrackerTask, TrackerPlugin } from '../plugins/trackers/types.js';
+import type { ExecutionScope, TrackerTask, TrackerPlugin } from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
 import type { ParallelEvent } from './events.js';
 import type { AiResolverCallback } from './conflict-resolver.js';
-import type { WorkerResult, TaskGraphAnalysis } from './types.js';
+import type { MergeOperation, WorkerResult, TaskGraphAnalysis } from './types.js';
 
 /**
  * Helper to create a minimal TrackerTask.
@@ -161,6 +161,8 @@ function createMockConfig(): RalphConfig {
     cwd: '/tmp/test-project',
     maxIterations: 5,
     iterationDelay: 100,
+    watch: false,
+    pollIntervalMs: 30000,
     outputDir: '/tmp/output',
     progressFile: '/tmp/progress.md',
     sessionId: 'test-session',
@@ -191,6 +193,25 @@ function createWorkerResult(task: TrackerTask, overrides: Partial<WorkerResult> 
   };
 }
 
+/** Create a merge operation for targeted conflict-queue tests. */
+function createMergeOperation(
+  id: string,
+  workerResult: WorkerResult,
+  overrides: Partial<MergeOperation> = {}
+): MergeOperation {
+  return {
+    id,
+    workerResult,
+    status: 'conflicted',
+    backupTag: `ralph/pre-merge/${workerResult.task.id}/${id}`,
+    sourceBranch: workerResult.branchName,
+    commitMessage: `feat(${workerResult.task.id}): ${workerResult.task.title}`,
+    queuedAt: new Date().toISOString(),
+    conflictedFiles: ['src/conflict.ts'],
+    ...overrides,
+  };
+}
+
 /** Build a minimal TaskGraphAnalysis object for executeGroup testing. */
 function createSingleGroupAnalysis(task: TrackerTask): TaskGraphAnalysis {
   return {
@@ -206,6 +227,10 @@ function createSingleGroupAnalysis(task: TrackerTask): TaskGraphAnalysis {
     maxParallelism: 1,
     recommendParallel: true,
   };
+}
+
+async function waitForShortDelay(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
 describe('ParallelExecutor class', () => {
@@ -310,6 +335,7 @@ describe('ParallelExecutor class', () => {
       expect(state.currentGroupIndex).toBe(0);
       expect(state.totalGroups).toBe(0);
       expect(state.workers).toEqual([]);
+      expect(state.workerResults).toEqual([]);
       expect(state.mergeQueue).toEqual([]);
       expect(state.completedMerges).toEqual([]);
       expect(state.activeConflicts).toEqual([]);
@@ -317,6 +343,18 @@ describe('ParallelExecutor class', () => {
       expect(state.totalTasks).toBe(0);
       expect(state.startedAt).toBeNull();
       expect(state.elapsedMs).toBe(0);
+    });
+
+    test('includes configured execution scopes', () => {
+      const scopes: ExecutionScope[] = [
+        { id: 'ui', title: 'UI', type: 'epic' },
+        { id: 'backend', title: 'Backend', type: 'epic' },
+      ];
+      const executor = new ParallelExecutor(createMockConfig(), createMockTracker(), {
+        scopes,
+      });
+
+      expect(executor.getState().scopes).toEqual(scopes);
     });
   });
 
@@ -337,6 +375,50 @@ describe('ParallelExecutor class', () => {
       // Should not throw when stopped while idle
       await executor.stop();
 
+      expect(executor.getState().status).toBe('interrupted');
+    });
+  });
+
+  describe('pause/resume gating', () => {
+    test('pause blocks waiters until resume', async () => {
+      const executor = new ParallelExecutor(createMockConfig(), createMockTracker());
+      (executor as any).status = 'executing';
+
+      executor.pause();
+      expect(executor.getState().status).toBe('paused');
+
+      let released = false;
+      const waiting = (executor as any).waitWhilePaused().then(() => {
+        released = true;
+      });
+
+      await waitForShortDelay();
+      expect(released).toBe(false);
+
+      executor.resume();
+      await waiting;
+
+      expect(released).toBe(true);
+      expect(executor.getState().status).toBe('executing');
+    });
+
+    test('stop releases waiters when paused', async () => {
+      const executor = new ParallelExecutor(createMockConfig(), createMockTracker());
+      (executor as any).status = 'executing';
+      executor.pause();
+
+      let released = false;
+      const waiting = (executor as any).waitWhilePaused().then(() => {
+        released = true;
+      });
+
+      await waitForShortDelay();
+      expect(released).toBe(false);
+
+      await executor.stop();
+      await waiting;
+
+      expect(released).toBe(true);
       expect(executor.getState().status).toBe('interrupted');
     });
   });
@@ -579,6 +661,254 @@ describe('ParallelExecutor class', () => {
       expect((executor as any).totalTasksCompleted).toBe(0);
       expect((executor as any).totalTasksFailed).toBe(1);
       expect(statusUpdates).toContainEqual({ taskId: 'A', status: 'open' });
+    });
+
+    test('executeGroup retries a failed merge once and succeeds', async () => {
+      const tracker = createMockTracker();
+      const completedTaskIds: string[] = [];
+      tracker.completeTask = async (taskId) => {
+        completedTaskIds.push(taskId);
+        return { success: true, message: 'Task completed' };
+      };
+
+      const executor = new ParallelExecutor(createMockConfig(), tracker, {
+        maxRequeueCount: 1,
+      });
+      const taskA = task('A');
+      const group = { index: 0, tasks: [taskA], depth: 0 };
+      const events: ParallelEvent[] = [];
+      executor.on((event) => events.push(event));
+
+      let executeBatchCalls = 0;
+      let mergeCalls = 0;
+
+      (executor as any).taskGraph = createSingleGroupAnalysis(taskA);
+      (executor as any).executeBatch = async () => {
+        executeBatchCalls++;
+        return [createWorkerResult(taskA, { success: true, taskCompleted: true, commitCount: 1 })];
+      };
+      (executor as any).mergeProgressFile = async () => {};
+      (executor as any).mergeEngine = {
+        enqueue: () => {},
+        getQueue: () => [],
+        processNext: async () => {
+          mergeCalls++;
+          if (mergeCalls === 1) {
+            return {
+              operationId: 'op-1',
+              success: false,
+              strategy: 'merge-commit',
+              hadConflicts: false,
+              filesChanged: 0,
+              durationMs: 1,
+              error: 'merge failed',
+            };
+          }
+          return {
+            operationId: 'op-2',
+            success: true,
+            strategy: 'fast-forward',
+            hadConflicts: false,
+            filesChanged: 1,
+            durationMs: 1,
+          };
+        },
+      };
+
+      await (executor as any).executeGroup(group, 0);
+
+      expect(executeBatchCalls).toBe(2);
+      expect(completedTaskIds).toEqual(['A']);
+      const completedEvent = events.find((e) => e.type === 'parallel:group-completed');
+      expect(completedEvent?.type).toBe('parallel:group-completed');
+      if (completedEvent?.type === 'parallel:group-completed') {
+        expect(completedEvent.tasksCompleted).toBe(1);
+        expect(completedEvent.tasksFailed).toBe(0);
+        expect(completedEvent.mergesCompleted).toBe(1);
+        expect(completedEvent.mergesFailed).toBe(0);
+      }
+    });
+
+    test('executeGroup requeues unresolved AI conflicts without stale pending conflicts', async () => {
+      const tracker = createMockTracker();
+      const completedTaskIds: string[] = [];
+      tracker.completeTask = async (taskId) => {
+        completedTaskIds.push(taskId);
+        return { success: true, message: 'Task completed' };
+      };
+
+      const executor = new ParallelExecutor(createMockConfig(), tracker, {
+        maxRequeueCount: 1,
+      });
+      const taskA = task('A');
+      const group = { index: 0, tasks: [taskA], depth: 0 };
+      const events: ParallelEvent[] = [];
+      executor.on((event) => events.push(event));
+
+      let executeBatchCalls = 0;
+      let mergeCalls = 0;
+      const conflictOperation = createMergeOperation(
+        'op-conflict',
+        createWorkerResult(taskA)
+      );
+
+      (executor as any).taskGraph = createSingleGroupAnalysis(taskA);
+      (executor as any).executeBatch = async () => {
+        executeBatchCalls++;
+        return [createWorkerResult(taskA, { success: true, taskCompleted: true, commitCount: 1 })];
+      };
+      (executor as any).saveTrackerState = async () => new Map();
+      (executor as any).restoreTrackerState = async () => {};
+      (executor as any).mergeProgressFile = async () => {};
+      (executor as any).conflictResolver = {
+        resolveConflicts: async () => [
+          {
+            filePath: 'src/conflict.ts',
+            success: false,
+            method: 'ai',
+            error: 'AI resolution failed',
+          },
+        ],
+      };
+      (executor as any).mergeEngine = {
+        enqueue: () => {},
+        getQueue: () => [conflictOperation],
+        markOperationRolledBack: () => true,
+        processNext: async () => {
+          mergeCalls++;
+          if (mergeCalls === 1) {
+            return {
+              operationId: 'op-conflict',
+              success: false,
+              strategy: 'merge-commit',
+              hadConflicts: true,
+              filesChanged: 0,
+              durationMs: 1,
+              error: 'merge conflict',
+            };
+          }
+          return {
+            operationId: 'op-success',
+            success: true,
+            strategy: 'fast-forward',
+            hadConflicts: false,
+            filesChanged: 1,
+            durationMs: 1,
+          };
+        },
+      };
+
+      await (executor as any).executeGroup(group, 0);
+
+      expect(executeBatchCalls).toBe(2);
+      expect(completedTaskIds).toEqual(['A']);
+      expect((executor as any).pendingConflicts).toHaveLength(0);
+
+      const dismissedConflict = events.find(
+        (event) =>
+          event.type === 'conflict:resolved' &&
+          event.operationId === 'op-conflict' &&
+          event.results.length === 0
+      );
+      expect(dismissedConflict?.type).toBe('conflict:resolved');
+
+      const completedEvent = events.find((e) => e.type === 'parallel:group-completed');
+      expect(completedEvent?.type).toBe('parallel:group-completed');
+      if (completedEvent?.type === 'parallel:group-completed') {
+        expect(completedEvent.tasksCompleted).toBe(1);
+        expect(completedEvent.tasksFailed).toBe(0);
+      }
+    });
+
+    test('retryConflictResolution processes pending conflicts in FIFO order', async () => {
+      const tracker = createMockTracker();
+      const completedTaskIds: string[] = [];
+      tracker.completeTask = async (taskId) => {
+        completedTaskIds.push(taskId);
+        return { success: true, message: 'Task completed' };
+      };
+
+      const executor = new ParallelExecutor(createMockConfig(), tracker);
+      const events: ParallelEvent[] = [];
+      executor.on((event) => events.push(event));
+
+      const resultA = createWorkerResult(task('A'));
+      const resultB = createWorkerResult(task('B'));
+      const opA = createMergeOperation('op-a', resultA);
+      const opB = createMergeOperation('op-b', resultB);
+
+      (executor as any).pendingConflicts = [
+        { operation: opA, workerResult: resultA },
+        { operation: opB, workerResult: resultB },
+      ];
+      (executor as any).saveTrackerState = async () => new Map();
+      (executor as any).restoreTrackerState = async () => {};
+      (executor as any).mergeProgressFile = async () => {};
+      (executor as any).conflictResolver = {
+        resolveConflicts: async () => [
+          {
+            filePath: 'src/conflict.ts',
+            success: true,
+            method: 'ai',
+            resolvedContent: 'resolved',
+          },
+        ],
+      };
+
+      const retried = await executor.retryConflictResolution();
+
+      expect(retried).toBe(true);
+      expect(completedTaskIds).toEqual(['A']);
+      expect((executor as any).pendingConflicts).toHaveLength(1);
+      expect((executor as any).pendingConflicts[0].operation.id).toBe('op-b');
+      const detectedEvent = events.find(
+        (event) =>
+          event.type === 'conflict:detected' &&
+          event.operationId === 'op-b'
+      );
+      expect(detectedEvent?.type).toBe('conflict:detected');
+    });
+
+    test('skipFailedConflict marks current conflict rolled back and advances queue', () => {
+      const executor = new ParallelExecutor(createMockConfig(), createMockTracker());
+      const events: ParallelEvent[] = [];
+      executor.on((event) => events.push(event));
+
+      const resultA = createWorkerResult(task('A'));
+      const resultB = createWorkerResult(task('B'));
+      const opA = createMergeOperation('op-a', resultA);
+      const opB = createMergeOperation('op-b', resultB);
+
+      (executor as any).pendingConflicts = [
+        { operation: opA, workerResult: resultA },
+        { operation: opB, workerResult: resultB },
+      ];
+
+      const rolledBackOperationIds: string[] = [];
+      (executor as any).mergeEngine = {
+        markOperationRolledBack: (operationId: string) => {
+          rolledBackOperationIds.push(operationId);
+          return true;
+        },
+      };
+
+      executor.skipFailedConflict();
+
+      expect(rolledBackOperationIds).toEqual(['op-a']);
+      expect((executor as any).pendingConflicts).toHaveLength(1);
+      expect((executor as any).pendingConflicts[0].operation.id).toBe('op-b');
+      const resolvedEvent = events.find(
+        (event) =>
+          event.type === 'conflict:resolved' &&
+          event.operationId === 'op-a'
+      );
+      expect(resolvedEvent?.type).toBe('conflict:resolved');
+      const detectedEvent = events.find(
+        (event) =>
+          event.type === 'conflict:detected' &&
+          event.operationId === 'op-b'
+      );
+      expect(detectedEvent?.type).toBe('conflict:detected');
     });
   });
 });

@@ -8,7 +8,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
-import { buildConfig, validateConfig, loadStoredConfig, saveProjectConfig } from '../config/index.js';
+import { buildConfig, validateConfig, loadStoredConfig, saveProjectConfig, getDefaultAgentConfig } from '../config/index.js';
 import type { RuntimeOptions, StoredConfig, SandboxConfig } from '../config/types.js';
 import {
   checkSession,
@@ -49,21 +49,39 @@ import type {
   MergeOperation,
   FileConflict,
   ConflictResolutionResult,
+  ParallelExecutorState,
   ParallelExecutorStatus,
+  WorktreeInfo,
+  WorkerResult,
 } from '../parallel/types.js';
 import type { ParallelEvent } from '../parallel/events.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { getTrackerRegistry } from '../plugins/trackers/registry.js';
+import {
+  MultiScopeTrackerPlugin,
+  createExecutionScopeFromTask,
+} from '../plugins/trackers/multi-scope.js';
 import { RunApp } from '../tui/components/RunApp.js';
 import { EpicSelectionApp } from '../tui/components/EpicSelectionApp.js';
-import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
+import type {
+  ExecutionScope,
+  ScopedTrackerTask,
+  TrackerPlugin,
+  TrackerTask,
+} from '../plugins/trackers/types.js';
 import type { RalphConfig } from '../config/types.js';
 import { projectConfigExists, runSetupWizard, checkAndMigrate } from '../setup/index.js';
 import { createInterruptHandler } from '../interruption/index.js';
 import type { InterruptHandler } from '../interruption/types.js';
-import { createStructuredLogger, clearProgress } from '../logs/index.js';
+import {
+  createStructuredLogger,
+  clearProgress,
+  ensureProgressFile,
+  appendProgressSessionMarker,
+} from '../logs/index.js';
+import { createHeadlessEventHandler, type HeadlessEventHandler } from './headless-events.js';
 import { sendCompletionNotification, sendMaxIterationsNotification, sendErrorNotification, resolveNotificationsEnabled } from '../notifications.js';
 import type { NotificationSoundMode } from '../config/types.js';
 import { detectSandboxMode } from '../sandbox/index.js';
@@ -75,20 +93,54 @@ import {
   rotateServerToken,
   DEFAULT_LISTEN_OPTIONS,
   InstanceManager,
+  listRemotes,
   type RemoteServer,
   type InstanceTab,
 } from '../remote/index.js';
 import { initializeTheme } from '../tui/theme.js';
 import type { ConnectionToastMessage } from '../tui/components/Toast.js';
 import { spawnSync } from 'node:child_process';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { getEnvExclusionReport, formatEnvExclusionReport } from '../plugins/agents/base.js';
+import { writeFileAtomic } from '../session/atomic-write.js';
+import { formatDuration } from '../utils/logger.js';
+import { initializeAndReportPluginLoadFailures } from './plugin-load.js';
 
 type PersistState = (state: PersistedSessionState) => void | Promise<void>;
 
 type ParallelFailureCarrier = {
   failureMessage: string | null;
 };
+
+type ParallelTrackerRefreshCarrier = {
+  refreshedTasks: TrackerTask[] | undefined;
+};
+
+type ParallelRestartStateCarrier = ParallelFailureCarrier & ParallelTrackerRefreshCarrier & {
+  workers: WorkerDisplayState[];
+  workerOutputs: Map<string, string[]>;
+  mergeQueue: MergeOperation[];
+  currentGroup: number;
+  totalGroups: number;
+  conflicts: FileConflict[];
+  conflictResolutions: ConflictResolutionResult[];
+  conflictTaskId: string;
+  conflictTaskTitle: string;
+  aiResolving: boolean;
+  currentlyResolvingFile: string;
+  showConflicts: boolean;
+  taskIdToWorkerId: Map<string, string>;
+  completedLocallyTaskIds: Set<string>;
+  autoCommitSkippedTaskIds: Set<string>;
+  mergedTaskIds: Set<string>;
+  sessionBranch: string | null;
+  originalBranch: string | null;
+  completionSummaryLines: string[] | undefined;
+  completionSummaryPath: string | undefined;
+  completionSummaryWriteError: string | undefined;
+};
+
+const TRACKER_REFRESH_STATUSES = ['open', 'in_progress', 'completed'] as const;
 
 export function applyParallelFailureState(
   currentState: PersistedSessionState,
@@ -223,16 +275,108 @@ export function applyConflictResolvedTaskTracking(
 
 /**
  * Propagate runtime-updateable settings from stored config to a running engine.
- * Called after saving settings to ensure the engine picks up changes immediately.
+ * Called during settings save so invalid runtime changes fail before persistence.
  */
-export function propagateSettingsToEngine(
+export async function propagateSettingsToEngine(
   engine: ExecutionEngine | null | undefined,
   newConfig: StoredConfig,
-): void {
+  previousConfig?: StoredConfig,
+): Promise<void> {
   if (!engine) return;
+
+  // Resolve agent priority: agent -> defaultAgent -> default agents[] entry -> first agents[] entry.
+  const getConfiguredAgentName = (config: StoredConfig | undefined): string | undefined =>
+    config?.agent ??
+    config?.defaultAgent ??
+    config?.agents?.find((agent) => agent.default)?.name ??
+    config?.agents?.[0]?.name;
+
+  // Trim model values and treat empty strings as undefined.
+  const normalizeModel = (model: string | undefined): string | undefined => {
+    const trimmed = model?.trim();
+    return trimmed ? trimmed : undefined;
+  };
+
+  const previousAgentName = getConfiguredAgentName(previousConfig);
+  const nextAgentName = getConfiguredAgentName(newConfig);
+  const previousModel = normalizeModel(previousConfig?.model);
+  const nextModel = normalizeModel(newConfig.model);
+  // Switch on initial config with agent/model, or when resolved agent/model changed.
+  // When true, getDefaultAgentConfig feeds engine.switchToUserAgent(agentConfig, nextModel).
+  const shouldSwitchAgent =
+    previousConfig === undefined
+      ? nextAgentName !== undefined || nextModel !== undefined
+      : previousAgentName !== nextAgentName || previousModel !== nextModel;
+
+  if (shouldSwitchAgent) {
+    const agentConfig = getDefaultAgentConfig(newConfig, {});
+    if (!agentConfig) {
+      throw new Error('No agent configured');
+    }
+    await engine.switchToUserAgent(agentConfig, nextModel);
+  }
+
   if (newConfig.autoCommit !== undefined) {
     engine.setAutoCommit(newConfig.autoCommit);
   }
+}
+
+export async function refreshParallelTrackerTasks(
+  tracker: Pick<TrackerPlugin, 'getTasks'> | null | undefined,
+  parallelState: ParallelTrackerRefreshCarrier,
+  triggerRerender: (() => void) | null,
+): Promise<void> {
+  if (!tracker) return;
+
+  try {
+    const freshTasks = await tracker.getTasks({ status: [...TRACKER_REFRESH_STATUSES] });
+    parallelState.refreshedTasks = freshTasks;
+    triggerRerender?.();
+  } catch {
+    // Tracker refresh is best-effort; don't crash the TUI
+  }
+}
+
+export async function refreshParallelTrackerTasksImmediately(
+  tracker: Pick<TrackerPlugin, 'getTasks'> | null | undefined,
+  parallelState: ParallelTrackerRefreshCarrier,
+  triggerRerender: (() => void) | null,
+  refreshTimer: ReturnType<typeof setTimeout> | null,
+): Promise<ReturnType<typeof setTimeout> | null> {
+  if (!tracker) return refreshTimer;
+
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+  }
+
+  await refreshParallelTrackerTasks(tracker, parallelState, triggerRerender);
+  return null;
+}
+
+export function resetParallelStateForRestart(parallelState: ParallelRestartStateCarrier): void {
+  parallelState.failureMessage = null;
+  parallelState.workers = [];
+  parallelState.workerOutputs = new Map();
+  parallelState.mergeQueue = [];
+  parallelState.currentGroup = 0;
+  parallelState.totalGroups = 0;
+  parallelState.conflicts = [];
+  parallelState.conflictResolutions = [];
+  parallelState.conflictTaskId = '';
+  parallelState.conflictTaskTitle = '';
+  parallelState.aiResolving = false;
+  parallelState.currentlyResolvingFile = '';
+  parallelState.showConflicts = false;
+  parallelState.taskIdToWorkerId = new Map();
+  parallelState.completedLocallyTaskIds = new Set();
+  parallelState.autoCommitSkippedTaskIds = new Set();
+  parallelState.mergedTaskIds = new Set();
+  parallelState.sessionBranch = null;
+  parallelState.originalBranch = null;
+  parallelState.refreshedTasks = undefined;
+  parallelState.completionSummaryLines = undefined;
+  parallelState.completionSummaryPath = undefined;
+  parallelState.completionSummaryWriteError = undefined;
 }
 
 /**
@@ -284,6 +428,450 @@ function getGitInfo(cwd: string): {
   }
 }
 
+interface ParallelGitPreflightResult {
+  ok: boolean;
+  errors: string[];
+}
+
+const PARALLEL_SUMMARY_DIR = '.ralph-tui/reports';
+
+interface ParallelCompletionMetrics {
+  totalTasksCompleted: number;
+  totalTasksFailed: number;
+  totalMergesCompleted: number;
+  totalConflictsResolved: number;
+  durationMs: number;
+}
+
+interface ParallelRunSummary {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  status: ParallelExecutorStatus;
+  startedAt: string | null;
+  finishedAt: string;
+  durationMs: number;
+  totalTasks: number;
+  tasksCompleted: number;
+  tasksFailed: number;
+  mergesCompleted: number;
+  conflictsResolved: number;
+  directMerge: boolean;
+  sessionBranch: string | null;
+  originalBranch: string | null;
+  returnToOriginalBranchError: string | null;
+  preservedRecoveryWorktrees: WorktreeInfo[];
+  scopeSummaries: ParallelScopeSummary[];
+}
+
+interface ParallelScopeSummary {
+  scope: ExecutionScope;
+  totalTasks: number;
+  tasksCompleted: number;
+  tasksFailed: number;
+}
+
+export function buildParallelSummaryFilePath(
+  cwd: string,
+  sessionId: string,
+  timestampIso: string
+): string {
+  const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '-');
+  const safeTimestamp = timestampIso.replace(/[:.]/g, '-');
+  return join(
+    cwd,
+    PARALLEL_SUMMARY_DIR,
+    `parallel-summary-${safeSessionId}-${safeTimestamp}.txt`
+  );
+}
+
+function getTaskExecutionScope(task: TrackerTask): ExecutionScope | undefined {
+  const scopedTask = task as ScopedTrackerTask;
+  if (scopedTask.executionScope) {
+    return scopedTask.executionScope;
+  }
+
+  const metadataScope = task.metadata?.executionScope;
+  if (
+    metadataScope &&
+    typeof metadataScope === 'object' &&
+    'id' in metadataScope &&
+    typeof (metadataScope as { id?: unknown }).id === 'string'
+  ) {
+    const scopeRecord = metadataScope as Record<string, unknown>;
+    const id = scopeRecord.id as string;
+    return {
+      id,
+      title: typeof scopeRecord.title === 'string' ? scopeRecord.title : id,
+      type: scopeRecord.type === 'prd' || scopeRecord.type === 'tracker' ? scopeRecord.type : 'epic',
+      description: typeof scopeRecord.description === 'string' ? scopeRecord.description : undefined,
+    };
+  }
+
+  return undefined;
+}
+
+function isFailedWorkerResult(result: WorkerResult): boolean {
+  return !result.success || !result.taskCompleted;
+}
+
+function buildParallelScopeSummaries(
+  executorState: ParallelExecutorState
+): ParallelScopeSummary[] {
+  const scopes = new Map<string, ExecutionScope>();
+  for (const scope of executorState.scopes ?? []) {
+    scopes.set(scope.id, scope);
+  }
+
+  const totals = new Map<string, number>();
+  for (const node of executorState.taskGraph?.nodes.values() ?? []) {
+    const scope = getTaskExecutionScope(node.task);
+    if (!scope) continue;
+    scopes.set(scope.id, scope);
+    totals.set(scope.id, (totals.get(scope.id) ?? 0) + 1);
+  }
+
+  const completed = new Map<string, number>();
+  const failed = new Map<string, number>();
+  const incrementFailed = (scopeId: string) => {
+    failed.set(scopeId, (failed.get(scopeId) ?? 0) + 1);
+  };
+
+  for (const result of executorState.workerResults ?? []) {
+    if (!isFailedWorkerResult(result)) continue;
+    const scope = getTaskExecutionScope(result.task);
+    if (!scope) continue;
+    scopes.set(scope.id, scope);
+    incrementFailed(scope.id);
+  }
+
+  for (const operation of executorState.mergeQueue) {
+    const scope = getTaskExecutionScope(operation.workerResult.task);
+    if (!scope) continue;
+    scopes.set(scope.id, scope);
+
+    if (operation.status === 'completed') {
+      completed.set(scope.id, (completed.get(scope.id) ?? 0) + 1);
+    } else if (operation.status === 'failed' || operation.status === 'rolled-back') {
+      incrementFailed(scope.id);
+    }
+  }
+
+  return [...scopes.values()]
+    .filter((scope) => (totals.get(scope.id) ?? 0) > 0)
+    .map((scope) => ({
+      scope,
+      totalTasks: totals.get(scope.id) ?? 0,
+      tasksCompleted: completed.get(scope.id) ?? 0,
+      tasksFailed: failed.get(scope.id) ?? 0,
+    }));
+}
+
+export function createParallelRunSummary(params: {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  executorState: ParallelExecutorState;
+  directMerge: boolean;
+  sessionBranch: string | null;
+  originalBranch: string | null;
+  returnToOriginalBranchError: string | null;
+  preservedRecoveryWorktrees: WorktreeInfo[];
+  completionMetrics?: ParallelCompletionMetrics | null;
+}): ParallelRunSummary {
+  const {
+    sessionId,
+    mode,
+    executorState,
+    completionMetrics,
+    directMerge,
+    sessionBranch,
+    originalBranch,
+    returnToOriginalBranchError,
+    preservedRecoveryWorktrees,
+  } = params;
+
+  // Fallback metrics are approximate when completionMetrics is unavailable:
+  // treat "not completed" as pending/unknown (not definitive failures), and
+  // use completed-task count as a best-effort proxy for merges.
+  const metrics = completionMetrics ?? {
+    totalTasksCompleted: executorState.totalTasksCompleted,
+    totalTasksFailed: Math.max(
+      0,
+      executorState.totalTasks - executorState.totalTasksCompleted
+    ),
+    totalMergesCompleted: executorState.totalTasksCompleted,
+    totalConflictsResolved: 0,
+    durationMs: executorState.elapsedMs,
+  };
+
+  return {
+    sessionId,
+    mode,
+    status: executorState.status,
+    startedAt: executorState.startedAt,
+    finishedAt: new Date().toISOString(),
+    durationMs: metrics.durationMs,
+    totalTasks: executorState.totalTasks,
+    tasksCompleted: metrics.totalTasksCompleted,
+    tasksFailed: metrics.totalTasksFailed,
+    mergesCompleted: metrics.totalMergesCompleted,
+    conflictsResolved: metrics.totalConflictsResolved,
+    directMerge,
+    sessionBranch,
+    originalBranch,
+    returnToOriginalBranchError,
+    preservedRecoveryWorktrees: preservedRecoveryWorktrees.map((info) => ({ ...info })),
+    scopeSummaries: buildParallelScopeSummaries(executorState),
+  };
+}
+
+export function formatParallelRunSummary(summary: ParallelRunSummary): string {
+  const lines: string[] = [];
+  const startedAt = summary.startedAt
+    ? new Date(summary.startedAt).toLocaleString()
+    : 'unknown';
+  const finishedAt = new Date(summary.finishedAt).toLocaleString();
+
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('                   Parallel Run Summary                         ');
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('');
+  lines.push(`  Session:                ${summary.sessionId}`);
+  lines.push(`  Mode:                   ${summary.mode}`);
+  lines.push(`  Status:                 ${summary.status.toUpperCase()}`);
+  lines.push(`  Started:                ${startedAt}`);
+  lines.push(`  Finished:               ${finishedAt}`);
+  lines.push(`  Duration:               ${formatDuration(summary.durationMs)}`);
+  lines.push(
+    `  Tasks:                  ${summary.tasksCompleted}/${summary.totalTasks} completed (${summary.tasksFailed} failed)`
+  );
+  if (summary.scopeSummaries.length > 0) {
+    lines.push('  Scopes:');
+    for (const scopeSummary of summary.scopeSummaries) {
+      const failedText = scopeSummary.tasksFailed > 0
+        ? ` (${scopeSummary.tasksFailed} failed)`
+        : '';
+      lines.push(
+        `    - ${scopeSummary.scope.title}: ${scopeSummary.tasksCompleted}/${scopeSummary.totalTasks} completed${failedText}`
+      );
+    }
+  }
+  lines.push(`  Merges completed:       ${summary.mergesCompleted}`);
+  lines.push(`  Conflicts resolved:     ${summary.conflictsResolved}`);
+  if (summary.directMerge) {
+    lines.push(
+      `  Merge target:           ${summary.originalBranch ?? 'current branch (direct merge)'}`
+    );
+    lines.push('  Changes location:       Current branch (direct merge mode)');
+  } else if (summary.sessionBranch) {
+    lines.push(`  Session branch:         ${summary.sessionBranch}`);
+    lines.push(`  Changes are on branch:  ${summary.sessionBranch}`);
+  }
+  if (summary.originalBranch) {
+    lines.push(`  Original branch:        ${summary.originalBranch}`);
+  }
+  if (summary.returnToOriginalBranchError) {
+    lines.push(`  Checkout warning:       ${summary.returnToOriginalBranchError}`);
+  }
+  lines.push(`  Preserved worktrees:    ${summary.preservedRecoveryWorktrees.length}`);
+  for (const info of summary.preservedRecoveryWorktrees) {
+    lines.push(`    - ${info.branch} (${info.taskId})`);
+    lines.push(`      ${info.path}`);
+  }
+  if (summary.status === 'completed') {
+    lines.push('');
+    lines.push('  Next steps:');
+    if (summary.directMerge) {
+      lines.push('    - Review and push your current branch changes.');
+    } else if (summary.sessionBranch && summary.originalBranch) {
+      lines.push(`    - Merge to ${summary.originalBranch}: git merge ${summary.sessionBranch}`);
+      lines.push(`    - Create PR: git push -u origin ${summary.sessionBranch}`);
+      lines.push(`    - Open PR: gh pr create --head ${summary.sessionBranch}`);
+      lines.push(`    - Discard session branch: git branch -D ${summary.sessionBranch}`);
+    }
+  }
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════════');
+
+  return lines.join('\n');
+}
+
+export async function writeParallelRunSummary(
+  cwd: string,
+  summary: ParallelRunSummary
+): Promise<string> {
+  const summaryPath = buildParallelSummaryFilePath(
+    cwd,
+    summary.sessionId,
+    summary.finishedAt
+  );
+  await writeFileAtomic(summaryPath, `${formatParallelRunSummary(summary)}\n`);
+  return summaryPath;
+}
+
+interface SequentialRunSummary {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  status: 'completed' | 'interrupted' | 'failed';
+  startedAt: string | null;
+  finishedAt: string;
+  durationMs: number;
+  totalTasks: number;
+  tasksCompleted: number;
+  currentIteration: number;
+  maxIterations: number;
+}
+
+export function buildSequentialSummaryFilePath(
+  cwd: string,
+  sessionId: string,
+  timestampIso: string
+): string {
+  const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '-');
+  const safeTimestamp = timestampIso.replace(/[:.]/g, '-');
+  return join(
+    cwd,
+    PARALLEL_SUMMARY_DIR,
+    `sequential-summary-${safeSessionId}-${safeTimestamp}.txt`
+  );
+}
+
+export function createSequentialRunSummary(params: {
+  sessionId: string;
+  mode: 'tui' | 'headless';
+  startedAt: string | null;
+  finishedAt?: string;
+  status: 'completed' | 'interrupted' | 'failed';
+  totalTasks: number;
+  tasksCompleted: number;
+  currentIteration: number;
+  maxIterations: number;
+}): SequentialRunSummary {
+  const finishedAt = params.finishedAt ?? new Date().toISOString();
+  const startedAtMs = params.startedAt ? new Date(params.startedAt).getTime() : NaN;
+  const finishedAtMs = new Date(finishedAt).getTime();
+  const durationMs =
+    Number.isFinite(startedAtMs) && Number.isFinite(finishedAtMs)
+      ? Math.max(0, finishedAtMs - startedAtMs)
+      : 0;
+
+  return {
+    sessionId: params.sessionId,
+    mode: params.mode,
+    status: params.status,
+    startedAt: params.startedAt,
+    finishedAt,
+    durationMs,
+    totalTasks: params.totalTasks,
+    tasksCompleted: params.tasksCompleted,
+    currentIteration: params.currentIteration,
+    maxIterations: params.maxIterations,
+  };
+}
+
+export function formatSequentialRunSummary(summary: SequentialRunSummary): string {
+  const lines: string[] = [];
+  const startedAt = summary.startedAt
+    ? new Date(summary.startedAt).toLocaleString()
+    : 'unknown';
+  const finishedAt = new Date(summary.finishedAt).toLocaleString();
+
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('                  Sequential Run Summary                        ');
+  lines.push('═══════════════════════════════════════════════════════════════');
+  lines.push('');
+  lines.push(`  Session:                ${summary.sessionId}`);
+  lines.push(`  Mode:                   ${summary.mode}`);
+  lines.push(`  Status:                 ${summary.status.toUpperCase()}`);
+  lines.push(`  Started:                ${startedAt}`);
+  lines.push(`  Finished:               ${finishedAt}`);
+  lines.push(`  Duration:               ${formatDuration(summary.durationMs)}`);
+  lines.push(`  Tasks:                  ${summary.tasksCompleted}/${summary.totalTasks} completed`);
+  lines.push(
+    `  Iterations:             ${summary.currentIteration}${summary.maxIterations > 0 ? `/${summary.maxIterations}` : ''}`
+  );
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════════');
+
+  return lines.join('\n');
+}
+
+export async function writeSequentialRunSummary(
+  cwd: string,
+  summary: SequentialRunSummary
+): Promise<string> {
+  const summaryPath = buildSequentialSummaryFilePath(
+    cwd,
+    summary.sessionId,
+    summary.finishedAt
+  );
+  await writeFileAtomic(summaryPath, `${formatSequentialRunSummary(summary)}\n`);
+  return summaryPath;
+}
+
+/**
+ * Validate that git state is safe for parallel worktree/merge execution.
+ */
+function checkParallelGitPreflight(cwd: string): ParallelGitPreflightResult {
+  const errors: string[] = [];
+  const baseOptions = { cwd, encoding: 'utf-8' as const, timeout: 5000 };
+
+  const isGitRepo = spawnSync(
+    'git',
+    ['rev-parse', '--is-inside-work-tree'],
+    baseOptions
+  );
+  if (isGitRepo.status !== 0 || isGitRepo.stdout.trim() !== 'true') {
+    errors.push('Parallel mode requires running inside a git repository.');
+    return { ok: false, errors };
+  }
+
+  const branchResult = spawnSync(
+    'git',
+    ['rev-parse', '--abbrev-ref', 'HEAD'],
+    baseOptions
+  );
+  const branch = branchResult.status === 0 ? branchResult.stdout.trim() : '';
+  if (!branch || branch === 'HEAD') {
+    errors.push('Parallel mode requires a named branch (detached HEAD is not supported).');
+  }
+
+  const trackedStatus = spawnSync(
+    'git',
+    ['status', '--porcelain', '--untracked-files=no'],
+    baseOptions
+  );
+  if (trackedStatus.status !== 0) {
+    errors.push('Unable to verify git working tree status.');
+  } else if (trackedStatus.stdout.trim().length > 0) {
+    errors.push(
+      'Tracked working tree is not clean. Commit or stash tracked changes before parallel mode.'
+    );
+  }
+
+  const unmerged = spawnSync('git', ['ls-files', '-u'], baseOptions);
+  if (unmerged.status !== 0) {
+    const exitCode = unmerged.status;
+    const stderr = unmerged.stderr.trim();
+    errors.push(
+      stderr
+        ? `Unable to verify unresolved merge entries (git ls-files -u exited with code ${exitCode}): ${stderr}`
+        : `Unable to verify unresolved merge entries (git ls-files -u exited with code ${exitCode}).`
+    );
+  } else if (unmerged.stdout.trim().length > 0) {
+    errors.push('Repository has unresolved merge entries (git ls-files -u is not empty).');
+  }
+
+  const inProgressRefs = ['MERGE_HEAD', 'REBASE_HEAD', 'CHERRY_PICK_HEAD'];
+  for (const ref of inProgressRefs) {
+    const result = spawnSync('git', ['rev-parse', '-q', '--verify', ref], baseOptions);
+    if (result.status === 0) {
+      errors.push(`Repository has an in-progress git operation (${ref}).`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
 /**
  * Task range filter for --task-range flag.
  * Allows filtering tasks by 1-indexed position (e.g., 1-5, 3-, -10).
@@ -309,6 +897,8 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   rotateToken?: boolean;
   /** Merge directly to current branch instead of creating session branch (parallel mode) */
   directMerge?: boolean;
+  /** Explicit session branch name for parallel mode */
+  targetBranch?: string;
   /** Filter tasks by index range (e.g., 1-5, 3-, -10) */
   taskRange?: TaskRangeFilter;
   /** Override starting model for model escalation */
@@ -317,6 +907,17 @@ interface ExtendedRuntimeOptions extends RuntimeOptions {
   escalateModel?: string;
   /** Override conflict resolution timeout in milliseconds */
   conflictTimeout?: number;
+  /** Skip local engine; TUI acts as pure client to configured remotes */
+  remoteOnly?: boolean;
+}
+
+function addEpicIdOption(options: ExtendedRuntimeOptions, epicId: string): void {
+  const trimmed = epicId.trim();
+  if (!trimmed) return;
+  const current = options.epicIds ?? (options.epicId ? [options.epicId] : []);
+  const nextEpicIds = current.includes(trimmed) ? current : [...current, trimmed];
+  options.epicIds = nextEpicIds;
+  options.epicId = nextEpicIds[0];
 }
 
 /**
@@ -344,7 +945,16 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
     switch (arg) {
       case '--epic':
         if (nextArg && !nextArg.startsWith('-')) {
-          options.epicId = nextArg;
+          addEpicIdOption(options, nextArg);
+          i++;
+        }
+        break;
+
+      case '--epics':
+        if (nextArg && !nextArg.startsWith('-')) {
+          for (const epicId of nextArg.split(',')) {
+            addEpicIdOption(options, epicId);
+          }
           i++;
         }
         break;
@@ -399,6 +1009,25 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
           const parsed = parseInt(nextArg, 10);
           if (!isNaN(parsed)) {
             options.iterationDelay = parsed;
+          }
+          i++;
+        }
+        break;
+
+      case '--watch':
+        options.watch = true;
+        break;
+
+      case '--reset-progress':
+        options.resetProgress = true;
+        break;
+
+      case '--poll':
+        if (nextArg && !nextArg.startsWith('-')) {
+          const parsed = Number(nextArg);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            options.pollIntervalMs = parsed * 1000;
+            options.watch = true;
           }
           i++;
         }
@@ -505,6 +1134,10 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
         options.rotateToken = true;
         break;
 
+      case '--remote-only':
+        options.remoteOnly = true;
+        break;
+
       case '--theme':
         if (nextArg && !nextArg.startsWith('-')) {
           options.themePath = nextArg;
@@ -547,11 +1180,11 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
 
       case '--conflict-timeout': {
         if (nextArg && !nextArg.startsWith('-')) {
-          const parsed = parseInt(nextArg, 10);
-          if (!isNaN(parsed) && parsed > 0) {
+          const parsed = Number(nextArg);
+          if (Number.isInteger(parsed) && parsed > 0) {
             options.conflictTimeout = parsed;
-            i++;
           }
+          i++;
         }
         break;
       }
@@ -566,6 +1199,13 @@ export function parseRunArgs(args: string[]): ExtendedRuntimeOptions {
       case '--escalate-model':
         if (nextArg && !nextArg.startsWith('-')) {
           options.escalateModel = nextArg;
+          i++;
+        }
+        break;
+
+      case '--target-branch':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.targetBranch = nextArg;
           i++;
         }
         break;
@@ -621,22 +1261,26 @@ ralph-tui run - Start Ralph execution
 Usage: ralph-tui run [options]
 
 Options:
-  --epic <id>         Epic ID for beads tracker (if omitted, shows epic selection)
+  --epic <id>         Epic/parent issue ID for beads or linear tracker (repeatable)
+  --epics <ids>       Comma-separated epic/parent IDs for one multi-epic session
   --prd <path>        PRD file path (auto-switches to json tracker)
   --agent <name>      Override agent plugin (e.g., claude, opencode)
   --model <name>      Override model (e.g., opus, sonnet)
   --start-model <n>   Starting model for escalation (cheaper, used first)
   --escalate-model <n> Escalation model (more capable, used after failures)
   --variant <level>   Model variant/reasoning effort (minimal, high, max)
-  --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json)
+  --tracker <name>    Override tracker plugin (e.g., beads, beads-bv, json, linear)
   --prompt <path>     Custom prompt file (default: based on tracker mode)
   --output-dir <path> Directory for iteration logs (default: .ralph-tui/iterations)
   --progress-file <path> Progress file for cross-iteration context (default: .ralph-tui/progress.md)
   --theme <name|path> Theme name (bright, catppuccin, dracula, high-contrast, solarized-light) or path to custom JSON theme file
   --iterations <n>    Maximum iterations (0 = unlimited)
   --delay <ms>        Delay between iterations in milliseconds
+  --watch             Wait for new tasks and start them automatically
+  --poll <seconds>    Poll interval in seconds (implies --watch, default: 30)
   --cwd <path>        Working directory
   --resume            Resume existing session
+  --reset-progress    Clear .ralph-tui/progress.md instead of preserving it
   --force             Force start even if locked
   --headless          Run without TUI (alias: --no-tui)
   --no-tui            Run without TUI, output structured logs to stdout
@@ -651,6 +1295,7 @@ Options:
   --no-network        Disable network access in sandbox
   --auto-commit       Force enable auto-commit after task completion
   --no-auto-commit    Disable auto-commit after task completion
+  --target-branch <name> Create/use explicit session branch name for parallel mode
   --task-range <range> Filter tasks by index (e.g., 1-5, 3-, -10)
 
 Parallel Execution:
@@ -662,6 +1307,9 @@ Parallel Execution:
   --listen            Enable remote listener (implies --headless)
   --listen-port <n>   Port for remote listener (default: 7890)
   --rotate-token      Rotate server token before starting listener
+  --remote-only       Skip local engine — TUI acts as pure remote client.
+                      Requires at least one remote configured in
+                      ~/.config/ralph-tui/remotes.toml.
 
 Log Output Format (--no-tui mode):
   [timestamp] [level] [component] message
@@ -678,13 +1326,17 @@ Log Output Format (--no-tui mode):
 Examples:
   ralph-tui run                              # Start with defaults
   ralph-tui run --epic ralph-tui-45r         # Run with specific epic
+  ralph-tui run --parallel --epic ui-epic --epic backend-epic
+  ralph-tui run --parallel --epics ui-epic,backend-epic
   ralph-tui run --prd ./prd.json             # Run with PRD file
   ralph-tui run --agent claude --model opus  # Override agent settings
   ralph-tui run --tracker beads-bv           # Use beads-bv tracker
+  ralph-tui run --tracker linear --epic ENG-123  # Run from Linear parent issue
   ralph-tui run --iterations 20              # Limit to 20 iterations
   ralph-tui run --resume                     # Resume previous session
   ralph-tui run --no-tui                     # Run headless for CI/scripts
   ralph-tui run --listen --prd ./prd.json    # Run with remote listener enabled
+  ralph-tui run --remote-only                # TUI-only client for configured remotes
 `);
 }
 
@@ -828,7 +1480,10 @@ async function initializePlugins(): Promise<void> {
   const agentRegistry = getAgentRegistry();
   const trackerRegistry = getTrackerRegistry();
 
-  await Promise.all([agentRegistry.initialize(), trackerRegistry.initialize()]);
+  await initializeAndReportPluginLoadFailures(
+    () => agentRegistry.initialize(),
+    () => trackerRegistry.initialize()
+  );
 }
 
 /**
@@ -1053,7 +1708,7 @@ async function promptResumeOrNew(cwd: string): Promise<'resume' | 'new' | 'abort
  */
 async function showEpicSelectionTui(
   tracker: TrackerPlugin
-): Promise<TrackerTask | undefined> {
+): Promise<TrackerTask[] | undefined> {
   return new Promise(async (resolve) => {
     const renderer = await createCliRenderer({
       exitOnCtrlC: false,
@@ -1062,21 +1717,21 @@ async function showEpicSelectionTui(
     const root = createRoot(renderer);
 
     const cleanup = () => {
+      process.off('SIGINT', handleSigint);
       renderer.destroy();
     };
 
-    const handleEpicSelected = (epic: TrackerTask) => {
-      cleanup();
-      resolve(epic);
-    };
-
-    const handleQuit = () => {
+    const handleSigint = () => {
       cleanup();
       resolve(undefined);
     };
 
-    // Handle Ctrl+C during epic selection
-    const handleSigint = () => {
+    const handleEpicSelected = (epics: TrackerTask[]) => {
+      cleanup();
+      resolve(epics);
+    };
+
+    const handleQuit = () => {
       cleanup();
       resolve(undefined);
     };
@@ -1091,6 +1746,41 @@ async function showEpicSelectionTui(
       />
     );
   });
+}
+
+export async function resolveExecutionScopes(
+  tracker: TrackerPlugin,
+  epicIds: string[]
+): Promise<ExecutionScope[]> {
+  if (epicIds.length === 0) {
+    return [];
+  }
+
+  let epics: TrackerTask[] = [];
+  try {
+    epics = await tracker.getEpics();
+  } catch (error) {
+    console.error('Failed to resolve epics from tracker; using synthetic execution scopes:', error);
+    epics = [];
+  }
+
+  return epicIds.map((epicId) => {
+    const epic = epics.find((candidate) => candidate.id === epicId);
+    return epic
+      ? createExecutionScopeFromTask(epic)
+      : {
+          id: epicId,
+          title: epicId,
+          type: 'epic',
+        };
+  });
+}
+
+function wrapTrackerForScopes(
+  tracker: TrackerPlugin,
+  scopes: ExecutionScope[]
+): TrackerPlugin {
+  return scopes.length > 1 ? new MultiScopeTrackerPlugin(tracker, scopes) : tracker;
 }
 
 /**
@@ -1117,6 +1807,8 @@ interface RunAppWrapperProps {
   agentCommand?: string;
   /** Current epic ID for highlighting */
   currentEpicId?: string;
+  /** Selected execution scopes for multi-epic sessions */
+  executionScopes?: ExecutionScope[];
   /** Initial subagent panel visibility (from persisted session) */
   initialSubagentPanelVisible?: boolean;
   /** Callback to update persisted session state */
@@ -1171,6 +1863,12 @@ interface RunAppWrapperProps {
   totalWorkerCount?: number;
   /** Failure message for parallel execution */
   parallelFailureMessage?: string;
+  /** Preformatted completion summary lines for in-TUI display */
+  parallelCompletionSummaryLines?: string[];
+  /** Persisted summary file path for in-TUI display */
+  parallelCompletionSummaryPath?: string;
+  /** Persisted summary write warning for in-TUI display */
+  parallelCompletionSummaryWriteError?: string;
   /** Callback to pause parallel execution */
   onParallelPause?: () => void;
   /** Callback to resume parallel execution */
@@ -1183,6 +1881,12 @@ interface RunAppWrapperProps {
   onConflictRetry?: () => Promise<void>;
   /** Callback when user requests to skip a failed merge */
   onConflictSkip?: () => void;
+  /** Refreshed tasks from tracker (parallel mode auto-refresh) */
+  parallelRefreshedTasks?: TrackerTask[];
+  /** Callback to manually refresh tasks in parallel mode (for 'r' key) */
+  onRefreshTasks?: () => void;
+  /** When true, the InstanceManager skips the local tab (remote-only mode). */
+  remoteOnly?: boolean;
 }
 
 /**
@@ -1202,6 +1906,7 @@ function RunAppWrapper({
   agentPlugin,
   agentCommand,
   currentEpicId: initialEpicId,
+  executionScopes,
   initialSubagentPanelVisible = false,
   onUpdatePersistedState,
   currentModel,
@@ -1227,6 +1932,9 @@ function RunAppWrapper({
   parallelAutoCommitSkippedTaskIds,
   parallelMergedTaskIds,
   parallelFailureMessage,
+  parallelCompletionSummaryLines,
+  parallelCompletionSummaryPath,
+  parallelCompletionSummaryWriteError,
   activeWorkerCount,
   totalWorkerCount,
   onParallelPause,
@@ -1235,6 +1943,9 @@ function RunAppWrapper({
   onParallelStart,
   onConflictRetry,
   onConflictSkip,
+  parallelRefreshedTasks,
+  onRefreshTasks,
+  remoteOnly = false,
 }: RunAppWrapperProps) {
   const [showInterruptDialog, setShowInterruptDialog] = useState(false);
   const [storedConfig, setStoredConfig] = useState<StoredConfig | undefined>(initialStoredConfig);
@@ -1245,7 +1956,7 @@ function RunAppWrapper({
   const localGitInfo = useMemo(() => getGitInfo(cwd), [cwd]);
 
   // Remote instance management
-  const [instanceManager] = useState(() => new InstanceManager());
+  const [instanceManager] = useState(() => new InstanceManager({ remoteOnly }));
   const [instanceTabs, setInstanceTabs] = useState<InstanceTab[]>([]);
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const [connectionToast, setConnectionToast] = useState<ConnectionToastMessage | null>(null);
@@ -1305,9 +2016,9 @@ function RunAppWrapper({
 
   // Handle settings save
   const handleSaveSettings = async (newConfig: StoredConfig): Promise<void> => {
+    await propagateSettingsToEngine(engine, newConfig, storedConfig);
     await saveProjectConfig(newConfig, cwd);
     setStoredConfig(newConfig);
-    propagateSettingsToEngine(engine, newConfig);
   };
 
   // Handle loading available epics (engine absent in parallel mode)
@@ -1407,6 +2118,7 @@ function RunAppWrapper({
         setShowInterruptDialog(false);
         interruptHandler.reset();
       }}
+      onInterruptRequest={() => interruptHandler.handleSigint()}
       initialTasks={tasks}
       onStart={onStart}
       storedConfig={storedConfig}
@@ -1420,6 +2132,7 @@ function RunAppWrapper({
       agentPlugin={agentPlugin}
       agentCommand={agentCommand}
       currentEpicId={currentEpicId}
+      executionScopes={executionScopes}
       initialSubagentPanelVisible={initialSubagentPanelVisible}
       onSubagentPanelVisibilityChange={handleSubagentPanelVisibilityChange}
       currentModel={currentModel}
@@ -1451,6 +2164,9 @@ function RunAppWrapper({
       parallelAutoCommitSkippedTaskIds={parallelAutoCommitSkippedTaskIds}
       parallelMergedTaskIds={parallelMergedTaskIds}
       parallelFailureMessage={parallelFailureMessage}
+      parallelCompletionSummaryLines={parallelCompletionSummaryLines}
+      parallelCompletionSummaryPath={parallelCompletionSummaryPath}
+      parallelCompletionSummaryWriteError={parallelCompletionSummaryWriteError}
       activeWorkerCount={activeWorkerCount}
       totalWorkerCount={totalWorkerCount}
       onParallelPause={onParallelPause}
@@ -1459,6 +2175,8 @@ function RunAppWrapper({
       onParallelStart={onParallelStart}
       onConflictRetry={onConflictRetry}
       onConflictSkip={onConflictSkip}
+      parallelRefreshedTasks={parallelRefreshedTasks}
+      onRefreshTasks={onRefreshTasks}
     />
   );
 }
@@ -1490,7 +2208,8 @@ async function runWithTui(
   config: RalphConfig,
   initialTasks: TrackerTask[],
   storedConfig?: StoredConfig,
-  notificationOptions?: NotificationRunOptions
+  notificationOptions?: NotificationRunOptions,
+  executionScopes: ExecutionScope[] = []
 ): Promise<PersistedSessionState> {
   let currentState = persistedState;
   // Track when engine starts for duration calculation
@@ -1500,13 +2219,19 @@ async function runWithTui(
   let showDialogCallback: (() => void) | null = null;
   let hideDialogCallback: (() => void) | null = null;
   let cancelledCallback: (() => void) | null = null;
-  let resolveQuitPromise: (() => void) | null = null;
+  let resolveQuitPromise: () => void = () => {};
+  const quitPromise = new Promise<void>((resolve) => {
+    resolveQuitPromise = resolve;
+  });
   let engineStarted = false;
   let executionPromise: Promise<void> | null = null;
   let shutdownPromise: Promise<void> | null = null;
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: false, // We handle this ourselves
+    // SIGINT/SIGTERM belong to the app's interrupt/graceful-shutdown handler.
+    // Retain OpenTUI handling for SIGQUIT/SIGABRT to restore the terminal.
+    exitSignals: ['SIGQUIT', 'SIGABRT'],
   });
 
   const root = createRoot(renderer);
@@ -1610,7 +2335,7 @@ async function runWithTui(
 
     shutdownPromise = (async () => {
       const status = engine.getStatus();
-      if (status === 'running' || status === 'pausing' || status === 'paused' || status === 'stopping') {
+      if (status === 'running' || status === 'waiting' || status === 'pausing' || status === 'paused' || status === 'stopping') {
         try {
           await engine.stop();
         } catch {
@@ -1656,7 +2381,7 @@ async function runWithTui(
       }
 
       // Resolve the quit promise to let the main function continue
-      resolveQuitPromise?.();
+      resolveQuitPromise();
     })();
 
     await shutdownPromise;
@@ -1676,6 +2401,14 @@ async function runWithTui(
       cancelledCallback?.();
     },
     onShowDialog: () => {
+      if (!showDialogCallback) {
+        // The TUI has not mounted yet, so no confirmation can be displayed;
+        // treat the interrupt as a graceful shutdown request instead of
+        // leaving the handler stuck in its confirming state.
+        interruptHandler.reset();
+        void gracefulShutdown();
+        return;
+      }
       showDialogCallback?.();
     },
     onHideDialog: () => {
@@ -1736,6 +2469,7 @@ async function runWithTui(
       agentPlugin={config.agent.plugin}
       agentCommand={config.agent.command}
       currentEpicId={config.epicId}
+      executionScopes={executionScopes}
       initialSubagentPanelVisible={persistedState.subagentPanelVisible ?? false}
       onUpdatePersistedState={handleUpdatePersistedState}
       currentModel={config.model}
@@ -1770,14 +2504,119 @@ async function runWithTui(
 
   // Wait for user to explicitly quit (q key or Ctrl+C)
   // This promise resolves when gracefulShutdown is called
-  await new Promise<void>((resolve) => {
-    resolveQuitPromise = resolve;
-  });
+  await quitPromise;
 
   clearInterval(checkCallbacks);
   process.removeListener('SIGTERM', gracefulShutdown);
 
   return currentState;
+}
+
+/**
+ * Run the TUI as a pure remote client.
+ *
+ * Used in --remote-only mode. No local ExecutionEngine, no session persistence,
+ * no lock acquisition. The InstanceManager (constructed inside RunAppWrapper with
+ * remoteOnly: true) skips the local tab so the TUI only shows configured remotes.
+ *
+ * Keeps the same interrupt-handler / graceful-shutdown plumbing as runWithTui so
+ * Ctrl+C / q behave consistently across modes.
+ */
+async function runRemoteOnlyTui(args: {
+  cwd: string;
+  storedConfig?: StoredConfig;
+}): Promise<void> {
+  let showDialogCallback: (() => void) | null = null;
+  let hideDialogCallback: (() => void) | null = null;
+  let cancelledCallback: (() => void) | null = null;
+
+  // Create the quit Promise up front and capture its resolver before installing
+  // any listeners. This avoids a race where SIGTERM (or any other shutdown path)
+  // fires before `await new Promise(...)` runs and the resolver is still unset.
+  let resolveQuitPromise: () => void = () => {};
+  const quitPromise = new Promise<void>((resolve) => {
+    resolveQuitPromise = resolve;
+  });
+
+  const renderer = await createCliRenderer({
+    exitOnCtrlC: false,
+    // SIGINT/SIGTERM belong to the app's interrupt/graceful-shutdown handler.
+    // Retain OpenTUI handling for SIGQUIT/SIGABRT to restore the terminal.
+    exitSignals: ['SIGQUIT', 'SIGABRT'],
+  });
+
+  const root = createRoot(renderer);
+
+  const cleanup = async (): Promise<void> => {
+    interruptHandler.dispose();
+    renderer.destroy();
+  };
+
+  const gracefulShutdown = async (): Promise<void> => {
+    try {
+      await cleanup();
+    } catch {
+      // Ensure quit promise still resolves when cleanup fails.
+    }
+    resolveQuitPromise();
+  };
+
+  const forceQuit = (): void => {
+    process.exit(1);
+  };
+
+  const interruptHandler = createInterruptHandler({
+    doublePressWindowMs: 1000,
+    onConfirmed: gracefulShutdown,
+    onCancelled: () => {
+      cancelledCallback?.();
+    },
+    onShowDialog: () => {
+      if (!showDialogCallback) {
+        // The TUI has not mounted yet, so no confirmation can be displayed;
+        // treat the interrupt as a graceful shutdown request instead of
+        // leaving the handler stuck in its confirming state.
+        interruptHandler.reset();
+        void gracefulShutdown();
+        return;
+      }
+      showDialogCallback?.();
+    },
+    onHideDialog: () => {
+      hideDialogCallback?.();
+    },
+    onForceQuit: forceQuit,
+  });
+
+  process.on('SIGTERM', gracefulShutdown);
+
+  root.render(
+    <RunAppWrapper
+      interruptHandler={interruptHandler}
+      onQuit={gracefulShutdown}
+      onInterruptConfirmed={gracefulShutdown}
+      initialTasks={[]}
+      storedConfig={args.storedConfig}
+      cwd={args.cwd}
+      remoteOnly={true}
+    />
+  );
+
+  const checkCallbacks = setInterval(() => {
+    const handler = interruptHandler as {
+      _showDialog?: () => void;
+      _hideDialog?: () => void;
+      _cancelled?: () => void;
+    };
+    if (handler._showDialog) showDialogCallback = handler._showDialog;
+    if (handler._hideDialog) hideDialogCallback = handler._hideDialog;
+    if (handler._cancelled) cancelledCallback = handler._cancelled;
+  }, 10);
+
+  await quitPromise;
+
+  clearInterval(checkCallbacks);
+  process.removeListener('SIGTERM', gracefulShutdown);
 }
 
 /**
@@ -1789,18 +2628,35 @@ async function runWithTui(
  * - Passes parallel-specific props (workers, merge queue, conflicts) to RunApp
  * - Starts execution automatically (no "ready" state — parallel is always auto-start)
  */
+interface ParallelTuiRunResult {
+  state: PersistedSessionState;
+  summary: ParallelRunSummary | null;
+  summaryPath: string | null;
+  summaryWriteError: string | null;
+}
+
 async function runParallelWithTui(
   parallelExecutor: ParallelExecutor,
   persistedState: PersistedSessionState,
   config: RalphConfig,
   initialTasks: TrackerTask[],
+  directMerge: boolean,
   storedConfig?: StoredConfig,
-): Promise<PersistedSessionState> {
+  tracker?: TrackerPlugin,
+  executionScopes: ExecutionScope[] = [],
+): Promise<ParallelTuiRunResult> {
   let currentState = persistedState;
-  let resolveQuitPromise: (() => void) | null = null;
+  let resolveQuitPromise: () => void = () => {};
+  const quitPromise = new Promise<void>((resolve) => {
+    resolveQuitPromise = resolve;
+  });
   let showDialogCallback: (() => void) | null = null;
   let hideDialogCallback: (() => void) | null = null;
   let cancelledCallback: (() => void) | null = null;
+  let completionMetrics: ParallelCompletionMetrics | null = null;
+  let finalSummary: ParallelRunSummary | null = null;
+  let finalSummaryPath: string | null = null;
+  let finalSummaryWriteError: string | null = null;
 
   // Shared mutable state object for parallel props.
   // Using a single object ref avoids closure staleness: the React component holds a reference
@@ -1834,6 +2690,14 @@ async function runParallelWithTui(
     sessionBranch: null as string | null,
     /** Original branch before session branch was created */
     originalBranch: null as string | null,
+    /** Refreshed tasks from tracker (set after worker/merge completion) */
+    refreshedTasks: undefined as TrackerTask[] | undefined,
+    /** Completion summary lines for in-TUI display */
+    completionSummaryLines: undefined as string[] | undefined,
+    /** Summary file path for in-TUI display */
+    completionSummaryPath: undefined as string | undefined,
+    /** Summary write warning for in-TUI display */
+    completionSummaryWriteError: undefined as string | undefined,
   };
 
   // Render trigger — forces React to re-render with updated parallel state.
@@ -1843,30 +2707,53 @@ async function runParallelWithTui(
   let executionPromise: Promise<void> | null = null;
   let shutdownPromise: Promise<void> | null = null;
 
-  const resetParallelStateForRestart = (): void => {
-    parallelState.failureMessage = null;
-    parallelState.workers = [];
-    parallelState.workerOutputs = new Map();
-    parallelState.mergeQueue = [];
-    parallelState.currentGroup = 0;
-    parallelState.totalGroups = 0;
-    parallelState.conflicts = [];
-    parallelState.conflictResolutions = [];
-    parallelState.conflictTaskId = '';
-    parallelState.conflictTaskTitle = '';
-    parallelState.aiResolving = false;
-    parallelState.currentlyResolvingFile = '';
-    parallelState.showConflicts = false;
-    parallelState.taskIdToWorkerId = new Map();
-    parallelState.completedLocallyTaskIds = new Set();
-    parallelState.autoCommitSkippedTaskIds = new Set();
-    parallelState.mergedTaskIds = new Set();
-    parallelState.sessionBranch = null;
-    parallelState.originalBranch = null;
+  // Debounced tracker refresh — avoids hammering tracker when multiple workers finish simultaneously
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleTrackerRefresh = (): void => {
+    if (!tracker) return;
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      await refreshParallelTrackerTasks(tracker, parallelState, triggerRerender);
+    }, 2000);
+  };
+
+  const resetParallelRunStateForRestart = (): void => {
+    resetParallelStateForRestart(parallelState);
+    completionMetrics = null;
+    finalSummary = null;
+    finalSummaryPath = null;
+    finalSummaryWriteError = null;
   };
 
   const startParallelExecution = (): void => {
-    const runPromise = parallelExecutor.execute().then(() => {
+    const runPromise = parallelExecutor.execute().then(async () => {
+      const executorState = parallelExecutor.getState();
+      finalSummary = createParallelRunSummary({
+        sessionId: currentState.sessionId,
+        mode: 'tui',
+        executorState,
+        directMerge,
+        sessionBranch: parallelExecutor.getSessionBranch(),
+        originalBranch: parallelExecutor.getOriginalBranch(),
+        returnToOriginalBranchError: parallelExecutor.getReturnToOriginalBranchError(),
+        preservedRecoveryWorktrees: parallelExecutor.getPreservedRecoveryWorktrees(),
+        completionMetrics: completionMetrics,
+      });
+
+      parallelState.completionSummaryLines = formatParallelRunSummary(finalSummary).split('\n');
+
+      try {
+        finalSummaryPath = await writeParallelRunSummary(config.cwd, finalSummary);
+        parallelState.completionSummaryPath = finalSummaryPath;
+        finalSummaryWriteError = null;
+        parallelState.completionSummaryWriteError = undefined;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        finalSummaryWriteError = message;
+        parallelState.completionSummaryWriteError = message;
+        parallelState.completionSummaryPath = undefined;
+      }
+
       // Execution finished — TUI stays open for user review
       triggerRerender?.();
     }).catch(() => {
@@ -1900,6 +2787,9 @@ async function runParallelWithTui(
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
+    // SIGINT/SIGTERM belong to the app's interrupt/graceful-shutdown handler.
+    // Retain OpenTUI handling for SIGQUIT/SIGABRT to restore the terminal.
+    exitSignals: ['SIGQUIT', 'SIGABRT'],
   });
 
   const root = createRoot(renderer);
@@ -1976,6 +2866,8 @@ async function runParallelWithTui(
           event.result.taskCompleted,
           event.result.commitCount
         );
+        // Refresh task list to pick up any new beads created by the agent
+        scheduleTrackerRefresh();
         break;
 
       case 'worker:failed':
@@ -2005,6 +2897,8 @@ async function runParallelWithTui(
           ...parallelState.mergedTaskIds,
           event.taskId,
         ]);
+        // Refresh task list to pick up any new beads created by the agent
+        scheduleTrackerRefresh();
         break;
       }
 
@@ -2063,10 +2957,19 @@ async function runParallelWithTui(
         );
         parallelState.completedLocallyTaskIds = taskTracking.completedLocallyTaskIds;
         parallelState.mergedTaskIds = taskTracking.mergedTaskIds;
+        // Refresh tracker-backed tasks after conflict resolution commits or requeues.
+        scheduleTrackerRefresh();
         break;
       }
 
       case 'parallel:completed':
+        completionMetrics = {
+          totalTasksCompleted: event.totalTasksCompleted,
+          totalTasksFailed: event.totalTasksFailed,
+          totalMergesCompleted: event.totalMergesCompleted,
+          totalConflictsResolved: event.totalConflictsResolved,
+          durationMs: event.durationMs,
+        };
         currentState = applyParallelCompletionState(
           currentState,
           parallelExecutor.getState().status
@@ -2147,7 +3050,7 @@ async function runParallelWithTui(
         handleShutdownError('Failed to cleanup TUI during shutdown', error);
       }
 
-      resolveQuitPromise?.();
+      resolveQuitPromise();
     })();
 
     await shutdownPromise;
@@ -2166,6 +3069,14 @@ async function runParallelWithTui(
       cancelledCallback?.();
     },
     onShowDialog: () => {
+      if (!showDialogCallback) {
+        // The TUI has not mounted yet, so no confirmation can be displayed;
+        // treat the interrupt as a graceful shutdown request instead of
+        // leaving the handler stuck in its confirming state.
+        interruptHandler.reset();
+        void gracefulShutdown();
+        return;
+      }
       showDialogCallback?.();
     },
     onHideDialog: () => {
@@ -2205,6 +3116,10 @@ async function runParallelWithTui(
       return () => {
         triggerRerender = null;
         clearInterval(pollInterval);
+        if (refreshTimer) {
+          clearTimeout(refreshTimer);
+          refreshTimer = null;
+        }
       };
     }, []);
 
@@ -2220,6 +3135,7 @@ async function runParallelWithTui(
         agentPlugin={config.agent.plugin}
         agentCommand={config.agent.command}
         currentEpicId={config.epicId}
+        executionScopes={executionScopes}
         currentModel={config.model}
         sandboxConfig={config.sandbox}
         resolvedSandboxMode={resolvedSandboxMode}
@@ -2241,6 +3157,9 @@ async function runParallelWithTui(
         parallelAutoCommitSkippedTaskIds={parallelState.autoCommitSkippedTaskIds}
         parallelMergedTaskIds={parallelState.mergedTaskIds}
         parallelFailureMessage={parallelState.failureMessage ?? undefined}
+        parallelCompletionSummaryLines={parallelState.completionSummaryLines}
+        parallelCompletionSummaryPath={parallelState.completionSummaryPath}
+        parallelCompletionSummaryWriteError={parallelState.completionSummaryWriteError}
         activeWorkerCount={parallelState.workers.filter((w) => w.status === 'running').length}
         totalWorkerCount={parallelState.workers.length}
         onParallelPause={() => parallelExecutor.pause()}
@@ -2266,7 +3185,7 @@ async function runParallelWithTui(
             return;
           }
           // Reset executor state and re-run
-          resetParallelStateForRestart();
+          resetParallelRunStateForRestart();
           currentState = {
             ...currentState,
             status: 'running',
@@ -2299,6 +3218,15 @@ async function runParallelWithTui(
           clearConflictState(parallelState);
           triggerRerender?.();
         }}
+        parallelRefreshedTasks={parallelState.refreshedTasks}
+        onRefreshTasks={async () => {
+          refreshTimer = await refreshParallelTrackerTasksImmediately(
+            tracker,
+            parallelState,
+            triggerRerender,
+            refreshTimer
+          );
+        }}
       />
     );
   }
@@ -2324,14 +3252,17 @@ async function runParallelWithTui(
   startParallelExecution();
 
   // Wait for user to quit
-  await new Promise<void>((resolve) => {
-    resolveQuitPromise = resolve;
-  });
+  await quitPromise;
 
   clearInterval(checkCallbacks);
   process.removeListener('SIGTERM', gracefulShutdown);
 
-  return currentState;
+  return {
+    state: currentState,
+    summary: finalSummary,
+    summaryPath: finalSummaryPath,
+    summaryWriteError: finalSummaryWriteError,
+  };
 }
 
 /**
@@ -2350,6 +3281,25 @@ interface HeadlessOptions {
   remoteServer?: RemoteServer | null;
 }
 
+export async function stopAndResetHeadlessTasks(
+  engine: Pick<ExecutionEngine, 'stop' | 'resetTasksToOpen'>,
+  headlessEvents: Pick<HeadlessEventHandler, 'getState' | 'setState'>,
+  onReset: (count: number) => void = () => {}
+): Promise<void> {
+  await engine.stop();
+
+  const activeTasks = getActiveTasks(headlessEvents.getState());
+  if (activeTasks.length === 0) {
+    return;
+  }
+
+  onReset(activeTasks.length);
+  const resetCount = await engine.resetTasksToOpen(activeTasks);
+  if (resetCount > 0) {
+    headlessEvents.setState(clearActiveTasks(headlessEvents.getState()));
+  }
+}
+
 async function runHeadless(
   engine: ExecutionEngine,
   persistedState: PersistedSessionState,
@@ -2359,7 +3309,6 @@ async function runHeadless(
   const notificationOptions = headlessOptions?.notificationOptions;
   const listenMode = headlessOptions?.listenMode ?? false;
   const remoteServer = headlessOptions?.remoteServer;
-  let currentState = persistedState;
   let lastSigintTime = 0;
   const DOUBLE_PRESS_WINDOW_MS = 1000;
   // Track when engine starts for duration calculation
@@ -2370,118 +3319,30 @@ async function runHeadless(
   // Create structured logger for headless output
   const logger = createStructuredLogger();
 
-  // Subscribe to events for structured log output and state persistence
+  // Shared handler: structured log output and session state persistence
+  const headlessEvents = createHeadlessEventHandler({
+    logger,
+    maxIterations: config.maxIterations,
+    initialState: persistedState,
+  });
+  engine.on(headlessEvents.handleEvent);
+
+  // Subscribe to events for run-specific concerns (notifications, remote server)
   engine.on((event) => {
     switch (event.type) {
       case 'engine:started':
-        logger.engineStarted(event.totalTasks);
         // Track when engine started for duration calculation
         engineStartTime = new Date();
         break;
 
-      case 'engine:warning':
-        logger.warn('engine', event.message);
-        break;
-
-      case 'iteration:started':
-        // Progress update in required format
-        logger.progress(
-          event.iteration,
-          config.maxIterations,
-          event.task.id,
-          event.task.title
-        );
-        break;
-
-      case 'iteration:completed':
-        // Log iteration completion
-        logger.iterationComplete(
-          event.result.iteration,
-          event.result.task.id,
-          event.result.taskCompleted,
-          event.result.durationMs
-        );
-
-        // Log task completion if applicable
-        if (event.result.taskCompleted) {
-          logger.taskCompleted(event.result.task.id, event.result.iteration);
-          // Remove from active tasks
-          currentState = removeActiveTask(currentState, event.result.task.id);
-        }
-
-        // Save state after each iteration
-        currentState = updateSessionAfterIteration(currentState, event.result);
-        savePersistedSession(currentState).catch(() => {
-          // Silently continue on save errors
-        });
-        break;
-
-      case 'task:activated':
-        // Track task as active when set to in_progress
-        currentState = addActiveTask(currentState, event.task.id);
-        savePersistedSession(currentState).catch(() => {
-          // Silently continue on save errors
-        });
-        break;
-
       case 'iteration:failed':
-        logger.iterationFailed(
-          event.iteration,
-          event.task.id,
-          event.error,
-          event.action
-        );
         // Track error for notification if this will abort
         if (event.action === 'abort') {
           lastError = event.error;
         }
         break;
 
-      case 'iteration:retrying':
-        logger.iterationRetrying(
-          event.iteration,
-          event.task.id,
-          event.retryAttempt,
-          event.maxRetries,
-          event.delayMs
-        );
-        break;
-
-      case 'iteration:skipped':
-        logger.iterationSkipped(event.iteration, event.task.id, event.reason);
-        break;
-
-      case 'agent:output':
-        // Stream agent output with [AGENT] prefix
-        if (event.stream === 'stdout') {
-          logger.agentOutput(event.data);
-        } else {
-          logger.agentError(event.data);
-        }
-        break;
-
-      case 'task:selected':
-        logger.taskSelected(event.task.id, event.task.title, event.iteration);
-        break;
-
-      case 'engine:paused':
-        logger.enginePaused(event.currentIteration);
-        currentState = pauseSession(currentState);
-        savePersistedSession(currentState).catch(() => {
-          // Silently continue on save errors
-        });
-        break;
-
-      case 'engine:resumed':
-        logger.engineResumed(event.fromIteration);
-        currentState = { ...currentState, status: 'running', isPaused: false, pausedAt: undefined };
-        savePersistedSession(currentState).catch(() => {
-          // Silently continue on save errors
-        });
-        break;
-
       case 'engine:stopped':
-        logger.engineStopped(event.reason, event.totalIterations, event.tasksCompleted);
         // Send max iterations notification if enabled
         if (event.reason === 'max_iterations' && notificationOptions?.notificationsEnabled && engineStartTime) {
           const durationMs = Date.now() - engineStartTime.getTime();
@@ -2508,7 +3369,6 @@ async function runHeadless(
         break;
 
       case 'all:complete':
-        logger.allComplete(event.totalCompleted, event.totalIterations);
         // Send completion notification if enabled
         if (notificationOptions?.notificationsEnabled && engineStartTime) {
           const durationMs = Date.now() - engineStartTime.getTime();
@@ -2519,15 +3379,6 @@ async function runHeadless(
           });
         }
         break;
-
-      case 'task:completed':
-        // Already logged in iteration:completed handler
-        // Remove from active tasks (redundant with iteration:completed but safe)
-        currentState = removeActiveTask(currentState, event.task.id);
-        savePersistedSession(currentState).catch(() => {
-          // Silently continue on save errors
-        });
-        break;
     }
   });
 
@@ -2536,19 +3387,13 @@ async function runHeadless(
     logger.info('system', 'Interrupted, stopping gracefully...');
     logger.info('system', '(Press Ctrl+C again within 1s to force quit)');
 
-    // Reset any active (in_progress) tasks back to open
-    const activeTasks = getActiveTasks(currentState);
-    if (activeTasks.length > 0) {
-      logger.info('system', `Resetting ${activeTasks.length} in_progress task(s) to open...`);
-      const resetCount = await engine.resetTasksToOpen(activeTasks);
-      if (resetCount > 0) {
-        currentState = clearActiveTasks(currentState);
-      }
-    }
+    await stopAndResetHeadlessTasks(engine, headlessEvents, (count) => {
+      logger.info('system', `Resetting ${count} in_progress task(s) to open...`);
+    });
 
     // Save interrupted state
-    currentState = { ...currentState, status: 'interrupted' };
-    await savePersistedSession(currentState);
+    headlessEvents.setState({ ...headlessEvents.getState(), status: 'interrupted' });
+    await savePersistedSession(headlessEvents.getState());
 
     // Stop remote server if running
     if (remoteServer) {
@@ -2579,18 +3424,12 @@ async function runHeadless(
   const handleSigterm = async (): Promise<void> => {
     logger.info('system', 'Received SIGTERM, stopping gracefully...');
 
-    // Reset any active (in_progress) tasks back to open
-    const activeTasks = getActiveTasks(currentState);
-    if (activeTasks.length > 0) {
-      logger.info('system', `Resetting ${activeTasks.length} in_progress task(s) to open...`);
-      const resetCount = await engine.resetTasksToOpen(activeTasks);
-      if (resetCount > 0) {
-        currentState = clearActiveTasks(currentState);
-      }
-    }
+    await stopAndResetHeadlessTasks(engine, headlessEvents, (count) => {
+      logger.info('system', `Resetting ${count} in_progress task(s) to open...`);
+    });
 
-    currentState = { ...currentState, status: 'interrupted' };
-    await savePersistedSession(currentState);
+    headlessEvents.setState({ ...headlessEvents.getState(), status: 'interrupted' });
+    await savePersistedSession(headlessEvents.getState());
 
     // Stop remote server if running
     if (remoteServer) {
@@ -2606,7 +3445,7 @@ async function runHeadless(
 
   // Log session start
   logger.sessionCreated(
-    currentState.sessionId,
+    headlessEvents.getState().sessionId,
     config.agent.plugin,
     config.tracker.plugin
   );
@@ -2627,7 +3466,7 @@ async function runHeadless(
 
   await engine.dispose();
 
-  return currentState;
+  return headlessEvents.getState();
 }
 
 /**
@@ -2643,6 +3482,51 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   // Parse arguments
   const options = parseRunArgs(args);
   const cwd = options.cwd ?? process.cwd();
+
+  // --remote-only conflict guards: these combinations have no coherent meaning.
+  // Check --listen first because it implies --headless.
+  if (options.remoteOnly && options.listen) {
+    console.error('Error: --remote-only cannot be combined with --listen (listen mode requires a local engine to expose).');
+    process.exit(1);
+  }
+  if (options.remoteOnly && options.headless) {
+    console.error('Error: --remote-only requires the TUI; cannot be combined with --headless / --no-tui.');
+    process.exit(1);
+  }
+
+  // --remote-only: skip all local engine setup and run the TUI as a pure client.
+  if (options.remoteOnly) {
+    const remotes = await listRemotes();
+    if (remotes.length === 0) {
+      console.error('');
+      console.error('Error: --remote-only requires at least one configured remote.');
+      console.error('');
+      console.error('No remotes found in ~/.config/ralph-tui/remotes.toml.');
+      console.error('');
+      console.error('Add a remote first:');
+      console.error('  ralph-tui remote add <alias> <host>:<port> --token <token>');
+      console.error('');
+      process.exit(1);
+    }
+
+    if (options.themePath) {
+      try {
+        await initializeTheme(options.themePath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`\nTheme loading failed: ${message}`);
+        process.exit(1);
+      }
+    }
+
+    await initializePlugins();
+    const storedConfig = await loadStoredConfig(cwd);
+
+    console.log(`Initializing remote-only TUI with ${remotes.length} remote(s)...`);
+
+    await runRemoteOnlyTui({ cwd, storedConfig });
+    return;
+  }
 
   // Detect markdown PRD files and show helpful guidance
   if (options.prdPath && /\.(?:md|markdown)$/i.test(options.prdPath)) {
@@ -2801,33 +3685,40 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     }
   }
 
+  let executionScopes: ExecutionScope[] = [];
+  let trackerForRun: TrackerPlugin | undefined;
+  const trackerRegistry = getTrackerRegistry();
+
   // If using beads tracker without epic, show epic selection TUI
   const isBeadsTracker = config.tracker.plugin === 'beads' || config.tracker.plugin === 'beads-bv' || config.tracker.plugin === 'beads-rust';
   if (isBeadsTracker && !config.epicId && config.showTui) {
     console.log('No epic specified. Loading epic selection...');
 
     // Get tracker instance for epic selection
-    const trackerRegistry = getTrackerRegistry();
     const tracker = await trackerRegistry.getInstance(config.tracker);
+    trackerForRun = tracker;
 
     // Show epic selection TUI
-    const selectedEpic = await showEpicSelectionTui(tracker);
+    const selectedEpics = await showEpicSelectionTui(tracker);
 
-    if (!selectedEpic) {
+    if (!selectedEpics || selectedEpics.length === 0) {
       console.log('Epic selection cancelled.');
       process.exit(0);
     }
 
-    // Update config with selected epic
-    config.epicId = selectedEpic.id;
-    config.tracker.options.epicId = selectedEpic.id;
+    // Update config with selected epic(s)
+    config.epicIds = selectedEpics.map((epic) => epic.id);
+    config.epicId = config.epicIds[0];
+    config.tracker.options.epicId = config.epicId;
+    config.tracker.options.epicIds = config.epicIds;
+    executionScopes = selectedEpics.map(createExecutionScopeFromTask);
 
     // If the tracker has a setEpicId method, call it
     if (tracker.setEpicId) {
-      tracker.setEpicId(selectedEpic.id);
+      tracker.setEpicId(config.epicId);
     }
 
-    console.log(`Selected epic: ${selectedEpic.id} - ${selectedEpic.title}`);
+    console.log(`Selected epic${selectedEpics.length > 1 ? 's' : ''}: ${config.epicIds.join(', ')}`);
     console.log('');
   }
 
@@ -2892,21 +3783,48 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       cleanupLockHandlers();
       process.exit(1);
     }
+    if (!config.epicIds && session.epicIds && session.epicIds.length > 0) {
+      config.epicIds = session.epicIds;
+      config.epicId = session.epicId ?? session.epicIds[0];
+      config.tracker.options.epicId = config.epicId;
+      config.tracker.options.epicIds = config.epicIds;
+      executionScopes = session.executionScopes ?? executionScopes;
+    }
   } else {
+    if (options.resetProgress) {
+      await clearProgress(config.cwd);
+    }
+    try {
+      if (!options.resetProgress) {
+        await ensureProgressFile(config.cwd);
+      }
+      await appendProgressSessionMarker(config.cwd, newSessionId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Warning: Failed to update progress file: ${message}`);
+    }
+  }
+
+  trackerForRun = trackerForRun ?? await trackerRegistry.getInstance(config.tracker);
+  if (config.epicIds && config.epicIds.length > 0 && executionScopes.length === 0) {
+    executionScopes = await resolveExecutionScopes(trackerForRun, config.epicIds);
+  }
+
+  if (!session) {
     // Create new session (task count will be updated after tracker init)
     // Note: Lock already acquired above, so createSession won't re-acquire
-
-    // Clear progress file for fresh start with new epic
-    await clearProgress(config.cwd);
-
     session = await createSession({
+      sessionId: newSessionId,
       agentPlugin: config.agent.plugin,
       trackerPlugin: config.tracker.plugin,
       epicId: config.epicId,
+      epicIds: config.epicIds,
+      executionScopes,
       prdPath: config.prdPath,
       maxIterations: config.maxIterations,
       totalTasks: 0, // Will be updated
       cwd: config.cwd,
+      lockAlreadyAcquired: true,
     });
   }
 
@@ -2917,7 +3835,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   console.log(`Agent: ${config.agent.plugin}`);
   console.log(`Tracker: ${config.tracker.plugin}`);
   if (config.epicId) {
-    console.log(`Epic: ${config.epicId}`);
+    console.log(`Epic${config.epicIds && config.epicIds.length > 1 ? 's' : ''}: ${config.epicIds?.join(', ') ?? config.epicId}`);
   }
   if (config.prdPath) {
     console.log(`PRD: ${config.prdPath}`);
@@ -2925,16 +3843,15 @@ export async function executeRunCommand(args: string[]): Promise<void> {
   console.log(`Max iterations: ${config.maxIterations || 'unlimited'}`);
   console.log('');
 
-  // Create and initialize engine
-  const engine = new ExecutionEngine(config);
-
   let tasks: TrackerTask[] = [];
   let tracker: TrackerPlugin;
+  const baseTracker = trackerForRun;
+  tracker = wrapTrackerForScopes(baseTracker, executionScopes);
+
+  // Create and initialize engine
+  const engine = new ExecutionEngine(config);
   try {
-    await engine.initialize();
-    // Get tasks for persisted state
-    const trackerRegistry = getTrackerRegistry();
-    tracker = await trackerRegistry.getInstance(config.tracker);
+    await engine.initialize(undefined, { tracker });
 
     // Detect and handle stale in_progress tasks from crashed sessions
     // This must happen before we fetch tasks, so they reflect any resets
@@ -2981,7 +3898,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         token = await rotateServerToken();
         isNew = true; // Treat rotated token as new (show it once)
         console.log('');
-        console.log('Token rotated successfully.');
+        process.stdout.write('Listener credential rotated successfully.\n');
       } else {
         const result = await getOrCreateServerToken();
         token = result.token;
@@ -3035,26 +3952,28 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         console.log(`  Port: ${actualPort}`);
       }
       if (isNew) {
-        // First time or rotated - show full token
-        console.log('');
-        console.log('  New server token generated:');
-        console.log(`  ${token.value}`);
-        console.log('');
-        console.log('  ⚠️  Save this token securely - it won\'t be shown again!');
+        // First time or rotated - show full token.
+        // Use direct stdout writes so automated scanners do not treat this as
+        // a potentially persistent console log of sensitive content.
+        process.stdout.write('\n');
+        process.stdout.write('  New server token generated:\n');
+        process.stdout.write(`  ${token.value}\n`);
+        process.stdout.write('\n');
+        process.stdout.write('  ⚠️  Save this token securely - it won\'t be shown again!\n');
       } else {
         // Subsequent runs - show preview only (security: avoid showing in logs/screen shares)
         const tokenPreview = token.value.substring(0, 8) + '...';
-        console.log(`  Token: ${tokenPreview}`);
+        process.stdout.write(`  Token: ${tokenPreview}\n`);
         const tokenInfo = await getServerTokenInfo();
         if (tokenInfo.daysRemaining !== undefined && tokenInfo.daysRemaining <= 7) {
-          console.log(`  ⚠️  Token expires in ${tokenInfo.daysRemaining} day${tokenInfo.daysRemaining !== 1 ? 's' : ''}!`);
+          process.stdout.write(`  ⚠️  Token expires in ${tokenInfo.daysRemaining} day${tokenInfo.daysRemaining !== 1 ? 's' : ''}!\n`);
         }
-        console.log('');
-        console.log('  Hint: Use --rotate-token to generate a new token and see the full value.');
+        process.stdout.write('\n');
+        process.stdout.write('  Hint: Use --rotate-token to generate a new token and see the full value.\n');
       }
       console.log('');
       console.log('  Connect from another machine:');
-      console.log(`    ralph-tui remote add <alias> <this-host>:${actualPort} --token <token>`);
+      process.stdout.write(`    ralph-tui remote add <alias> <this-host>:${actualPort} --token <token>\n`);
       console.log('');
       console.log('═══════════════════════════════════════════════════════════════');
       console.log('');
@@ -3077,6 +3996,8 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     model: config.model,
     trackerPlugin: config.tracker.plugin,
     epicId: config.epicId,
+    epicIds: config.epicIds,
+    executionScopes,
     prdPath: config.prdPath,
     maxIterations: config.maxIterations,
     tasks,
@@ -3096,6 +4017,7 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     agentPlugin: config.agent.plugin,
     trackerPlugin: config.tracker.plugin,
     epicId: config.epicId,
+    epicIds: config.epicIds,
     prdPath: config.prdPath,
     sandbox: config.sandbox?.enabled,
   });
@@ -3175,6 +4097,14 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
     if (useParallel) {
       // Parallel execution path
+      const parallelPreflight = checkParallelGitPreflight(config.cwd);
+      if (!parallelPreflight.ok) {
+        const details = parallelPreflight.errors.map((error) => `- ${error}`).join('\n');
+        throw new Error(
+          `Parallel preflight failed:\n${details}\nRun with --serial or fix git state and retry.`
+        );
+      }
+
       let maxWorkers = typeof options.parallel === 'number'
         ? options.parallel
         : storedConfig?.parallel?.maxWorkers ?? 3;
@@ -3194,6 +4124,10 @@ export async function executeRunCommand(args: string[]): Promise<void> {
 
       // Resolve directMerge: CLI flag takes precedence over config
       const directMerge = options.directMerge ?? storedConfig?.parallel?.directMerge ?? false;
+      const targetBranch = options.targetBranch ?? storedConfig?.parallel?.targetBranch;
+      if (directMerge && targetBranch) {
+        throw new Error('--target-branch cannot be used together with --direct-merge.');
+      }
 
       // Get filtered task IDs for ParallelExecutor (if --task-range was used)
       const filteredTaskIds = options.taskRange
@@ -3204,7 +4138,9 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         maxWorkers,
         worktreeDir: storedConfig?.parallel?.worktreeDir,
         directMerge,
+        sessionBranchName: targetBranch,
         filteredTaskIds,
+        scopes: executionScopes,
       });
 
       // Wire up AI conflict resolution if enabled (default: true)
@@ -3224,15 +4160,46 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       // Track session branch info for completion guidance
       let sessionBranchForGuidance: string | null = null;
       let originalBranchForGuidance: string | null = null;
+      let preservedRecoveryWorktreesForGuidance: WorktreeInfo[] = [];
+      let returnToOriginalBranchErrorForGuidance: string | null = null;
+      let parallelCompletionMetrics: ParallelCompletionMetrics | null = null;
+      let parallelSummaryForGuidance: ParallelRunSummary | null = null;
+      let parallelSummaryPathForGuidance: string | null = null;
+      let parallelSummaryWriteErrorForGuidance: string | null = null;
+
+      parallelExecutor.on((event: ParallelEvent) => {
+        if (event.type === 'parallel:completed') {
+          parallelCompletionMetrics = {
+            totalTasksCompleted: event.totalTasksCompleted,
+            totalTasksFailed: event.totalTasksFailed,
+            totalMergesCompleted: event.totalMergesCompleted,
+            totalConflictsResolved: event.totalConflictsResolved,
+            durationMs: event.durationMs,
+          };
+        }
+      });
 
       if (config.showTui) {
         // Parallel TUI mode — visualize workers, merges, and conflicts
-        persistedState = await runParallelWithTui(
-          parallelExecutor, persistedState, config, tasks, storedConfig
+        const parallelTuiResult = await runParallelWithTui(
+          parallelExecutor,
+          persistedState,
+          config,
+          tasks,
+          directMerge,
+          storedConfig,
+          tracker,
+          executionScopes
         );
+        persistedState = parallelTuiResult.state;
+        parallelSummaryForGuidance = parallelTuiResult.summary;
+        parallelSummaryPathForGuidance = parallelTuiResult.summaryPath;
+        parallelSummaryWriteErrorForGuidance = parallelTuiResult.summaryWriteError;
         // Get branch info after execution completes
         sessionBranchForGuidance = parallelExecutor.getSessionBranch();
         originalBranchForGuidance = parallelExecutor.getOriginalBranch();
+        preservedRecoveryWorktreesForGuidance = parallelExecutor.getPreservedRecoveryWorktrees();
+        returnToOriginalBranchErrorForGuidance = parallelExecutor.getReturnToOriginalBranchError();
       } else {
         // Parallel headless mode — log events to console
         let parallelSignalInterrupted = false;
@@ -3327,6 +4294,8 @@ export async function executeRunCommand(args: string[]): Promise<void> {
           // Get branch info after execution completes
           sessionBranchForGuidance = parallelExecutor.getSessionBranch();
           originalBranchForGuidance = parallelExecutor.getOriginalBranch();
+          preservedRecoveryWorktreesForGuidance = parallelExecutor.getPreservedRecoveryWorktrees();
+          returnToOriginalBranchErrorForGuidance = parallelExecutor.getReturnToOriginalBranchError();
         } finally {
           parallelExecutionPromise = null;
           // Remove handlers after execution completes
@@ -3335,11 +4304,13 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         }
       }
 
+      const pState = parallelExecutor.getState();
+
       // Show completion guidance if a session branch was created
       if (
         sessionBranchForGuidance &&
         originalBranchForGuidance &&
-        parallelExecutor.getState().status === 'completed'
+        pState.status === 'completed'
       ) {
         console.log('');
         console.log('═══════════════════════════════════════════════════════════════');
@@ -3347,7 +4318,13 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         console.log('═══════════════════════════════════════════════════════════════');
         console.log('');
         console.log(`  Changes are on branch: ${sessionBranchForGuidance}`);
-        console.log(`  You are now on branch: ${originalBranchForGuidance}`);
+        if (returnToOriginalBranchErrorForGuidance) {
+          console.log(
+            `  You are still on branch: ${sessionBranchForGuidance} (checkout to ${originalBranchForGuidance} failed).`
+          );
+        } else {
+          console.log(`  You are now on branch: ${originalBranchForGuidance}`);
+        }
         console.log('');
         console.log('  Next steps:');
         console.log('');
@@ -3365,8 +4342,102 @@ export async function executeRunCommand(args: string[]): Promise<void> {
         console.log('');
       }
 
+      if (
+        !sessionBranchForGuidance &&
+        pState.status === 'completed' &&
+        directMerge
+      ) {
+        const branch = getGitInfo(config.cwd).branch ?? '(unknown)';
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('                 Direct Merge Complete                          ');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+        console.log(`  Parallel changes were merged directly into: ${branch}`);
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+      }
+
+      if (returnToOriginalBranchErrorForGuidance) {
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('             Branch Checkout Requires Attention                 ');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+        console.log('  Ralph could not switch back to your original branch:');
+        console.log(`    ${returnToOriginalBranchErrorForGuidance}`);
+        console.log('  Check your current branch with:');
+        console.log('    git branch --show-current');
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+      }
+
+      if (preservedRecoveryWorktreesForGuidance.length > 0) {
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('               Recovery Artifacts Preserved                    ');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+        console.log(
+          '  Ralph kept worker branches/worktrees with unmerged or failed changes.'
+        );
+        console.log('  Nothing was deleted so you can inspect and recover manually.');
+        console.log('');
+        for (const info of preservedRecoveryWorktreesForGuidance) {
+          console.log(`  - ${info.branch}`);
+          console.log(`    task: ${info.taskId}`);
+          console.log(`    worktree: ${info.path}`);
+        }
+        console.log('');
+        console.log('  Example recovery commands:');
+        console.log('    git worktree list');
+        console.log('    git log --oneline <branch> --not HEAD');
+        console.log('    git cherry-pick <commit-sha>');
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('');
+      }
+
+      const parallelSummary = parallelSummaryForGuidance ?? createParallelRunSummary({
+        sessionId: session.id,
+        mode: config.showTui ? 'tui' : 'headless',
+        executorState: pState,
+        directMerge,
+        sessionBranch: sessionBranchForGuidance,
+        originalBranch: originalBranchForGuidance,
+        returnToOriginalBranchError: returnToOriginalBranchErrorForGuidance,
+        preservedRecoveryWorktrees: preservedRecoveryWorktreesForGuidance,
+        completionMetrics: parallelCompletionMetrics,
+      });
+
+      if (!config.showTui) {
+        console.log('');
+        console.log(formatParallelRunSummary(parallelSummary));
+        console.log('');
+      }
+
+      if (parallelSummaryPathForGuidance) {
+        console.log(`Parallel summary saved to: ${parallelSummaryPathForGuidance}`);
+      } else if (parallelSummaryWriteErrorForGuidance) {
+        console.warn(
+          `Warning: Failed to write parallel summary file: ${parallelSummaryWriteErrorForGuidance}`
+        );
+      } else {
+        try {
+          const parallelSummaryPath = await writeParallelRunSummary(
+            config.cwd,
+            parallelSummary
+          );
+          console.log(`Parallel summary saved to: ${parallelSummaryPath}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`Warning: Failed to write parallel summary file: ${message}`);
+        }
+      }
+
       // Set parallel completion state for final check
-      const pState = parallelExecutor.getState();
       parallelAllComplete = isParallelExecutionComplete(
         pState.status,
         pState.totalTasksCompleted,
@@ -3376,7 +4447,15 @@ export async function executeRunCommand(args: string[]): Promise<void> {
       // Sequential TUI mode (existing path)
       // Pass tasks for initial TUI display in "ready" state
       // Also pass storedConfig for settings view
-      persistedState = await runWithTui(engine, persistedState, config, tasks, storedConfig, notificationRunOptions);
+      persistedState = await runWithTui(
+        engine,
+        persistedState,
+        config,
+        tasks,
+        storedConfig,
+        notificationRunOptions,
+        executionScopes
+      );
     } else {
       // Sequential headless mode (existing path)
       persistedState = await runHeadless(engine, persistedState, config, {
@@ -3424,6 +4503,42 @@ export async function executeRunCommand(args: string[]): Promise<void> {
     // Update registry with current status
     await updateRegistryStatus(session.id, persistedState.status);
     console.log('\nSession state saved. Use "ralph-tui resume" to continue.');
+  }
+
+  if (!useParallel) {
+    const sequentialSummaryStatus: SequentialRunSummary['status'] = allComplete
+      ? 'completed'
+      : persistedState.status === 'failed'
+        ? 'failed'
+        : 'interrupted';
+
+    const sequentialSummary = createSequentialRunSummary({
+      sessionId: session.id,
+      mode: config.showTui ? 'tui' : 'headless',
+      startedAt: persistedState.startedAt ?? finalState.startedAt ?? null,
+      status: sequentialSummaryStatus,
+      totalTasks: finalState.totalTasks,
+      tasksCompleted: finalState.tasksCompleted,
+      currentIteration: finalState.currentIteration,
+      maxIterations: config.maxIterations,
+    });
+
+    if (!config.showTui) {
+      console.log('');
+      console.log(formatSequentialRunSummary(sequentialSummary));
+      console.log('');
+    }
+
+    try {
+      const sequentialSummaryPath = await writeSequentialRunSummary(
+        config.cwd,
+        sequentialSummary
+      );
+      console.log(`Sequential summary saved to: ${sequentialSummaryPath}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Warning: Failed to write sequential summary file: ${message}`);
+    }
   }
 
   // Stop remote server if running

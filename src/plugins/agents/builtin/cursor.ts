@@ -21,6 +21,44 @@ import type {
 // Re-export for backward compatibility with tests
 export { extractErrorMessage } from '../utils.js';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseObjectArguments(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'string') return undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveToolCallDetails(
+  toolCall: unknown
+): { name?: string; input?: Record<string, unknown> } {
+  if (!isRecord(toolCall)) return {};
+
+  const functionCall = toolCall.function;
+  if (isRecord(functionCall) && typeof functionCall.name === 'string' && functionCall.name.length > 0) {
+    return {
+      name: functionCall.name,
+      input: parseObjectArguments(functionCall.arguments),
+    };
+  }
+
+  const toolKey = Object.keys(toolCall)[0];
+  if (!toolKey || toolKey === 'function') return {};
+
+  const toolValue = toolCall[toolKey];
+  return {
+    name: toolKey.replace(/ToolCall$/, ''),
+    input: isRecord(toolValue) && isRecord(toolValue.args) ? toolValue.args : undefined,
+  };
+}
+
 /**
  * Parse Cursor Agent JSON line into standardized display events.
  * Returns AgentDisplayEvent[] - the shared processAgentEvents decides what to show.
@@ -37,7 +75,7 @@ export function parseCursorJsonLine(jsonLine: string): AgentDisplayEvent[] {
   if (!jsonLine || jsonLine.length === 0) return [];
 
   try {
-    const event = JSON.parse(jsonLine);
+    const event: Record<string, unknown> = JSON.parse(jsonLine) as Record<string, unknown>;
     const events: AgentDisplayEvent[] = [];
 
     // Handle system events (e.g., init)
@@ -64,8 +102,18 @@ export function parseCursorJsonLine(jsonLine: string): AgentDisplayEvent[] {
     // Handle tool_call events with started/completed subtypes
     else if (event.type === 'tool_call') {
       if (event.subtype === 'started') {
-        const toolName = event.name || event.tool || 'unknown';
-        events.push({ type: 'tool_use', name: toolName, input: event.input });
+        // Cursor names tools with the single key of the tool_call union.
+        const toolCall = resolveToolCallDetails(event.tool_call);
+        const fallbackName = typeof event.name === 'string' && event.name.length > 0
+          ? event.name
+          : typeof event.tool === 'string' && event.tool.length > 0
+            ? event.tool
+            : 'unknown';
+        events.push({
+          type: 'tool_use',
+          name: toolCall.name ?? fallbackName,
+          input: toolCall.input ?? (isRecord(event.input) ? event.input : undefined),
+        });
       } else if (event.subtype === 'completed') {
         const isError = event.is_error === true || event.error !== undefined;
         if (isError) {
@@ -117,7 +165,7 @@ export class CursorAgentPlugin extends BaseAgentPlugin {
     description: 'Cursor Agent CLI for AI-assisted coding',
     version: '1.0.0',
     author: 'Cursor',
-    defaultCommand: 'cursor',
+    defaultCommand: 'agent',
     supportsStreaming: true,
     supportsInterrupt: true,
     supportsFileContext: false,
@@ -476,8 +524,8 @@ export class CursorAgentPlugin extends BaseAgentPlugin {
   protected override getPreflightSuggestion(): string {
     return (
       'Common fixes for Cursor Agent:\n' +
-      '  1. Test Cursor directly: cursor --print "hello"\n' +
-      '  2. Check Cursor is installed: cursor --version\n' +
+      '  1. Test Cursor directly: agent --print "hello"\n' +
+      '  2. Check Cursor is installed: agent --version\n' +
       '  3. Install from: https://docs.cursor.com/cli\n' +
       '  4. Verify your model configuration if using a specific model'
     );

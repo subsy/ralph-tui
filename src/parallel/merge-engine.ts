@@ -124,7 +124,7 @@ export class MergeEngine {
   createSessionBackup(sessionId: string): string {
     const tag = `ralph/session-start/${sessionId}`;
     validateGitRef(tag, 'sessionBackupTag');
-    this.git(['tag', tag, 'HEAD']);
+    this.createBackupTag(tag);
     this.sessionStartTag = tag;
     return tag;
   }
@@ -139,28 +139,44 @@ export class MergeEngine {
   /**
    * Initialize a session branch for parallel execution.
    *
-   * Creates a new branch `ralph-session/{shortId}` from the current HEAD.
+   * Creates a new branch from the current HEAD.
+   * Defaults to `ralph-session/{shortId}` when no explicit branch is provided.
    * All worker changes will be merged to this branch instead of the original branch.
    * This enables safer parallel workflows: the session branch can be merged via PR,
    * or discarded entirely by deleting the branch.
    *
    * @param sessionId - Full session ID (will be truncated to first 8 chars)
+   * @param explicitBranchName - Optional explicit target branch name
    * @returns Object with the session branch name and original branch name
    */
-  initializeSessionBranch(sessionId: string): { branch: string; original: string } {
+  initializeSessionBranch(
+    sessionId: string,
+    explicitBranchName?: string
+  ): { branch: string; original: string } {
     // Get current branch name
     const currentBranch = this.git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
     this.originalBranch = currentBranch;
 
-    // Create session branch name from first 8 chars of session ID
-    const shortId = sessionId.replace(/^parallel-/, '').slice(0, 8);
-    let branchName = `ralph-session/${shortId}`;
+    let branchName: string;
+    if (explicitBranchName) {
+      branchName = explicitBranchName.trim();
+      if (this.branchExists(branchName)) {
+        throw new Error(
+          `Target branch already exists: ${branchName}. ` +
+            'Choose a different name or use --direct-merge.'
+        );
+      }
+    } else {
+      // Create session branch name from first 8 chars of session ID.
+      const shortId = sessionId.replace(/^parallel-/, '').slice(0, 8);
+      branchName = `ralph-session/${shortId}`;
 
-    // Handle collision by appending counter suffix
-    let counter = 1;
-    while (this.branchExists(branchName)) {
-      counter++;
-      branchName = `ralph-session/${shortId}-${counter}`;
+      // Handle collision by appending counter suffix.
+      let counter = 1;
+      while (this.branchExists(branchName)) {
+        counter++;
+        branchName = `ralph-session/${shortId}-${counter}`;
+      }
     }
 
     validateGitRef(branchName, 'sessionBranch');
@@ -197,12 +213,8 @@ export class MergeEngine {
       return;
     }
 
-    try {
-      validateGitRef(this.originalBranch, 'originalBranch');
-      this.git(['checkout', this.originalBranch]);
-    } catch {
-      // Don't throw — best effort to return to original branch
-    }
+    validateGitRef(this.originalBranch, 'originalBranch');
+    this.git(['checkout', this.originalBranch]);
   }
 
   /**
@@ -306,8 +318,8 @@ export class MergeEngine {
 
     validateGitRef(operation.backupTag, 'backupTag');
     this.git(['reset', '--hard', operation.backupTag]);
-    // Clean untracked files that may have been introduced during the merge
-    this.git(['clean', '-fd']);
+    // Intentionally avoid `git clean -fd` here to prevent deleting untracked
+    // project artifacts such as PRD/task files.
     this.updateStatus(operation, 'rolled-back');
 
     this.emit({
@@ -321,6 +333,34 @@ export class MergeEngine {
   }
 
   /**
+   * Mark a merge operation as rolled back without touching git state.
+   * Use this when the merge attempt was already reset/aborted earlier.
+   *
+   * @returns true when an operation was updated, false when no update was needed
+   */
+  markOperationRolledBack(operationId: string, reason: string): boolean {
+    const operation = this.queue.find((op) => op.id === operationId);
+    if (!operation) {
+      return false;
+    }
+
+    if (operation.status === 'completed' || operation.status === 'rolled-back') {
+      return false;
+    }
+
+    this.updateStatus(operation, 'rolled-back');
+    this.emit({
+      type: 'merge:rolled-back',
+      timestamp: new Date().toISOString(),
+      operationId: operation.id,
+      taskId: operation.workerResult.task.id,
+      backupTag: operation.backupTag,
+      reason,
+    });
+    return true;
+  }
+
+  /**
    * Rollback all merges in this session to the session start point.
    */
   rollbackSession(): void {
@@ -330,8 +370,8 @@ export class MergeEngine {
 
     validateGitRef(this.sessionStartTag, 'sessionStartTag');
     this.git(['reset', '--hard', this.sessionStartTag]);
-    // Clean untracked files that may have been introduced during merges
-    this.git(['clean', '-fd']);
+    // Intentionally avoid `git clean -fd` here to prevent deleting untracked
+    // project artifacts such as PRD/task files.
 
     // Mark all completed merges as rolled back
     for (const op of this.queue) {
@@ -393,7 +433,7 @@ export class MergeEngine {
     // Create backup tag
     try {
       validateGitRef(operation.backupTag, 'backupTag');
-      this.git(['tag', operation.backupTag, 'HEAD']);
+      this.createBackupTag(operation.backupTag);
     } catch (err) {
       const result = this.failMerge(
         operation,
@@ -448,9 +488,9 @@ export class MergeEngine {
       // Abort the merge for now — conflict resolver handles this separately
       this.git(['merge', '--abort']);
 
-      // Rollback to backup and clean any untracked files from the merge attempt
+      // Rollback to backup tag. Avoid `git clean -fd` so untracked project files
+      // (for example tasks/prd.json) are never removed.
       this.git(['reset', '--hard', operation.backupTag]);
-      this.git(['clean', '-fd']);
 
       this.emit({
         type: 'conflict:detected',
@@ -496,12 +536,10 @@ export class MergeEngine {
       startTime
     );
 
-    // Rollback - reset tracked files AND remove any untracked files that were
-    // introduced by the failed merge attempt
+    // Rollback tracked files only. Avoid `git clean -fd` to prevent removing
+    // unrelated untracked artifacts in the repository.
     try {
       this.git(['reset', '--hard', operation.backupTag]);
-      // Remove untracked files that might have been placed during merge
-      this.git(['clean', '-fd']);
     } catch {
       // Best effort rollback
     }
@@ -659,6 +697,13 @@ export class MergeEngine {
   }
 
   /**
+   * Create a lightweight backup tag without invoking signing or editor flows.
+   */
+  private createBackupTag(tag: string): void {
+    this.git(['tag', '--no-sign', tag, 'HEAD']);
+  }
+
+  /**
    * Execute a git command in the main repository.
    * Uses execFileSync with argument array to prevent shell injection.
    * Pipes stdio so git output doesn't bleed through to the TUI.
@@ -668,6 +713,11 @@ export class MergeEngine {
       encoding: 'utf-8',
       timeout: 30000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_EDITOR: ':',
+      },
     });
   }
 }

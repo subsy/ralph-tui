@@ -57,8 +57,8 @@ describe('formatSystemInfo', () => {
           id: 'claude',
           name: 'Claude Code',
           available: true,
-          personalDir: '/home/user/.claude/skills',
-          repoDir: '.claude/skills',
+          personalDir: ['/home/user/.claude/skills'],
+          repoDir: ['.claude/skills'],
           personalSkills: ['ralph-tui-prd'],
         },
       ],
@@ -123,6 +123,23 @@ describe('formatSystemInfo', () => {
     expect(output).toContain('Claude Code:');
     expect(output).toContain('Path: /home/user/.claude/skills');
     expect(output).toContain('Installed: ralph-tui-prd');
+  });
+
+  test('joins multiple discovery paths only for display', () => {
+    const output = formatSystemInfo({
+      ...mockInfo,
+      skills: {
+        ...mockInfo.skills,
+        agents: [
+          {
+            ...mockInfo.skills.agents[0],
+            personalDir: ['/home/user/.agents/skills', '/home/user/.codex/skills'],
+          },
+        ],
+      },
+    });
+
+    expect(output).toContain('Paths: /home/user/.agents/skills, /home/user/.codex/skills');
   });
 
   test('shows no project config when missing', () => {
@@ -276,8 +293,8 @@ describe('formatForBugReport', () => {
           id: 'claude',
           name: 'Claude Code',
           available: true,
-          personalDir: '/home/user/.claude/skills',
-          repoDir: '.claude/skills',
+          personalDir: ['/home/user/.claude/skills'],
+          repoDir: ['.claude/skills'],
           personalSkills: ['ralph-tui-prd'],
         },
       ],

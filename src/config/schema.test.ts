@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { StoredConfig } from './types.js';
 import {
   SubagentDetailLevelSchema,
   ErrorHandlingStrategySchema,
@@ -22,6 +23,47 @@ import {
   formatConfigErrors,
   type ConfigValidationError,
 } from './schema.js';
+
+describe('engine improvement configuration', () => {
+  test('accepts explicit settings without changing them', () => {
+    const config: StoredConfig = {
+      verification: { enabled: true, commands: ['bun test'], timeoutMs: 60000, maxRetries: 0 },
+      modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+      cost: {
+        enabled: true, alertThreshold: 2.5,
+        pricing: { 'claude-haiku-4-5': { inputPer1M: 1, outputPer1M: 5 } },
+      },
+      completion: { strategies: ['promise-tag'] },
+    };
+    expect(StoredConfigSchema.parse(config)).toEqual(config);
+  });
+
+  test('does not introduce engine defaults when settings are absent', () => {
+    const result = StoredConfigSchema.parse({});
+    expect(result.verification).toBeUndefined();
+    expect(result.modelEscalation).toBeUndefined();
+    expect(result.cost).toBeUndefined();
+    expect(result.completion).toBeUndefined();
+    expect(result.autoCommit).toBeUndefined();
+    expect(result.parallel).toBeUndefined();
+  });
+
+  test.each([
+    { verification: { maxRetries: -1 } },
+    { verification: { maxRetries: 0.5 } },
+    { verification: { timeoutMs: 0 } },
+    { verification: { commands: 'bun test' } },
+    { modelEscalation: { escalateAfter: -1 } },
+    { modelEscalation: { startModel: '' } },
+    { cost: { alertThreshold: -1 } },
+    { cost: { alertThreshold: Infinity } },
+    { cost: { pricing: { model: { inputPer1M: -1, outputPer1M: 1 } } } },
+    { cost: { pricing: { model: { inputPer1M: 1 } } } },
+    { completion: { strategies: ['unknown'] } },
+  ])('rejects malformed setting %j', (config) => {
+    expect(StoredConfigSchema.safeParse(config).success).toBe(false);
+  });
+});
 
 describe('SubagentDetailLevelSchema', () => {
   test('accepts valid values', () => {
@@ -344,6 +386,44 @@ describe('AgentPluginConfigSchema', () => {
     expect(result.envExclude).toEqual(['*_TOKEN']);
     expect(result.envPassthrough).toEqual(['ANTHROPIC_API_KEY']);
   });
+
+  test('accepts preflightTimeoutMs within bounds', () => {
+    const result = AgentPluginConfigSchema.parse({
+      name: 'test',
+      plugin: 'claude',
+      preflightTimeoutMs: 60000,
+    });
+    expect(result.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('accepts preflightTimeoutMs at exact boundaries', () => {
+    expect(
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 1000 })
+        .preflightTimeoutMs
+    ).toBe(1000);
+    expect(
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 300000 })
+        .preflightTimeoutMs
+    ).toBe(300000);
+  });
+
+  test('rejects preflightTimeoutMs below minimum', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 999 })
+    ).toThrow();
+  });
+
+  test('rejects preflightTimeoutMs above maximum', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 300001 })
+    ).toThrow();
+  });
+
+  test('rejects non-integer preflightTimeoutMs', () => {
+    expect(() =>
+      AgentPluginConfigSchema.parse({ name: 'test', plugin: 'claude', preflightTimeoutMs: 30000.5 })
+    ).toThrow();
+  });
 });
 
 describe('TrackerOptionsSchema', () => {
@@ -437,6 +517,15 @@ describe('StoredConfigSchema', () => {
     expect(() => StoredConfigSchema.parse({ iterationDelay: 300001 })).toThrow();
   });
 
+  test('validates watch polling configuration', () => {
+    expect(StoredConfigSchema.parse({ watch: true, pollIntervalMs: 30000 })).toMatchObject({
+      watch: true,
+      pollIntervalMs: 30000,
+    });
+    expect(() => StoredConfigSchema.parse({ pollIntervalMs: 0 })).toThrow();
+    expect(() => StoredConfigSchema.parse({ pollIntervalMs: -1 })).toThrow();
+  });
+
   test('rejects unknown fields (strict mode)', () => {
     expect(() => StoredConfigSchema.parse({ unknownField: 'value' })).toThrow();
   });
@@ -482,6 +571,35 @@ describe('StoredConfigSchema', () => {
     });
     expect(result.envExclude).toEqual(['*_TOKEN']);
     expect(result.envPassthrough).toEqual(['MY_API_KEY']);
+  });
+
+  test('accepts commitMessageTemplate as an optional string', () => {
+    const result = StoredConfigSchema.parse({
+      commitMessageTemplate: '{{taskType}}({{taskId}}): {{taskTitle}}',
+    });
+    expect(result.commitMessageTemplate).toBe('{{taskType}}({{taskId}}): {{taskTitle}}');
+  });
+
+  test('accepts empty config without commitMessageTemplate', () => {
+    const result = StoredConfigSchema.parse({});
+    expect(result.commitMessageTemplate).toBeUndefined();
+  });
+
+  test('rejects commitMessageTemplate when set to a non-string', () => {
+    expect(() => StoredConfigSchema.parse({ commitMessageTemplate: 42 })).toThrow();
+  });
+
+  test('accepts top-level preflightTimeoutMs within bounds', () => {
+    const result = StoredConfigSchema.parse({ preflightTimeoutMs: 60000 });
+    expect(result.preflightTimeoutMs).toBe(60000);
+  });
+
+  test('rejects top-level preflightTimeoutMs below minimum', () => {
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: 999 })).toThrow();
+  });
+
+  test('rejects top-level preflightTimeoutMs above maximum', () => {
+    expect(() => StoredConfigSchema.parse({ preflightTimeoutMs: 300001 })).toThrow();
   });
 
   test('accepts progressFile field', () => {

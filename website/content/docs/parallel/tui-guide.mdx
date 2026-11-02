@@ -7,6 +7,23 @@ description: Visual guide to the parallel execution TUI — worker progress, det
 
 When parallel execution is active, ralph-tui adds new views and keyboard shortcuts for monitoring workers, merges, and conflicts.
 
+## Scope Filter Bar
+
+In multi-epic sessions, the TUI shows a scope filter bar above the main content:
+
+```text
+[All 3/17] [UI 1/6] [Backend 2/8] [Docs 0/3]
+```
+
+The filter is local to the TUI. It does not start or stop separate runners; all scopes are still part of the same global scheduler and merge queue.
+
+| Key | Action |
+|-----|--------|
+| `g` | Cycle to the next scope filter |
+| `G` | Return to `All` |
+
+When the filter is `All`, task rows show a compact scope prefix. Worker detail and merge progress views also show the task's scope beside the task ID.
+
 ## Workers View
 
 Press `w` to toggle the parallel workers view. This shows all active workers with their status, progress, and task titles:
@@ -123,6 +140,8 @@ All parallel-specific keyboard shortcuts:
 |-----|---------|--------|
 | `w` | Any view | Toggle parallel workers view |
 | `m` | Any view | Toggle merge progress view |
+| `g` | Any view with multiple scopes | Cycle scope filter |
+| `G` | Any view with multiple scopes | Reset scope filter to All |
 | `↑`/`↓` | Workers view | Select worker |
 | `Enter` | Workers view | Drill into worker detail |
 | `Esc` | Detail/merge view | Return to previous view |

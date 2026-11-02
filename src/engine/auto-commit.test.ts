@@ -4,7 +4,7 @@
  */
 
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
-import { performAutoCommit } from './auto-commit.js';
+import { performAutoCommit, renderCommitMessage } from './auto-commit.js';
 
 // Mock the process utility
 const mockRunProcess = mock(() =>
@@ -31,7 +31,11 @@ describe('performAutoCommit', () => {
       // git rev-parse
       .mockResolvedValueOnce({ success: true, stdout: 'abc1234\n', stderr: '', exitCode: 0 });
 
-    const result = await performAutoCommit('/tmp/repo', 'TASK-001', 'My Task', 3);
+    const rendered = renderCommitMessage(
+      'feat(ralph): {{taskId}} - {{taskTitle}}\n\nIteration: {{iteration}}\nAgent: {{agent}}',
+      { taskId: 'TASK-001', taskTitle: 'My Task', iteration: 3 }
+    );
+    const result = await performAutoCommit('/tmp/repo', rendered.message);
 
     expect(result.committed).toBe(true);
     expect(result.commitMessage).toContain('feat(ralph): TASK-001 - My Task');
@@ -46,7 +50,7 @@ describe('performAutoCommit', () => {
       .mockResolvedValueOnce({ success: true, stdout: '', stderr: '', exitCode: 0 })
       .mockResolvedValueOnce({ success: true, stdout: 'abc1234\n', stderr: '', exitCode: 0 });
 
-    const result = await performAutoCommit('/tmp/repo', 'TASK-002', 'Another Task');
+    const result = await performAutoCommit('/tmp/repo', 'feat(ralph): TASK-002 - Another Task');
 
     expect(result.committed).toBe(true);
     expect(result.commitMessage).toBe('feat(ralph): TASK-002 - Another Task');
@@ -56,7 +60,7 @@ describe('performAutoCommit', () => {
   test('skips commit when no uncommitted changes', async () => {
     mockRunProcess.mockResolvedValueOnce({ success: true, stdout: '', stderr: '', exitCode: 0 });
 
-    const result = await performAutoCommit('/tmp/repo', 'TASK-003', 'Empty Task', 1);
+    const result = await performAutoCommit('/tmp/repo', 'feat(ralph): TASK-003 - Empty Task');
 
     expect(result.committed).toBe(false);
     expect(result.skipReason).toBe('no uncommitted changes');
@@ -70,7 +74,7 @@ describe('performAutoCommit', () => {
       exitCode: 128,
     });
 
-    const result = await performAutoCommit('/tmp/notarepo', 'TASK-004', 'Bad Task', 2);
+    const result = await performAutoCommit('/tmp/notarepo', 'feat(ralph): TASK-004 - Bad Task');
 
     expect(result.committed).toBe(false);
     expect(result.error).toContain('git status failed');
@@ -81,7 +85,7 @@ describe('performAutoCommit', () => {
       .mockResolvedValueOnce({ success: true, stdout: 'M src/foo.ts\n', stderr: '', exitCode: 0 })
       .mockResolvedValueOnce({ success: false, stdout: '', stderr: 'permission denied', exitCode: 1 });
 
-    const result = await performAutoCommit('/tmp/repo', 'TASK-005', 'Add Fail', 1);
+    const result = await performAutoCommit('/tmp/repo', 'feat(ralph): TASK-005 - Add Fail');
 
     expect(result.committed).toBe(false);
     expect(result.error).toContain('git add failed');
@@ -93,7 +97,7 @@ describe('performAutoCommit', () => {
       .mockResolvedValueOnce({ success: true, stdout: '', stderr: '', exitCode: 0 })
       .mockResolvedValueOnce({ success: false, stdout: '', stderr: 'commit hook failed', exitCode: 1 });
 
-    const result = await performAutoCommit('/tmp/repo', 'TASK-006', 'Commit Fail', 5);
+    const result = await performAutoCommit('/tmp/repo', 'feat(ralph): TASK-006 - Commit Fail');
 
     expect(result.committed).toBe(false);
     expect(result.error).toContain('git commit failed');
@@ -103,28 +107,7 @@ describe('performAutoCommit', () => {
 describe('default config autoCommit', () => {
   test('DEFAULT_CONFIG does not include autoCommit (it is set in buildConfig)', async () => {
     const { DEFAULT_CONFIG } = await import('../config/types.js');
-    // autoCommit is not part of DEFAULT_CONFIG — it is applied in buildConfig
-    // with a default of true. Verify DEFAULT_CONFIG does not set it to false.
+    // autoCommit is applied in buildConfig, not DEFAULT_CONFIG.
     expect((DEFAULT_CONFIG as Record<string, unknown>).autoCommit).toBeUndefined();
-  });
-});
-
-describe('parseRunArgs auto-commit flags', () => {
-  test('--no-auto-commit sets autoCommit to false', async () => {
-    const { parseRunArgs } = await import('../commands/run.js');
-    const result = parseRunArgs(['--no-auto-commit']);
-    expect(result.autoCommit).toBe(false);
-  });
-
-  test('--auto-commit sets autoCommit to true', async () => {
-    const { parseRunArgs } = await import('../commands/run.js');
-    const result = parseRunArgs(['--auto-commit']);
-    expect(result.autoCommit).toBe(true);
-  });
-
-  test('no flag leaves autoCommit undefined (uses default)', async () => {
-    const { parseRunArgs } = await import('../commands/run.js');
-    const result = parseRunArgs([]);
-    expect(result.autoCommit).toBeUndefined();
   });
 });

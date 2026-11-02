@@ -1,0 +1,176 @@
+---
+title: Antigravity Agent
+description: Integrate Google's Antigravity CLI (agy) with Ralph TUI for Gemini, Claude, and GPT-OSS models.
+---
+
+## Antigravity Agent
+
+The Antigravity agent plugin integrates with Google's `agy` CLI (Antigravity suite). Use this when the standalone Gemini CLI is unavailable for your account — Antigravity is the working path to Gemini, Claude, and GPT-OSS models via a Google AI Pro subscription.
+
+<Callout type="tip">
+Antigravity supports **subagent tracing** via `--output-format stream-json` — Ralph TUI shows tool calls and text deltas in real time.
+</Callout>
+
+## Prerequisites
+
+Install the Antigravity CLI and ensure `agy` is on your `PATH`:
+
+```bash
+agy --version
+agy models
+```
+
+Run `agy` once interactively and complete the Google sign-in. Antigravity stores its session tokens in the OS keyring (macOS Keychain, Linux secret-service via D-Bus, Windows Credential Manager), not in a file — `~/.gemini` holds configuration and skills only.
+
+Headless runs reuse those cached credentials, so the keyring must be reachable and unlocked. On a headless Linux box or over SSH, make sure a D-Bus session and keyring daemon are running (`export $(dbus-launch)`), otherwise `agy` fails with a locked-keyring error. An unauthenticated headless run exits with `authentication required` rather than hanging.
+
+## Basic Usage
+
+<Steps>
+  <Step title="Run with Antigravity">
+    Use the `--agent antigravity` flag:
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent antigravity
+    ```
+  </Step>
+
+  <Step title="Select a Model">
+    Override the model with `--model`. Use an ID from `agy models` (effort is part of the string):
+
+    ```bash
+    ralph-tui run --prd ./prd.json --agent antigravity --model gemini-3.1-pro-high
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Shorthand Config
+
+```toml
+# .ralph-tui/config.toml
+agent = "antigravity"
+
+[agentOptions]
+model = "gemini-3.1-pro-low"
+skipPermissions = true
+```
+
+### Full Config
+
+```toml
+[[agents]]
+name = "my-antigravity"
+plugin = "antigravity"
+default = true
+command = "agy"
+timeout = 300000
+
+[agents.options]
+model = "gemini-3.1-pro-high"
+skipPermissions = true
+```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | - | Model ID from `agy models` (e.g. `gemini-3.1-pro-high`). Leave empty for CLI default. |
+| `skipPermissions` | boolean | `true` | Pass `--dangerously-skip-permissions` to auto-approve tools |
+| `timeout` | number | `0` | Execution timeout in ms (0 = no timeout) |
+| `command` | string | `"agy"` | Path to Antigravity CLI executable |
+
+## Models
+
+List accepted IDs with:
+
+```bash
+agy models
+```
+
+Examples (list may drift):
+
+- `gemini-3.6-flash-high` / `medium` / `low`
+- `gemini-3.5-flash-high` / `medium` / `low`
+- `gemini-3.1-pro-high` / `low`
+- `claude-sonnet-4-6`
+- `claude-opus-4-6-thinking`
+- `gpt-oss-120b-medium`
+
+## Subagent Tracing
+
+Antigravity emits JSONL events via `--output-format stream-json`. Ralph TUI parses:
+
+- Text deltas from `step_update` / `agent_response`
+- Tool start/finish from `step_update` / `tool`
+- Errors from `result` with `status: ERROR`
+
+### Enabling Tracing
+
+```toml
+subagentTracingDetail = "full"
+```
+
+Or toggle in TUI:
+- Press `t` to cycle through detail levels
+- Press `T` (Shift+T) to toggle the subagent tree panel
+
+## How It Works
+
+When Ralph TUI executes a task with Antigravity:
+
+1. **Build command**: `agy --output-format stream-json [--dangerously-skip-permissions] [--model …]`
+2. **Pass prompt via stdin**: Avoids shell escaping; `--print` / `-p` is omitted because it takes the prompt as its own value
+3. **Stream output**: Captures stdout JSONL in real time
+4. **Parse events**: Maps step updates and results into display events
+5. **Detect completion**: Watches for process exit
+
+### CLI Arguments
+
+```bash
+agy \
+  --output-format stream-json \
+  --dangerously-skip-permissions \
+  --model gemini-3.1-pro-low \
+  < prompt.txt
+```
+
+<Callout type="info">
+Do not pass `--print` / `-p` when using stdin. Those flags consume the next argument as the prompt (`agy -p --output-format stream-json` is rejected because `-p` swallows the flag). `agy` runs non-interactively whenever stdin is not a terminal, which is always the case when Ralph TUI spawns it, so the prompt is piped instead.
+</Callout>
+
+## Troubleshooting
+
+### "Antigravity CLI (agy) not found"
+
+```bash
+agy --version
+which agy
+```
+
+Install the Antigravity CLI and ensure its install directory is on `PATH` — the official installer places `agy` in `~/.local/bin` on macOS and Linux.
+
+### Auth / permission errors
+
+Re-authenticate by running `agy` interactively and signing in again. If the CLI reports a locked or unreachable keyring, unlock the system keyring (see the Antigravity CLI troubleshooting guide) — `~/.gemini` existing is not evidence of a valid session, since the installer creates it. For autonomous runs, keep `skipPermissions = true` so Ralph TUI passes `--dangerously-skip-permissions`.
+
+### Invalid model
+
+```bash
+agy models
+```
+
+Use an exact ID from that list (effort is included in the model string).
+
+### Doctor check
+
+```bash
+ralph-tui doctor --agent antigravity
+```
+
+## Next Steps
+
+- **[Gemini Agent](/docs/plugins/agents/gemini)** - Legacy standalone Gemini CLI
+- **[Claude Agent](/docs/plugins/agents/claude)** - Anthropic's Claude Code
+- **[Configuration](/docs/configuration/options)** - Full options reference

@@ -354,6 +354,7 @@ describe('theme', () => {
         secondary: '#222222',
         tertiary: '#333333',
         highlight: '#444444',
+        overlay: '#555555',
       };
       const customTheme: PartialThemeColors = { bg: customBg };
 

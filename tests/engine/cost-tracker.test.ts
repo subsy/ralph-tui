@@ -12,11 +12,33 @@ const TEST_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-6': { inputPer1M: 5.0, outputPer1M: 25.0 },
   'sonnet': { inputPer1M: 3.0, outputPer1M: 15.0 },
   'claude-sonnet-4-6': { inputPer1M: 3.0, outputPer1M: 15.0 },
-  'haiku': { inputPer1M: 0.80, outputPer1M: 4.0 },
-  'claude-haiku-4-5': { inputPer1M: 0.80, outputPer1M: 4.0 },
+  'haiku': { inputPer1M: 1.0, outputPer1M: 5.0 },
+  'claude-haiku-4-5': { inputPer1M: 1.0, outputPer1M: 5.0 },
 };
 
 describe('CostTracker', () => {
+  it('prefers the longest pricing identifier regardless of insertion order', () => {
+    for (const pricing of [
+      { opus: { inputPer1M: 1, outputPer1M: 2 }, 'claude-opus-4-6': { inputPer1M: 5, outputPer1M: 25 } },
+      { 'claude-opus-4-6': { inputPer1M: 5, outputPer1M: 25 }, opus: { inputPer1M: 1, outputPer1M: 2 } },
+    ]) {
+      const tracker = new CostTracker(pricing);
+      expect(tracker.addIteration(1_000_000, 1_000_000, 'anthropic/claude-opus-4-6-20260205')).toBe(30);
+      expect(tracker.addIteration(1_000_000, 0, 'opus')).toBe(1);
+    }
+  });
+
+  it('retains configured tier aliases within provider and model identifiers', () => {
+    const tracker = new CostTracker({ opus: { inputPer1M: 5, outputPer1M: 25 } });
+    expect(tracker.addIteration(1_000_000, 0, 'anthropic/claude-opus-4-6')).toBe(5);
+  });
+
+  it('does not treat inherited object properties as configured model prices', () => {
+    const tracker = new CostTracker({ opus: { inputPer1M: 5, outputPer1M: 25 } });
+    expect(tracker.addIteration(1_000_000, 0, 'constructor')).toBe(0);
+    expect(tracker.addIteration(1_000_000, 0, 'toString')).toBe(0);
+  });
+
   let tracker: CostTracker;
 
   beforeEach(() => {
@@ -35,10 +57,10 @@ describe('CostTracker', () => {
     expect(snapshot.inputCost).toBeCloseTo(3.0);
   });
 
-  it('haiku pricing: 1M input tokens = $0.80', () => {
+  it('haiku pricing: 1M input tokens = $1.00', () => {
     tracker.addIteration(1_000_000, 0, 'claude-haiku-4-5');
     const snapshot = tracker.getSnapshot();
-    expect(snapshot.inputCost).toBeCloseTo(0.8);
+    expect(snapshot.inputCost).toBeCloseTo(1.0);
   });
 
   it('unknown model returns zero cost when no matching pricing entry', () => {
@@ -94,7 +116,7 @@ describe('CostTracker', () => {
     expect(tracker.getSnapshot().totalCost).toBe(0);
   });
 
-  it('matches substring model identifiers (e.g. "opus" in model name)', () => {
+  it('matches a configured tier alias exactly', () => {
     tracker.addIteration(1_000_000, 0, 'opus');
     const snapshot = tracker.getSnapshot();
     expect(snapshot.inputCost).toBeCloseTo(5.0);

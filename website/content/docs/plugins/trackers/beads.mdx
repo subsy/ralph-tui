@@ -77,6 +77,13 @@ Run with epic and tracker:
 ralph-tui run --tracker beads --epic beads-abc123
 ```
 
+Run one parallel session across multiple epics:
+
+```bash
+ralph-tui run --tracker beads --parallel --epic beads-ui --epic beads-backend
+ralph-tui run --tracker beads --parallel --epics beads-ui,beads-backend
+```
+
 ### Config File
 
 Set defaults in TOML:
@@ -94,7 +101,7 @@ beadsDir = ".beads"
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `beadsDir` | string | `.beads` | Path to .beads directory |
+| `beadsDir` | string | `.beads` | Path to .beads directory, relative to `workingDir` unless absolute |
 | `epicId` | string | - | Epic ID to filter tasks (set via `--epic` flag) |
 | `labels` | string | (empty) | Optional comma-separated label filter |
 | `workingDir` | string | `.` | Working directory for bd commands |
@@ -102,6 +109,29 @@ beadsDir = ".beads"
 <Callout type="info">
 The `epicId` should be set via `--epic` flag rather than config, since you'll likely work on different epics.
 </Callout>
+
+The Beads store can live outside the working directory. Set `BEADS_DIR` to
+the store path, or use an absolute `beadsDir` path. This supports shared or
+remote tracker setups, such as a Dolt-server-backed Beads store.
+
+### JSON Output Compatibility
+
+The Beads tracker reads both legacy `bd --json` payloads and the
+`BD_JSON_ENVELOPE=1` format, which wraps payloads in `{ schema_version, data }`.
+The envelope is also the default in bd v2.0, so no tracker configuration is
+needed for either format.
+
+## Multi-Epic Parallel Execution
+
+The Beads tracker supports multi-epic parallel runs when tasks are organized as children of epics:
+
+```bash
+ralph-tui run --tracker beads --parallel --epic beads-ui --epic beads-backend
+```
+
+Ralph fetches children for each selected epic, annotates each task with its source epic, builds one dependency graph, and schedules ready tasks across all selected epics with one worker pool. The first selected epic remains the compatibility `epicId`; the full selected set is saved as `epicIds` for resume.
+
+Cross-epic dependencies are honored when both tasks are inside the selected epic set. Dependencies outside the selected set must already be closed/cancelled, otherwise the dependent task is shown as blocked and excluded from scheduling.
 
 ## Beads Concepts
 
@@ -166,11 +196,10 @@ Beads uses 0-4 priority scale (0 = critical):
 
 The Beads tracker selects the next task by:
 
-1. Filter to tasks under the specified epic
-2. Filter to tasks with status `open`
-3. Filter to tasks with no unresolved dependencies
-4. Sort by priority (lowest number first)
-5. Return the first matching task
+1. Filter to tasks within the configured epic and label scope
+2. Resume an already-`in_progress` task within the configured scope, preferring the lowest priority number
+3. Otherwise use `bd ready` to select open work with no unresolved dependencies
+4. Return the first matching task
 
 ## Git Sync
 
@@ -237,11 +266,12 @@ When Ralph TUI runs with the Beads tracker:
 
 ## Switching Epics
 
-Change epics mid-session by pressing `l` in the TUI:
+Change epics while execution is idle by pressing `l` in the TUI:
 
 1. Press `l` to open epic selector
-2. Choose from available epics
-3. Task list updates to show new epic's tasks
+2. Use `Space` to select one or more epics
+3. Press `Enter` to accept the selected epic set
+4. Task list updates to show the selected epic scope
 
 Or restart with a different `--epic` flag.
 
@@ -255,6 +285,9 @@ Initialize Beads in your project:
 bd init
 ```
 
+If the store is outside the working directory, verify that `BEADS_DIR` points
+to it or that `beadsDir` is configured with its absolute path.
+
 ### "bd binary not available"
 
 Install the Beads CLI from the **[Beads GitHub repo](https://github.com/steveyegge/beads)**.
@@ -263,7 +296,7 @@ Install the Beads CLI from the **[Beads GitHub repo](https://github.com/steveyeg
 
 Check that:
 1. **Tasks are children of the epic**: `bd list --parent <epic>` (create with `--parent <epic>`)
-2. **Tasks are `open` status**: `bd list --status open`
+2. **Tasks are `open` or `in_progress` status**: `bd list --all` (tasks stuck in another status, such as `blocked`, won't be selected)
 3. **Dependencies are met**: `bd show <task-id>` (blocked tasks won't be selected)
 4. **Label filter matches** (if configured): `bd list --label <your-label>`
 

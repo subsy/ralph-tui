@@ -51,6 +51,8 @@ function getStatusDisplay(status: RalphStatus): { indicator: string; color: stri
       return { indicator: statusIndicators.complete, color: colors.status.success, label: 'Complete' };
     case 'idle':
       return { indicator: statusIndicators.idle, color: colors.fg.muted, label: 'Idle' };
+    case 'waiting':
+      return { indicator: statusIndicators.waiting, color: colors.fg.muted, label: 'Waiting' };
     case 'error':
       return { indicator: statusIndicators.blocked, color: colors.status.error, label: 'Error' };
   }

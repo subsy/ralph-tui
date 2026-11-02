@@ -49,6 +49,10 @@ ralph-tui run --parallel
 
 # Force parallel with specific worker count
 ralph-tui run --parallel 4
+
+# Force one parallel session across multiple epics
+ralph-tui run --parallel --epic ui-epic --epic backend-epic
+ralph-tui run --parallel --epics ui-epic,backend-epic
 ```
 
 ### Flag Reference
@@ -59,9 +63,15 @@ ralph-tui run --parallel 4
 | `--parallel` | Force parallel execution with default worker count |
 | `--parallel N` | Force parallel execution with N workers |
 | `--direct-merge` | Merge directly to current branch instead of creating a session branch |
+| `--epic <id>` | Select an epic. This option can be repeated for multi-epic hierarchy tracker runs. |
+| `--epics <ids>` | Select comma-separated epics for hierarchy tracker runs. |
 
 <Callout type="info">
   When both `--serial` and `--parallel` are specified, `--serial` takes precedence.
+</Callout>
+
+<Callout type="tip">
+Multi-epic selection is currently a runtime option, not a config-file setting. Use repeated `--epic` or `--epics` so each session records the exact selected epic set.
 </Callout>
 
 ## Precedence
@@ -125,6 +135,18 @@ mode = "never"    # Disable auto-detection
 # Override config to run parallel when you choose
 ralph-tui run --parallel 3
 ```
+
+### Multi-Epic Hierarchy Tracker Run
+
+For Beads-style hierarchy trackers, select more than one epic at runtime:
+
+```bash
+ralph-tui run --tracker beads-rust --parallel 4 \
+  --epic ui-epic \
+  --epic backend-epic
+```
+
+Ralph preserves the first ID as `epicId` for compatibility and stores the full selected set as `epicIds` in session state. Worker count remains global across all selected epics.
 
 ## Smart Parallelism Heuristics
 

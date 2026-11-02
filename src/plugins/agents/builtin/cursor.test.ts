@@ -10,6 +10,7 @@ import {
   parseCursorJsonLine,
   parseCursorOutputToEvents,
 } from './cursor.js';
+import { processAgentEvents } from '../output-formatting.js';
 
 describe('CursorAgentPlugin', () => {
   let plugin: CursorAgentPlugin;
@@ -32,7 +33,7 @@ describe('CursorAgentPlugin', () => {
     });
 
     test('has correct default command', () => {
-      expect(plugin.meta.defaultCommand).toBe('cursor');
+      expect(plugin.meta.defaultCommand).toBe('agent');
     });
 
     test('supports streaming', () => {
@@ -376,6 +377,79 @@ describe('parseCursorJsonLine', () => {
     expect((events[0] as { name: string }).name).toBe('Read');
   });
 
+  test('parses Cursor readToolCall started event', () => {
+    const input = JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      tool_call: {
+        readToolCall: {
+          args: { path: 'README.md' },
+        },
+      },
+    });
+    const events = parseCursorJsonLine(input);
+
+    expect(events).toEqual([
+      { type: 'tool_use', name: 'read', input: { path: 'README.md' } },
+    ]);
+  });
+
+  test('parses Cursor writeToolCall started event', () => {
+    const input = JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      tool_call: {
+        writeToolCall: {
+          args: { path: 'src/index.ts', content: 'export {}' },
+        },
+      },
+    });
+    const events = parseCursorJsonLine(input);
+
+    expect(events).toEqual([
+      {
+        type: 'tool_use',
+        name: 'write',
+        input: { path: 'src/index.ts', content: 'export {}' },
+      },
+    ]);
+  });
+
+  test('parses tool_call.function arguments as JSON', () => {
+    const input = JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      tool_call: {
+        function: {
+          name: 'shell',
+          arguments: '{"command":"pwd"}',
+        },
+      },
+    });
+    const events = parseCursorJsonLine(input);
+
+    expect(events).toEqual([
+      { type: 'tool_use', name: 'shell', input: { command: 'pwd' } },
+    ]);
+  });
+
+  test('does not throw or pass through invalid function arguments', () => {
+    const input = JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      tool_call: {
+        function: {
+          name: 'shell',
+          arguments: 'not JSON',
+        },
+      },
+    });
+
+    expect(parseCursorJsonLine(input)).toEqual([
+      { type: 'tool_use', name: 'shell', input: undefined },
+    ]);
+  });
+
   test('parses tool_call completed event', () => {
     const input = JSON.stringify({
       type: 'tool_call',
@@ -457,6 +531,43 @@ describe('parseCursorOutputToEvents', () => {
     expect(events.length).toBe(1);
     expect((events[0] as { content: string }).content).toBe('Valid');
   });
+
+  test('renders documented tool_call output with the tool name and path', () => {
+    const lines = [
+      { type: 'system', subtype: 'init', session_id: 'session-1' },
+      { type: 'user', message: { content: 'Read the README.' }, session_id: 'session-1' },
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'I will inspect the README.' }] },
+        session_id: 'session-1',
+      },
+      {
+        type: 'tool_call',
+        subtype: 'started',
+        call_id: 'toolu-1',
+        tool_call: { readToolCall: { args: { path: 'README.md' } } },
+        session_id: 'session-1',
+      },
+      {
+        type: 'tool_call',
+        subtype: 'completed',
+        call_id: 'toolu-1',
+        tool_call: {
+          readToolCall: {
+            args: { path: 'README.md' },
+            result: { success: { content: 'README contents' } },
+          },
+        },
+        session_id: 'session-1',
+      },
+      { type: 'result', duration_ms: 42, session_id: 'session-1' },
+    ].map((line) => JSON.stringify(line)).join('\n');
+
+    const output = processAgentEvents(parseCursorOutputToEvents(lines));
+
+    expect(output).toContain('[read]');
+    expect(output).toContain('README.md');
+  });
 });
 
 describe('parseCursorJsonLine edge cases', () => {
@@ -479,6 +590,30 @@ describe('parseCursorJsonLine edge cases', () => {
     const events = parseCursorJsonLine(input);
     expect(events.length).toBe(1);
     expect((events[0] as { name: string }).name).toBe('unknown');
+  });
+
+  test('falls back when tool_call is empty or non-object', () => {
+    const emptyToolCall = parseCursorJsonLine(JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      tool_call: {},
+      name: 'Read',
+    }));
+    const nonObjectToolCall = parseCursorJsonLine(JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      tool_call: null,
+      tool: 'Glob',
+    }));
+    const unknownToolCall = parseCursorJsonLine(JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      tool_call: [],
+    }));
+
+    expect((emptyToolCall[0] as { name: string }).name).toBe('Read');
+    expect((nonObjectToolCall[0] as { name: string }).name).toBe('Glob');
+    expect((unknownToolCall[0] as { name: string }).name).toBe('unknown');
   });
 
   test('handles assistant message without content', () => {

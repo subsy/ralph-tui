@@ -45,7 +45,7 @@ interface RegisteredPlugin {
 /**
  * Result of loading a plugin
  */
-interface PluginLoadResult {
+export interface PluginLoadResult {
   success: boolean;
   pluginId?: string;
   error?: string;

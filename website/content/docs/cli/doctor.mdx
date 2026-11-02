@@ -40,6 +40,13 @@ Sends a test prompt to verify the agent can respond:
 - Verifies network connectivity
 - Tests actual agent responsiveness
 
+The preflight check defaults to a **30 second timeout**. If you're using a local reasoning model or a slow wrapper that can legitimately take longer to produce its first response, raise the limit with [`preflightTimeoutMs`](/docs/configuration/options#preflight-timeout):
+
+```toml
+# .ralph-tui/config.toml
+preflightTimeoutMs = 120000  # 2 minutes
+```
+
 ## Examples
 
 ### Basic Usage

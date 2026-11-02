@@ -155,6 +155,33 @@ If you don't see real-time output from the agent:
   </TabsContent>
 </TabsRoot>
 
+### Preflight Check Times Out
+
+`ralph-tui doctor` or `ralph-tui setup` reports that the agent failed to respond, but the same agent works fine when you invoke it directly.
+
+The preflight check enforces a 30-second timeout by default. Local reasoning models, slow wrappers, and cold-start scenarios can all exceed this on a perfectly healthy setup.
+
+**Solution:** Raise [`preflightTimeoutMs`](/docs/configuration/options#preflight-timeout) in your config:
+
+```toml
+# .ralph-tui/config.toml
+
+# Global default for the configured agent
+preflightTimeoutMs = 60000  # 60 seconds
+
+# Or set it per-agent (overrides the shorthand)
+[[agents]]
+name = "my-local-model"
+plugin = "opencode"
+preflightTimeoutMs = 180000  # 3 minutes
+```
+
+Valid range: `1000`–`300000` milliseconds (1 second to 5 minutes).
+
+<Callout type="tip">
+If preflight passes but real runs still feel slow, that's a separate concern — `preflightTimeoutMs` only affects the one-shot health check, not iteration execution. For execution timeouts, see the per-agent `timeout` option.
+</Callout>
+
 ---
 
 ## Session Issues

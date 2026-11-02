@@ -222,7 +222,7 @@ Complete this checklist when adding a new agent plugin:
   - [ ] `description` - Brief description
   - [ ] `version` - Plugin version
   - [ ] `author` - Author/organization name
-  - [ ] `defaultCommand` - CLI command name (e.g., `'cursor'`)
+  - [ ] `defaultCommand` - CLI command name (e.g., `'agent'`)
   - [ ] `supportsStreaming` - Whether agent supports streaming output
   - [ ] `supportsInterrupt` - Whether agent can be interrupted
   - [ ] `supportsFileContext` - Whether agent accepts file context

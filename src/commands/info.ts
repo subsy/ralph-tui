@@ -14,7 +14,7 @@ import { getAgentRegistry } from '../plugins/agents/registry.js';
 import { registerBuiltinAgents } from '../plugins/agents/builtin/index.js';
 import { registerBuiltinTrackers } from '../plugins/trackers/builtin/index.js';
 import { getUserConfigDir } from '../templates/engine.js';
-import { listBundledSkills, resolveSkillsPath } from '../setup/skill-installer.js';
+import { getSkillSearchPaths, listBundledSkills, resolveSkillsPath } from '../setup/skill-installer.js';
 import { getEnvExclusionReport, formatEnvExclusionReport, type EnvExclusionReport } from '../plugins/agents/base.js';
 
 /**
@@ -64,10 +64,10 @@ export interface AgentSkillsInfo {
   name: string;
   /** Whether the agent is available/detected */
   available: boolean;
-  /** Personal skills directory path */
-  personalDir: string;
-  /** Repo skills directory pattern */
-  repoDir: string;
+  /** Personal skills discovery directories */
+  personalDir: string[];
+  /** Repo skills discovery directories */
+  repoDir: string[];
   /** Skills installed in personal directory */
   personalSkills: string[];
 }
@@ -181,6 +181,22 @@ async function listSkillsInDir(skillsDir: string): Promise<string[]> {
 }
 
 /**
+ * List installed skills across multiple candidate directories.
+ */
+async function listSkillsInDirs(skillsDirs: string[]): Promise<string[]> {
+  const installed = new Set<string>();
+
+  for (const skillsDir of skillsDirs) {
+    const skills = await listSkillsInDir(skillsDir);
+    for (const skill of skills) {
+      installed.add(skill);
+    }
+  }
+
+  return [...installed].sort();
+}
+
+/**
  * Collect skills information from all sources.
  */
 async function collectSkillsInfo(
@@ -225,15 +241,15 @@ async function collectSkillsInfo(
     }
 
     // Get installed skills in personal directory
-    const personalDir = resolveSkillsPath(meta.skillsPaths.personal);
-    const personalSkills = await listSkillsInDir(personalDir);
+    const searchPaths = getSkillSearchPaths(meta.skillsPaths, cwd, meta.id);
+    const personalSkills = await listSkillsInDirs(searchPaths.personal);
 
     agents.push({
       id: meta.id,
       name: meta.name,
       available,
-      personalDir,
-      repoDir: meta.skillsPaths.repo,
+      personalDir: searchPaths.personal,
+      repoDir: searchPaths.repo,
       personalSkills,
     });
   }
@@ -429,7 +445,7 @@ export function formatSystemInfo(info: SystemInfo): string {
   for (const agent of info.skills.agents) {
     const status = agent.available ? '' : ' (not detected)';
     lines.push(`  ${agent.name}${status}:`);
-    lines.push(`    Path: ${agent.personalDir}`);
+    lines.push(`    Path${agent.personalDir.length === 1 ? '' : 's'}: ${agent.personalDir.join(', ')}`);
     lines.push(`    Installed: ${agent.personalSkills.length > 0 ? agent.personalSkills.join(', ') : '(none)'}`);
   }
 

@@ -14,8 +14,9 @@ import type { CostSnapshot } from './cost-tracker.js';
  * Reason why an agent is currently active.
  * - 'primary': The configured primary agent
  * - 'fallback': A fallback agent due to rate limiting of primary
+ * - 'user-selected': A user-selected agent for subsequent iterations
  */
-export type ActiveAgentReason = 'primary' | 'fallback';
+export type ActiveAgentReason = 'primary' | 'fallback' | 'user-selected';
 
 /**
  * Tracks which agent is currently active and why.
@@ -202,6 +203,7 @@ export interface IterationResult {
 export type EngineEventType =
   | 'engine:started'
   | 'engine:stopped'
+  | 'engine:waiting'
   | 'engine:paused'
   | 'engine:resumed'
   | 'engine:warning'
@@ -295,6 +297,17 @@ export interface EngineStoppedEvent extends EngineEventBase {
 }
 
 /**
+ * Engine waiting event - emitted when watch mode enters an idle state.
+ */
+export interface EngineWaitingEvent extends EngineEventBase {
+  type: 'engine:waiting';
+  /** Why the engine became idle */
+  reason: 'no_tasks' | 'completed';
+  /** Polling interval in milliseconds */
+  pollIntervalMs: number;
+}
+
+/**
  * Engine paused event
  */
 export interface EnginePausedEvent extends EngineEventBase {
@@ -318,7 +331,7 @@ export interface EngineResumedEvent extends EngineEventBase {
 export interface EngineWarningEvent extends EngineEventBase {
   type: 'engine:warning';
   /** Warning code for programmatic handling */
-  code: 'sandbox-network-conflict';
+  code: 'sandbox-network-conflict' | 'task-refresh-failed' | 'task-reset-race';
   /** Human-readable warning message */
   message: string;
 }
@@ -490,6 +503,13 @@ export interface TaskAutoCommittedEvent extends EngineEventBase {
   commitMessage: string;
   /** Short SHA of the commit (if available) */
   commitSha?: string;
+  /**
+   * Populated when a configured `commitMessageTemplate` failed to render
+   * (Handlebars error or empty/whitespace result) and the engine fell back
+   * to the default template. Always undefined when no template was set or
+   * the template rendered cleanly.
+   */
+  templateFallbackReason?: string;
 }
 
 /**
@@ -704,6 +724,7 @@ export interface CostThresholdExceededEvent extends EngineEventBase {
 export type EngineEvent =
   | EngineStartedEvent
   | EngineStoppedEvent
+  | EngineWaitingEvent
   | EnginePausedEvent
   | EngineResumedEvent
   | EngineWarningEvent
@@ -749,7 +770,7 @@ export type EngineEventListener = (event: EngineEvent) => void;
  * - 'paused': Paused, waiting to resume
  * - 'stopping': Stop requested, shutting down
  */
-export type EngineStatus = 'idle' | 'running' | 'pausing' | 'paused' | 'stopping';
+export type EngineStatus = 'idle' | 'running' | 'waiting' | 'pausing' | 'paused' | 'stopping';
 
 /**
  * Engine state snapshot

@@ -5,7 +5,7 @@
 
 import type { TaskStatus, RalphStatus } from './theme.js';
 import type { IterationResult, SubagentTreeNode, ActiveAgentState, RateLimitState } from '../engine/types.js';
-import type { TaskPriority } from '../plugins/trackers/types.js';
+import type { ExecutionScope, TaskPriority } from '../plugins/trackers/types.js';
 import type { SubagentDetailLevel, SandboxConfig, SandboxMode } from '../config/types.js';
 import type { FormattedSegment } from '../plugins/agents/output-formatting.js';
 import type { TokenUsageSummary } from '../plugins/agents/usage.js';
@@ -66,6 +66,8 @@ export interface TaskItem {
   updatedAt?: string;
   /** Parent task/epic ID for hierarchical display */
   parentId?: string;
+  /** Execution scope this task belongs to during multi-epic runs */
+  executionScope?: ExecutionScope;
   /** Tracker-specific metadata (varies by plugin) */
   metadata?: Record<string, unknown>;
   /** Task-level token/context usage indicators */
