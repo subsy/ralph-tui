@@ -23,6 +23,7 @@ export function parseExecutableCriteria(criteria: string[]): ExecutableAC[] {
 
   for (const criterion of criteria) {
     const cmdMatch = criterion.match(/[`']([^`']+)[`']/);
+    // Detect file/directory existence: "Tests exist in src/__tests__/"
     const existsMatch = criterion.match(
       /(?:exist|created|present)\s+(?:in|at)\s+(?:'([^']+)'|"([^"]+)"|`([^`]+)`|([^\s'"`]+))/i
     );
