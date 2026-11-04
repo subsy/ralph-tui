@@ -79,6 +79,7 @@ export const docsNavigation: NavItem[] = [
         title: 'Agents',
         items: [
           { title: 'Antigravity', href: '/docs/plugins/agents/antigravity', label: 'New' },
+          { title: 'Amp', href: '/docs/plugins/agents/ampcode', label: 'New' },
           { title: 'Claude', href: '/docs/plugins/agents/claude' },
           { title: 'OpenCode', href: '/docs/plugins/agents/opencode' },
           { title: 'Factory Droid', href: '/docs/plugins/agents/droid' },

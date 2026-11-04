@@ -143,7 +143,7 @@ for (const [id, factory] of [['minimax', createMiniMaxAgent], ['zai', createZaiA
 test('registers both provider factories additively alongside existing agents', () => {
   registerBuiltinAgents();
   const ids = getAgentRegistry().getRegisteredPlugins().map((meta) => meta.id);
-  for (const id of ['claude', 'opencode', 'droid', 'kimi', 'antigravity', 'minimax', 'zai']) {
+  for (const id of ['claude', 'opencode', 'droid', 'kimi', 'antigravity', 'ampcode', 'minimax', 'zai']) {
     expect(ids).toContain(id);
   }
 });
