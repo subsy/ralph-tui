@@ -13,6 +13,46 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach, beforeAll, afterAll, spyOn, mock } from 'bun:test';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+describe.skipIf(process.platform === 'win32')('targeted skill install subprocess environment', () => {
+  for (const agentId of ['minimax', 'zai', 'claude', null]) {
+    for (const local of [false, true]) {
+      test(`${agentId ?? 'all agents'} ${local ? 'local' : 'default global'} preserves the correct config scope`, async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'skill-install-cli-'));
+        const capture = join(directory, 'capture.json');
+        const executable = join(directory, 'bunx');
+        await writeFile(executable, `#!/usr/bin/env bun
+await Bun.write(${JSON.stringify(capture)}, JSON.stringify({args:process.argv.slice(2),config:process.env.CLAUDE_CONFIG_DIR}));
+console.log('Found 4 skills\\nInstalling to: Claude Code\\nInstallation complete');
+`);
+        await chmod(executable, 0o755);
+        try {
+          const args = ['skills', 'install', ...(agentId ? ['--agent', agentId] : []), ...(local ? ['--local'] : [])];
+          const child = Bun.spawn([process.execPath, fileURLToPath(new URL('../cli.tsx', import.meta.url)), ...args], {
+            cwd: directory,
+            env: { ...process.env, PATH: `${directory}${delimiter}${process.env.PATH}`, CLAUDE_CONFIG_DIR: 'parent-config' },
+            stdout: 'pipe',
+            stderr: 'pipe',
+          });
+          const [, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+          expect(stderr).not.toContain('Error:');
+          expect(exitCode).toBe(0);
+          const call = JSON.parse(await readFile(capture, 'utf8')) as { args: string[]; config: string };
+          const isolated = !local && (agentId === 'minimax' || agentId === 'zai');
+          expect(call.config).toBe(isolated ? join(homedir(), '.cc-mirror', agentId, 'config') : 'parent-config');
+          expect(call.args.includes('-g')).toBe(!local);
+          if (agentId) expect(call.args[call.args.indexOf('-a') + 1]).toBe('claude-code');
+        } finally {
+          await rm(directory, { recursive: true, force: true });
+        }
+      }, 30_000);
+    }
+  }
+});
 
 // Declare module-level variables for dynamically imported functions
 let executeSkillsCommand: typeof import('./skills.js').executeSkillsCommand;
@@ -41,6 +81,7 @@ beforeAll(async () => {
     computeSkillsPath: realSkillInstaller.computeSkillsPath,
     getBundledSkillsDir: realSkillInstaller.getBundledSkillsDir,
     isEloopOnlyFailure: realSkillInstaller.isEloopOnlyFailure,
+    getAddSkillEnv: realSkillInstaller.getAddSkillEnv,
     getSkillStatusForAgent: realSkillInstaller.getSkillStatusForAgent,
     AGENT_ID_MAP: realSkillInstaller.AGENT_ID_MAP,
   }));

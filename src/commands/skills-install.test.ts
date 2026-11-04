@@ -69,6 +69,7 @@ describe('skills install command (spawn)', () => {
       computeSkillsPath: realSkillInstaller.computeSkillsPath,
       getBundledSkillsDir: realSkillInstaller.getBundledSkillsDir,
       isEloopOnlyFailure: realSkillInstaller.isEloopOnlyFailure,
+      getAddSkillEnv: realSkillInstaller.getAddSkillEnv,
       getSkillStatusForAgent: realSkillInstaller.getSkillStatusForAgent,
       AGENT_ID_MAP: realSkillInstaller.AGENT_ID_MAP,
     }));

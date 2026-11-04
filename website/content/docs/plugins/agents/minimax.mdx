@@ -1,0 +1,88 @@
+---
+title: MiniMax Agent
+description: Use the cc-mirror MiniMax wrapper with Ralph TUI.
+---
+
+## Overview
+
+The `minimax` agent runs the **cc-mirror wrapper**, not a standalone MiniMax CLI.
+cc-mirror configures an isolated Claude Code runtime to use MiniMax's Anthropic-compatible
+endpoint. Ralph reuses its Claude execution lifecycle, stdin prompt delivery, streaming
+JSONL parser, file context, interruption, and subagent tracing.
+
+## Prerequisites
+
+Follow the [cc-mirror setup guide](https://github.com/numman-ali/cc-mirror) to create
+the default `minimax` variant with your MiniMax credentials:
+
+```bash
+npx cc-mirror quick --provider minimax --api-key "$MINIMAX_API_KEY"
+minimax --version
+minimax --print "hello"
+```
+
+The wrapper must be on `PATH`. Its `--version` output may be a provider label rather
+than a Claude version number; Ralph accepts either. Use `npx cc-mirror doctor` to
+check credentials and runtime configuration.
+
+## Basic Usage
+
+```bash
+ralph-tui run --prd ./prd.json --agent minimax
+ralph-tui run --prd ./prd.json --agent minimax --model sonnet
+```
+
+`sonnet`, `opus`, and `haiku` select cc-mirror's configured model slots; they do not
+select Anthropic-hosted models. Leave the model unset to preserve the wrapper's
+default. Explicit MiniMax model IDs are also passed through without a fixed allowlist.
+Configure provider endpoints and model-slot mappings in cc-mirror, not Ralph.
+
+## Configuration
+
+```toml
+agent = "minimax"
+
+[agentOptions]
+printMode = "stream"
+skipPermissions = true
+```
+
+For a custom executable location of the default variant:
+
+```toml
+[[agents]]
+name = "my-minimax"
+plugin = "minimax"
+default = true
+command = "/path/to/minimax"
+
+[agents.options]
+model = "sonnet"
+printMode = "stream"
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `model` | Unset | Wrapper default, configured slot alias, or provider model ID |
+| `printMode` | `stream` | `text`, `json`, or `stream`; structured modes use streaming JSONL |
+| `skipPermissions` | `true` | Pass `--dangerously-skip-permissions`; disable for restricted execution |
+| `timeout` | `0` | Agent timeout in milliseconds; zero disables it |
+
+## Skills and Sandbox
+
+Project skills use `.claude/skills`, since this is a Claude Code runtime.
+Personal skills and credentials live in `~/.cc-mirror/minimax/config`.
+`ralph-tui skills install --agent minimax` targets the isolated config, not
+your regular `~/.claude` installation. Sandbox paths describe the default-named
+variant, including its native runtime and legacy npm runtime location.
+
+For other cc-mirror variants, the existing `claude` agent with a
+[custom command](/docs/configuration/options#custom-command) remains an alternative;
+configure sandbox paths to match that variant before enabling sandboxing.
+
+## Troubleshooting
+
+If detection fails, confirm `minimax --version` works in the same shell.
+If execution fails, test `minimax --print "hello"` directly, run cc-mirror's doctor,
+and check your provider subscription, model mappings, and credentials.
+Installing the regular `claude` command alone does not create the cc-mirror wrapper.

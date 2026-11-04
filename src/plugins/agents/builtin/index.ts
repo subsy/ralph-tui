@@ -7,6 +7,8 @@ import { getAgentRegistry } from '../registry.js';
 import createDroidAgent from '../droid/index.js';
 import createClaudeAgent from './claude.js';
 import createOpenCodeAgent from './opencode.js';
+import createMiniMaxAgent from './minimax.js';
+import createZaiAgent from './zai.js';
 import createAmpcodeAgent from './ampcode.js';
 import createGeminiAgent from './gemini.js';
 import createCodexAgent from './codex.js';
@@ -28,6 +30,8 @@ export function registerBuiltinAgents(): void {
   // Register built-in plugins
   registry.registerBuiltin(createClaudeAgent);
   registry.registerBuiltin(createOpenCodeAgent);
+  registry.registerBuiltin(createMiniMaxAgent);
+  registry.registerBuiltin(createZaiAgent);
   registry.registerBuiltin(createAmpcodeAgent);
   registry.registerBuiltin(createDroidAgent);
   registry.registerBuiltin(createGeminiAgent);
@@ -45,6 +49,8 @@ export function registerBuiltinAgents(): void {
 export {
   createClaudeAgent,
   createOpenCodeAgent,
+  createMiniMaxAgent,
+  createZaiAgent,
   createAmpcodeAgent,
   createDroidAgent,
   createGeminiAgent,
@@ -61,6 +67,8 @@ export {
 // Export Claude JSONL parsing types and utilities
 export type { ClaudeJsonlMessage, JsonlParseResult } from './claude.js';
 export { ClaudeAgentPlugin } from './claude.js';
+export { MiniMaxAgentPlugin } from './minimax.js';
+export { ZaiAgentPlugin } from './zai.js';
 
 // Export Ampcode JSONL parsing types and utilities
 export type { AmpcodeJsonlMessage } from './ampcode.js';
