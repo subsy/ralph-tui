@@ -121,6 +121,8 @@ function normalizeConfigAfterLoad(config: StoredConfig): StoredConfig {
   };
 }
 
+class EnginePolicyConfigError extends Error {}
+
 /**
  * Load and validate a single TOML config file.
  * @param configPath Path to the config file
@@ -142,11 +144,18 @@ async function loadConfigFile(configPath: string): Promise<LoadConfigResult> {
     const result: ConfigParseResult = validateStoredConfig(parsed);
     if (!result.success) {
       const errorMsg = formatConfigErrors(result.errors ?? [], configPath);
+      if (result.errors?.some(({ path }) =>
+        path === 'verification' || path.startsWith('verification.') ||
+        path === 'completion' || path.startsWith('completion.')
+      )) {
+        throw new EnginePolicyConfigError(errorMsg);
+      }
       return { config: {}, exists: true, errors: errorMsg };
     }
 
     return { config: normalizeConfigAfterLoad(result.data as StoredConfig), exists: true };
-  } catch {
+  } catch (error) {
+    if (error instanceof EnginePolicyConfigError) throw error;
     // File doesn't exist or can't be read
     return { config: {}, exists: false };
   }
@@ -280,6 +289,21 @@ function mergeConfigs(
   }
   if (project.parallel !== undefined) {
     merged.parallel = { ...merged.parallel, ...project.parallel };
+  }
+  if (project.modelEscalation !== undefined) {
+    merged.modelEscalation = {
+      ...merged.modelEscalation,
+      ...project.modelEscalation,
+    };
+  }
+  if (project.verification !== undefined) {
+    merged.verification = { ...merged.verification, ...project.verification };
+  }
+  if (project.cost !== undefined) {
+    merged.cost = { ...merged.cost, ...project.cost };
+  }
+  if (project.completion !== undefined) {
+    merged.completion = { ...merged.completion, ...project.completion };
   }
 
   return merged;
@@ -716,14 +740,28 @@ export async function buildConfig(
     epicId: primaryEpicId,
     epicIds,
     prdPath: options.prdPath,
-    model: options.model ?? storedConfig.model,
+    model: options.model ?? (
+      options.startModel || options.escalateModel || storedConfig.modelEscalation?.enabled
+        ? undefined : storedConfig.model
+    ),
     showTui: !options.headless,
     errorHandling,
     sandbox,
     // CLI --prompt takes precedence over config file prompt_template
     promptTemplate: options.promptPath ?? storedConfig.prompt_template,
-    autoCommit: storedConfig.autoCommit ?? false,
     commitMessageTemplate: storedConfig.commitMessageTemplate,
+    cost: storedConfig.cost,
+    completion: storedConfig.completion,
+    modelEscalation: (options.startModel || options.escalateModel)
+      ? {
+          ...storedConfig.modelEscalation,
+          enabled: true,
+          ...(options.startModel ? { startModel: options.startModel } : {}),
+          ...(options.escalateModel ? { escalateModel: options.escalateModel } : {}),
+        }
+      : storedConfig.modelEscalation ?? undefined,
+    verification: storedConfig.verification ?? undefined,
+    autoCommit: options.autoCommit ?? storedConfig.autoCommit ?? false,
   };
 }
 

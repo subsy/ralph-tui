@@ -13,6 +13,7 @@ import {
   findResolutionByPath,
   areAllConflictsResolved,
   applyParallelFailureState,
+  resolveParallelMode,
   buildParallelSummaryFilePath,
   createParallelRunSummary,
   formatParallelRunSummary,
@@ -24,6 +25,7 @@ import {
   type TaskRangeFilter,
   type ParallelConflictState,
 } from './run.js';
+import { analyzeTaskGraph, shouldRunParallel } from '../parallel/task-graph.js';
 import { initializeAndReportPluginLoadFailures } from './plugin-load.js';
 import type { ExecutionScope, TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import type {
@@ -1258,5 +1260,142 @@ describe('conflict resolution helpers', () => {
       expect(fallbackState.status).toBe('failed');
       expect(persisted?.status).toBe('failed');
     });
+  });
+});
+
+describe('resolveParallelMode', () => {
+  test('defaults to serial when no flags and no config', () => {
+    const result = resolveParallelMode({});
+
+    expect(result).toBe('never');
+  });
+
+  test('returns never when --serial flag is set', () => {
+    const result = resolveParallelMode({ serial: true });
+
+    expect(result).toBe('never');
+  });
+
+  test('returns always when --parallel flag is set', () => {
+    const result = resolveParallelMode({ parallel: true });
+
+    expect(result).toBe('always');
+  });
+
+  test('--serial overrides stored config auto mode', () => {
+    const result = resolveParallelMode(
+      { serial: true },
+      { parallel: { mode: 'auto' } }
+    );
+
+    expect(result).toBe('never');
+  });
+
+  test('--parallel overrides stored config never mode', () => {
+    const result = resolveParallelMode(
+      { parallel: 4 },
+      { parallel: { mode: 'never' } }
+    );
+
+    expect(result).toBe('always');
+  });
+
+  test('uses stored config mode when no CLI flags', () => {
+    const result = resolveParallelMode({}, { parallel: { mode: 'never' } });
+
+    expect(result).toBe('never');
+  });
+
+  test('supports explicit configured auto detection', () => {
+    expect(resolveParallelMode({}, { parallel: { mode: 'auto' } })).toBe('auto');
+  });
+});
+
+describe('parallel mode auto-detection', () => {
+  function makeTask(id: string, dependsOn?: string[]): TrackerTask {
+    return {
+      id,
+      title: `Task ${id}`,
+      status: 'open' as const,
+      priority: 2 as const,
+      dependsOn,
+    };
+  }
+
+  test('auto mode detects independent tasks as parallel', () => {
+    const tasks = [makeTask('A'), makeTask('B'), makeTask('C')];
+    const analysis = analyzeTaskGraph(tasks);
+
+    expect(shouldRunParallel(analysis)).toBe(true);
+    expect(analysis.maxParallelism).toBeGreaterThanOrEqual(2);
+  });
+
+  test('auto mode falls back to serial when all tasks are sequential', () => {
+    // A -> B -> C: fully sequential chain
+    const tasks = [
+      makeTask('A'),
+      makeTask('B', ['A']),
+      makeTask('C', ['B']),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+
+    // All tasks are in different groups - no parallel group has 2+ tasks
+    expect(shouldRunParallel(analysis)).toBe(false);
+  });
+});
+
+describe('--conflict-timeout parsing', () => {
+  test.each(['abc', '0', '60000ms', '1.5', 'Infinity'])(
+    'consumes invalid timeout %s without selecting it as an epic', (timeout) => {
+      const result = parseRunArgs(['--conflict-timeout', timeout, '--start-model', 'sonnet']);
+      expect(result.conflictTimeout).toBeUndefined();
+      expect(result.epicId).toBeUndefined();
+      expect(result.startModel).toBe('sonnet');
+    }
+  );
+
+  test('does not consume the next option as a missing timeout', () => {
+    const result = parseRunArgs(['--conflict-timeout', '--start-model', 'opus']);
+    expect(result.conflictTimeout).toBeUndefined();
+    expect(result.startModel).toBe('opus');
+  });
+
+  test('parses --conflict-timeout with valid ms value', () => {
+    const result = parseRunArgs(['--conflict-timeout', '60000']);
+
+    expect(result.conflictTimeout).toBe(60000);
+  });
+
+  test('ignores --conflict-timeout with invalid value', () => {
+    const result = parseRunArgs(['--conflict-timeout', 'abc']);
+
+    expect(result.conflictTimeout).toBeUndefined();
+  });
+
+  test('ignores --conflict-timeout without value', () => {
+    const result = parseRunArgs(['--conflict-timeout']);
+
+    expect(result.conflictTimeout).toBeUndefined();
+  });
+
+  test('parses --conflict-timeout alongside other flags', () => {
+    const result = parseRunArgs(['--parallel', '--conflict-timeout', '30000']);
+
+    expect(result.parallel).toBe(true);
+    expect(result.conflictTimeout).toBe(30000);
+  });
+});
+
+describe('parseRunArgs auto-commit flags', () => {
+  test('--no-auto-commit sets autoCommit to false', () => {
+    expect(parseRunArgs(['--no-auto-commit']).autoCommit).toBe(false);
+  });
+
+  test('--auto-commit sets autoCommit to true', () => {
+    expect(parseRunArgs(['--auto-commit']).autoCommit).toBe(true);
+  });
+
+  test('no flag leaves autoCommit undefined', () => {
+    expect(parseRunArgs([]).autoCommit).toBeUndefined();
   });
 });

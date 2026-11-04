@@ -247,6 +247,17 @@ describe('performAutoCommit', () => {
 });
 
 describe('renderCommitMessage', () => {
+  test('keeps user templates authoritative while providing optional iteration context', () => {
+    const context = { taskId: 'TASK-1', taskTitle: 'Keep template', iteration: 3 };
+    expect(renderCommitMessage('custom: {{taskTitle}}', context)).toEqual({
+      message: 'custom: Keep template', usedFallback: false,
+    });
+    expect(renderCommitMessage('Iteration {{iteration}} by {{agent}}: {{taskTitle}}', context)).toEqual({
+      message: 'Iteration 3 by ralph-tui: Keep template', usedFallback: false,
+    });
+    expect(renderCommitMessage(undefined, context).message).toBe('chore: TASK-1 Keep template');
+  });
+
   test('default template uses task.type when present', () => {
     const result = renderCommitMessage(undefined, {
       taskId: 'TASK-42',

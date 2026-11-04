@@ -56,6 +56,7 @@ import type {
 } from '../../engine/index.js';
 import type { ExecutionScope, ScopedTrackerTask, TrackerTask } from '../../plugins/trackers/types.js';
 import type { StoredConfig, SubagentDetailLevel, SandboxConfig, SandboxMode } from '../../config/types.js';
+import { getDefaultAgentConfig } from '../../config/index.js';
 import type { TrackerPluginMeta } from '../../plugins/trackers/types.js';
 import { getIterationLogsByTask } from '../../logs/index.js';
 import type { SubagentTraceStats, SubagentHierarchyNode } from '../../logs/types.js';
@@ -533,6 +534,51 @@ function addTaskToScopeCount(count: ScopeFilterCount, task: TaskItem): ScopeFilt
   return next;
 }
 
+export async function applyAgentModelSelection(
+  selection: AgentModelSelection,
+  engine: Pick<ExecutionEngine, 'switchToUserAgent'> | undefined,
+  storedConfig?: StoredConfig,
+  onSaveSettings?: (config: StoredConfig) => Promise<void>,
+): Promise<void> {
+  if (!engine) {
+    throw new Error('Agent switching is not available in this mode');
+  }
+
+  if (selection.saveAsDefault) {
+    if (!storedConfig || !onSaveSettings) {
+      throw new Error('Settings save is not available');
+    }
+
+    const nextConfig: StoredConfig = {
+      ...storedConfig,
+      agent: selection.agentName,
+      defaultAgent: selection.agentName,
+    };
+    if (selection.model) {
+      nextConfig.model = selection.model;
+    } else {
+      delete nextConfig.model;
+    }
+
+    await onSaveSettings(nextConfig);
+    if (getConfiguredAgentName(storedConfig) === selection.agentName &&
+        normalizeModelValue(storedConfig.model) === normalizeModelValue(selection.model)) {
+      const agentConfig = getDefaultAgentConfig(nextConfig, {});
+      if (!agentConfig) {
+        throw new Error('No agent configured');
+      }
+      await engine.switchToUserAgent(agentConfig, selection.model);
+    }
+    return;
+  }
+
+  const agentConfig = resolveAgentConfigForSelection(
+    selection.agentName,
+    storedConfig?.agents ?? []
+  );
+  await engine.switchToUserAgent(agentConfig, selection.model);
+}
+
 /**
  * Main RunApp component for execution view
  */
@@ -779,6 +825,9 @@ export function RunApp({
   // - currentTaskId (or 'main' if no task): Task root node is selected
   // - string: Subagent ID is selected
   const [selectedSubagentId, setSelectedSubagentId] = useState<string>('main');
+
+  // Cumulative cost for this session (updated on cost:updated events)
+  const [totalCost, setTotalCost] = useState<number>(0);
 
   // Active agent state from engine - tracks which agent is running and why (primary/fallback)
   const [activeAgentState, setActiveAgentState] = useState<ActiveAgentState | null>(null);
@@ -1183,36 +1232,7 @@ export function RunApp({
 
   const handleAgentModelConfirm = useCallback(
     async (selection: AgentModelSelection): Promise<void> => {
-      if (!engine) {
-        throw new Error('Agent switching is not available in this mode');
-      }
-
-      if (selection.saveAsDefault) {
-        if (!storedConfig || !onSaveSettings) {
-          throw new Error('Settings save is not available');
-        }
-
-        const nextConfig: StoredConfig = {
-          ...storedConfig,
-          agent: selection.agentName,
-          defaultAgent: selection.agentName,
-        };
-        if (selection.model) {
-          nextConfig.model = selection.model;
-        } else {
-          delete nextConfig.model;
-        }
-
-        await onSaveSettings(nextConfig);
-        setDetectedModel(selection.model ?? '');
-        return;
-      }
-
-      const agentConfig = resolveAgentConfigForSelection(
-        selection.agentName,
-        storedConfig?.agents ?? []
-      );
-      await engine.switchToUserAgent(agentConfig, selection.model);
+      await applyAgentModelSelection(selection, engine, storedConfig, onSaveSettings);
       setDetectedModel(selection.model ?? '');
     },
     [engine, onSaveSettings, storedConfig]
@@ -2052,6 +2072,19 @@ export function RunApp({
         case 'engine:iterations-removed':
           // Update maxIterations state when iterations are removed at runtime
           setMaxIterations(event.newMax);
+          break;
+
+        case 'cost:updated':
+          setTotalCost(event.snapshot.totalCost);
+          break;
+
+        case 'model:escalated':
+          setDetectedModel(event.newModel);
+          break;
+
+        case 'cost:threshold-exceeded':
+          // Engine will auto-pause; update cost display
+          setTotalCost(event.snapshot.totalCost);
           break;
       }
     });
@@ -3706,6 +3739,7 @@ export function RunApp({
           activeWorkerCount={activeWorkerCount}
           totalWorkerCount={totalWorkerCount}
           aggregateUsage={displayAggregateUsage}
+          totalCost={totalCost > 0 ? totalCost : undefined}
         />
       )}
 

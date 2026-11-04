@@ -804,6 +804,15 @@ export class BeadsRustTrackerPlugin extends BaseTrackerPlugin {
       };
     }
 
+    const syncResult = await this.sync();
+    if (!syncResult.success) {
+      return {
+        success: false,
+        message: `Task ${id} closed but failed to flush tracker state`,
+        error: syncResult.error || syncResult.message,
+      };
+    }
+
     // Fetch the updated task
     const task = await this.getTask(id);
 

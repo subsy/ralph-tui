@@ -57,6 +57,22 @@ Completing this task will unblock: {{blocks}}
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
 2. Study `{{progressFile}}` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
@@ -70,7 +86,7 @@ Completing this task will unblock: {{blocks}}
 {{else}}
 8. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-9. Close the bead: `bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"`
+9. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 10. Document learnings (see below)
 11. Signal completion
 

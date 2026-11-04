@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ExecutionEngine } from '../../src/engine/index.js';
@@ -131,6 +131,445 @@ describe('ExecutionEngine', () => {
       await engine.dispose();
     }
     delete mockTrackerInstance.subscribeChanges;
+  });
+
+  describe('engine improvements regressions', () => {
+    test.each(['returned', 'thrown', 'success', 'forced'] as const)(
+      'tracker closure %s gates completion side effects', async mode => {
+        const cwd = await mkdtemp(join(tmpdir(), 'ralph-tracker-close-'));
+        const originalExecute = mockAgentInstance.execute;
+        mockAgentInstance.execute = mock(() => ({
+          executionId: 'tracker-close',
+          promise: Promise.resolve(createSuccessfulExecution(
+            '<promise>COMPLETE</promise>\n' + JSON.stringify({ usage: { input_tokens: 1000000, output_tokens: 0 } }),
+          )),
+          interrupt: () => {},
+          isRunning: () => false,
+        })) as AgentPlugin['execute'];
+        const close = mock(async () => {
+          if (mode === 'thrown') throw new Error('tracker close failed');
+          return { success: mode === 'success', message: 'tracker close failed', error: 'tracker close failed' };
+        });
+        const task = createTrackerTask();
+        engine = new ExecutionEngine(createTestConfig({
+          cwd, autoCommit: true, model: 'sonnet',
+          modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+          cost: { pricing: { sonnet: { inputPer1M: 1, outputPer1M: 0 } } },
+        }));
+        const internal = engine as unknown as {
+          runIteration(task: TrackerTask): Promise<IterationResult>;
+          handleAutoCommit(): Promise<void>;
+          recentDiffSummaries: unknown[];
+          escalationState: { taskAttempts: Map<string, number> };
+        };
+        const commit = spyOn(internal, 'handleAutoCommit').mockResolvedValue();
+        const completed: EngineEvent[] = [];
+        engine.on(event => { if (event.type === 'task:completed') completed.push(event); });
+        try {
+          await engine.initialize({
+            tracker: { ...mockTrackerInstance, completeTask: close } as TrackerPlugin,
+            ...(mode === 'forced' ? { forcedTask: task } : {}),
+          });
+          await writeFile(join(cwd, 'change.txt'), 'uncommitted agent change');
+          const result = await internal.runIteration(task);
+          const success = mode === 'success' || mode === 'forced';
+          expect(result.taskCompleted).toBe(success);
+          expect(result.status).toBe(success ? 'completed' : 'failed');
+          expect(close).toHaveBeenCalledTimes(mode === 'forced' ? 0 : 1);
+          expect(completed).toHaveLength(success ? 1 : 0);
+          expect(commit).toHaveBeenCalledTimes(success ? 1 : 0);
+          if (!success) {
+            expect(result.error).toContain('tracker close failed');
+            expect(result.diffSummary).toBeUndefined();
+            expect(internal.recentDiffSummaries).toEqual([]);
+          }
+          if (mode === 'returned') {
+            expect(result.agentResult?.exitCode).toBe(0);
+            expect(result.usage?.inputTokens).toBe(1000000);
+            expect(engine.getState().costSnapshot?.totalCost).toBe(1);
+            expect(internal.escalationState.taskAttempts.get(task.id)).toBe(1);
+          }
+        } finally {
+          commit.mockRestore();
+          mockAgentInstance.execute = originalExecute;
+          await rm(cwd, { recursive: true, force: true });
+        }
+      },
+    );
+
+    test.each(['status', 'prompt'] as const)('stop during %s preparation never launches the agent', async (stage) => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-pre-execution-stop-'));
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(originalExecute) as AgentPlugin['execute'];
+      let entered!: () => void;
+      let release!: () => void;
+      const waiting = new Promise<void>(resolve => { entered = resolve; });
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const tracker = {
+        ...mockTrackerInstance,
+        updateTaskStatus: async () => { if (stage === 'status') { entered(); await pending; } },
+        getPrdContext: async () => { if (stage === 'prompt') { entered(); await pending; } return null; },
+      } as TrackerPlugin;
+      engine = new ExecutionEngine(createTestConfig({ cwd, autoCommit: true }));
+      const internal = engine as unknown as {
+        runIteration(task: TrackerTask): Promise<IterationResult>;
+        activeIteration: Promise<IterationResult>;
+      };
+      try {
+        await engine.initialize({ tracker });
+        const iteration = internal.runIteration(createTrackerTask());
+        internal.activeIteration = iteration;
+        await waiting;
+        const stopping = engine.stop(1000);
+        release();
+        const result = await iteration;
+        await stopping;
+        expect(result.status).toBe('interrupted');
+        expect(result.taskCompleted).toBe(false);
+        expect(mockAgentInstance.execute).not.toHaveBeenCalled();
+      } finally {
+        release();
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test.each(['verification:started', 'verification:passed'])(
+      'stop at %s cannot complete the tracker or auto-commit', async (stopEvent) => {
+        const cwd = await mkdtemp(join(tmpdir(), 'ralph-verify-stop-'));
+        const originalExecute = mockAgentInstance.execute;
+        mockAgentInstance.execute = mock(() => ({
+          executionId: 'verify-stop',
+          promise: Promise.resolve(createSuccessfulExecution('<promise>COMPLETE</promise>')),
+          interrupt: () => {}, isRunning: () => false,
+        })) as AgentPlugin['execute'];
+        engine = new ExecutionEngine(createTestConfig({
+          cwd, autoCommit: true, verification: { enabled: true, commands: ['true'] },
+        }));
+        let stopped: Promise<void> | undefined;
+        engine.on(event => {
+          events.push(event);
+          if (event.type === stopEvent) stopped = engine.stop();
+        });
+        const complete = mockTrackerInstance.completeTask as ReturnType<typeof mock>;
+        complete.mockClear();
+        const internal = engine as unknown as {
+          runIteration(task: TrackerTask): Promise<IterationResult>;
+          handleAutoCommit(): Promise<void>;
+        };
+        const commit = spyOn(internal, 'handleAutoCommit').mockResolvedValue();
+        try {
+          await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+          const result = await internal.runIteration(createTrackerTask({ id: 'verify-stop' }));
+          await stopped;
+          expect(stopped).toBeDefined();
+          expect(result.taskCompleted).toBe(false);
+          expect(complete).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          expect(events.some(event => event.type === 'task:completed')).toBe(false);
+        } finally {
+          mockAgentInstance.execute = originalExecute;
+          await rm(cwd, { recursive: true, force: true });
+        }
+      },
+    );
+
+    test('injects a prior iteration diff into the next task prompt', async () => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-diff-context-'));
+      expect(Bun.spawnSync(['git', 'init', cwd]).exitCode).toBe(0);
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'diff-context-test',
+        promise: writeFile(join(cwd, 'prior-iteration.txt'), 'first change').then(() =>
+          createSuccessfulExecution('<promise>COMPLETE</promise>')),
+        interrupt: () => {}, isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({ cwd }));
+      const internal = engine as unknown as { runIteration(task: TrackerTask): Promise<IterationResult> };
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        await internal.runIteration(createTrackerTask({ id: 'first' }));
+        await internal.runIteration(createTrackerTask({ id: 'second' }));
+        expect((mockAgentInstance.execute as ReturnType<typeof mock>).mock.calls[1][0])
+          .toContain('prior-iteration.txt');
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test.each([undefined, false, true])('runs task programs only with explicit AC trust %j', async (allowAcCommands) => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-ac-trust-'));
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'ac-trust-test',
+        promise: Promise.resolve(createSuccessfulExecution('<promise>COMPLETE</promise>')),
+        interrupt: () => {}, isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      await writeFile(join(cwd, 'untrusted.js'), "require('node:fs').writeFileSync('ac-ran', 'executed')");
+      await writeFile(join(cwd, 'literal-file'), '');
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, verification: { enabled: true, allowAcCommands, commands: ['printf configured > configured-ran'] },
+      }));
+      const internal = engine as unknown as { runIteration(task: TrackerTask): Promise<IterationResult> };
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const task = createTrackerTask({ metadata: { acceptanceCriteria: ['`node untrusted.js`', 'Files exist at literal-file'] } });
+        expect((await internal.runIteration(task)).taskCompleted).toBe(true);
+        expect(await Bun.file(join(cwd, 'ac-ran')).exists()).toBe(allowAcCommands === true);
+        expect(await Bun.file(join(cwd, 'configured-ran')).text()).toBe('configured');
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('verification feedback survives an incomplete retry until checks pass', async () => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-verification-retry-'));
+      const originalExecute = mockAgentInstance.execute;
+      let attempts = 0;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'verify-retry-test',
+        promise: Promise.resolve(createSuccessfulExecution(++attempts === 2 ? 'Working on it' : '<promise>COMPLETE</promise>')),
+        interrupt: () => {},
+        isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, verification: { enabled: true, commands: ['test -e verified'], maxRetries: 1 },
+      }));
+      engine.on(event => events.push(event));
+      const task = createTrackerTask({ id: 'verification-retry' });
+      const complete = mockTrackerInstance.completeTask as ReturnType<typeof mock>;
+      complete.mockClear();
+      const internal = engine as unknown as {
+        runIterationWithErrorHandling(task: TrackerTask): Promise<IterationResult>;
+      };
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const first = await internal.runIterationWithErrorHandling(task);
+        expect(first.taskCompleted).toBe(false);
+        expect(complete).not.toHaveBeenCalled();
+        expect(engine.getState().tasksCompleted).toBe(0);
+        const incomplete = await internal.runIterationWithErrorHandling(task);
+        expect(incomplete.taskCompleted).toBe(false);
+        await writeFile(join(cwd, 'verified'), '');
+        const second = await internal.runIterationWithErrorHandling(task);
+        expect(second.taskCompleted).toBe(true);
+        expect(second.status).toBe('completed');
+        expect(complete).toHaveBeenCalledTimes(1);
+        expect(engine.getState().tasksCompleted).toBe(1);
+        expect(events.filter(event => event.type === 'verification:failed')).toHaveLength(1);
+        expect(events.filter(event => event.type === 'verification:passed')).toHaveLength(1);
+        expect((mockAgentInstance.execute as ReturnType<typeof mock>).mock.calls[1][0])
+          .toContain('Verification command failed');
+        expect((mockAgentInstance.execute as ReturnType<typeof mock>).mock.calls[2][0])
+          .toContain('Verification command failed');
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test.each(['skip', 'retry', 'abort'] as const)(
+      'verification exhaustion follows %s without completing or committing', async (strategy) => {
+        const cwd = await mkdtemp(join(tmpdir(), 'ralph-verify-exhaustion-'));
+        const originalExecute = mockAgentInstance.execute;
+        mockAgentInstance.execute = mock(() => ({
+          executionId: 'verify-test',
+          promise: Promise.resolve(createSuccessfulExecution('<promise>COMPLETE</promise>')),
+          interrupt: () => {},
+          isRunning: () => false,
+        })) as AgentPlugin['execute'];
+        engine = new ExecutionEngine(createTestConfig({
+          cwd,
+          autoCommit: true,
+          verification: { enabled: true, commands: ['false'], maxRetries: 0 },
+          errorHandling: { strategy, maxRetries: 1, retryDelayMs: 0, continueOnNonZeroExit: false },
+        }));
+        engine.on(event => events.push(event));
+        const complete = mockTrackerInstance.completeTask as ReturnType<typeof mock>;
+        complete.mockClear();
+        const internal = engine as unknown as {
+          runIterationWithErrorHandling(task: TrackerTask): Promise<IterationResult>;
+          handleAutoCommit(): Promise<void>;
+        };
+        const commit = spyOn(internal, 'handleAutoCommit').mockResolvedValue();
+        const task = createTrackerTask({ id: 'verification-failure' });
+        try {
+          await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+          const result = await internal.runIterationWithErrorHandling(task);
+          expect(result.status).toBe('failed');
+          expect(result.taskCompleted).toBe(false);
+          expect(result.error).toContain('Verification command failed: `false`');
+          expect(engine.getState().tasksCompleted).toBe(0);
+          expect(complete).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          expect(events.some(event => event.type === 'task:completed')).toBe(false);
+          const failures = events.filter(event => event.type === 'iteration:failed');
+          expect(failures.map(event => event.action)).toEqual(
+            strategy === 'retry' ? ['retry', 'skip'] : [strategy]
+          );
+          expect(engine.getState().iterations).toHaveLength(strategy === 'retry' ? 2 : 1);
+        } finally {
+          mockAgentInstance.execute = originalExecute;
+          await rm(cwd, { recursive: true, force: true });
+        }
+      }
+    );
+
+    test('pauses once when cost reaches the threshold, not every resumed iteration', async () => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-cost-crossing-'));
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'cost-test',
+        promise: Promise.resolve(createSuccessfulExecution(JSON.stringify({
+          usage: { input_tokens: 1000000, output_tokens: 0 },
+        }))),
+        interrupt: () => {},
+        isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, model: 'test-model',
+        cost: { alertThreshold: 2, pricing: { 'test-model': { inputPer1M: 1, outputPer1M: 0 } } },
+      }));
+      engine.on(event => events.push(event));
+      const pause = spyOn(engine, 'pause');
+      const internal = engine as unknown as {
+        state: EngineState;
+        runIteration(task: TrackerTask): Promise<IterationResult>;
+      };
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const task = createTrackerTask();
+        internal.state.status = 'running';
+        await internal.runIteration(task);
+        expect(pause).not.toHaveBeenCalled();
+        await internal.runIteration(task);
+        expect(engine.getStatus()).toBe('pausing');
+        engine.resume();
+        await internal.runIteration(task);
+        expect(engine.getStatus()).toBe('running');
+        expect(pause).toHaveBeenCalledTimes(1);
+        expect(events.filter(event => event.type === 'cost:threshold-exceeded')).toHaveLength(1);
+        expect(events.filter(event => event.type === 'cost:updated')).toHaveLength(3);
+        expect(engine.getState().costSnapshot?.totalCost).toBe(3);
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test.each([undefined, 'sonnet'])('counts failed results for escalation while honoring model override %s', async (model) => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-escalation-result-'));
+      const originalExecute = mockAgentInstance.execute;
+      const usage = JSON.stringify({ usage: { input_tokens: 1000000, output_tokens: 0 } });
+      let attempts = 0;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'escalation-result',
+        promise: Promise.resolve(++attempts === 1
+          ? createFailedExecution('Failed command', { exitCode: 7, stdout: usage })
+          : createSuccessfulExecution(`${usage}\n<promise>COMPLETE</promise>`)),
+        interrupt: () => {},
+        isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, model,
+        modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+        cost: { pricing: {
+          sonnet: { inputPer1M: 1, outputPer1M: 0 },
+          opus: { inputPer1M: 3, outputPer1M: 0 },
+        } },
+        errorHandling: { strategy: 'retry', maxRetries: 1, retryDelayMs: 0 },
+      }));
+      const internal = engine as unknown as {
+        runIterationWithErrorHandling(task: TrackerTask): Promise<IterationResult>;
+      };
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const result = await internal.runIterationWithErrorHandling(createTrackerTask({ id: 'failed-result-model' }));
+        expect(result.taskCompleted).toBe(true);
+        expect(attempts).toBe(2);
+        expect(engine.getState().currentModel).toBe(model ?? 'opus');
+        expect(engine.getState().costSnapshot?.totalCost).toBe(model ? 2 : 4);
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('counts exhausted verification once before general retry escalation', async () => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-exhausted-escalation-'));
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'exhausted-verification',
+        promise: Promise.resolve(createSuccessfulExecution('<promise>COMPLETE</promise>')),
+        interrupt: () => {}, isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+        verification: { enabled: true, maxRetries: 0, commands: ['exit 1'] },
+        errorHandling: { strategy: 'retry', maxRetries: 1, retryDelayMs: 0 },
+      }));
+      const internal = engine as unknown as {
+        runIterationWithErrorHandling(task: TrackerTask): Promise<IterationResult>;
+        escalationState: { taskAttempts: Map<string, number> };
+      };
+      const counts: Array<number | undefined> = [];
+      engine.on(event => {
+        if (event.type === 'iteration:completed') counts.push(internal.escalationState.taskAttempts.get('exhausted'));
+      });
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const result = await internal.runIterationWithErrorHandling(createTrackerTask({ id: 'exhausted' }));
+        expect(result.status).toBe('failed');
+        const calls = (mockAgentInstance.execute as ReturnType<typeof mock>).mock.calls;
+        expect(calls.map(call => call[2].flags)).toEqual([['--model', 'sonnet'], ['--model', 'opus']]);
+        expect(counts).toEqual([1, 2]);
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('model escalation emits an event without writing to the TUI console', async () => {
+      const cwd = await mkdtemp(join(tmpdir(), 'ralph-escalation-event-'));
+      const originalExecute = mockAgentInstance.execute;
+      mockAgentInstance.execute = mock(() => ({
+        executionId: 'model-test',
+        promise: Promise.resolve(createSuccessfulExecution('Not finished yet')),
+        interrupt: () => {},
+        isRunning: () => false,
+      })) as AgentPlugin['execute'];
+      engine = new ExecutionEngine(createTestConfig({
+        cwd, showTui: true,
+        modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+      }));
+      const internal = engine as unknown as {
+        state: EngineState;
+        escalationState: { taskAttempts: Map<string, number> };
+        runIteration(task: TrackerTask): Promise<IterationResult>;
+      };
+      engine.on(event => events.push(event));
+      try {
+        await engine.initialize({ tracker: mockTrackerInstance as TrackerPlugin });
+        const task = createTrackerTask({ id: 'escalation-test' });
+        internal.state.currentModel = 'sonnet';
+        internal.escalationState.taskAttempts.set(task.id, 1);
+        const log = spyOn(console, 'log').mockImplementation(() => {});
+        try {
+          await internal.runIteration(task);
+          expect(events.find(event => event.type === 'model:escalated')).toMatchObject({
+            taskId: task.id, previousModel: 'sonnet', newModel: 'opus', failedAttempts: 1,
+          });
+          expect(log).not.toHaveBeenCalled();
+        } finally {
+          log.mockRestore();
+        }
+      } finally {
+        mockAgentInstance.execute = originalExecute;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('state machine transitions', () => {

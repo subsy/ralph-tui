@@ -60,6 +60,45 @@ describe('loadStoredConfig', () => {
     expect(config).toEqual({});
   });
 
+  test.each([
+    '[verification]\nallowAcCommands = "false"',
+    '[verification]\nallowAcCommands = 1',
+    '[completion]\nstrategies = ["heuristic"]',
+    '[completion]\nstrategies = []',
+    '[completion]\nstrategies = ["promise-tag", "relaxed-tag"]',
+  ])('rejects invalid engine policies without falling back to global trust: %s', async (content) => {
+    await writeTomlConfig(globalConfigPath, { verification: { enabled: true, allowAcCommands: true } });
+    const dir = join(tempDir, '.ralph-tui');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'config.toml'), content);
+    await expect(loadStoredConfig(tempDir, globalConfigPath)).rejects.toThrow('Configuration error');
+    await expect(loadStoredConfigWithSource(tempDir, globalConfigPath)).rejects.toThrow('Configuration error');
+  });
+
+  test('engine settings round-trip and project settings override globals', async () => {
+    await writeTomlConfig(globalConfigPath, {
+      verification: { enabled: true, commands: ['global check'], timeoutMs: 60000, allowAcCommands: true },
+      modelEscalation: { enabled: true, startModel: 'sonnet', escalateAfter: 2 },
+      cost: { enabled: true, alertThreshold: 5, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } } },
+      completion: { strategies: ['promise-tag'] },
+    });
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    await writeFile(join(projectConfigDir, 'config.toml'), serializeConfig({
+      verification: { commands: ['project check'], allowAcCommands: false },
+      modelEscalation: { escalateModel: 'opus' },
+      cost: { alertThreshold: 10 },
+      completion: { strategies: ['promise-tag'] },
+    }));
+    const config = await loadStoredConfig(tempDir, globalConfigPath);
+    expect(config.verification).toEqual({ enabled: true, commands: ['project check'], timeoutMs: 60000, allowAcCommands: false });
+    expect(config.modelEscalation).toEqual({ enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 2 });
+    expect(config.cost).toEqual({
+      enabled: true, alertThreshold: 10, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } },
+    });
+    expect(config.completion).toEqual({ strategies: ['promise-tag'] });
+  });
+
   test('loads global config file', async () => {
     await writeTomlConfig(globalConfigPath, {
       maxIterations: 15,
@@ -972,6 +1011,82 @@ describe('validateConfig', () => {
     // Error message should include actionable example
     expect(result.errors.some((e) => e.includes('ralph-tui run'))).toBe(true);
     expect(result.errors.some((e) => e.includes('ENG-123'))).toBe(true);
+  });
+});
+
+describe('buildConfig - engine improvement settings', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test.each([
+    { storedEnabled: true, cli: {}, expected: undefined },
+    { storedEnabled: false, cli: {}, expected: 'haiku' },
+    { storedEnabled: undefined, cli: {}, expected: 'haiku' },
+    { storedEnabled: false, cli: { startModel: 'sonnet' }, expected: undefined },
+    { storedEnabled: false, cli: { escalateModel: 'opus' }, expected: undefined },
+    { storedEnabled: true, cli: { model: 'haiku' }, expected: 'haiku' },
+  ])('stored model precedence with escalation: %j', async ({ storedEnabled, cli, expected }) => {
+    const dir = join(tempDir, '.ralph-tui');
+    await mkdir(dir, { recursive: true });
+    await writeTomlConfig(join(dir, 'config.toml'), {
+      agent: 'claude', tracker: 'beads-bv', model: 'haiku',
+      ...(storedEnabled === undefined ? {} : { modelEscalation: { enabled: storedEnabled } }),
+    });
+    const config = await buildConfig({ cwd: tempDir, ...cli });
+    expect(config).not.toBeNull();
+    expect(config!.model).toBe(expected);
+  });
+
+  for (const { name, stored, cli, expected } of [
+    { name: 'defaults to off', stored: undefined, cli: undefined, expected: false },
+    { name: 'honors stored enable', stored: true, cli: undefined, expected: true },
+    { name: 'honors stored disable', stored: false, cli: undefined, expected: false },
+    { name: 'CLI enable overrides stored disable', stored: false, cli: true, expected: true },
+    { name: 'CLI disable overrides stored enable', stored: true, cli: false, expected: false },
+    { name: 'CLI enable overrides default', stored: undefined, cli: true, expected: true },
+    { name: 'CLI disable overrides default', stored: undefined, cli: false, expected: false },
+  ]) {
+    test(`auto-commit ${name}`, async () => {
+      const projectConfigDir = join(tempDir, '.ralph-tui');
+      await mkdir(projectConfigDir, { recursive: true });
+      await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+        agent: 'claude', tracker: 'beads-bv',
+        ...(stored === undefined ? {} : { autoCommit: stored }),
+      });
+      const config = await buildConfig({ cwd: tempDir, autoCommit: cli });
+      expect(config).not.toBeNull();
+      expect(config!.autoCommit).toBe(expected);
+    });
+  }
+
+  test('propagates explicit settings and preserves configured commit templates', async () => {
+    const projectConfigDir = join(tempDir, '.ralph-tui');
+    await mkdir(projectConfigDir, { recursive: true });
+    const settings = {
+      verification: { enabled: true, commands: ['bun test'], maxRetries: 1 },
+      modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 2 },
+      cost: { alertThreshold: 10, pricing: { sonnet: { inputPer1M: 3, outputPer1M: 15 } } },
+      completion: { strategies: ['promise-tag' as const] },
+      commitMessageTemplate: 'custom: {{taskTitle}} ({{iteration}})',
+    };
+    await writeTomlConfig(join(projectConfigDir, 'config.toml'), {
+      agent: 'claude', tracker: 'beads-bv', ...settings,
+    });
+    const config = await buildConfig({ cwd: tempDir, autoCommit: false });
+    expect(config).not.toBeNull();
+    expect(config!.verification).toEqual(settings.verification);
+    expect(config!.modelEscalation).toEqual(settings.modelEscalation);
+    expect(config!.cost).toEqual(settings.cost);
+    expect(config!.completion).toEqual(settings.completion);
+    expect(config!.commitMessageTemplate).toBe(settings.commitMessageTemplate);
+    expect(config!.autoCommit).toBe(false);
   });
 });
 

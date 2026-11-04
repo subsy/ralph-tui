@@ -1452,7 +1452,7 @@ describe('BeadsRustTrackerPlugin', () => {
   });
 
   describe('completeTask', () => {
-    test('executes br close <id> without --force', async () => {
+    test('closes without --force and flushes before reading the task', async () => {
       mockSpawnResponses = [{ exitCode: 0, stdout: 'br version 0.4.1\n' }];
 
       const plugin = new BeadsRustTrackerPlugin();
@@ -1460,6 +1460,7 @@ describe('BeadsRustTrackerPlugin', () => {
 
       mockSpawnArgs = [];
       mockSpawnResponses = [
+        { exitCode: 0 },
         { exitCode: 0 },
         {
           exitCode: 0,
@@ -1473,9 +1474,10 @@ describe('BeadsRustTrackerPlugin', () => {
 
       expect(result.success).toBe(true);
       expect(result.task?.status).toBe('completed');
-      expect(mockSpawnArgs.length).toBe(2);
+      expect(mockSpawnArgs.length).toBe(3);
       expect(mockSpawnArgs[0]?.args).toEqual(['close', 't1']);
-      expect(mockSpawnArgs[1]?.args).toEqual(['show', 't1', '--json']);
+      expect(mockSpawnArgs[1]?.args).toEqual(['sync', '--flush-only']);
+      expect(mockSpawnArgs[2]?.args).toEqual(['show', 't1', '--json']);
     });
 
     test('supports --reason', async () => {
@@ -1486,6 +1488,7 @@ describe('BeadsRustTrackerPlugin', () => {
 
       mockSpawnArgs = [];
       mockSpawnResponses = [
+        { exitCode: 0 },
         { exitCode: 0 },
         {
           exitCode: 0,
@@ -1515,6 +1518,21 @@ describe('BeadsRustTrackerPlugin', () => {
       expect(result.error).toContain('permission denied');
       expect(mockSpawnArgs.length).toBe(1);
       expect(mockSpawnArgs[0]?.args).toEqual(['close', 't1']);
+    });
+
+    test('does not report completion or read the task when post-close flush fails', async () => {
+      mockSpawnResponses = [{ exitCode: 0, stdout: 'br version 0.4.1\n' }];
+      const plugin = new BeadsRustTrackerPlugin();
+      await plugin.initialize({ workingDir: '/test' });
+      mockSpawnArgs = [];
+      mockSpawnResponses = [{ exitCode: 0 }, { exitCode: 1, stderr: 'disk full' }];
+      const result = await plugin.completeTask('t1');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('disk full');
+      expect(result.task).toBeUndefined();
+      expect(mockSpawnArgs.map(call => call.args)).toEqual([
+        ['close', 't1'], ['sync', '--flush-only'],
+      ]);
     });
   });
 
@@ -1633,11 +1651,12 @@ describe('BeadsRustTrackerPlugin', () => {
   });
 
   describe('getTemplate', () => {
-    test('returns a br-specific template with br close and br sync --flush-only', () => {
+    test('returns a br-specific template with engine-owned closure and br sync --flush-only', () => {
       const plugin = new BeadsRustTrackerPlugin();
       const template = plugin.getTemplate();
 
-      expect(template).toContain('br close');
+      expect(template).not.toContain('br close');
+      expect(template).toContain('The engine owns task closure');
       expect(template).toContain('br sync --flush-only');
       expect(template).not.toContain('bd close');
     });

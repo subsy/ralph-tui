@@ -23,6 +23,7 @@ import type {
   IterationResult,
   IterationStatus,
   IterationRateLimitedEvent,
+  ModelEscalatedEvent,
   RateLimitState,
   SubagentTreeNode,
   TaskAutoCommittedEvent,
@@ -30,7 +31,14 @@ import type {
 } from './types.js';
 import { toEngineSubagentState } from './types.js';
 import type { RalphConfig, RateLimitHandlingConfig } from '../config/types.js';
-import { DEFAULT_RATE_LIMIT_HANDLING } from '../config/types.js';
+import { DEFAULT_RATE_LIMIT_HANDLING, DEFAULT_MODEL_ESCALATION } from '../config/types.js';
+import {
+  createEscalationState,
+  getModelForTask,
+  recordTaskAttempt,
+  clearTaskAttempts,
+  type ModelEscalationState,
+} from './model-escalation.js';
 import { RateLimitDetector, type RateLimitDetectionResult } from './rate-limit-detector.js';
 import type { TrackerPlugin, TrackerTask } from '../plugins/trackers/types.js';
 import type {
@@ -61,11 +69,13 @@ import { performAutoCommit, renderCommitMessage } from './auto-commit.js';
 import type { AgentSwitchEntry } from '../logs/index.js';
 import { renderPrompt } from '../templates/index.js';
 import { appendWithCharLimit as appendWithSharedCharLimit } from '../utils/buffer-limits.js';
-
-/**
- * Pattern to detect completion signal in agent output
- */
-const PROMISE_COMPLETE_PATTERN = /<promise>\s*COMPLETE\s*<\/promise>/i;
+import { runVerification, formatVerificationErrors } from './verification.js';
+import { DEFAULT_VERIFICATION_CONFIG } from '../config/types.js';
+import { getAcVerificationChecks } from './ac-validator.js';
+import { generateDiffSummary, formatDiffContext } from './diff-summarizer.js';
+import type { DiffSummary } from './diff-summarizer.js';
+import { detectCompletion, promiseTagStrategy } from './completion-strategies.js';
+import { CostTracker } from './cost-tracker.js';
 
 /**
  * Timeout for primary agent recovery test (5 seconds).
@@ -174,7 +184,9 @@ function toMemorySafeAgentResult(agentResult: AgentExecutionResult): AgentExecut
 async function buildPrompt(
   task: TrackerTask,
   config: RalphConfig,
-  tracker?: TrackerPlugin
+  tracker?: TrackerPlugin,
+  verificationErrors?: string,
+  diffContext?: string
 ): Promise<string> {
   // Load recent progress for context (last 5 iterations)
   const recentProgress = await getRecentProgressSummary(config, 5);
@@ -201,6 +213,8 @@ async function buildPrompt(
     recentProgress,
     codebasePatterns,
     prd: prdContext ?? undefined,
+    verificationErrors: verificationErrors ?? '',
+    diffContext: diffContext ?? '',
     selectionReason,
   };
 
@@ -264,6 +278,7 @@ export class ExecutionEngine {
   private listeners: EngineEventListener[] = [];
   private state: EngineState;
   private currentExecution: AgentExecutionHandle | null = null;
+  private verificationAbortController: AbortController | null = null;
   private shouldStop = false;
   private activeIteration: Promise<IterationResult> | null = null;
   private stopPromise: Promise<void> | null = null;
@@ -302,9 +317,20 @@ export class ExecutionEngine {
   private forcedTask: TrackerTask | null = null;
   /** Track if the forced task has been processed (prevents infinite loop on skip/fail) */
   private forcedTaskProcessed = false;
+  /** Verification errors from the most recent failed verification (injected into next retry prompt) */
+  private lastVerificationErrors: string = '';
+  /** Track verification retry count per task */
+  private verificationRetryMap: Map<string, number> = new Map();
+  /** Model escalation state - tracks per-task attempt counts */
+  private escalationState: ModelEscalationState = createEscalationState();
+  /** Rolling window of diff summaries from completed iterations (last 5) */
+  private recentDiffSummaries: DiffSummary[] = [];
+  /** Cost tracker for cumulative session cost estimation */
+  private costTracker: CostTracker;
 
   constructor(config: RalphConfig) {
     this.config = config;
+    this.costTracker = new CostTracker(config.cost?.pricing);
     this.state = {
       status: 'idle',
       currentIteration: 0,
@@ -787,11 +813,12 @@ export class ExecutionEngine {
         break;
       }
 
-      // Update session
+      // Update session (include cumulative cost if available)
       await updateSessionIteration(
         this.config.cwd,
         this.state.currentIteration,
-        this.state.tasksCompleted
+        this.state.tasksCompleted,
+        this.state.costSnapshot?.totalCost
       );
 
       // Wait between iterations
@@ -929,6 +956,8 @@ export class ExecutionEngine {
           this.emitSkipEvent(task, skipReason);
           this.skippedTasks.add(task.id);
           this.retryCountMap.delete(task.id);
+          this.verificationRetryMap.delete(task.id);
+          clearTaskAttempts(task.id, this.escalationState);
           // Mark forced task as processed to prevent infinite loop
           if (this.forcedTask?.id === task.id) {
             this.forcedTaskProcessed = true;
@@ -949,6 +978,7 @@ export class ExecutionEngine {
         });
         this.emitSkipEvent(task, errorMessage);
         this.skippedTasks.add(task.id);
+        this.verificationRetryMap.delete(task.id);
         // Mark forced task as processed to prevent infinite loop
         if (this.forcedTask?.id === task.id) {
           this.forcedTaskProcessed = true;
@@ -966,6 +996,7 @@ export class ExecutionEngine {
           task,
           action: 'abort',
         });
+        this.verificationRetryMap.delete(task.id);
         // Mark forced task as processed to prevent infinite loop
         if (this.forcedTask?.id === task.id) {
           this.forcedTaskProcessed = true;
@@ -1097,8 +1128,20 @@ export class ExecutionEngine {
     this.currentIterationAgentSwitches = this.nextIterationAgentSwitches;
     this.nextIterationAgentSwitches = [];
 
+    // Clear verification errors if this task has no pending verification retries
+    // (i.e., this is a fresh start or a new task, not a verification retry)
+    if (!this.verificationRetryMap.has(task.id)) {
+      this.lastVerificationErrors = '';
+    }
+
     const startedAt = new Date();
     const iteration = this.state.currentIteration;
+
+    const stoppedResult = (): IterationResult => ({
+      iteration, task, status: 'interrupted', taskCompleted: false, promiseComplete: false,
+      startedAt: startedAt.toISOString(), endedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt.getTime(),
+    });
 
     this.emit({
       type: 'iteration:started',
@@ -1125,14 +1168,40 @@ export class ExecutionEngine {
 
     // Update task status to in_progress
     await this.tracker!.updateTaskStatus(task.id, 'in_progress');
+    if (this.shouldStop) return stoppedResult();
 
-    // Build prompt (includes recent progress context + tracker-owned template)
-    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined);
+    // Build prompt with verification feedback and cross-iteration context.
+    const diffContext = formatDiffContext(this.recentDiffSummaries);
+    const prompt = await buildPrompt(task, this.config, this.tracker ?? undefined, this.lastVerificationErrors || undefined, diffContext || undefined);
+    if (this.shouldStop) return stoppedResult();
 
     // Build agent flags
     const flags: string[] = [];
+
+    // Determine effective model: explicit --model override takes precedence over escalation
     if (this.config.model) {
       flags.push('--model', this.config.model);
+    } else if (this.config.modelEscalation?.enabled) {
+      // Escalation is enabled and no explicit model override — use escalation logic
+      const escalationConfig = { ...DEFAULT_MODEL_ESCALATION, ...this.config.modelEscalation };
+      const escalatedModel = getModelForTask(task.id, escalationConfig, this.escalationState);
+      const previousModel = this.state.currentModel;
+      if (escalatedModel !== previousModel) {
+        this.state.currentModel = escalatedModel;
+        const attempts = this.escalationState.taskAttempts.get(task.id) ?? 0;
+        if (attempts >= escalationConfig.escalateAfter && previousModel) {
+          const event: ModelEscalatedEvent = {
+            type: 'model:escalated',
+            timestamp: new Date().toISOString(),
+            taskId: task.id,
+            previousModel,
+            newModel: escalatedModel,
+            failedAttempts: attempts,
+          };
+          this.emit(event);
+        }
+      }
+      flags.push('--model', escalatedModel);
     }
 
     // Check if agent declares subagent tracing support (used for agent-specific flags)
@@ -1264,6 +1333,7 @@ export class ExecutionEngine {
       }
 
       // Execute agent with subagent tracing if supported
+      if (this.shouldStop) return stoppedResult();
       const handle = this.agent!.execute(prompt, [], {
         cwd: this.config.cwd,
         flags,
@@ -1475,25 +1545,102 @@ export class ExecutionEngine {
       // the signal would otherwise complete the task.
       const completionScanText =
         this.agent!.extractAgentText?.(agentResult.stdout, { flags, subagentTracing: supportsTracing }) ?? agentResult.stdout;
-      const promiseComplete = PROMISE_COMPLETE_PATTERN.test(completionScanText);
+      const completionInput = { ...agentResult, stdout: completionScanText };
+      const completionResult = detectCompletion(
+        completionInput,
+        this.config.completion?.strategies ?? ['promise-tag'],
+      );
+      const promiseComplete = promiseTagStrategy.detect(completionInput);
 
       // Determine if task was completed
       // IMPORTANT: Only use the explicit <promise>COMPLETE</promise> signal.
       // Exit code 0 alone does NOT indicate task completion - an agent may exit
       // cleanly after asking clarification questions or hitting a blocker.
       // See: https://github.com/subsy/ralph-tui/issues/259
-      const taskCompleted =
-        promiseComplete && agentResult.status === 'completed' && !agentResult.interrupted;
+      let taskCompleted = completionResult.completed && agentResult.status === 'completed' &&
+        agentResult.exitCode === 0 && !agentResult.interrupted && !this.shouldStop;
+      let verificationFailure: string | undefined;
+      let completionFailure: string | undefined;
+
+      // Run verification gate if task appears complete and verification is enabled
+      if (taskCompleted && this.config.verification?.enabled) {
+        const baseVerifyConfig = { ...DEFAULT_VERIFICATION_CONFIG, ...this.config.verification };
+        // Keep literal AC checks native; prepend opted-in commands to configured commands.
+        const acChecks = getAcVerificationChecks(task.metadata, baseVerifyConfig.allowAcCommands);
+        const verifyConfig = {
+          ...baseVerifyConfig,
+          commands: [...acChecks.commands, ...baseVerifyConfig.commands],
+        };
+        const verificationRetries = this.verificationRetryMap.get(task.id) ?? 0;
+        this.verificationAbortController = new AbortController();
+
+        this.emit({
+          type: 'verification:started',
+          timestamp: new Date().toISOString(),
+          task,
+          commands: [...acChecks.files.map(file => `File exists: ${file}`), ...verifyConfig.commands],
+        });
+
+        const verifyResult = await runVerification(
+          this.config.cwd, verifyConfig, this.verificationAbortController.signal, acChecks.files,
+        );
+        this.verificationAbortController = null;
+
+        if (verifyResult.passed) {
+          this.emit({
+            type: 'verification:passed',
+            timestamp: new Date().toISOString(),
+            task,
+            durationMs: verifyResult.durationMs,
+          });
+          // Clear verification state on success
+          this.lastVerificationErrors = '';
+          this.verificationRetryMap.delete(task.id);
+        } else {
+          taskCompleted = false;
+          this.lastVerificationErrors = formatVerificationErrors(verifyResult);
+          const retriesRemaining = verifyConfig.maxRetries - verificationRetries;
+          this.emit({
+            type: 'verification:failed',
+            timestamp: new Date().toISOString(),
+            task,
+            failures: verifyResult.results.filter(r => !r.passed).map(r => r.command),
+            retriesRemaining,
+          });
+
+          if (this.config.modelEscalation?.enabled && !this.shouldStop) {
+            recordTaskAttempt(task.id, this.escalationState);
+          }
+
+          if (verificationRetries >= verifyConfig.maxRetries) {
+            verificationFailure = this.lastVerificationErrors;
+            this.verificationRetryMap.set(task.id, verificationRetries);
+          } else {
+            // Store errors for injection into next retry prompt and suppress completion
+            this.verificationRetryMap.set(task.id, verificationRetries + 1);
+          }
+        }
+      } else if (!promiseComplete && !this.verificationRetryMap.has(task.id)) {
+        // Agent did not signal completion — clear any stale verification state
+        this.lastVerificationErrors = '';
+      }
+
+      taskCompleted = taskCompleted && !this.shouldStop;
 
       // Update tracker if task completed
       // In worker mode (forcedTask set), skip tracker update — the ParallelExecutor
       // will call completeTask after the merge succeeds. This avoids race conditions
       // when multiple workers try to update the tracker concurrently.
       // See: https://github.com/subsy/ralph-tui/issues/275
-      if (taskCompleted) {
-        if (!this.forcedTask) {
-          await this.tracker!.completeTask(task.id, 'Completed by agent');
+      if (taskCompleted && !this.forcedTask) {
+        const trackerResult = await this.tracker!.completeTask(task.id, 'Completed by agent');
+        if (!trackerResult.success) {
+          taskCompleted = false;
+          completionFailure = `Failed to complete task ${task.id}: ${trackerResult.error || trackerResult.message}`;
         }
+      }
+      taskCompleted = taskCompleted && !this.shouldStop;
+      if (taskCompleted) {
         this.emit({
           type: 'task:completed',
           timestamp: new Date().toISOString(),
@@ -1504,10 +1651,28 @@ export class ExecutionEngine {
         // Clear rate-limited agents tracking on task completion
         // This allows agents to be retried for the next task
         this.clearRateLimitedAgents();
+
+        // Clear model escalation attempts on task completion
+        if (this.config.modelEscalation?.enabled) {
+          clearTaskAttempts(task.id, this.escalationState);
+        }
+      }
+
+      // Capture diff summary before auto-commit (which stages and commits)
+      let diffSummary: DiffSummary | null = null;
+      if (taskCompleted) {
+        diffSummary = await generateDiffSummary(this.config.cwd);
+        if (diffSummary) {
+          // Maintain rolling window of last 5 diff summaries
+          this.recentDiffSummaries.push(diffSummary);
+          if (this.recentDiffSummaries.length > 5) {
+            this.recentDiffSummaries.shift();
+          }
+        }
       }
 
       // Auto-commit after task completion (before iteration log is saved)
-      if (taskCompleted && this.config.autoCommit) {
+      if (taskCompleted && !this.shouldStop && this.config.autoCommit) {
         await this.handleAutoCommit(task, iteration);
       }
 
@@ -1528,7 +1693,7 @@ export class ExecutionEngine {
       let status: IterationStatus;
       if (agentResult.interrupted) {
         status = 'interrupted';
-      } else if (agentResult.status === 'failed' || agentResult.status === 'timeout') {
+      } else if (verificationFailure || completionFailure || agentResult.status === 'failed' || agentResult.status === 'timeout') {
         status = 'failed';
       } else {
         status = 'completed';
@@ -1542,11 +1707,13 @@ export class ExecutionEngine {
         taskCompleted,
         promiseComplete,
         durationMs,
+        error: verificationFailure ?? completionFailure,
         usage: iterationUsageAccumulator.hasData()
           ? iterationUsageAccumulator.getSummary()
           : summarizeTokenUsageFromOutput(agentResult.stdout),
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
+        diffSummary: diffSummary ?? undefined,
       };
 
       // Save iteration output to .ralph-tui/iterations/ directory
@@ -1573,11 +1740,54 @@ export class ExecutionEngine {
         rawStderrFilePath: rawOutput.stderr.filePath,
       });
 
+      // Track cost for this iteration if usage data is available
+      if (result.usage) {
+        const costEnabled = this.config.cost?.enabled !== false;
+        if (costEnabled) {
+          const inputTokens = result.usage.inputTokens ?? 0;
+          const outputTokens = result.usage.outputTokens ?? 0;
+          const previousCost = this.costTracker.getSnapshot().totalCost;
+          const iterationCost = this.costTracker.addIteration(
+            inputTokens,
+            outputTokens,
+            this.state.currentModel
+          );
+          const snapshot = this.costTracker.getSnapshot();
+          this.state.costSnapshot = snapshot;
+
+          this.emit({
+            type: 'cost:updated',
+            timestamp: endedAt.toISOString(),
+            iteration,
+            snapshot,
+            iterationCost,
+          });
+
+          // Check alert threshold
+          const alertThreshold = this.config.cost?.alertThreshold ?? 0;
+          if (alertThreshold > 0 && previousCost < alertThreshold && snapshot.totalCost >= alertThreshold) {
+            this.emit({
+              type: 'cost:threshold-exceeded',
+              timestamp: endedAt.toISOString(),
+              snapshot,
+              threshold: alertThreshold,
+            });
+            // Pause the engine so the user can decide whether to continue
+            this.pause();
+          }
+        }
+      }
+
       this.emit({
         type: 'iteration:completed',
         timestamp: endedAt.toISOString(),
         result,
       });
+
+      if (this.config.modelEscalation?.enabled && !agentResult.interrupted &&
+          (completionFailure || agentResult.status === 'failed' || agentResult.status === 'timeout')) {
+        recordTaskAttempt(task.id, this.escalationState);
+      }
 
       return result;
     } catch (error) {
@@ -1588,6 +1798,11 @@ export class ExecutionEngine {
       // Note: We don't emit iteration:failed here anymore - it's handled
       // by runIterationWithErrorHandling which determines the action.
       // This keeps the error handling logic centralized.
+
+      // Record attempt for model escalation on execution failure
+      if (this.config.modelEscalation?.enabled) {
+        recordTaskAttempt(task.id, this.escalationState);
+      }
 
       const failedResult: IterationResult = {
         iteration,
@@ -1611,6 +1826,8 @@ export class ExecutionEngine {
         });
       }
       this.currentExecution = null;
+      this.verificationAbortController?.abort();
+      this.verificationAbortController = null;
       this.applyPendingUserAgentSwap();
       this.state.currentTask = null;
     }
@@ -1659,6 +1876,7 @@ export class ExecutionEngine {
 
   private async stopInternal(timeoutMs: number): Promise<void> {
     this.shouldStop = true;
+    this.verificationAbortController?.abort();
     this.state.status = 'stopping';
     this.wakeWatch?.();
 
@@ -2718,6 +2936,7 @@ export class ExecutionEngine {
         taskId: task.id,
         taskTitle: task.title,
         taskType: task.type,
+        iteration,
       });
       if (rendered.usedFallback) {
         console.warn(

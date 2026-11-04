@@ -121,6 +121,7 @@ function createMockAgent(
       promise: Promise.resolve({
         executionId: 'engine-test-execution',
         status: 'completed',
+        exitCode: 0,
         stdout,
         stderr: '',
         durationMs: 0,

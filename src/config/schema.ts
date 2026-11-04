@@ -27,6 +27,34 @@ export const ErrorHandlingConfigSchema = z.object({
   continueOnNonZeroExit: z.boolean().optional(),
 });
 
+export const VerificationConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  commands: z.array(z.string().min(1)).optional(),
+  allowAcCommands: z.boolean().optional(),
+  timeoutMs: z.number().int().min(1000).max(600000).optional(),
+  maxRetries: z.number().int().min(0).optional(),
+});
+
+export const ModelEscalationConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  startModel: z.string().min(1).optional(),
+  escalateModel: z.string().min(1).optional(),
+  escalateAfter: z.number().int().min(0).optional(),
+});
+
+export const CostConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  alertThreshold: z.number().finite().min(0).optional(),
+  pricing: z.record(z.string().min(1), z.object({
+    inputPer1M: z.number().finite().min(0),
+    outputPer1M: z.number().finite().min(0),
+  })).optional(),
+});
+
+export const CompletionConfigSchema = z.object({
+  strategies: z.array(z.literal('promise-tag')).min(1).optional(),
+});
+
 /**
  * Agent plugin options schema (flexible for plugin-specific settings)
  */
@@ -157,6 +185,10 @@ export const StoredConfigSchema = z
     outputDir: z.string().optional(),
     autoCommit: z.boolean().optional(),
     commitMessageTemplate: z.string().optional(),
+    verification: VerificationConfigSchema.optional(),
+    modelEscalation: ModelEscalationConfigSchema.optional(),
+    cost: CostConfigSchema.optional(),
+    completion: CompletionConfigSchema.optional(),
 
     // Plugin configurations
     agents: z.array(AgentPluginConfigSchema).optional(),

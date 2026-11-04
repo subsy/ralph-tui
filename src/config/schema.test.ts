@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { StoredConfig } from './types.js';
 import {
   SubagentDetailLevelSchema,
   ErrorHandlingStrategySchema,
@@ -22,6 +23,59 @@ import {
   formatConfigErrors,
   type ConfigValidationError,
 } from './schema.js';
+
+describe('engine improvement configuration', () => {
+  test('accepts explicit settings without changing them', () => {
+    const config: StoredConfig = {
+      verification: { enabled: true, commands: ['bun test'], timeoutMs: 60000, maxRetries: 0 },
+      modelEscalation: { enabled: true, startModel: 'sonnet', escalateModel: 'opus', escalateAfter: 1 },
+      cost: {
+        enabled: true, alertThreshold: 2.5,
+        pricing: { 'claude-haiku-4-5': { inputPer1M: 1, outputPer1M: 5 } },
+      },
+      completion: { strategies: ['promise-tag'] },
+    };
+    expect(StoredConfigSchema.parse(config)).toEqual(config);
+  });
+
+  test('does not introduce engine defaults when settings are absent', () => {
+    const result = StoredConfigSchema.parse({});
+    expect(result.verification).toBeUndefined();
+    expect(result.modelEscalation).toBeUndefined();
+    expect(result.cost).toBeUndefined();
+    expect(result.completion).toBeUndefined();
+    expect(result.autoCommit).toBeUndefined();
+    expect(result.parallel).toBeUndefined();
+  });
+
+  test.each([
+    { verification: { maxRetries: -1 } },
+    { verification: { maxRetries: 0.5 } },
+    { verification: { timeoutMs: 0 } },
+    { verification: { commands: 'bun test' } },
+    { modelEscalation: { escalateAfter: -1 } },
+    { modelEscalation: { startModel: '' } },
+    { cost: { alertThreshold: -1 } },
+    { cost: { alertThreshold: Infinity } },
+    { cost: { pricing: { model: { inputPer1M: -1, outputPer1M: 1 } } } },
+    { cost: { pricing: { model: { inputPer1M: 1 } } } },
+    { completion: { strategies: ['unknown'] } },
+    { completion: { strategies: [] } },
+    { completion: { strategies: ['relaxed-tag'] } },
+    { completion: { strategies: ['heuristic'] } },
+    { completion: { strategies: ['promise-tag', 'heuristic'] } },
+    { verification: { allowAcCommands: 'true' } },
+    { verification: { allowAcCommands: 1 } },
+    { verification: { allowAcCommands: {} } },
+  ])('rejects malformed setting %j', (config) => {
+    expect(StoredConfigSchema.safeParse(config).success).toBe(false);
+  });
+
+  test.each([true, false])('accepts explicit AC trust boolean %j', (allowAcCommands) => {
+    expect(StoredConfigSchema.parse({ verification: { allowAcCommands } }).verification?.allowAcCommands)
+      .toBe(allowAcCommands);
+  });
+});
 
 describe('SubagentDetailLevelSchema', () => {
   test('accepts valid values', () => {

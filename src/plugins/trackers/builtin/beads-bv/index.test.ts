@@ -157,7 +157,8 @@ describe('BeadsBvTrackerPlugin', () => {
       const plugin = new BeadsBvTrackerPlugin();
       const template = plugin.getTemplate();
 
-      expect(template).toContain('bd close');
+      expect(template).not.toContain('bd close');
+      expect(template).toContain('The engine owns task closure');
       // Note: beads-bv uses bd (Go version) which doesn't have a sync command
       // Only beads-rust (br) has sync functionality
     });

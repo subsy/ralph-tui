@@ -250,7 +250,8 @@ export async function updateSessionStatus(
 export async function updateSessionIteration(
   cwd: string,
   iteration: number,
-  tasksCompleted?: number
+  tasksCompleted?: number,
+  cumulativeCost?: number
 ): Promise<SessionMetadata | null> {
   const session = await readSessionMetadata(cwd);
   if (!session) {
@@ -260,6 +261,9 @@ export async function updateSessionIteration(
   session.currentIteration = iteration;
   if (tasksCompleted !== undefined) {
     session.tasksCompleted = tasksCompleted;
+  }
+  if (cumulativeCost !== undefined) {
+    session.cumulativeCost = cumulativeCost;
   }
 
   await saveSession(session);

@@ -53,6 +53,22 @@ Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the epic context above to understand the bigger picture
 2. Study `{{progressFile}}` for implementation patterns and learnings

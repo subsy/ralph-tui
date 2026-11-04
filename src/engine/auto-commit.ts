@@ -44,6 +44,7 @@ export interface CommitMessageContext {
   taskId: string;
   taskTitle: string;
   taskType?: string;
+  iteration?: number;
 }
 
 /**
@@ -67,6 +68,8 @@ function buildHandlebarsContext(ctx: CommitMessageContext): Record<string, strin
     taskId: ctx.taskId,
     taskTitle: ctx.taskTitle,
     taskType: type && type.length > 0 ? type : DEFAULT_TASK_TYPE,
+    iteration: ctx.iteration === undefined ? '' : String(ctx.iteration),
+    agent: 'ralph-tui',
   };
 }
 

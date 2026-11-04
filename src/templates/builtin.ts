@@ -33,6 +33,22 @@ export const DEFAULT_TEMPLATE = `## Task
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Instructions
 Complete the task described above.
 
@@ -93,6 +109,22 @@ export const BEADS_TEMPLATE = `{{!-- Full PRD for project context (agent studies
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
 2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
@@ -103,7 +135,7 @@ export const BEADS_TEMPLATE = `{{!-- Full PRD for project context (agent studies
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Document learnings (see below)
 8. Signal completion
 
@@ -191,6 +223,22 @@ Completing this task will unblock: {{blocks}}
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
 2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
@@ -201,7 +249,7 @@ Completing this task will unblock: {{blocks}}
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`bd close {{taskId}} --db {{beadsDbPath}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Document learnings (see below)
 8. Signal completion
 
@@ -277,6 +325,22 @@ export const BEADS_RUST_TEMPLATE = `{{!-- Full PRD for project context (agent st
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
 2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
@@ -287,7 +351,7 @@ export const BEADS_RUST_TEMPLATE = `{{!-- Full PRD for project context (agent st
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`br close {{taskId}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Flush tracker state to JSONL (no git side effects): \`br sync --flush-only\`
 8. Document learnings (see below)
 9. Signal completion
@@ -376,6 +440,22 @@ Completing this task will unblock: {{blocks}}
 {{recentProgress}}
 {{/if}}
 
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
+{{/if}}
+
 ## Workflow
 1. Study the PRD context above to understand the bigger picture (if available)
 2. Study \`{{progressFile}}\` to understand overall status, implementation progress, and learnings including codebase patterns and gotchas
@@ -386,7 +466,7 @@ Completing this task will unblock: {{blocks}}
 {{else}}
 5. Do NOT create git commits. Leave all changes uncommitted for manual review.
 {{/if}}
-6. Close the bead: \`br close {{taskId}} --reason "Brief description"\`
+6. Do NOT close the bead. The engine owns task closure after the completion checks pass.
 7. Flush tracker state to JSONL (no git side effects): \`br sync --flush-only\`
 8. Document learnings (see below)
 9. Signal completion
@@ -464,6 +544,22 @@ export const JSON_TEMPLATE = `{{!-- Full PRD for project context (agent studies 
 {{#if recentProgress}}
 ## Recent Progress
 {{recentProgress}}
+{{/if}}
+
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
 {{/if}}
 
 ## Workflow
@@ -545,6 +641,22 @@ Progress: {{prd.completedCount}}/{{prd.totalCount}} stories completed.
 {{#if recentProgress}}
 ## Recent Progress
 {{recentProgress}}
+{{/if}}
+
+{{#if diffContext}}
+
+## Recent Changes (by previous iterations)
+
+{{{diffContext}}}
+{{/if}}
+
+{{#if verificationErrors}}
+
+## Previous Verification Failures
+
+The previous attempt signaled completion but verification commands failed. Fix these issues:
+
+{{{verificationErrors}}}
 {{/if}}
 
 ## Workflow

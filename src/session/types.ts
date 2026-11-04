@@ -89,6 +89,9 @@ export interface SessionMetadata {
 
   /** Working directory */
   cwd: string;
+
+  /** Cumulative cost estimate (USD) for the session */
+  cumulativeCost?: number;
 }
 
 /**

@@ -126,6 +126,13 @@ ralph-tui run --sandbox
 
 # Use a bundled color theme by name
 ralph-tui run --theme dracula
+
+# Model escalation: start cheap, escalate on failure
+ralph-tui run --start-model sonnet --escalate-model opus
+
+# Auto-commit control (auto-commit is off by default)
+ralph-tui run --no-auto-commit   # disable auto-commit
+ralph-tui run --auto-commit      # explicitly enable
 ```
 
 ### Create PRD Options
@@ -182,6 +189,79 @@ ralph-tui create-prd --output ./docs
 - Remote connection info (when viewing remote tabs)
 
 See the [full CLI reference](https://ralph-tui.com/docs/cli/overview) for all options.
+
+## Advanced Configuration
+
+Configure these options in `.ralph-tui/config.toml` or `~/.config/ralph-tui/config.toml`.
+
+### Post-Completion Verification
+
+Run shell commands after the agent signals completion. If a command fails, Ralph injects the error into the next retry prompt.
+
+```toml
+[verification]
+enabled = true
+commands = ["bun run typecheck", "bun test"]
+timeoutMs = 60000   # per command (default: 60s)
+maxRetries = 2      # before skipping task (default: 2)
+allowAcCommands = false # separately trust commands inferred from task text (default: false)
+```
+
+Configured `commands` are explicitly authorized shell commands. Enabling verification does not authorize programs inferred from task acceptance criteria: only literal file-existence checks run automatically. Set `allowAcCommands = true` only for trusted task metadata; permitted programs can modify files or access the network even without shell separators. Malformed/nonboolean trust settings are rejected rather than falling back to a globally trusted value. Exhausted checks use the configured retry/skip/abort error policy and never mark a failed check complete.
+
+Configured commands use the platform's default shell (`/bin/sh` on Unix, `ComSpec`/`cmd.exe` on Windows); write commands for that shell. Automatic literal file checks use filesystem APIs relative to the run directory, not shell commands. Supported forms include `Files exist at 'path with spaces'`, `'path with spaces' exists`, and `path.txt is created`. Unquoted paths require a path-like token (containing `.`, `/`, `\`, `_`, or `-`) unless a location form explicitly identifies a file, path or directory (for example, `File exists at LICENSE`). Prose such as `Login form exists`, `User exists in database`, or `A session is created at startup` is ignored. Sentence punctuation is trimmed from unquoted paths; quote other plain filenames or paths whose trailing punctuation is literal. Negated existence phrases are unsupported and are not converted into positive checks.
+
+### Model Escalation
+
+Start with a cheaper model and automatically escalate to a more capable one after failures.
+
+```toml
+[modelEscalation]
+enabled = true
+startModel = "sonnet"    # initial model
+escalateModel = "opus"   # used after escalateAfter failures
+escalateAfter = 1        # failed attempts before escalating (default: 1)
+```
+
+Or via CLI: `ralph-tui run --start-model sonnet --escalate-model opus`
+
+### Completion Detection Strategies
+
+Completion requires an explicit `<promise>COMPLETE</promise>` tag in the agent's own narrative from a successful, uninterrupted execution. Tool results and metadata cannot complete a task.
+
+```toml
+[completion]
+strategies = ["promise-tag"]
+```
+
+Alternate relaxed/heuristic implementations are retained but cannot be activated; configuring them is rejected, not silently ignored. Parallel execution also remains opt-in: use `--parallel` or explicitly configure `[parallel] mode = "auto"`; unset mode runs serially. Auto-commit remains off unless explicitly enabled.
+
+### Cost Tracking
+
+Track token usage per session. Optionally configure model pricing (in USD per 1M tokens) to enable dollar-cost estimates. **No pricing is built in** — you supply values so they stay current.
+
+```toml
+[cost]
+enabled = true
+alertThreshold = 5.0   # pause if session cost exceeds $5 (default: 0 = no limit)
+
+[cost.pricing]
+"claude-opus-4-6"    = { inputPer1M = 5.0,  outputPer1M = 25.0 }
+"claude-sonnet-4-6"  = { inputPer1M = 3.0,  outputPer1M = 15.0 }
+"claude-haiku-4-5"   = { inputPer1M = 1.0, outputPer1M = 5.0  }
+```
+
+Token counts are always tracked regardless of whether pricing is configured.
+
+### Auto-Commit
+
+Auto-commit changed files after each successful task (disabled by default).
+
+```toml
+autoCommit = true   # opt in; set to false to disable
+```
+
+Use `--auto-commit` or `--no-auto-commit` to override the configured value for a run.
 
 ### Custom Themes
 
