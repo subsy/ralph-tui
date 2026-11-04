@@ -704,6 +704,13 @@ export abstract class BaseAgentPlugin implements AgentPlugin {
       });
 
       // Write to stdin if subclass provides input (e.g., prompt content)
+      proc.stdin?.on('error', (error: NodeJS.ErrnoException) => {
+        // An agent can exit or be interrupted before consuming its input.
+        if (error.code !== 'EPIPE' && error.code !== 'ERR_STREAM_DESTROYED') {
+          this.completeExecution(executionId, 'failed', undefined, error.message);
+          proc.kill('SIGTERM');
+        }
+      });
       const stdinInput = this.getStdinInput(prompt, files, options);
       if (stdinInput !== undefined && proc.stdin) {
         proc.stdin.write(stdinInput);
